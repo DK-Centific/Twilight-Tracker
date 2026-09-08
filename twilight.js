@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826q';
-const APP_UPDATED_AT = '09/08/2026 14:47';
+const APP_VERSION = '1.3.090826s';
+const APP_UPDATED_AT = '09/08/2026 15:22';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9204,6 +9204,11 @@ function renderAdminTabBody(opts) {
   if (adminState.tab !== 'performance' && typeof stopPerfLivePoll === 'function') {
     stopPerfLivePoll();
   }
+  if (typeof shouldPollTeamLivePresence === 'function'
+      && typeof stopTeamLivePresenceRefresh === 'function'
+      && !shouldPollTeamLivePresence()) {
+    stopTeamLivePresenceRefresh();
+  }
   // Stop the Approval tab's list auto-refresh when leaving the tab. (The
   // app-wide incoming-approval poll keeps running · it's what powers the
   // "new requests" banner on other tabs.)
@@ -17444,6 +17449,94 @@ function bindTeamsPanelEvents() {
       else if (action === 'delete') deleteTeam(teamId);
     });
   });
+  if (typeof startTeamLivePresenceRefresh === 'function') startTeamLivePresenceRefresh();
+}
+
+function getTeamRosterLiveState(team) {
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows
+    : [];
+  const memberIds = new Set(
+    [...((team && team.primaryIds) || []),
+     ...((team && typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : [])]
+      .map(id => String(id || '').toLowerCase())
+      .filter(Boolean)
+  );
+  let latestMs = 0;
+  let who = '';
+  for (const r of rows) {
+    const orbit = String((r && r.orbitLoginId) || '').toLowerCase();
+    const rowTeam = (r && r.teamId != null && String(r.teamId).trim() !== '')
+      ? String(r.teamId)
+      : '';
+    const matchTeam = !!(team && rowTeam && String(rowTeam) === String(team.id));
+    const matchMember = !!(orbit && memberIds.has(orbit));
+    if (!matchTeam && !matchMember) continue;
+    const ms = parseLastActiveMs(r && r.lastActive);
+    if (ms > latestMs) {
+      latestMs = ms;
+      who = (r && r.orbitLoginId) || '';
+    }
+  }
+  const windowMs = (typeof TEAM_LIVE_WINDOW_MS === 'number') ? TEAM_LIVE_WINDOW_MS : 60 * 60 * 1000;
+  const live = latestMs > 0 && (Date.now() - latestMs) <= windowMs;
+  return { live, lastActiveMs: latestMs, orbitLoginId: who };
+}
+
+function teamLivePillHTML(team) {
+  const st = getTeamRosterLiveState(team);
+  const label = st.live ? 'Live' : 'Offline';
+  const cls = st.live ? 'is-live' : 'is-offline';
+  let title = st.live
+    ? 'A team member was active in the last hour'
+    : 'No team member active in the last hour';
+  if (st.orbitLoginId && st.lastActiveMs) {
+    title = (st.live ? 'Last active: ' : 'Last seen: ')
+      + st.orbitLoginId + ' · ' + new Date(st.lastActiveMs).toLocaleString();
+  }
+  return `<span class="team-live-pill ${cls}" title="${escapeHTML(title)}">${label}</span>`;
+}
+
+function shouldPollTeamLivePresence() {
+  if (!adminState) return false;
+  if (adminState.tab === 'assignment') return true;
+  return adminState.tab === 'moderators' && adminState.modView === 'team';
+}
+
+async function refreshTeamLivePresence() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState._perfSSFetchedAt = 0;
+  if (typeof ensurePerfSessionStateRows === 'function') {
+    await ensurePerfSessionStateRows();
+  }
+  if (document.getElementById('teamsList') && typeof rerenderTeamsPanelInPlace === 'function') {
+    rerenderTeamsPanelInPlace();
+  }
+}
+
+function startTeamLivePresenceRefresh() {
+  if (!shouldPollTeamLivePresence()) return;
+  if (adminState._teamLivePollTimer) return;
+  if (typeof ensurePerfSessionStateRows === 'function'
+      && !Array.isArray(adminState.perfSessionStateRows)) {
+    ensurePerfSessionStateRows().then(() => {
+      if (document.getElementById('teamsList') && typeof rerenderTeamsPanelInPlace === 'function') {
+        rerenderTeamsPanelInPlace();
+      }
+    }).catch(() => {});
+  }
+  adminState._teamLivePollTimer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    if (!shouldPollTeamLivePresence()) return;
+    refreshTeamLivePresence();
+  }, PERF_LIVE_POLL_MS);
+}
+
+function stopTeamLivePresenceRefresh() {
+  if (adminState && adminState._teamLivePollTimer) {
+    clearInterval(adminState._teamLivePollTimer);
+    adminState._teamLivePollTimer = null;
+  }
 }
 
 function teamCardHTML(team) {
@@ -17472,6 +17565,7 @@ function teamCardHTML(team) {
         </div>
       </div>
       <div class="team-roster">
+        <div class="team-roster-members">
         ${primaries.length === 0
           ? '<span class="team-empty-roster">No moderators assigned</span>'
           : primaries.map(id => `
@@ -17487,6 +17581,8 @@ function teamCardHTML(team) {
             ${escapeHTML(getModeratorShortName(id))}
           </span>
         `).join('')}
+        </div>
+        ${teamLivePillHTML(team)}
       </div>
     </div>
   `;
@@ -25284,6 +25380,11 @@ async function writeApprovalAutoApprove(appr) {
 // mutate window measured (~50ms) but below human noticeability for
 // "saved" feedback (~500ms typical for cloud-saved UIs).
 const SESSIONSTATE_DEBOUNCE_MS = 400;
+// Refresh lastActive on the same SessionState row while the moderator
+// app is open, even when station progress has not changed.
+const SESSIONSTATE_HEARTBEAT_MS = 2 * 60 * 1000;
+const TEAM_LIVE_WINDOW_MS = 60 * 60 * 1000;
+let _sessionStateHeartbeatTimer = null;
 
 // Returns the syncable subset of state · the data that's MEANINGFUL to
 // share with a teammate. Excludes per-user UI preferences (theme,
@@ -25352,6 +25453,33 @@ function assignmentLocationSnapshot(asgn) {
   return { address: addr, lat, lng, miles };
 }
 
+function resolveMappedTeamId(asgn) {
+  if (asgn && asgn.teamId != null && String(asgn.teamId).trim() !== '') {
+    return asgn.teamId;
+  }
+  let team = null;
+  try {
+    if (typeof getSessionDisplayTeam === 'function') team = getSessionDisplayTeam();
+  } catch (_) {}
+  if (!team) {
+    try {
+      if (typeof getOperatorTeam === 'function') team = getOperatorTeam();
+    } catch (_) {}
+  }
+  return (team && team.id != null && String(team.id).trim() !== '') ? team.id : '';
+}
+
+function parseLastActiveMs(v) {
+  if (v == null || v === '') return 0;
+  const t = Date.parse(v);
+  if (!isNaN(t)) return t;
+  const n = Number(v);
+  if (!isNaN(n) && n > 20000 && n < 90000) {
+    return Math.round((n - 25569) * 86400 * 1000);
+  }
+  return 0;
+}
+
 function buildSessionStateCloudPayload(asgn, reason) {
   const loc = assignmentLocationSnapshot(asgn);
   const syncable = extractSyncableState(state);
@@ -25367,8 +25495,7 @@ function buildSessionStateCloudPayload(asgn, reason) {
     syncable.officeLat = GEO_HQ_CENTER.lat;
     syncable.officeLng = GEO_HQ_CENTER.lng;
   }
-  const team = (adminState.teams || []).find(t => String(t.id) === String(asgn.teamId));
-  const teamId = team ? team.id : (asgn.teamId || '');
+  const teamId = resolveMappedTeamId(asgn);
   return {
     sessionStateId: sessionStateStableId(asgn),
     assignmentId:   String(asgn.id),
@@ -25403,23 +25530,30 @@ const _sessionStateSyncState = {
 };
 
 function getSessionStateWriteContext() {
-  const asgn = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
-  if (asgn && asgn.id) return asgn;
-  // Location presence must still reach Admin when the moderator is not
-  // assigned today. A stable per-user/day synthetic context keeps the row
-  // valid for Excel while avoiding interference with real assignment sync.
-  if (state && state.modProfile && state.modProfile.orbitLoginId && state.lastGeo) {
-    const orbitId = String(state.modProfile.orbitLoginId);
-    const day = (typeof getPSTDateString === 'function')
-      ? getPSTDateString()
-      : new Date().toISOString().slice(0, 10);
-    return {
-      id: `geo_presence_${orbitId}_${day}`,
-      teamId: '',
-      _geoPresenceOnly: true,
-    };
+  if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return null;
+  // Stop overwriting the live row once this moderator finished wrap-up.
+  if (state.sessionCompletedAt) return null;
+
+  const open = (typeof getAssignedOpenSession === 'function')
+    ? getAssignedOpenSession()
+    : null;
+  if (open && open.id) {
+    return Object.assign({}, open, { teamId: resolveMappedTeamId(open) });
   }
-  return null;
+
+  // Mapped team (or geo ping) still needs one presence row per user/day
+  // so Admin By Team can show Live before a booking exists.
+  const orbitId = String(state.modProfile.orbitLoginId);
+  const teamId = resolveMappedTeamId(null);
+  if (!teamId && !state.lastGeo) return null;
+  const day = (typeof getPSTDateString === 'function')
+    ? getPSTDateString()
+    : new Date().toISOString().slice(0, 10);
+  return {
+    id: `geo_presence_${orbitId}_${day}`,
+    teamId: teamId || '',
+    _geoPresenceOnly: true,
+  };
 }
 
 // Trigger an interaction-driven cloud write. Called ONLY from
@@ -25499,7 +25633,10 @@ async function flushSessionStateSync(opts) {
     // toggles it back (a misclick + undo), or where multiple click
     // handlers fire and only the last one matters. Keyed by assignment
     // ID so a session change properly resets the comparison baseline.
-    if (!opts.force && _sessionStateSyncState.lastSyncedAsgnId === String(asgn.id)
+    const lastAt = parseLastActiveMs(_sessionStateSyncState.lastSyncedActive);
+    const heartbeatDue = !lastAt || (Date.now() - lastAt) >= SESSIONSTATE_HEARTBEAT_MS;
+    if (!opts.force && !heartbeatDue
+        && _sessionStateSyncState.lastSyncedAsgnId === String(asgn.id)
         && _sessionStateSyncState.lastSyncedStateJson === stateJson) {
       _sessionStateSyncState.inflight = false;
       return { ok: true, reason: 'nochange' };
@@ -25515,25 +25652,18 @@ async function flushSessionStateSync(opts) {
     // Shorter timeout (20s vs 45s default) so a stalled write doesn't
     // hold up the next interaction-driven flush.
     if (typeof fetchWithRetry === 'function') {
-      const res = await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         timeoutMs: 20000,
         maxAttempts: 2,
       });
-      // Successfully wrote · remember this payload so we can skip
-      // identical re-syncs. Only updated on success; on failure we
-      // leave the lastSynced* slots alone so the next attempt will
-      // still try to send the diff.
-      if (res && res.ok) {
-        _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
-        _sessionStateSyncState.lastSyncedStateJson = stateJson;
-        _sessionStateSyncState.lastSyncedActive = payload.lastActive;
-        outcome = { ok: true, reason: 'written' };
-      } else {
-        outcome = { ok: false, reason: 'error' };
-      }
+      // fetchWithRetry returns parsed JSON and throws on failure.
+      _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
+      _sessionStateSyncState.lastSyncedStateJson = stateJson;
+      _sessionStateSyncState.lastSyncedActive = payload.lastActive;
+      outcome = { ok: true, reason: 'written' };
     } else {
       // Legacy fallback for older builds without fetchWithRetry.
       const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
@@ -25567,6 +25697,17 @@ async function flushSessionStateSync(opts) {
     }
   }
   return outcome;
+}
+
+function startSessionStateHeartbeat() {
+  if (_sessionStateHeartbeatTimer) return;
+  _sessionStateHeartbeatTimer = setInterval(() => {
+    const app = document.getElementById('app');
+    if (!app || app.style.display === 'none') return;
+    if (document.visibilityState !== 'visible') return;
+    if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  }, SESSIONSTATE_HEARTBEAT_MS);
+  if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
 }
 
 // Fetch SessionState rows from the cloud. Returns an array (possibly
@@ -30814,6 +30955,11 @@ function startApp() {
   // nav refresh button.
   if (typeof startModAssignmentRefresh === 'function') startModAssignmentRefresh();
   if (typeof startModeratorGeofence === 'function') startModeratorGeofence();
+  Promise.resolve(_initialAsgnRefresh).then(() => {
+    if (typeof startSessionStateHeartbeat === 'function') startSessionStateHeartbeat();
+  }).catch(() => {
+    if (typeof startSessionStateHeartbeat === 'function') startSessionStateHeartbeat();
+  });
   // Expose the initial-fetch promise so the welcome-modal trigger
   // (registered in doLogin) can await it before deciding which
   // variant to show. Stored on window so it's reachable from the
