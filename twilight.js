@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.073026';
+const APP_VERSION = '1.3.090826';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10773,7 +10773,7 @@ function activitiesPointIsHq(lat, lng) {
 
 function activitiesFenceFeatures() {
   // Office fence = HQ only (light pink). Assignment fence = team address
-  // (same light pink). Office pin is magenta so HQ stays distinct.
+  // (light blue to match the assignment dot). Office pin is magenta.
   const features = [
     Object.assign(geofenceCirclePolygon(GEO_HQ_CENTER.lng, GEO_HQ_CENTER.lat, GEOFENCE_HQ_RADIUS_M), {
       properties: { kind: 'office', label: 'Office' },
@@ -10828,7 +10828,7 @@ async function prefetchActivityHomeGeocodes() {
 
 const ACTIVITIES_OFFICE_PIN_COLOR = '#D946EF';
 const ACTIVITIES_FENCE_COLOR_OFFICE = '#F9A8D4';
-const ACTIVITIES_FENCE_COLOR_ASSIGNMENT = '#F9A8D4';
+const ACTIVITIES_FENCE_COLOR_ASSIGNMENT = '#93C5FD';
 const ACTIVITIES_FENCE_MATCH_COLOR = [
   'case',
   ['any',
