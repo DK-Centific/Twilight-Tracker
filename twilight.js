@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826aa';
-const APP_UPDATED_AT = '09/08/2026 19:45';
+const APP_VERSION = '1.3.090826ab';
+const APP_UPDATED_AT = '09/08/2026 20:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5394,6 +5394,7 @@ async function fetchWithRetry(url, opts) {
         try { await res.text(); } catch (_) {}
         lastErr = new Error(`HTTP ${res.status} (transient)`);
         lastErr.isTransient = true;
+        lastErr.status = res.status;
         if (attempt < maxAttempts - 1) {
           await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
           continue;
@@ -12879,8 +12880,6 @@ async function submitModUserModal() {
     smartPhone: values.smartPhone,
     carType: values.carType,
     'off-date': values['off-date'],
-    deactivated: !!values.deactivated,
-    userStatus: values.deactivated ? 'Deactivated' : 'Active',
   };
 
   try {
@@ -12891,23 +12890,53 @@ async function submitModUserModal() {
       timeoutMs: 45000,
       maxAttempts: 2,
     });
-    const savedMode = state.mode;
-    const originalOrbitLoginId = state.originalOrbitLoginId;
-    applyModeratorWriteLocally(values, savedMode, originalOrbitLoginId);
-    if (typeof persistDeactivatedUsersSetting === 'function') {
-      persistDeactivatedUsersSetting().catch(() => {});
-    }
-    toast(state.mode === 'edit' ? 'User updated' : 'User created');
-    closeModUserModal();
-    renderModerators();
-    // Confirm against Excel without showing another loading spinner or making
-    // the admin wait for a second sequential PA request.
-    refreshModeratorDirectoryInBackground();
   } catch (e) {
-    state.saving = false;
-    state.error = (e && e.message) ? e.message : String(e);
-    renderModUserModal();
-    toast('Could not save user');
+    // The write flow sometimes returns HTTP 502 with no body even after the
+    // Excel row landed. Confirm against the directory before failing.
+    const appeared = await moderatorExistsInDirectory(values.orbitLoginId);
+    if (!appeared) {
+      state.saving = false;
+      state.error = moderatorWriteErrorMessage(e);
+      renderModUserModal();
+      toast('Could not save user');
+      return;
+    }
+  }
+  const savedMode = state.mode;
+  const originalOrbitLoginId = state.originalOrbitLoginId;
+  applyModeratorWriteLocally(values, savedMode, originalOrbitLoginId);
+  if (typeof persistDeactivatedUsersSetting === 'function') {
+    persistDeactivatedUsersSetting().catch(() => {});
+  }
+  toast(state.mode === 'edit' ? 'User updated' : 'User created');
+  closeModUserModal();
+  renderModerators();
+  // Confirm against Excel without showing another loading spinner or making
+  // the admin wait for a second sequential PA request.
+  refreshModeratorDirectoryInBackground();
+}
+
+function moderatorWriteErrorMessage(err) {
+  const msg = String((err && err.message) || err || '');
+  const status = err && err.status;
+  if (status === 502 || /502|NoResponse|transient|timed? ?out/i.test(msg)) {
+    return 'The save service did not answer, so this user was not created. This is not a problem with the form. Try again in a minute. If it keeps happening, the user-save flow in Power Automate is off or stuck.';
+  }
+  return msg || 'Could not save user';
+}
+
+async function moderatorExistsInDirectory(orbitLoginId) {
+  const id = String(orbitLoginId || '').trim().toLowerCase();
+  if (!id || typeof fetchModeratorDirectory !== 'function') return false;
+  try {
+    const data = await fetchModeratorDirectory({ timeoutMs: 20000, maxAttempts: 1 });
+    const rows = (typeof extractArray === 'function') ? extractArray(data) : (Array.isArray(data) ? data : []);
+    return rows.some(m => {
+      const existing = String(pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id') || '').toLowerCase();
+      return existing && existing === id;
+    });
+  } catch (_) {
+    return false;
   }
 }
 
