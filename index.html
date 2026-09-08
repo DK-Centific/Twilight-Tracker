@@ -5798,9 +5798,14 @@ input#ent_lakitu.lakitu-invalid {
 .appr-lakitu-submit-modal .entry-info-popover {
   z-index: 430;
   left: 0;
-  transform: translateX(0) translateY(-4px);
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translateX(0) translateY(4px);
 }
-.appr-lakitu-submit-modal .entry-info-popover.open {
+.appr-lakitu-submit-modal .entry-info-popover.open,
+.appr-lakitu-submit-modal .entry-info-popover.flip-up {
+  top: auto;
+  bottom: calc(100% + 8px);
   transform: translateX(0) translateY(0);
 }
 

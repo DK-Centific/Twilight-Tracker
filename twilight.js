@@ -4156,6 +4156,10 @@ function bindLakituInfoPopover(idPrefix, root) {
   infoBtn.dataset.boundLakituInfo = '1';
   const placePopover = () => {
     infoPop.classList.remove('flip-up');
+    if (root && root.id === 'apprLakituSubmitOverlay') {
+      infoPop.classList.add('flip-up');
+      return;
+    }
     const rect = infoBtn.getBoundingClientRect();
     const below = window.innerHeight - rect.bottom;
     if (below < 320 && rect.top > 320) infoPop.classList.add('flip-up');
