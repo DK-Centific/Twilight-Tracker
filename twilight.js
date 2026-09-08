@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826k';
-const APP_UPDATED_AT = '09/08/2026 11:20';
+const APP_VERSION = '1.3.090826l';
+const APP_UPDATED_AT = '09/08/2026 11:32';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -870,10 +870,9 @@ function renderApp() {
 // Returns the operator's display name · preferring firstName from the moderator
 // profile, falling back to the login ID if profile isn't loaded.
 function operatorDisplayName() {
-  if (state.modProfile && state.modProfile.firstName) {
-    return state.modProfile.firstName;
-  }
-  return state.username || 'Operator';
+  const first = firstWordOf(state.modProfile && state.modProfile.firstName);
+  if (first) return first;
+  return firstWordOf(state.username) || state.username || 'Operator';
 }
 
 // Returns full name (firstName + lastName) for places that want both.
@@ -2463,7 +2462,7 @@ function renderStation(key, opts) {
                 <td>${rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}</td>
                 <td>${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
                 ${station.type === 'capture' ? `
-                  <td>
+                  <td class="col-notes">
                     <input class="scenario-notes" data-num="${sc.num}" data-key="${station.key}"
                       type="text" placeholder="Add notes…" value="${escapeHTML(sd.notes || '')}">
                   </td>

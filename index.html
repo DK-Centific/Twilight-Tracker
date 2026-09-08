@@ -2123,11 +2123,14 @@ a.icon-btn:focus-visible {
 .scenario-table thead th.col-iter { width: 130px; }
 .scenario-table thead th.col-status { width: 170px; }
 .scenario-table thead th.col-name { width: auto; }
-/* NOTES needs an explicit width · without it, table-layout:fixed treats it as a
-   second flexible column and splits the slack with col-name, ballooning NOTES
-   into a wide (mostly transparent) dead band on the right. Pinning it makes
-   col-name the sole flexible column that absorbs the remaining width. */
-.scenario-table thead th.col-notes { width: 220px; }
+/* NOTES scales with the table in web view instead of a fixed 220px.
+   Below 960px the table is hidden in favor of cards, so this only
+   applies on desktop. col-name stays the leftover flexible column. */
+.scenario-table thead th.col-notes,
+.scenario-table td.col-notes {
+  width: 22%;
+  min-width: 140px;
+}
 
 .scenario-table tbody tr {
   border-bottom: 0.5px solid var(--border);
