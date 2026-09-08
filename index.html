@@ -5558,7 +5558,9 @@ input#ent_lakitu.lakitu-invalid {
   color: var(--text3);
   margin-bottom: 6px;
 }
-.asgn-field input[type="text"], .asgn-field select {
+.asgn-field input[type="text"],
+.asgn-field input[type="email"],
+.asgn-field select {
   width: 100%;
   font-family: var(--font); font-size: 15px;
   background: var(--input-bg);
@@ -5569,7 +5571,9 @@ input#ent_lakitu.lakitu-invalid {
   letter-spacing: -0.005em;
   transition: border-color 0.18s, box-shadow 0.2s;
 }
-.asgn-field input[type="text"]:focus, .asgn-field select:focus {
+.asgn-field input[type="text"]:focus,
+.asgn-field input[type="email"]:focus,
+.asgn-field select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);

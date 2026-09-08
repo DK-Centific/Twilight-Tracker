@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826f';
+const APP_VERSION = '1.3.090826g';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -11818,12 +11818,7 @@ function renderModUserModal() {
         ${field('phoneNumber', 'Phone Number')}
         ${field('centificEmail', 'Centific Email', { type: 'email' })}
         ${field('personalEmail', 'Personal Email', { type: 'email' })}
-        ${field('modAddress', 'Address')}
-        ${field('zipcode', 'Zipcode')}
-        ${field('timeOff', 'Time Off')}
-        ${field('smartPhone', 'Smart Phone')}
         ${field('carType', 'Vehicle Type')}
-        ${field('off-date', 'Off Date')}
       </div>
       ${state.error ? `<div class="mod-user-form-error" role="alert">${escapeHTML(state.error)}</div>` : ''}
     </div>
@@ -11909,7 +11904,10 @@ async function refreshModeratorDirectoryInBackground() {
 async function submitModUserModal() {
   const state = adminState.modUserModal;
   if (!state || state.saving) return;
-  const values = readModUserFormValues();
+  // Hidden fields (Address, Zipcode, Smart Phone, Time Off, Off Date)
+  // stay on the payload from the loaded row so an edit does not wipe
+  // existing Excel values just because those inputs are no longer shown.
+  const values = Object.assign({}, state.values || emptyModUserFormValues(), readModUserFormValues());
   values.LoginRole = canonicalizeDirectoryLoginRole(values.LoginRole);
   state.values = values;
   const err = validateModUserForm(values, state.mode, state.originalOrbitLoginId);
