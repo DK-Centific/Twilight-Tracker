@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826j';
-const APP_UPDATED_AT = '09/08/2026 11:08';
+const APP_VERSION = '1.3.090826k';
+const APP_UPDATED_AT = '09/08/2026 11:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -15011,6 +15011,50 @@ function _parseClockTimeToMin(s) {
 // in the local cache (so an admin's just-saved-but-not-yet-synced assignment
 // survives the round-trip). Falls back to local-only data when the read URL
 // isn't configured yet.
+function assignmentSyncFingerprint(assignments, teams) {
+  const asgns = assignments || [];
+  const tms = teams || [];
+  const a = asgns.map(x => [
+    x.id, x.teamId, x.date, x.startMin, x.endMin, x.status,
+    x.savedAt, x.participantOrbitId,
+    (x.modSnapshots || []).map(s => s.orbitLoginId).join(','),
+  ].join('|')).sort().join('~');
+  const t = tms.map(x => [
+    x.id, x.name,
+    (x.primaryIds || []).join(','),
+    ((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(x) : (x.backupIds || [])).join(','),
+  ].join('|')).sort().join('~');
+  return a + '##' + t;
+}
+
+function assignmentStatusFingerprint() {
+  return (adminState.assignments || []).map(a => {
+    if (!a || !a.id) return '';
+    const row = (typeof getLatestStatusForAssignment === 'function')
+      ? getLatestStatusForAssignment(a.id)
+      : null;
+    return a.id + ':' + ((row && row.status) || '');
+  }).join('|');
+}
+
+function shouldDeferAssignmentPaint() {
+  if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) return true;
+  if (typeof isEditingWithin === 'function' && isEditingWithin(document.getElementById('adminApp'))) return true;
+  if (document.querySelector('.month-day-popover.open')) return true;
+  return false;
+}
+
+function refreshAssignmentViewQuietly() {
+  const badge = document.getElementById('topAsgnCount');
+  if (badge) badge.textContent = (typeof activeAssignmentCount === 'function') ? (activeAssignmentCount() || '') : '';
+  if (typeof adminState === 'undefined' || adminState.tab !== 'assignment') return;
+  if (shouldDeferAssignmentPaint()) {
+    adminState._pendingPostFetchRender = true;
+    return;
+  }
+  if (typeof renderAssignment === 'function') renderAssignment({ fromSync: true });
+}
+
 async function fetchAssignmentsFromPA() {
   const info = {
     url: ASSIGNMENT_PA_READ_URL ? 'configured' : 'empty',
@@ -15664,6 +15708,11 @@ async function fetchAssignmentsFromPA() {
   // (enrichAsgnParticipantData() called from openViewAssignmentModal).
   mergedAssignments = enrichAssignmentsWithParticipants(mergedAssignments);
 
+  const prevSyncFp = (typeof adminState !== 'undefined')
+    ? assignmentSyncFingerprint(adminState.assignments, adminState.teams)
+    : '';
+  const nextSyncFp = assignmentSyncFingerprint(mergedAssignments, mergedTeams);
+
   // Persist the merged result and update adminState
   if (typeof adminState !== 'undefined') {
     adminState.assignments = mergedAssignments;
@@ -15685,53 +15734,21 @@ async function fetchAssignmentsFromPA() {
 
   // Re-render any visible UI that depends on assignments.
   //
-  // CRITICAL: skip the re-render when a modal is open. renderAdmin()
-  // does `c.innerHTML = ...` which destroys and recreates everything
-  // inside #adminContent · even though the modal itself lives outside
-  // that container (appended to <body> directly), the page underneath
-  // visibly re-paints. Users perceive this as a "hiccup" during their
-  // booking flow. Worse, certain modals (like the participant picker
-  // inside the booking modal) rely on event listeners attached to
-  // DOM elements that the modal references · those listeners can
-  // mis-fire when the parent grid is reconstructed underneath them.
-  //
-  // The deferred-render flag tells closeAsgnModal to fire a render
-  // when the modal closes, so admin still picks up the freshest data
-  // the moment they're done with the modal. Until then, the cache
-  // (adminState.assignments + adminState.teams) is already updated
-  // · only the painted UI lags.
-  if (isAnyAsgnModalOpen()) {
-    console.log('[Twilight] Fetch landed during open modal · deferring render until modal closes');
+  // Never call renderAdmin() from a background sync. That rebuilds
+  // all of #adminContent (hero, tabs, calendar) and is the flash
+  // admins see every 60s. If the merge didn't change bookings or
+  // teams, skip painting entirely. If it did change, refresh only
+  // the Assignment surface — and defer while a modal, hover card,
+  // or text field is in use.
+  if (isAnyAsgnModalOpen() || shouldDeferAssignmentPaint()) {
+    console.log('[Twilight] Fetch landed during admin action · deferring render');
     adminState._pendingPostFetchRender = true;
+    const badge = document.getElementById('topAsgnCount');
+    if (badge) badge.textContent = activeAssignmentCount() || '';
   } else if (document.getElementById('adminApp')?.classList.contains('active')) {
-    // Admin app is mounted. Decide whether to nuke-and-rebuild the
-    // whole DOM or surgically update.
-    //
-    // Bug we're fixing: renderAdmin() does `c.innerHTML = ...` on the
-    // entire #adminContent container, destroying every interactive
-    // element underneath · including the focused search input on the
-    // Performance tab. The user-reported symptom was "I'm typing in
-    // the search bar and after a few seconds I get clicked out."
-    // Mechanism: admin lands on Assignment, fetch kicks off, admin
-    // switches to Performance, starts typing. A few seconds later the
-    // initial-load Assignment fetch (or a 60s poll fired before tab
-    // switch) completes, renderAdmin() fires, the search input gets
-    // destroyed and recreated empty.
-    //
-    // Fix: only call renderAdmin() when admin is actually viewing the
-    // Assignment tab · that's the only tab whose rendered content
-    // depends on the freshly-merged assignment list. On any other tab,
-    // adminState already has the new data; the next render of that
-    // tab will pick it up automatically. We just surgically update
-    // the assignment-count badge in the top tab strip so admin sees
-    // the new total without us touching the rest of the page.
-    if (adminState.tab === 'assignment' && typeof renderAdmin === 'function') {
-      renderAdmin();
+    if (prevSyncFp !== nextSyncFp) {
+      refreshAssignmentViewQuietly();
     } else {
-      // Surgical update · refresh just the count badge in the top tab
-      // strip. activeAssignmentCount() reads from adminState directly
-      // so it picks up the new data. Empty string when zero so the
-      // badge dot doesn't render an "0" pill.
       const badge = document.getElementById('topAsgnCount');
       if (badge) badge.textContent = activeAssignmentCount() || '';
     }
@@ -16139,7 +16156,8 @@ function isImmutableAssignmentStatus(s) {
 }
 
 /* ----------- Render Assignment view ----------- */
-function renderAssignment() {
+function renderAssignment(opts) {
+  opts = opts || {};
   // Preserve window scroll across this #subtabBody rebuild (poll refresh AND
   // in-tab button actions both land here). Re-entrancy latch: when called as
   // part of a renderAdmin cascade the capture already happened, so this is a
@@ -16190,10 +16208,10 @@ function renderAssignment() {
   // via tab switches, so the throttle protects the network from search
   // amplification.
   const now = Date.now();
-  if (typeof fetchAssignmentsFromPA === 'function') {
+  if (!opts.fromSync && typeof fetchAssignmentsFromPA === 'function') {
     if (!adminState._lastAsgnFetchTs || now - adminState._lastAsgnFetchTs > 5000) {
       adminState._lastAsgnFetchTs = now;
-      // Fire-and-forget · internal renderAdmin will paint when done.
+      // Fire-and-forget · quiet refresh paints when data actually changes.
       fetchAssignmentsFromPA().catch(() => {
         // Failure already logged inside fetchAssignmentsFromPA; we keep
         // showing the cached state, which is the safest fallback.
@@ -16245,7 +16263,7 @@ function renderAssignment() {
   // lands new data). Track the last-rendered reference on adminState.
   // A cached resolve returns the same reference → no re-render → no
   // loop.
-  if (typeof ensurePerfSessionStateRows === 'function') {
+  if (!opts.fromSync && typeof ensurePerfSessionStateRows === 'function') {
     ensurePerfSessionStateRows().then(() => {
       // Only re-render if admin is still on the Assignment tab · they
       // may have navigated away while the fetch was in flight.
@@ -16259,9 +16277,11 @@ function renderAssignment() {
       // same array reference and we skip · preventing the infinite
       // microtask loop.
       const currentRows = adminState.perfSessionStateRows;
-      if (adminState._asgnLastRenderedSSRef === currentRows) return;
+      const statusFp = assignmentStatusFingerprint();
+      if (adminState._asgnLastRenderedSSRef === currentRows && adminState._asgnLastStatusFp === statusFp) return;
       adminState._asgnLastRenderedSSRef = currentRows;
-      renderAssignment();
+      adminState._asgnLastStatusFp = statusFp;
+      refreshAssignmentViewQuietly();
     }).catch(() => {
       // Silent · calendar still renders with the pre-fix
       // (no progress pills) state.
@@ -17469,30 +17489,8 @@ function teamCardHTML(team) {
   `;
 }
 
-/* ----------- Calendar Panel ----------- */
-function renderCalendarPanelHTML() {
-  const view = adminState.calView;
-  const anchor = parseYMD(adminState.calAnchor);
-  const today = ymd(new Date());
-
-  // List view has its own renderer
-  if (view === 'list') return renderCalendarListHTML();
-  // Month view also has its own renderer · different layout (7×5/6 grid
-  // of date cells rather than the team×day matrix used for day/week).
-  if (view === 'month') return renderCalendarMonthHTML();
-
-  const days = view === 'week'
-    ? Array.from({length: 7}, (_, i) => addDays(startOfWeek(anchor), i))
-    : [anchor];
-
-  const periodLabel = view === 'week'
-    ? `${days[0].toLocaleDateString(undefined, {month: 'short', day: 'numeric'})} – ${days[6].toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'})}`
-    : days[0].toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
-
-  const gridHTML = renderTeamGridHTML(days);
-
+function renderCalendarToolbarHTML(view, periodLabel) {
   return `
-    <div class="cal-panel">
       <div class="cal-toolbar">
         <div class="cal-nav">
           <button class="cal-nav-btn" id="calPrev" title="Previous">
@@ -17537,72 +17535,34 @@ function renderCalendarPanelHTML() {
             Export
           </button>
         </div>
-      </div>
-      <div class="cal-summary-bar">
-        <span class="cal-summary-text">${(() => {
-          // Calendar summary line · same logic as the tab badge. Cancelled
-          // bookings show as small dots in their day cells but don't add
-          // to "N assignments total".
-          const n = activeAssignmentCount();
-          return n > 0
-            ? `${n} assignment${n === 1 ? '' : 's'} total`
-            : 'No assignments yet';
-        })()}<span class="cal-summary-hint"> · tap any day to assign a participant</span></span>
-        ${(() => {
-          // Filter banner · visible only when calTeamFilter is set.
-          // Shows the filtered team's name + color dot + a Clear button.
-          // Sits next to the summary text in the same flex row so admin
-          // sees it as the most prominent secondary control.
-          //
-          // The same team-click in the legend toggles the filter off,
-          // but the banner's explicit X button is more discoverable for
-          // someone who didn't realize the chip was a toggle.
-          const filterId = adminState.calTeamFilter;
-          if (!filterId) return '';
-          const team = (adminState.teams || []).find(t => String(t.id) === String(filterId));
-          if (!team) return '';
-          const color = (typeof getTeamColor === 'function') ? getTeamColor(team.id) : { bg: 'var(--accent)' };
-          return `
-            <span class="cal-team-filter-banner" role="status" aria-live="polite">
-              <span class="cal-team-filter-banner-dot" style="background: ${color.bg};" aria-hidden="true"></span>
-              <span class="cal-team-filter-banner-text">Showing only ${escapeHTML(team.name)}</span>
-              <button type="button" class="cal-team-filter-banner-clear" id="calTeamFilterClear"
-                      aria-label="Clear team filter"
-                      title="Clear filter (show all teams)">
-                <svg viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </span>`;
-        })()}
-        <!-- Collapse toggle · legend section can get noisy on workspaces
-             with many teams. Hiding it gives the calendar grid more
-             breathing room without losing the chips entirely (still
-             one click away). State persists across reloads so admin's
-             preference sticks.
-             Whole legend region is wrapped in #calLegendRegion which
-             toggles a "collapsed" class. CSS handles the display:none
-             switch and the chevron rotation. -->
-        <button type="button"
-                id="calLegendToggle"
-                class="cal-legend-toggle"
-                aria-controls="calLegendRegion"
-                aria-expanded="${adminState._calLegendCollapsed ? 'false' : 'true'}"
-                title="${adminState._calLegendCollapsed ? 'Show team & availability legend' : 'Hide legend'}">
-          <svg class="cal-legend-toggle-chev" width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span class="cal-legend-toggle-label">Legend</span>
-        </button>
-        <div id="calLegendRegion" class="cal-legend-region ${adminState._calLegendCollapsed ? 'collapsed' : ''}">
-          <div class="cal-avail-legend" aria-label="Team availability legend">
-            <span class="cal-avail-legend-item"><span class="cal-avail-legend-swatch avail-all"></span>All available</span>
-            <span class="cal-avail-legend-item"><span class="cal-avail-legend-swatch avail-some"></span>Partial</span>
-            <span class="cal-avail-legend-item"><span class="cal-avail-legend-swatch avail-none"></span>Unavailable</span>
-          </div>
-          ${renderTeamLegendHTML()}
-        </div>
-      </div>
+      </div>`;
+}
+
+/* ----------- Calendar Panel ----------- */
+function renderCalendarPanelHTML() {
+  const view = adminState.calView;
+  const anchor = parseYMD(adminState.calAnchor);
+  const today = ymd(new Date());
+
+  // List view has its own renderer
+  if (view === 'list') return renderCalendarListHTML();
+  // Month view also has its own renderer · different layout (7×5/6 grid
+  // of date cells rather than the team×day matrix used for day/week).
+  if (view === 'month') return renderCalendarMonthHTML();
+
+  const days = view === 'week'
+    ? Array.from({length: 7}, (_, i) => addDays(startOfWeek(anchor), i))
+    : [anchor];
+
+  const periodLabel = view === 'week'
+    ? `${days[0].toLocaleDateString(undefined, {month: 'short', day: 'numeric'})} – ${days[6].toLocaleDateString(undefined, {month: 'short', day: 'numeric', year: 'numeric'})}`
+    : days[0].toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
+
+  const gridHTML = renderTeamGridHTML(days);
+
+  return `
+    <div class="cal-panel">
+      ${renderCalendarToolbarHTML(view, periodLabel)}
       ${renderCalendarStatTilesHTML(view, days)}
       <div class="cal-grid-scroll">
         ${gridHTML}
@@ -18163,7 +18123,10 @@ function renderCalendarMonthHTML() {
   // month so leading/trailing greyed-out adjacent-month dates don't
   // inflate the totals.
   const currentMonthCells = cells.filter(d => d.getMonth() === month);
+  const periodLabel = firstOfMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   return `
+    <div class="cal-panel">
+      ${renderCalendarToolbarHTML('month', periodLabel)}
     <div class="month-view">
       ${renderCalendarStatTilesHTML('month', currentMonthCells)}
       <div class="month-jump-hint">
@@ -18181,6 +18144,7 @@ function renderCalendarMonthHTML() {
         <span class="month-legend-item"><span class="month-dot status-completed"></span>Completed</span>
         <span class="month-legend-item"><span class="month-dot status-cancelled"></span>Cancelled</span>
       </div>
+    </div>
     </div>
   `;
 }
@@ -24483,8 +24447,8 @@ function closeAsgnModal() {
     adminState._pendingPostFetchRender = false;
     requestAnimationFrame(() => {
       try {
-        if (typeof renderAdmin === 'function' && document.getElementById('adminApp')?.classList.contains('active')) {
-          renderAdmin();
+        if (document.getElementById('adminApp')?.classList.contains('active')) {
+          refreshAssignmentViewQuietly();
         }
       } catch (e) { console.warn('[Twilight] Deferred render failed:', e && e.message); }
     });
