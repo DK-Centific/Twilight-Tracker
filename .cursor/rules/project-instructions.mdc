@@ -1,0 +1,85 @@
+---
+description: Core Twilight-Tracker working rules — clarify, preview, structured updates, push policy
+alwaysApply: true
+---
+
+# Twilight-Tracker project instructions
+
+Follow these as core operating rules for this repo.
+
+## 1. Clarify before acting when the request is genuinely ambiguous
+
+Before processing a request, evaluate whether you have enough information to produce a correct result. If the request has meaningful ambiguity — competing reasonable interpretations, missing constraints that would change your approach, or unclear scope — present clearly labeled options to disambiguate before doing the work.
+
+Present choice boxes when:
+
+- Two or more reasonable interpretations exist, and choosing wrong would mean redoing the work
+- The request implies a downstream decision you'd otherwise have to guess (file format, deployment target, scope of change, design preference)
+- A constraint affects architecture, not just polish (e.g. embed vs external file, block on this gate or just warn)
+- The request references something you don't have context on yet
+
+Do NOT present choice boxes when:
+
+- The request is clear and the answer follows from prior conversation or established project conventions
+- The clarification is cosmetic (small UI nuances) — make a reasonable choice, ship it, mention the assumption
+- You would be stalling. If you can act with one sensible default + a noted assumption, do that
+
+Format: use `ask_user_input_v0` when available. Otherwise list 2–4 short, mutually exclusive labeled options in the reply. Keep it to one question whenever possible (three is a ceiling, not a target).
+
+## 2. Show a preview for confirmation before significant work
+
+For requests that involve creating or substantially changing something (new UI, new feature, layout change, multi-step refactor, anything affecting more than one area), produce a preview of what you intend to build **before writing the code**. Wait for confirmation, then proceed.
+
+Match the preview form to what's being built:
+
+- Visual / UI change → SVG or HTML mockup of the new layout (use `visualize:show_widget` when available). Show approximate sizing, placement, copy, and states.
+- Flow or behavior change → a labeled diagram or numbered walkthrough of the new state machine, decision points, and trigger conditions.
+- Data change → a sample of the before/after shape (column mapping, sample row, schema diff).
+- Multi-area refactor → a short bulleted list of the files/functions that will change and what each change does.
+
+Always include alongside the preview:
+
+- A 1–2 sentence restatement: "Here's what I understood you want…"
+- The 2–3 specific decisions made on the user's behalf that they should sanity-check
+- A clear ask: "Confirm to proceed, or tell me what to adjust."
+
+Skip the preview when:
+
+- The change is small, local, and self-evident (typo fixes, version bumps, copy tweaks, one-line behavior toggles)
+- The user already approved the direction in this conversation
+- The work is purely diagnostic (no artifact produced)
+- The user asked to just do it ("go ahead," "ship it," "no need to confirm")
+
+If a preview would take longer than the work itself, do the work and show the result.
+
+## 3. Format completed work as a structured update
+
+After processing a request, use this structure:
+
+**Build summary** — \<version or label\>
+**File / scope:** \<filename or area\> · \<one-line metadata\>
+
+**What changed**
+A 2–4 sentence plain-prose summary of the behavior change. No bullets — one paragraph.
+
+**Numbered action items** (only if the user needs to do something)
+1. **Step title** — short description of what they do and why.
+
+**Test steps**
+Numbered list. Each item: bolded action, then expected result.
+
+**What's NOT changed**
+Short list of related-looking areas deliberately left alone.
+
+**Warnings or gotchas** (only if relevant)
+Use ⚠ and bold the key term, e.g. ⚠ **Before reloading:** …
+
+## 4. Push and deploy policy
+
+### Major changes
+Do **not** push to the build until the user writes **"push"** and you have confirmed.
+
+The user will use Plan mode / Plan skill for major work. If they did not, and you can tell the request is significant, remind them **before** pushing.
+
+### Smaller changes
+You may push and deploy (for this project: commit and push to `main` so GitHub Pages updates).
