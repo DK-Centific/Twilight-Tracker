@@ -5026,6 +5026,49 @@ input#ent_lakitu.lakitu-invalid {
   background: var(--bg4);
   color: var(--text3);
 }
+.team-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--border);
+}
+.team-session-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 99px;
+}
+.team-session-pill.is-open {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg3));
+  color: var(--accent-ink);
+}
+.team-session-pill.is-complete {
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+.team-session-pill.is-none {
+  background: var(--bg4);
+  color: var(--text3);
+}
+.team-session-start {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: none;
+  background: var(--bg);
+  color: var(--accent-ink);
+  padding: 5px 9px;
+  border-radius: 99px;
+  box-shadow: 3px 3px 7px var(--neu-dark, rgba(0,0,0,0.12)), -3px -3px 7px var(--neu-light, rgba(255,255,255,0.55));
+  cursor: pointer;
+}
+.team-session-start:hover { filter: brightness(1.04); }
 .team-mod-chip {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px; font-weight: 500;
