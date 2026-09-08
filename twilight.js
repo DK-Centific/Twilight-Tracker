@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ab';
-const APP_UPDATED_AT = '09/08/2026 20:10';
+const APP_VERSION = '1.3.090826ac';
+const APP_UPDATED_AT = '09/08/2026 20:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -12865,22 +12865,7 @@ async function submitModUserModal() {
   state.error = '';
   renderModUserModal();
 
-  const payload = {
-    operation: state.mode === 'edit' ? 'update' : 'create',
-    orbitLoginId: values.orbitLoginId,
-    firstName: values.firstName,
-    lastName: values.lastName,
-    LoginRole: values.LoginRole,
-    phoneNumber: values.phoneNumber,
-    centificEmail: values.centificEmail,
-    personalEmail: values.personalEmail,
-    modAddress: values.modAddress,
-    zipcode: values.zipcode,
-    timeOff: values.timeOff,
-    smartPhone: values.smartPhone,
-    carType: values.carType,
-    'off-date': values['off-date'],
-  };
+  const payload = buildModeratorWritePayload(state, values);
 
   try {
     await fetchWithRetry(ADMIN_PA_MODERATOR_WRITE_URL, {
@@ -12914,6 +12899,40 @@ async function submitModUserModal() {
   // Confirm against Excel without showing another loading spinner or making
   // the admin wait for a second sequential PA request.
   refreshModeratorDirectoryInBackground();
+}
+
+// Add User leaves originalOrbitLoginId empty. That is the source of truth
+// for create vs update — not Power Automate's reserved "operation" token,
+// which the flow Condition can pick as "Update a row" instead of create.
+function resolveModUserWriteAction(modalState) {
+  if (!modalState) return 'create';
+  const original = String(modalState.originalOrbitLoginId || '').trim();
+  if (!original) return 'create';
+  if (modalState.mode === 'edit') return 'update';
+  return 'create';
+}
+
+function buildModeratorWritePayload(modalState, values) {
+  const action = resolveModUserWriteAction(modalState);
+  const v = values || {};
+  return {
+    userAction: action,
+    writeMode: action,
+    operation: action,
+    orbitLoginId: v.orbitLoginId || '',
+    firstName: v.firstName || '',
+    lastName: v.lastName || '',
+    LoginRole: v.LoginRole || '',
+    phoneNumber: v.phoneNumber || '',
+    centificEmail: v.centificEmail || '',
+    personalEmail: v.personalEmail || '',
+    modAddress: v.modAddress || '',
+    zipcode: v.zipcode || '',
+    timeOff: v.timeOff || '',
+    smartPhone: v.smartPhone || '',
+    carType: v.carType || '',
+    'off-date': v['off-date'] || '',
+  };
 }
 
 function moderatorWriteErrorMessage(err) {

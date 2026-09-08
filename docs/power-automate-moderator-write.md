@@ -12,6 +12,25 @@ The directory **read** flow still works. Only this **write** flow is broken.
 - The new person appears in Moderator Hub
 - That person can sign in (after they set a password the usual way)
 
+## Condition must use Create, not Update
+
+Twilight **Add user** sends `userAction: "create"`.
+
+In the Condition, do **not** pick the word **operation** from the list. That word is the Excel **Update a row** action, so every new user goes down the Update side and Twilight shows HTTP 502.
+
+**Use this Condition instead:**
+
+1. Click the **Condition**.
+2. Click the left box. Delete what is there.
+3. Click **Dynamic content**.
+4. Under **When an HTTP request is received**, pick **userAction**.
+5. Middle box: **is equal to**.
+6. Right box: type `create` (all lowercase).
+7. Click the HTTP trigger. Choose **Use sample payload to generate schema**. Paste the sample in section C below so `userAction` is on the trigger.
+8. Click **Save**.
+
+True = **Add a row**. False = **Update a row**. Response stays under the Condition.
+
 ## Click-by-click
 
 1. Open **https://make.powerautomate.com**
@@ -73,6 +92,8 @@ The directory **read** flow still works. Only this **write** flow is broken.
 
 ```json
 {
+  "userAction": "create",
+  "writeMode": "create",
   "operation": "create",
   "orbitLoginId": "Jamie-tw",
   "firstName": "Jamie",
