@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826z';
-const APP_UPDATED_AT = '09/08/2026 19:15';
+const APP_VERSION = '1.3.090826aa';
+const APP_UPDATED_AT = '09/08/2026 19:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1154,7 +1154,7 @@ function renderWelcomeWorklogBannerHTML() {
       </div>
       <div class="welcome-worklog-banner-text">
         <div class="welcome-worklog-banner-title">Traveling to the assigned location</div>
-        <div class="welcome-worklog-banner-sub">When you arrive at ${escapeHTML((asgn.participantData && asgn.participantData.address) || 'the participant location')}, please confirm your arrival.</div>
+        <div class="welcome-worklog-banner-sub">When you arrive at ${escapeHTML((asgn.participantData && asgn.participantData.address) || 'the team address')}, please confirm your arrival.</div>
       </div>
       <button class="btn btn-primary welcome-worklog-action" id="welcomeArrivalBtn">
         Confirm Arrival
@@ -1173,7 +1173,7 @@ function renderWelcomeWorklogBannerHTML() {
       </div>
       <div class="welcome-worklog-banner-text">
         <div class="welcome-worklog-banner-title">Ready to begin</div>
-        <div class="welcome-worklog-banner-sub">Please check in with the participant and complete rig setup before you start.</div>
+        <div class="welcome-worklog-banner-sub">Please check in at the team address and complete rig setup before you start.</div>
       </div>
       <button class="btn btn-primary welcome-worklog-action" id="welcomeStartBtn">
         Start with first station
@@ -3246,7 +3246,7 @@ function getRingDashboardByKey(key) {
 // personalEmail values are untouched. Old payloads without ring/address
 // still parse (those fields default to empty).
 const TEAM_LAKITU_PROJECT_PAYLOAD_TYPE = 'teamLakituProject';
-const TEAM_LAKITU_PROJECT_PAYLOAD_VERSION = 1;
+const TEAM_LAKITU_PROJECT_PAYLOAD_VERSION = 2;
 
 function encodeTeamLakituProjectPayload(team) {
   const key = team && team.lakituProjectKey ? String(team.lakituProjectKey) : '';
@@ -3266,6 +3266,15 @@ function encodeTeamLakituProjectPayload(team) {
   const teamAddress = team && team.teamAddress != null
     ? String(team.teamAddress).trim()
     : '';
+  const currentSessionId = team && team.currentSessionId
+    ? String(team.currentSessionId)
+    : '';
+  const sessionStatus = team && team.sessionStatus
+    ? String(team.sessionStatus)
+    : '';
+  const sessionDate = team && team.sessionDate
+    ? String(team.sessionDate)
+    : '';
   return JSON.stringify({
     type: TEAM_LAKITU_PROJECT_PAYLOAD_TYPE,
     version: TEAM_LAKITU_PROJECT_PAYLOAD_VERSION,
@@ -3274,6 +3283,9 @@ function encodeTeamLakituProjectPayload(team) {
     ringDashboardKey: ringKey,
     ringDashboardUrl: ringUrl,
     teamAddress: teamAddress,
+    currentSessionId: currentSessionId,
+    sessionStatus: sessionStatus,
+    sessionDate: sessionDate,
   });
 }
 
@@ -3317,12 +3329,18 @@ function parseTeamLakituProjectFromPersonalEmail(value) {
     }
     if (ringUrl && !isSafeHttpsUrl(ringUrl)) ringUrl = '';
     const teamAddress = obj.teamAddress != null ? String(obj.teamAddress).trim() : '';
+    const currentSessionId = obj.currentSessionId != null ? String(obj.currentSessionId).trim() : '';
+    const sessionStatus = obj.sessionStatus != null ? String(obj.sessionStatus).trim() : '';
+    const sessionDate = obj.sessionDate != null ? String(obj.sessionDate).trim() : '';
     return {
       lakituProjectKey: key,
       lakituProjectUrl: url,
       ringDashboardKey: ringKey,
       ringDashboardUrl: ringUrl,
       teamAddress: teamAddress,
+      currentSessionId: currentSessionId,
+      sessionStatus: sessionStatus,
+      sessionDate: sessionDate,
     };
   } catch (_) {
     return null;
@@ -3572,10 +3590,95 @@ async function persistTeamSessionAssignment(asgn) {
   return { ok: succeeded > 0 };
 }
 
+function isTeamSessionAssignment(a) {
+  if (!a) return false;
+  if (a.source === 'team-session') return true;
+  const pd = a.participantData || {};
+  const hasPart = !!(
+    (a.participantOrbitId && String(a.participantOrbitId).trim()) ||
+    (pd.firstName && String(pd.firstName).trim()) ||
+    (pd.lastName && String(pd.lastName).trim())
+  );
+  return !hasPart && a.teamId != null && a.teamId !== '';
+}
+
+function stampTeamOpenSession(team, asgn) {
+  if (!team || !asgn) return;
+  team.currentSessionId = asgn.id;
+  team.sessionStatus = 'open';
+  team.sessionDate = asgn.date || '';
+}
+
+function stampTeamSessionComplete(asgn) {
+  if (!asgn || typeof adminState === 'undefined' || !adminState) return;
+  const team = (adminState.teams || []).find(t => String(t.id) === String(asgn.teamId));
+  if (!team) return;
+  if (team.currentSessionId && String(team.currentSessionId) !== String(asgn.id)) return;
+  team.currentSessionId = asgn.id;
+  team.sessionStatus = 'complete';
+  team.sessionDate = asgn.date || team.sessionDate || '';
+  if (typeof TEAMLOG_PA_WRITE_URL !== 'undefined' && TEAMLOG_PA_WRITE_URL && typeof writeTeamToTeamLog === 'function') {
+    writeTeamToTeamLog(team, 'active').catch(() => {});
+  }
+}
+
+function assignmentFromTeamSessionPointer(team) {
+  if (!team || !team.currentSessionId) return null;
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  return {
+    id: team.currentSessionId,
+    teamId: team.id,
+    teamName: team.name || '',
+    date: team.sessionDate || today,
+    startMin: 8 * 60,
+    endMin: 17 * 60,
+    participantOrbitId: null,
+    participantData: { address: team.teamAddress || '' },
+    modSnapshots: (typeof snapshotTeamSessionMods === 'function') ? snapshotTeamSessionMods(team) : [],
+    status: team.sessionStatus === 'complete' ? 'Completed' : 'Booked',
+    comment: 'team-session',
+    savedAt: new Date().toISOString(),
+    source: 'team-session',
+  };
+}
+
+function ensureTeamSessionAssignments() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
+  const teams = adminState.teams || [];
+  let added = false;
+  teams.forEach(team => {
+    if (!team || !team.currentSessionId) return;
+    const existing = adminState.assignments.find(a => a && String(a.id) === String(team.currentSessionId));
+    if (existing) {
+      if (!existing.source) existing.source = 'team-session';
+      if (team.sessionStatus === 'complete'
+          && existing.status !== 'Cancelled'
+          && existing.status !== 'Unassigned'
+          && existing.status !== 'Completed') {
+        existing.status = 'Completed';
+      }
+      if ((!existing.participantData || !existing.participantData.address) && team.teamAddress) {
+        existing.participantData = Object.assign({}, existing.participantData || {}, { address: team.teamAddress });
+      }
+      return;
+    }
+    const synth = assignmentFromTeamSessionPointer(team);
+    if (synth) {
+      adminState.assignments.push(synth);
+      added = true;
+    }
+  });
+  if (added && typeof saveAssignmentData === 'function') saveAssignmentData();
+}
+
 function startNewTeamSession(team) {
   if (!team) return null;
   const open = getOpenTeamSession(team.id);
-  if (open) return open;
+  if (open) {
+    stampTeamOpenSession(team, open);
+    return open;
+  }
   const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : new Date().toISOString().slice(0, 10);
   const asgn = {
     id: 'asgn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
@@ -3588,14 +3691,19 @@ function startNewTeamSession(team) {
     participantData: { address: team.teamAddress || '' },
     modSnapshots: snapshotTeamSessionMods(team),
     status: 'Booked',
-    comment: '',
+    comment: 'team-session',
     savedAt: new Date().toISOString(),
     source: 'team-session',
   };
   adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
   adminState.assignments.push(asgn);
+  stampTeamOpenSession(team, asgn);
   if (typeof saveAssignmentData === 'function') saveAssignmentData();
   persistTeamSessionAssignment(asgn).catch(() => {});
+  if (typeof TEAMLOG_PA_WRITE_URL !== 'undefined' && TEAMLOG_PA_WRITE_URL
+      && typeof writeTeamToTeamLog === 'function' && !team._pending) {
+    writeTeamToTeamLog(team, 'active').catch(() => {});
+  }
   return asgn;
 }
 
@@ -6472,12 +6580,31 @@ function renderPerfLakituPillHTML(a, cls, variant) {
 // name match logic elsewhere in this tab. Returns false for falsy
 // search terms (don't surface every booking just because admin hit
 // Backspace on the search box).
+function perfSessionTitle(a) {
+  if (!a) return '';
+  if (typeof isTeamSessionAssignment === 'function' && isTeamSessionAssignment(a)) {
+    const team = (typeof adminState !== 'undefined' && adminState && adminState.teams || [])
+      .find(t => String(t.id) === String(a.teamId));
+    return (team && team.name) || a.teamName || 'Team session';
+  }
+  const pd = a.participantData || {};
+  return [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() || 'No participant';
+}
+
 function perfBookingMatchesParticipant(a, search) {
-  if (!search || !a || !a.participantData) return false;
-  const pd = a.participantData;
+  if (!search || !a) return false;
+  const q = String(search).toLowerCase();
+  const title = String((typeof perfSessionTitle === 'function') ? perfSessionTitle(a) : '').toLowerCase();
+  if (title && title.includes(q)) return true;
+  const pd = a.participantData || {};
   const full = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim().toLowerCase();
-  if (!full) return false;
-  return full.includes(search);
+  if (full && full.includes(q)) return true;
+  const team = (typeof adminState !== 'undefined' && adminState && adminState.teams || [])
+    .find(t => String(t.id) === String(a.teamId));
+  const tName = ((team && team.name) || a.teamName || '').toLowerCase();
+  if (tName && tName.includes(q)) return true;
+  const addr = String(pd.address || (team && team.teamAddress) || '').toLowerCase();
+  return !!(addr && addr.includes(q));
 }
 
 // Wrap the matching substring of `text` in <mark> for inline visual
@@ -6921,6 +7048,7 @@ function renderPerformance(body) {
       adminState.assignments = stored.assignments;
     }
   }
+  if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
   ensurePerfSessionStateRows().then(() => {
     // SessionState data carries the Lakitu URLs that the per-row pills
     // need. On first render the rows array is still empty so every
@@ -6996,7 +7124,7 @@ function renderPerformance(body) {
           <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
         <input type="search" class="perf-search-input" id="perfSearchInput"
-               placeholder="Search ${view === 'teams' ? 'teams, members, or participants' : 'moderators or participants'}…"
+               placeholder="Search ${view === 'teams' ? 'teams, members, or sessions' : 'moderators or sessions'}…"
                value="${escapeHTML(adminState.perfSearch || '')}">
       </div>
       <div class="perf-date-range" role="tablist" aria-label="Date range filter">
@@ -7024,7 +7152,7 @@ function renderPerformance(body) {
         <input type="date" id="perfCustomStart" value="${escapeHTML(adminState.perfCustomStart || '')}" aria-label="Custom range start date">
         <label for="perfCustomEnd">To</label>
         <input type="date" id="perfCustomEnd" value="${escapeHTML(adminState.perfCustomEnd || '')}" aria-label="Custom range end date">
-        <span class="perf-custom-range-hint">bookings dated in this range${(adminState.perfCustomStart || adminState.perfCustomEnd) ? '' : ' · pick dates to narrow'}</span>
+        <span class="perf-custom-range-hint">sessions dated in this range${(adminState.perfCustomStart || adminState.perfCustomEnd) ? '' : ' · pick dates to narrow'}</span>
       </div>
     ` : ''}
     <div id="perfTileGrid" class="perf-tile-grid">${renderPerfTilesHTML(view, search)}</div>
@@ -7310,7 +7438,7 @@ function renderPerfTeamTilesHTML(search) {
         ? `No teams match "${escapeHTML(search)}"${dateNote}${statusNote}.`
         : (statusScope !== 'all' || dateRange !== 'all'
             ? `No teams have sessions${statusNote}${dateNote}. Try clearing filters.`
-            : 'No teams yet. Create one in the Assignment tab to start tracking performance.')
+            : 'No teams yet. Create one in Moderator Hub to start tracking performance.')
     }</div>`;
   }
 
@@ -7570,7 +7698,7 @@ function renderPerfTileBodyHTML(tileId, bookings, team, search) {
     // but the message keeps admin oriented if it does.
     const emptyMsg = statusFilter
       ? `No ${escapeHTML(filterLabel)} sessions in this view. Click Clear to see all.`
-      : 'No sessions yet. Bookings appear here once they\'re added in the Assignment tab.';
+      : 'No sessions yet. They appear here when an admin starts a team session.';
     return `<div class="perf-tile-body">
       ${drillBannerHTML}
       <div class="perf-empty">${emptyMsg}</div>
@@ -7630,7 +7758,9 @@ function renderPerfBookingRowHTML(a, team, search) {
     }
   }
   const pd = a.participantData || {};
-  const participant = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() || 'No participant';
+  const participant = (typeof perfSessionTitle === 'function')
+    ? perfSessionTitle(a)
+    : ([pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() || 'No participant');
   // Resolve team name from a.teamId · covers cases where this row
   // came from the moderator tile and we don't have a specific team
   // context passed in.
@@ -7950,7 +8080,9 @@ function openPerformancePanel(asgnId) {
   // show just the booking info · no station detail yet.
   const cls = classifyBookingForPerf(a);
   const pd = a.participantData || {};
-  const participant = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() || 'No participant';
+  const participant = (typeof perfSessionTitle === 'function')
+    ? perfSessionTitle(a)
+    : ([pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() || 'No participant');
   const team = (adminState.teams || []).find(x => String(x.id) === String(a.teamId));
   const teamName = team ? team.name : (a.teamName || 'Unknown team');
   const dateObj = parseYMD(a.date);
@@ -14137,12 +14269,24 @@ async function fetchTeamsFromPA() {
             const teamAddress = (fromJson && fromJson.teamAddress != null)
               ? String(fromJson.teamAddress).trim()
               : (r.teamAddress != null ? String(r.teamAddress).trim() : '');
+            const currentSessionId = (fromJson && fromJson.currentSessionId)
+              ? String(fromJson.currentSessionId).trim()
+              : '';
+            const sessionStatus = (fromJson && fromJson.sessionStatus)
+              ? String(fromJson.sessionStatus).trim()
+              : '';
+            const sessionDate = (fromJson && fromJson.sessionDate)
+              ? String(fromJson.sessionDate).trim()
+              : '';
             return {
               lakituProjectKey: key,
               lakituProjectUrl: url,
               ringDashboardKey: ringKey,
               ringDashboardUrl: ringUrl,
               teamAddress: teamAddress,
+              currentSessionId: currentSessionId,
+              sessionStatus: sessionStatus,
+              sessionDate: sessionDate,
             };
           })(),
           createdAt: r.createdTimestamp || '',
@@ -15746,6 +15890,41 @@ function refreshAssignmentViewQuietly() {
   if (typeof renderAssignment === 'function') renderAssignment({ fromSync: true });
 }
 
+async function hydrateTeamSessionsFromTeamLog() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  if (!Array.isArray(adminState.teams)) adminState.teams = [];
+  if (!Array.isArray(adminState.assignments)) adminState.assignments = [];
+  if (typeof TEAMLOG_PA_READ_URL !== 'undefined' && TEAMLOG_PA_READ_URL
+      && typeof fetchTeamsFromPA === 'function') {
+    try {
+      const tl = await fetchTeamsFromPA();
+      if (tl && Array.isArray(tl.teams) && tl.teams.length > 0) {
+        const remoteIds = new Set(tl.teams.map(t => t.id));
+        const localOnly = (adminState.teams || []).filter(t => t && !remoteIds.has(t.id));
+        adminState.teams = [
+          ...tl.teams.map(t => (typeof migrateTeamShape === 'function') ? migrateTeamShape(t) : t),
+          ...localOnly,
+        ];
+      }
+    } catch (_) {}
+  }
+  if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
+}
+
+async function loadAssignmentsWithTeamSessions() {
+  const stored = loadAssignmentData();
+  if (typeof adminState !== 'undefined' && adminState) {
+    adminState.teams = stored.teams;
+    adminState.assignments = stored.assignments;
+    adminState._asgnLoaded = true;
+  }
+  await hydrateTeamSessionsFromTeamLog();
+  return {
+    teams: (typeof adminState !== 'undefined' && adminState) ? adminState.teams : stored.teams,
+    assignments: (typeof adminState !== 'undefined' && adminState) ? adminState.assignments : stored.assignments,
+  };
+}
+
 async function fetchAssignmentsFromPA() {
   const info = {
     url: ASSIGNMENT_PA_READ_URL ? 'configured' : 'empty',
@@ -15760,7 +15939,7 @@ async function fetchAssignmentsFromPA() {
 
   if (!ASSIGNMENT_PA_READ_URL) {
     info.error = 'No read URL configured';
-    return loadAssignmentData();
+    return loadAssignmentsWithTeamSessions();
   }
 
   let rows;
@@ -15774,12 +15953,12 @@ async function fetchAssignmentsFromPA() {
     if (!res.ok) {
       info.error = `HTTP ${res.status}`;
       console.warn('[Twilight] Assignment read failed:', res.status);
-      return loadAssignmentData();
+      return loadAssignmentsWithTeamSessions();
     }
     const text = await res.text();
     let data;
     try { data = JSON.parse(text); }
-    catch (e) { info.error = 'Response not JSON'; return loadAssignmentData(); }
+    catch (e) { info.error = 'Response not JSON'; return loadAssignmentsWithTeamSessions(); }
     rows = extractArray(data);
     info.rowCount = rows.length;
     // Diagnostic for the same 256-row pagination ceiling: if exactly 256 rows
@@ -15790,7 +15969,7 @@ async function fetchAssignmentsFromPA() {
   } catch (e) {
     info.error = e.message || String(e);
     console.warn('[Twilight] Assignment read error:', e.message);
-    return loadAssignmentData();
+    return loadAssignmentsWithTeamSessions();
   }
 
   // Filter out phantom empty rows that PA returns when the table has been
@@ -15818,7 +15997,8 @@ async function fetchAssignmentsFromPA() {
   const grouped = new Map();
   for (const r of rows) {
     const dateInfo = parseAssignedDate(r.assignedDate);
-    if (!dateInfo) continue;
+    if (!dateInfo && !r.assignmentId) continue;
+    const fallbackDate = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
     const groupKey = r.assignmentId
       ? String(r.assignmentId)
       : `legacy|${dateInfo.date}|${dateInfo.startMin}|${r.teamId || ''}|${r.assignedTo || ''}`;
@@ -15844,9 +16024,9 @@ async function fetchAssignmentsFromPA() {
         // localStorage) as different keys, causing duplicate cards.
         teamId: (r.teamId == null || r.teamId === '') ? null : (Number(r.teamId) || r.teamId),
         teamName: r.team || '',
-        date: dateInfo.date,
-        startMin: dateInfo.startMin,
-        endMin: dateInfo.endMin,
+        date: dateInfo ? dateInfo.date : fallbackDate,
+        startMin: dateInfo ? dateInfo.startMin : 8 * 60,
+        endMin: dateInfo ? dateInfo.endMin : 17 * 60,
         participantOrbitId: pid,
         participantData: {
           orbitLoginId: pid,
@@ -15870,6 +16050,7 @@ async function fetchAssignmentsFromPA() {
         status: r.status || 'Booked',
         comment: r.comment || '',
         savedAt: r.lastActive || new Date().toISOString(),
+        source: (r.comment === 'team-session' || (!r.assignedTo && r.teamId)) ? 'team-session' : undefined,
         // Tag this assignment as having come from a remote fetch. Used by
         // the local-only merge below to distinguish "pending write" from
         // "previously synced but now deleted from Excel". Without this
@@ -16076,6 +16257,15 @@ async function fetchAssignmentsFromPA() {
   const localOnly = (local.assignments || []).filter(a =>
     a.id && !remoteIds.has(a.id) && !a._excelSynced
   );
+  // Team sessions can miss Excel reconstruction (empty participant,
+  // date parse, or a write still in flight). Never drop a local
+  // team-session just because the last Assignment read didn't see it.
+  const localTeamSessionsKeep = (local.assignments || []).filter(a => {
+    if (!a || !a.id || remoteIds.has(a.id)) return false;
+    if (a.source !== 'team-session') return false;
+    if (!a._excelSynced) return false;
+    return true;
+  });
   // Local copies of SHARED IDs (in both local and remote) · keep only when
   // local.savedAt > remote.savedAt. This is the race-condition protection
   // described above. Once the remote catches up, this filter returns
@@ -16151,7 +16341,7 @@ async function fetchAssignmentsFromPA() {
   }
   // Order matters for the dedup pass below · localNewer comes AFTER
   // remoteAssignments so its Map.set() call wins for shared ids.
-  let mergedAssignments = [...remoteAssignments, ...localOnly, ...localNewer];
+  let mergedAssignments = [...remoteAssignments, ...localOnly, ...localNewer, ...localTeamSessionsKeep];
 
   // Defensive final dedup on assignment IDs. The merge above should never
   // produce duplicates (the localOnly filter excludes IDs in remoteIds),
@@ -16204,6 +16394,7 @@ async function fetchAssignmentsFromPA() {
     const patches = {};
     if (missing(r.teamId)            && !missing(l.teamId))            patches.teamId = l.teamId;
     if (missing(r.teamName)          && !missing(l.teamName))          patches.teamName = l.teamName;
+    if (missing(r.source)            && !missing(l.source))            patches.source = l.source;
     if (missing(r.participantOrbitId) && !missing(l.participantOrbitId)) patches.participantOrbitId = l.participantOrbitId;
     // modSnapshots: empty array on remote (no mods could be reconstructed
     // because of missing orbit_login_id or empty marker rows), local
@@ -16409,6 +16600,11 @@ async function fetchAssignmentsFromPA() {
     adminState.assignments = mergedAssignments;
     adminState.teams = mergedTeams;
     adminState._asgnLoaded = true;
+    if (typeof ensureTeamSessionAssignments === 'function') {
+      ensureTeamSessionAssignments();
+      mergedAssignments = adminState.assignments;
+    }
+    info.assignmentCount = mergedAssignments.length;
   }
   try {
     localStorage.setItem(ASGN_STORAGE_KEY, JSON.stringify({
@@ -24899,6 +25095,9 @@ async function completeAssignment(asgnId, opts) {
       console.warn('[completeAssignment] Excel sync partial failure:', lastError, ' · saved locally, will retry on next render');
     }
   }
+  if (typeof isTeamSessionAssignment === 'function' && isTeamSessionAssignment(adminState.assignments[idx])) {
+    if (typeof stampTeamSessionComplete === 'function') stampTeamSessionComplete(adminState.assignments[idx]);
+  }
 }
 
 // Cancel an assignment WITHOUT touching the modal/toast/render UI.
@@ -25528,7 +25727,7 @@ function buildAssignmentExcelRow(a) {
       participantZipCode: (a.participantData && a.participantData.zipCode) || '',
       teamId:             a.teamId,
       status:             a.status          || 'Booked',
-      comment:            commentForExcel,
+      comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
     }];
   }
   return mods.map(mod => ({
@@ -25556,7 +25755,7 @@ function buildAssignmentExcelRow(a) {
     participantZipCode: (a.participantData && a.participantData.zipCode) || '',
     teamId:             a.teamId,
     status:             a.status          || 'Booked',
-    comment:            commentForExcel,
+    comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
   }));
 }
 
@@ -28744,6 +28943,7 @@ function getOperatorAssignments() {
     adminState.assignments = stored.assignments;
     adminState._asgnLoaded = true;
   }
+  if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
   const myId = String(state.modProfile.orbitLoginId).toLowerCase();
   // MULTI-TEAM VISIBILITY FIX (1.3.061526):
   // A booking is "mine" if EITHER (a) my orbitLoginId is in its modSnapshots
@@ -28785,6 +28985,7 @@ function getOperatorAssignment() {
     adminState.assignments = stored.assignments;
     adminState._asgnLoaded = true;
   }
+  if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
   const myId = String(state.modProfile.orbitLoginId).toLowerCase();
   // Union match · see getOperatorAssignments() for the full rationale.
   // Snapshot membership OR team ownership.
@@ -28921,7 +29122,7 @@ function getOperatorTeams() {
 function getOperatorCarouselAssignments() {
   const todayStr = getPSTDateString();  // PST team-reference day. CRITICAL: with local time, a device ahead of Pacific filtered OUT today's PST session (a.date < local-today) AND matched tomorrow's as "today" · the exact login-vs-MySession mismatch this fixes.
   return (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : [])
-    .filter(a => !isTerminalStatus(a.status) && a.date >= todayStr);
+    .filter(a => !isTerminalStatus(a.status) && (!a.date || a.date >= todayStr));
 }
 
 // Best-effort first-name resolution for a teammate's orbitLoginId, used in
@@ -29056,8 +29257,8 @@ function renderMySessionSection() {
       <div class="my-session-section">
         <div class="my-session-eyebrow"><span class="dot"></span> My Session</div>
         <div class="no-assignment-tile">
-          No sessions scheduled.<br>
-          Your admin will schedule you on the calendar.
+          No session yet.<br>
+          When your admin starts a session for your team, it will show here.
         </div>
       </div>`;
     return;
@@ -29084,10 +29285,18 @@ function renderMySessionSection() {
   const timeLabel = fmtTimeOfDay(asgn.startMin);
 
   const p = asgn.participantData || {};
-  const partName = [p.firstName, p.lastName].filter(Boolean).join(' ') || '·';
-  const addr = p.address ? [p.address, p.state, p.zipCode].filter(Boolean).join(', ') : '';
+  const tileTeamEarly = (typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : team;
+  const isTeamSession = (typeof isTeamSessionAssignment === 'function')
+    ? isTeamSessionAssignment(asgn)
+    : (asgn.source === 'team-session');
+  const partName = isTeamSession
+    ? ((tileTeamEarly && tileTeamEarly.name) || asgn.teamName || 'Team session')
+    : ([p.firstName, p.lastName].filter(Boolean).join(' ') || '·');
+  const addr = isTeamSession
+    ? ''
+    : (p.address ? [p.address, p.state, p.zipCode].filter(Boolean).join(', ') : '');
   const mapUrl = addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : '';
-  const phone = p.phone || '';
+  const phone = isTeamSession ? '' : (p.phone || '');
 
   const eyebrowText = total > 1
     ? (isFuture ? `Upcoming session ${idx + 1} of ${total}` : (isToday ? `Today's session ${idx + 1} of ${total}` : `Past session ${idx + 1} of ${total}`))
@@ -29097,7 +29306,7 @@ function renderMySessionSection() {
   // Resolve from the CAROUSEL-SELECTED assignment, not getOperatorTeam() (which
   // returns only the operator's first team membership → wrong pair for a
   // multi-team mod viewing another team's session).
-  const tileTeam = (typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : team;
+  const tileTeam = tileTeamEarly || ((typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : team);
   if (tileTeam) {
     const mates = getOperatorTeammates(tileTeam);
     const showMeta = typeof shouldBindAssignedSessionLinks === 'function'
