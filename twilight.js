@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826i';
-const APP_UPDATED_AT = '09/08/2026 09:03';
+const APP_VERSION = '1.3.090826j';
+const APP_UPDATED_AT = '09/08/2026 11:08';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5557,14 +5557,14 @@ function modviewMeta(view) {
 }
 
 function adminModviewPillHTML() {
-  const meta = modviewMeta();
+  const meta = modviewMeta('activities');
   return `<button type="button" class="admin-modview-pill" id="adminModviewPill" title="${escapeHTML(meta.title)}" aria-label="${escapeHTML(meta.title)}">${meta.icon}<span class="admin-modview-pill-label">${escapeHTML(meta.label)}</span></button>`;
 }
 
 function syncAdminModviewPill() {
   const pill = document.getElementById('adminModviewPill');
   if (!pill) return;
-  const meta = modviewMeta();
+  const meta = modviewMeta('activities');
   pill.title = meta.title;
   pill.setAttribute('aria-label', meta.title);
   pill.innerHTML = `${meta.icon}<span class="admin-modview-pill-label">${escapeHTML(meta.label)}</span>`;
@@ -5575,10 +5575,10 @@ function bindAdminModviewPill(root) {
   const pill = host.querySelector ? host.querySelector('#adminModviewPill') : document.getElementById('adminModviewPill');
   if (!pill) return;
   pill.addEventListener('click', () => {
-    const view = adminState.modView || 'list';
     selectAdminTab('moderators', {
       subtab: 'moderators',
-      scrollTo: view === 'team' ? 'teamsList' : 'modviewBody',
+      modView: 'activities',
+      scrollTo: 'modviewBody',
     });
   });
 }
