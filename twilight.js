@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826d';
+const APP_VERSION = '1.3.090826e';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -19794,32 +19794,40 @@ function renderTeamModal() {
   };
   const overlapHTML = buildTeamOverlapHTML();
 
-  // Replace / insert / remove the overlap disclosure after a primary
-  // pick without touching the mod-picker lists (scroll stays put).
+  // Refresh overlap after a primary pick without rebuilding the modal.
+  // Prefer in-place text/strip updates so .asgn-modal-body's child list
+  // stays stable (replacing <details> can reset the body's scrollTop).
   const refreshTeamOverlapPanel = () => {
-    const body = document.querySelector('#asgnModal .asgn-modal-body');
-    if (!body) return;
-    const existing = body.querySelector('[data-team-disclosure="overlap"]');
-    const html = buildTeamOverlapHTML();
-    if (!html) {
-      if (existing) existing.remove();
-      return;
-    }
-    const wrap = document.createElement('div');
-    wrap.innerHTML = html.trim();
-    const next = wrap.firstElementChild;
-    if (!next) return;
-    next.addEventListener('toggle', () => {
-      if (!adminState.modal) return;
-      adminState.modal._overlapOpen = next.open;
-    });
-    if (existing) {
-      existing.replaceWith(next);
-    } else {
+    withAsgnModalScrollPreserved(() => {
+      const body = document.querySelector('#asgnModal .asgn-modal-body');
+      if (!body) return;
+      const existing = body.querySelector('[data-team-disclosure="overlap"]');
+      const html = buildTeamOverlapHTML();
+      if (!html) {
+        if (existing) existing.remove();
+        return;
+      }
+      const wrap = document.createElement('div');
+      wrap.innerHTML = html.trim();
+      const next = wrap.firstElementChild;
+      if (!next) return;
+      if (existing) {
+        const title = existing.querySelector('.team-disclosure-title');
+        const freshTitle = next.querySelector('.team-disclosure-title');
+        if (title && freshTitle) title.textContent = freshTitle.textContent;
+        const strip = existing.querySelector('.team-overlap-strip');
+        const freshStrip = next.querySelector('.team-overlap-strip');
+        if (strip && freshStrip) strip.innerHTML = freshStrip.innerHTML;
+        return;
+      }
+      next.addEventListener('toggle', () => {
+        if (!adminState.modal) return;
+        adminState.modal._overlapOpen = next.open;
+      });
       const backup = body.querySelector('[data-team-disclosure="backup"]');
       if (backup) body.insertBefore(next, backup);
       else body.appendChild(next);
-    }
+    });
   };
 
   document.getElementById('asgnModalContent').innerHTML = `
@@ -19982,8 +19990,9 @@ function renderTeamModal() {
   }
   document.getElementById('teamSaveBtn').addEventListener('click', saveTeam);
   document.querySelectorAll('.mod-picker-item').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
       if (item.classList.contains('disabled')) return;
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
       const id = item.dataset.modId;
       const role = item.dataset.role;
       const list = role === 'primary' ? adminState.modal.primaryIds : adminState.modal.backupIds;
@@ -19996,30 +20005,29 @@ function renderTeamModal() {
         list.push(id);
       }
 
-      // Surgical DOM update · keep .mod-picker scroll where the admin is.
-      // A full renderTeamModal() rebuilds #asgnModalContent and resets both
-      // picker scrollTop and (often) .asgn-modal-body to the top.
-      const isNowSelected = !wasSelected;
-      item.classList.toggle('selected', isNowSelected);
+      withAsgnModalScrollPreserved(() => {
+        const isNowSelected = !wasSelected;
+        item.classList.toggle('selected', isNowSelected);
 
-      if (role === 'primary') {
-        const fieldEl = item.closest('.asgn-field');
-        const labelSpan = fieldEl && fieldEl.querySelector('.asgn-field-label > span');
-        if (labelSpan) labelSpan.textContent = `${list.length}/2`;
-        refreshTeamOverlapPanel();
-      } else {
-        const disclosure = item.closest('[data-team-disclosure="backup"]');
-        const labelSpan = disclosure && disclosure.querySelector('.team-disclosure-title > span');
-        if (labelSpan) labelSpan.textContent = `${list.length}/2`;
-      }
+        if (role === 'primary') {
+          const fieldEl = item.closest('.asgn-field');
+          const labelSpan = fieldEl && fieldEl.querySelector('.asgn-field-label > span');
+          if (labelSpan) labelSpan.textContent = `${list.length}/2`;
+          refreshTeamOverlapPanel();
+        } else {
+          const disclosure = item.closest('[data-team-disclosure="backup"]');
+          const labelSpan = disclosure && disclosure.querySelector('.team-disclosure-title > span');
+          if (labelSpan) labelSpan.textContent = `${list.length}/2`;
+        }
 
-      const oppositeRole = role === 'primary' ? 'backup' : 'primary';
-      const oppositeItem = document.querySelector(
-        `.mod-picker-item[data-mod-id="${CSS.escape(id)}"][data-role="${oppositeRole}"]`
-      );
-      if (oppositeItem) {
-        oppositeItem.classList.toggle('disabled', isNowSelected);
-      }
+        const oppositeRole = role === 'primary' ? 'backup' : 'primary';
+        const oppositeItem = document.querySelector(
+          `.mod-picker-item[data-mod-id="${CSS.escape(id)}"][data-role="${oppositeRole}"]`
+        );
+        if (oppositeItem) {
+          oppositeItem.classList.toggle('disabled', isNowSelected);
+        }
+      });
     });
   });
 }
@@ -20630,8 +20638,9 @@ function renderAssignmentModal() {
       adminState.modal.inlineTeamName = e.target.value;
     });
     document.querySelectorAll('.mod-picker-item').forEach(item => {
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
         if (item.classList.contains('disabled')) return;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
         const id = item.dataset.modId;
         const role = item.dataset.role;
         const list = role === 'primary'
@@ -20666,33 +20675,24 @@ function renderAssignmentModal() {
         // same since we're not changing the date or any availability
         // state · we're just toggling membership.
         // ===================================================================
-        const isNowSelected = !wasSelected;
-        // (1) Update the clicked item's own .selected class
-        item.classList.toggle('selected', isNowSelected);
+        withAsgnModalScrollPreserved(() => {
+          const isNowSelected = !wasSelected;
+          item.classList.toggle('selected', isNowSelected);
 
-        // (2) Update the role's counter in the field label. Both pickers
-        // share the same label format so we update the right one based
-        // on role. The label nodes are not given IDs so we find them
-        // via querySelector with text content as the anchor · fragile,
-        // so we use a more robust approach: query the field that
-        // contains this picker, then update its label's <span>.
-        const fieldEl = item.closest('.asgn-field');
-        if (fieldEl) {
-          const labelSpan = fieldEl.querySelector('.asgn-field-label > span');
-          if (labelSpan) labelSpan.textContent = `${list.length}/2`;
-        }
+          const fieldEl = item.closest('.asgn-field');
+          if (fieldEl) {
+            const labelSpan = fieldEl.querySelector('.asgn-field-label > span');
+            if (labelSpan) labelSpan.textContent = `${list.length}/2`;
+          }
 
-        // (3) Update the OPPOSITE picker's matching mod · disable if
-        // this one is now selected, re-enable if it's now deselected.
-        // The opposite-role item lives in the other .asgn-field; find
-        // it by matching data-mod-id + the opposite role.
-        const oppositeRole = role === 'primary' ? 'backup' : 'primary';
-        const oppositeItem = document.querySelector(
-          `.mod-picker-item[data-mod-id="${CSS.escape(id)}"][data-role="${oppositeRole}"]`
-        );
-        if (oppositeItem) {
-          oppositeItem.classList.toggle('disabled', isNowSelected);
-        }
+          const oppositeRole = role === 'primary' ? 'backup' : 'primary';
+          const oppositeItem = document.querySelector(
+            `.mod-picker-item[data-mod-id="${CSS.escape(id)}"][data-role="${oppositeRole}"]`
+          );
+          if (oppositeItem) {
+            oppositeItem.classList.toggle('disabled', isNowSelected);
+          }
+        });
       });
     });
     document.getElementById('inlineTeamCreateBtn').addEventListener('click', () => {
@@ -24198,6 +24198,41 @@ function showCellPicker(cell, dateStr, slotMin, existingAsgns) {
 function showAsgnModal() {
   document.getElementById('asgnModalOverlay').classList.add('open');
   document.getElementById('asgnModal').classList.add('open');
+}
+
+// Snapshot / restore every scrollport inside asgnModal (modal body + each
+// .mod-picker) plus window scroll. Chrome can reset a CSS-grid overflow
+// scroller when a child class changes, and inserting/replacing the overlap
+// <details> can reset .asgn-modal-body. Restore immediately and again on
+// the next two frames so layout + overflow-anchor cannot win.
+function captureAsgnModalScroll() {
+  const modal = document.getElementById('asgnModal');
+  const body = modal && modal.querySelector('.asgn-modal-body');
+  const pickers = modal ? [...modal.querySelectorAll('.mod-picker')] : [];
+  return {
+    body,
+    bodyY: body ? body.scrollTop : 0,
+    pickers: pickers.map(el => ({ el, y: el.scrollTop })),
+    winY: window.scrollY || window.pageYOffset || 0,
+  };
+}
+function restoreAsgnModalScroll(snap) {
+  if (!snap) return;
+  if (snap.body && snap.body.isConnected) snap.body.scrollTop = snap.bodyY;
+  for (const p of snap.pickers) {
+    if (p.el && p.el.isConnected) p.el.scrollTop = p.y;
+  }
+  if (snap.winY > 0) window.scrollTo(0, snap.winY);
+}
+function withAsgnModalScrollPreserved(fn) {
+  const snap = captureAsgnModalScroll();
+  const result = fn();
+  restoreAsgnModalScroll(snap);
+  requestAnimationFrame(() => {
+    restoreAsgnModalScroll(snap);
+    requestAnimationFrame(() => restoreAsgnModalScroll(snap));
+  });
+  return result;
 }
 
 // Returns true when ANY admin modal that admin interacts with is open.
