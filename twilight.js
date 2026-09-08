@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826q';
-const APP_UPDATED_AT = '09/08/2026 14:47';
+const APP_VERSION = '1.3.090826r';
+const APP_UPDATED_AT = '09/08/2026 15:03';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1307,12 +1307,11 @@ function entryBarHTML() {
   // started yet (e.g. opened the app over breakfast).
   const arrivedStr = state.arrivedAt ? renderArrivedPillHTML(state.arrivedAt) : '';
 
-  // Admin-assigned Lakitu PROJECT link. When the moderator's active team
-  // has a project assigned (via the team modal), surface it as a clickable
-  // link instead of the manual paste input. We also mirror it into
-  // state.participantId so validation, the worklog payload, and exports
-  // treat it as the session URL · but only when the mod hasn't already
-  // pasted a valid session URL of their own (graceful fallback).
+  // TeamLog Lakitu + Ring links for the displayed team (session team, or
+  // the operator's first membership). Shown whenever TeamLog has those
+  // URLs — not only during an open booking. We also mirror Lakitu into
+  // state.participantId during an open session so validation / worklog
+  // treat it as the session URL, unless the mod already pasted their own.
   const assignedLakitu = (typeof getAssignedLakituUrl === 'function') ? getAssignedLakituUrl() : '';
   // Only render a clickable href for http(s) URLs. Non-http schemes are
   // treated as "no link" even if getAssignedLakituUrl returned a value.
@@ -1327,12 +1326,9 @@ function entryBarHTML() {
 
   const assignedRingRaw = (typeof getAssignedRingUrl === 'function')
     ? getAssignedRingUrl()
-    : (typeof DEFAULT_RING_DASHBOARD_URL !== 'undefined' ? DEFAULT_RING_DASHBOARD_URL : '');
+    : '';
   const assignedRingHref = (assignedRingRaw && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(assignedRingRaw))
     ? assignedRingRaw : '';
-  const showSessionLinks = typeof shouldBindAssignedSessionLinks === 'function'
-    ? shouldBindAssignedSessionLinks()
-    : true;
 
   return `
     <div class="entry-bar">
@@ -1380,8 +1376,8 @@ function entryBarHTML() {
           </span>
         </span>
         <div class="entry-session-links">
-        ${showSessionLinks && assignedLakituHref ? `
-        <a id="ent_lakitu" class="entry-lakitu-btn" href="${escapeHTML(assignedLakituHref)}" target="_blank" rel="noopener noreferrer" title="Open the admin-assigned Lakitu session" data-lakitu-url="${escapeHTML(assignedLakituHref)}">
+        ${assignedLakituHref ? `
+        <a id="ent_lakitu" class="entry-lakitu-btn" href="${escapeHTML(assignedLakituHref)}" target="_blank" rel="noopener noreferrer" title="Open the TeamLog Lakitu project" data-lakitu-url="${escapeHTML(assignedLakituHref)}">
           <svg class="entry-lakitu-btn-logo" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="8" cy="8" r="7.25" fill="#000"/>
             <path d="M8 4 L11.6 11.5 L4.4 11.5 Z" fill="#fff" stroke="#fff" stroke-width="0.6" stroke-linejoin="round"/>
@@ -1394,8 +1390,8 @@ function entryBarHTML() {
         ` : `
         <div id="ent_lakitu" class="entry-lakitu-none" aria-disabled="true">No Lakitu</div>
         `}
-        ${showSessionLinks && assignedRingHref ? `
-        <a id="ent_ring" class="entry-lakitu-btn entry-ring-btn" href="${escapeHTML(assignedRingHref)}" target="_blank" rel="noopener noreferrer" title="Open Ring dashboard" data-ring-url="${escapeHTML(assignedRingHref)}">
+        ${assignedRingHref ? `
+        <a id="ent_ring" class="entry-lakitu-btn entry-ring-btn" href="${escapeHTML(assignedRingHref)}" target="_blank" rel="noopener noreferrer" title="Open the TeamLog Ring dashboard" data-ring-url="${escapeHTML(assignedRingHref)}">
           <svg class="entry-lakitu-btn-logo" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <circle cx="8" cy="8" r="7.25" fill="#1A1A1A"/>
             <circle cx="8" cy="8" r="4.35" fill="none" stroke="#fff" stroke-width="1.85"/>
@@ -3245,7 +3241,8 @@ const RING_DASHBOARDS = [
   { key: 'nighttime-centific-5', label: 'Nighttime Centific 5', url: 'https://account.ring.com/account/dashboard?l=2fa21650-29ae-414b-add7-872f30910719' },
 ];
 
-// Fallback Ring dashboard when a team has no assigned Ring link.
+// Legacy catalog entry only. Open Ring / nav Ring now use TeamLog URLs
+// and stay empty when a team has no Ring assignment.
 const DEFAULT_RING_DASHBOARD_URL = 'https://account.ring.com/account/dashboard?l=cc1589fd-d875-4973-b488-5f1c2b5f0f3e';
 
 function getRingDashboardByKey(key) {
@@ -3293,10 +3290,28 @@ function encodeTeamLakituProjectPayload(team) {
 
 function parseTeamLakituProjectFromPersonalEmail(value) {
   if (value == null) return null;
-  const s = String(value).trim();
-  if (!s || s[0] !== '{') return null;
+  // Some Power Automate / Excel paths already parse the cell into an object.
+  let obj = (typeof value === 'object' && !Array.isArray(value)) ? value : null;
+  if (!obj) {
+    let s = String(value).trim();
+    if (!s) return null;
+    if (s.includes('&quot;') || s.includes('&#34;')) {
+      s = s.replace(/&quot;/g, '"').replace(/&#34;/g, '"');
+    }
+    // Unwrap one extra JSON-string layer when Excel stored the payload quoted.
+    for (let i = 0; i < 2 && s[0] === '"'; i++) {
+      try {
+        const unwrapped = JSON.parse(s);
+        if (typeof unwrapped === 'string') { s = unwrapped.trim(); continue; }
+        if (unwrapped && typeof unwrapped === 'object') { obj = unwrapped; break; }
+      } catch (_) { break; }
+    }
+    if (!obj) {
+      if (!s || s[0] !== '{') return null;
+      try { obj = JSON.parse(s); } catch (_) { return null; }
+    }
+  }
   try {
-    const obj = JSON.parse(s);
     if (!obj || typeof obj !== 'object') return null;
     if (obj.type !== TEAM_LAKITU_PROJECT_PAYLOAD_TYPE) return null;
     const key = obj.lakituProjectKey != null ? String(obj.lakituProjectKey) : '';
@@ -3423,10 +3438,9 @@ function modListSortHeaderButton(key, label, sortSpec) {
 }
 
 
-// The admin-assigned Lakitu PROJECT url for the moderator's ACTIVE team,
-// or '' when nothing has been assigned. Resolves the team the same way the
-// entry-bar team cell does (team that owns the active assignment, else the
-// operator's first team membership) so the link matches the session shown.
+// TeamLog Lakitu PROJECT url for the moderator's displayed team
+// (assignment team when a session is open, else first membership),
+// or '' when TeamLog has no project for that team.
 function getAssignedLakituUrl() {
   let team = (typeof getSessionDisplayTeam === 'function') ? getSessionDisplayTeam() : null;
   if (!team) {
@@ -3444,8 +3458,6 @@ function getAssignedLakituUrl() {
   return '';
 }
 
-// Admin-assigned Ring dashboard for the moderator's active team, or the
-// default Ring dashboard when none is assigned.
 function isSessionWrapUpDone(asgn) {
   if (!asgn) return false;
   if (asgn.status === 'Completed') return true;
@@ -3493,8 +3505,10 @@ function getSessionDisplayTeam() {
   return (typeof getOperatorTeam === 'function') ? getOperatorTeam() : null;
 }
 
-// Team address + Lakitu + Ring stay live from the moment a session is
-// assigned until Station 4 wrap-up queues session_done. Not the reverse.
+// Team address (and Lakitu URL prefill into state.participantId) stay
+// live from the moment a session is assigned until Station 4 wrap-up
+// queues session_done. Open Lakitu / Open Ring buttons use TeamLog
+// URLs for the displayed team even when no booking is open.
 function shouldBindAssignedSessionLinks() {
   return !!getAssignedOpenSession();
 }
@@ -3510,6 +3524,8 @@ function clearSessionBackendBindingsAfterComplete(asgn) {
   return asgn || null;
 }
 
+// TeamLog Ring dashboard for the moderator's displayed team, or '' when
+// that team has no Ring link. Do not fall back to a hardcoded default.
 function getAssignedRingUrl() {
   let team = (typeof getSessionDisplayTeam === 'function') ? getSessionDisplayTeam() : null;
   if (!team) {
@@ -3523,20 +3539,27 @@ function getAssignedRingUrl() {
     ? resolveTeamRingDashboardUrl(team)
     : '';
   if (url && isSafeHttpsUrl(url)) return url;
-  return DEFAULT_RING_DASHBOARD_URL;
+  return '';
 }
 
-// Point the nav Ring button + menu Quick Link at the team Ring dashboard
-// (or the default). Safe to call often; no-ops when nodes are missing.
+// Point the nav Ring button + menu Quick Link at the TeamLog Ring
+// dashboard. Safe to call often; no-ops when nodes are missing.
 function syncModeratorRingLinks() {
   const url = (typeof getAssignedRingUrl === 'function')
     ? getAssignedRingUrl()
-    : DEFAULT_RING_DASHBOARD_URL;
-  if (!url || !isSafeHttpsUrl(url)) return;
-  const nav = document.getElementById('navLakituBtn');
-  if (nav && nav.tagName === 'A') nav.setAttribute('href', url);
-  const row = document.getElementById('lakituRow');
-  if (row && row.tagName === 'A') row.setAttribute('href', url);
+    : '';
+  const apply = (el) => {
+    if (!el || el.tagName !== 'A') return;
+    if (url && isSafeHttpsUrl(url)) {
+      el.setAttribute('href', url);
+      el.removeAttribute('aria-disabled');
+    } else {
+      el.setAttribute('href', '#');
+      el.setAttribute('aria-disabled', 'true');
+    }
+  };
+  apply(document.getElementById('navLakituBtn'));
+  apply(document.getElementById('lakituRow'));
 }
 
 // '' | 'empty' | 'invalid' | 'valid' · drives the entry-bar field error
