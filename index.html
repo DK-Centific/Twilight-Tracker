@@ -4541,13 +4541,13 @@ input#ent_lakitu.lakitu-invalid {
   width: 28px; height: 28px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--accent), #0891B2);
-  color: #001114;
+  background: var(--accent);
+  color: var(--pill-fg);
   font-size: 12px; font-weight: 700;
   flex-shrink: 0;
 }
-.ptab td a { color: var(--accent-ink); text-decoration: none; }
-.ptab td a:hover { text-decoration: underline; }
+.ptab td a { color: var(--accent); text-decoration: none; }
+.ptab td a:hover { text-decoration: underline; color: var(--accent-dim); }
 .ptab .ptab-bool {
   display: inline-block;
   font-size: 11px; font-weight: 600;
@@ -4960,8 +4960,8 @@ input#ent_lakitu.lakitu-invalid {
 .team-mod-chip-avatar {
   width: 16px; height: 16px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #0891B2);
-  color: #001114;
+  background: var(--accent);
+  color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; font-weight: 700;
   letter-spacing: 0.02em;
@@ -5611,8 +5611,8 @@ input#ent_lakitu.lakitu-invalid {
 .mod-picker-avatar {
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #0891B2);
-  color: #001114;
+  background: var(--accent);
+  color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   font-size: 10px; font-weight: 700;
   flex-shrink: 0;
@@ -7038,19 +7038,16 @@ input#ent_lakitu.lakitu-invalid {
      half the line-height gap above the 15px title's cap height. */
   margin-top: 4px;
   border-radius: 10px;
-  background: var(--accent-soft, rgba(0, 240, 255, 0.16));
-  color: var(--accent-ink);
+  background: var(--accent);
+  color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700;
   letter-spacing: 0.02em;
   flex-shrink: 0;
-  /* Initials get the colored fill; we keep the dark theme by using
-     accent-soft as background instead of accent (full-strength
-     accent on dark theme produces a too-bright eye-catch). */
 }
 .perf-tile-avatar.mod {
-  background: rgba(168, 85, 247, 0.16);
-  color: rgb(192, 132, 252);
+  background: var(--accent);
+  color: var(--pill-fg);
 }
 .perf-tile-title-block {
   min-width: 0;
@@ -10466,10 +10463,10 @@ button.perf-stat-chip.scheduled.active {
   color: var(--text3);
 }
 .assigned-tile-row a {
-  color: var(--accent-ink);
+  color: var(--accent);
   text-decoration: none;
 }
-.assigned-tile-row a:hover { text-decoration: underline; }
+.assigned-tile-row a:hover { text-decoration: underline; color: var(--accent-dim); }
 .no-assignment-tile {
   padding: 14px 14px 12px;
   background: var(--bg3);
@@ -11937,8 +11934,8 @@ button.perf-stat-chip.scheduled.active {
 .avail-hub-mod-avatar {
   width: 30px; height: 30px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--accent);
+  color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-num);
   font-size: 11.5px;
@@ -12155,12 +12152,12 @@ button.perf-stat-chip.scheduled.active {
 .sbm-mod-avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
-  background: var(--bg4); color: var(--text2);
+  background: var(--accent); color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   font-family: var(--font-num); font-size: 12px; font-weight: 700;
   flex-shrink: 0;
 }
-.sbm-mod-row.selected .sbm-mod-avatar { background: var(--accent); color: #001114; }
+.sbm-mod-row.selected .sbm-mod-avatar { background: var(--accent); color: var(--pill-fg); }
 .sbm-mod-info { flex: 1; min-width: 0; }
 .sbm-mod-name { font-size: 13.5px; font-weight: 600; color: var(--text); letter-spacing: -0.005em; }
 .sbm-mod-id { font-size: 11px; color: var(--text3); font-family: var(--font-num); }
@@ -13653,9 +13650,7 @@ h1, h2, h3,
   box-shadow: 10px 10px 22px var(--neu-dark), -10px -10px 22px var(--neu-light) !important;
 }
 #adminApp .ov-stat-glow { display: none !important; }
-#adminApp .ov-stat-icon,
-#adminApp .perf-tile-avatar,
-#adminApp .avail-hub-mod-avatar {
+#adminApp .ov-stat-icon {
   width: 40px; height: 40px;
   border-radius: 50% !important;
   border: none !important;
@@ -13663,8 +13658,6 @@ h1, h2, h3,
   box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
   color: var(--ov-tint, var(--accent));
 }
-#adminApp .perf-tile-avatar { width: 36px; height: 36px; color: var(--accent); }
-#adminApp .perf-tile-avatar.mod { background: var(--well-bg) !important; color: var(--accent); }
 #adminApp .ov-stat-label {
   font-size: 11px;
   font-weight: 500;
@@ -13780,23 +13773,40 @@ h1, h2, h3,
 #adminTabBody.admin-enter .ov-chart-card:nth-child(1) { animation-delay: 0.18s; }
 #adminTabBody.admin-enter .ov-chart-card:nth-child(2) { animation-delay: 0.24s; }
 
-/* Moderators list · Helios yellow emails + avatars matching adminAvatar
+/* Helios yellow emails + matching solid avatars · Admin + Moderator
    Dark: --accent #E8C24A · Light: darker --accent #C68A00 */
-#adminApp .mod-table a[href^="mailto:"],
-#adminApp .mod-row-value a[href^="mailto:"] {
+#app a[href^="mailto:"],
+#adminApp a[href^="mailto:"] {
   color: var(--accent) !important;
 }
-#adminApp .mod-table a[href^="mailto:"]:hover,
-#adminApp .mod-row-value a[href^="mailto:"]:hover {
+#app a[href^="mailto:"]:hover,
+#adminApp a[href^="mailto:"]:hover {
   color: var(--accent-dim) !important;
 }
+#app .user-chip .avatar,
+#app #userAvatar,
+#adminApp .user-chip .avatar,
+#adminApp #adminAvatar,
+#app .mod-avatar,
+#app .mod-avatar-sm,
 #adminApp .mod-avatar,
 #adminApp .mod-avatar-sm,
-#adminApp .user-chip .avatar,
-#adminAvatar {
+#app .ptab-avatar,
+#adminApp .ptab-avatar,
+#app .team-mod-chip-avatar,
+#adminApp .team-mod-chip-avatar,
+#app .mod-picker-avatar,
+#adminApp .mod-picker-avatar,
+#app .perf-tile-avatar,
+#adminApp .perf-tile-avatar,
+#app .avail-hub-mod-avatar,
+#adminApp .avail-hub-mod-avatar,
+#app .sbm-mod-avatar,
+#adminApp .sbm-mod-avatar {
   background: var(--accent) !important;
   color: var(--pill-fg) !important;
   background-image: none !important;
+  box-shadow: none !important;
 }
 </style>
 

@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826b';
+const APP_VERSION = '1.3.090826c';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -22168,8 +22168,8 @@ function openViewAssignmentModal(asgnId) {
         <div style="font-size: 15px; font-weight: 600; color: var(--text);">${escapeHTML(partName)}</div>
         ${a.participantData ? `
           <div style="margin-top: 6px; font-size: 13px; color: var(--text2); line-height: 1.6;">
-            ${a.participantData.email ? `<a href="mailto:${escapeForUrl(a.participantData.email)}" style="color: var(--accent-ink)">${escapeHTML(a.participantData.email)}</a><br>` : ''}
-            ${a.participantData.phone ? `<a href="tel:${escapeForUrl(a.participantData.phone)}" style="color: var(--accent-ink)">${escapeHTML(a.participantData.phone)}</a><br>` : ''}
+            ${a.participantData.email ? `<a href="mailto:${escapeForUrl(a.participantData.email)}" style="color: var(--accent)">${escapeHTML(a.participantData.email)}</a><br>` : ''}
+            ${a.participantData.phone ? `<a href="tel:${escapeForUrl(a.participantData.phone)}" style="color: var(--accent)">${escapeHTML(a.participantData.phone)}</a><br>` : ''}
             ${a.participantData.address ? escapeHTML(a.participantData.address) + (a.participantData.state ? ', ' + escapeHTML(a.participantData.state) : '') + (a.participantData.zipCode ? ' ' + escapeHTML(a.participantData.zipCode) : '') : ''}
           </div>` : ''}
       </div>
