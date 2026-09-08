@@ -4999,8 +4999,32 @@ input#ent_lakitu.lakitu-invalid {
 .team-action-btn:hover { background: var(--bg2); color: var(--text); }
 .team-action-btn.danger:hover { color: var(--red); background: rgba(239,68,68,0.10); }
 .team-roster {
+  display: flex; align-items: center; gap: 8px;
+}
+.team-roster-members {
   display: flex; align-items: center; gap: 4px;
   flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
+}
+.team-live-pill {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 99px;
+  line-height: 1.2;
+}
+.team-live-pill.is-live {
+  background: var(--green-bg);
+  color: var(--green-text);
+}
+.team-live-pill.is-offline {
+  background: var(--bg4);
+  color: var(--text3);
 }
 .team-mod-chip {
   display: inline-flex; align-items: center; gap: 5px;
