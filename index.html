@@ -369,6 +369,8 @@ a.icon-btn:focus-visible {
   background: var(--sidebar-bg);
   border-right: 0.5px solid var(--border);
   padding: 18px 14px 28px;
+  display: flex;
+  flex-direction: column;
   /* Sticky position must match the nav's actual height, which now
      includes the iOS safe-area-inset-top. Without this update, the
      sidebar would shift 52px below the original spot but the nav now
@@ -386,6 +388,16 @@ a.icon-btn:focus-visible {
   text-transform: uppercase; color: var(--text3);
   padding: 6px 10px 12px;
 }
+.sidebar-build-stamp {
+  margin-top: auto;
+  padding: 18px 10px 2px;
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+  color: var(--text3);
+  opacity: 0.55;
+}
+.sidebar-build-stamp-updated { margin-top: 2px; }
 
 .station-item {
   display: flex; align-items: center; gap: 11px;
@@ -2121,17 +2133,22 @@ a.icon-btn:focus-visible {
   padding: 12px 14px;
   border-bottom: 0.5px solid var(--border);
 }
-.scenario-table thead th:first-child { padding-left: 20px; width: 44px; text-align: center; }
-.scenario-table thead th.col-id { width: 100px; }
-.scenario-table thead th.col-iter { width: 130px; }
-.scenario-table thead th.col-status { width: 170px; }
-.scenario-table thead th.col-name { width: 24%; }
-/* NOTES takes leftover table space in web view, so it visibly grows
-   and shrinks as the window / table gets wider or narrower.
-   Below 960px the table is hidden in favor of cards. */
+.scenario-table thead th:first-child,
+.scenario-table td.col-num { padding-left: 20px; width: 6%; text-align: center; }
+.scenario-table thead th.col-id,
+.scenario-table td.col-id { width: 12%; }
+.scenario-table thead th.col-iter,
+.scenario-table td.col-iter { width: 12%; }
+.scenario-table thead th.col-status,
+.scenario-table td.col-status { width: 16%; }
+.scenario-table thead th.col-name,
+.scenario-table td.col-name { width: 22%; }
+/* NOTES is a share of the table width in web view, so it grows and
+   shrinks when the window is resized. Below 960px the table hides. */
 .scenario-table thead th.col-notes,
 .scenario-table td.col-notes {
-  width: auto;
+  width: 32%;
+  min-width: 0;
 }
 
 .scenario-table tbody tr {
@@ -2149,7 +2166,7 @@ a.icon-btn:focus-visible {
 .scenario-table td.col-num {
   font-family: var(--font-num);
   padding-left: 20px;
-  width: 44px; text-align: center;
+  width: 6%; text-align: center;
   color: var(--text3);
   font-size: 12px; font-weight: 600;
   letter-spacing: 0.04em;
@@ -2205,6 +2222,9 @@ a.icon-btn:focus-visible {
 
 .scenario-notes {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   font-family: var(--font);
   font-size: 13px;
   background: transparent;
@@ -12681,6 +12701,10 @@ button.perf-stat-chip.scheduled.active {
           </div>
         </div>
       </div>
+      <div class="sidebar-build-stamp" id="sidebarBuildStamp" aria-hidden="true">
+        <div class="sidebar-build-stamp-ver" id="sidebarBuildStampVer"></div>
+        <div class="sidebar-build-stamp-updated" id="sidebarBuildStampUpdated"></div>
+      </div>
     </aside>
 
     <!-- CONTENT -->
@@ -13889,6 +13913,10 @@ h1, h2, h3,
 .app-build-stamp-updated { margin-top: 1px; }
 /* Keep the faint stamp off the login card so the sign-in page has no version. */
 body:has(#loginScreen:not([style*="display: none"])) .app-build-stamp {
+  display: none;
+}
+/* Moderator app: version lives under the left sidebar, not over the page. */
+#app[style*="display: block"] ~ #appBuildStamp {
   display: none;
 }
 @media (max-width: 760px) {

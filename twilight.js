@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826p';
-const APP_UPDATED_AT = '09/08/2026 14:38';
+const APP_VERSION = '1.3.090826q';
+const APP_UPDATED_AT = '09/08/2026 14:47';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2462,8 +2462,8 @@ function renderStation(key, opts) {
                 <td class="col-num">${sc.num}</td>
                 <td class="col-id">${escapeHTML(sc.id)}</td>
                 <td class="col-name">${escapeHTML(sc.name)}${vehIcon}</td>
-                <td>${rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}</td>
-                <td>${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
+                <td class="col-iter">${rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}</td>
+                <td class="col-status">${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
                 ${station.type === 'capture' ? `
                   <td class="col-notes">
                     <input class="scenario-notes" data-num="${sc.num}" data-key="${station.key}"
@@ -32719,13 +32719,19 @@ function init() {
   // build stamp. The login card no longer shows a version number.
   const sidebarVer = document.getElementById('sidebarVersionLabel');
   if (sidebarVer) sidebarVer.textContent = `Centific Data Collection · Project Twilight · v${APP_VERSION}`;
+  const stampVerText = 'v' + APP_VERSION;
+  const stampUpdatedText = '(last updated: ' + APP_UPDATED_AT + ')';
   const buildStamp = document.getElementById('appBuildStamp');
   if (buildStamp) {
     const ver = document.getElementById('appBuildStampVer');
     const updated = document.getElementById('appBuildStampUpdated');
-    if (ver) ver.textContent = 'v' + APP_VERSION;
-    if (updated) updated.textContent = '(last updated: ' + APP_UPDATED_AT + ')';
+    if (ver) ver.textContent = stampVerText;
+    if (updated) updated.textContent = stampUpdatedText;
   }
+  const sidebarStampVer = document.getElementById('sidebarBuildStampVer');
+  const sidebarStampUpdated = document.getElementById('sidebarBuildStampUpdated');
+  if (sidebarStampVer) sidebarStampVer.textContent = stampVerText;
+  if (sidebarStampUpdated) sidebarStampUpdated.textContent = stampUpdatedText;
 
   // Try to auto-resume if a previous login was recorded. We look up
   // the most-recently logged-in username (kept at LAST_LOGIN_KEY) and
