@@ -886,6 +886,11 @@ a.icon-btn:focus-visible {
   flex: 1.1;
   min-width: 150px;
 }
+.entry-field-arrived .btn {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
+}
 /* "I've arrived" CTA · kicks off the hourly reminder loop. Styled as
    a soft accent button so it reads as actionable but doesn't compete
    with primary CTAs elsewhere in the app. */
@@ -3425,10 +3430,10 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
 }
 /* Inside the drawer the entry bar lays out as an even 2-column grid: the
    short fields fill the first row (Username | Session Date) with Team next,
-   then On-site and the admin-assigned Lakitu session each span the full
+   then Start station and the admin-assigned Lakitu session each span the full
    width at the bottom · Lakitu last. CSS `order` does the reordering so the
    DESKTOP entry bar (shared markup) is untouched: default(0) items keep DOM
-   order (Username, Session Date); Team / On-site / Lakitu are pulled to
+   order (Username, Session Date); Team / Start station / Lakitu are pulled to
    explicit positions. min-width:0 lets every cell shrink to its grid track
    (the desktop min-widths on the wide/arrived variants would otherwise blow
    out the 2 cols). */

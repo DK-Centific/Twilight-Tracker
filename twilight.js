@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826w';
-const APP_UPDATED_AT = '09/08/2026 16:20';
+const APP_VERSION = '1.3.090826x';
+const APP_UPDATED_AT = '09/08/2026 16:36';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1025,29 +1025,6 @@ function renderWelcome() {
     ${isStationAccordionMode() ? '' : entryBarHTML()}
     ${renderWelcomeWorklogBannerHTML()}
     <div class="card">
-      <div class="card-title">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="color:var(--accent-ink)">
-          <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/>
-          <path d="M8 4v4l2.5 2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        </svg>
-        Today's session
-      </div>
-      <div class="card-desc">
-        ${todayPretty()} · ${STATIONS.length} stations to complete · Rigs <strong>${RIGS.join(' + ')}</strong> · Equipment <strong>${EQUIPMENT_LIST.filter(i => !i.optional && state.equipment[i.id]).length} / ${EQUIPMENT_LIST.filter(i => !i.optional).length}</strong> packed
-      </div>
-      <div class="actions-bar" style="margin-top: 8px;">
-        <div class="left">
-          <span class="station-summary">
-            <span class="summary-num">${getOverallProgress().done}</span> / ${STATIONS.length} stations complete
-          </span>
-        </div>
-        <div class="right">
-          ${renderTodaysSessionActionHTML()}
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
       <div class="card-title">How it works</div>
       <div class="card-desc">
         Night-time collection runs after sunset across <strong>2 locations</strong> · Front Yard and Backyard · each recorded twice: once <span class="lights-pill on">Lights ON</span> and once <span class="lights-pill off">Lights OFF</span> (Stations 1–4 here).
@@ -1211,29 +1188,18 @@ function renderWelcomeWorklogBannerHTML() {
   </div>`;
 }
 
-// What appears in the "Today's session" card's right-hand action area.
-// Reflects the same state machine as the banner.
-function renderTodaysSessionActionHTML() {
-  const asgn = getOperatorAssignment();
-  const todayStr = getPSTDateString();  // PST team-reference day (see renderWelcomeWorklogBannerHTML)
-  if (!asgn || asgn.date !== todayStr) {
-    // Fallback: legacy "jump to first station" button (no assignment context)
-    return `<button class="btn btn-secondary" onclick="document.querySelector('.station-item').click()">
+function goToFirstStation() {
+  const item = document.querySelector('.station-item');
+  if (item) item.click();
+}
+
+function startFirstStationButtonHTML() {
+  return `<button type="button" class="btn btn-secondary" id="ent_start_first_btn" title="Open the first station">
       Start with first station
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>`;
-  }
-  // With an assignment, the banner above shows the action · keep this card
-  // focused on stats. Show a subtle "View first station →" link that always
-  // navigates regardless of state.
-  return `<button class="btn btn-ghost" onclick="document.querySelector('.station-item').click()" style="font-size: 13px;">
-    Open first station
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-      <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </button>`;
 }
 
 // Wire welcome-banner buttons. Called after renderWelcome rebuilds the DOM.
@@ -1298,14 +1264,6 @@ function entryBarHTML() {
   // changes. The Worklog backend payload also maps state.participantId
   // to its "participantId" column (see buildWorklogRow caller),
   // ensuring all downstream surfaces use the same identifier.
-
-  // Arrival marker + live elapsed counter. Once mod clicks "Arrived",
-  // the button transforms into a live "Arrived 10:23 AM · 1h 04m"
-  // pill that ticks every minute (driven by an interval bound in
-  // bindEntryFields). Until they click it, the reminder timer doesn't
-  // run · explicit opt-in avoids spamming mods who haven't actually
-  // started yet (e.g. opened the app over breakfast).
-  const arrivedStr = state.arrivedAt ? renderArrivedPillHTML(state.arrivedAt) : '';
 
   // TeamLog Lakitu + Ring links for the displayed team (session team, or
   // the operator's first membership). Shown whenever TeamLog has those
@@ -1417,22 +1375,9 @@ function entryBarHTML() {
         <div class="field-readonly">${todayPretty()}</div>
       </div>
       <div class="entry-divider"></div>
-      <!-- Arrival affordance · wide enough to hold either the call-to-
-           action button OR the live elapsed-time pill once clicked.
-           Living inside .entry-field-arrived (a slightly wider variant)
-           so the layout doesn't reflow when the button transforms. -->
       <div class="entry-field entry-field-arrived">
-        <label>On-site</label>
-        ${state.arrivedAt
-          ? arrivedStr
-          : `<button type="button" id="ent_arrived_btn" class="entry-arrived-btn" title="Mark that you've arrived at the participant's home · starts the hourly progress check-in reminders">
-               <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                 <path d="M8 2a4 4 0 014 4c0 3-4 8-4 8s-4-5-4-8a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/>
-                 <circle cx="8" cy="6" r="1.4" fill="currentColor"/>
-               </svg>
-               I've arrived
-             </button>`
-        }
+        <label>Stations</label>
+        ${startFirstStationButtonHTML()}
       </div>
     </div>
   `;
@@ -1442,7 +1387,7 @@ function entryBarHTML() {
    MOBILE "MY SESSION" DRAWER (v1.2.061226)
    =====================================================================
    On mobile (<=760px) the full entry bar (Username, Lakitu session,
-   Participant Name, Team, Session Date, On-site) is relocated out of the
+   Participant Name, Team, Session Date, Start station) is relocated out of the
    page body into a slide-down drawer toggled by the nav user-chip. The
    page body (welcome + each accordion station body) no longer shows the
    full bar · station bodies show only a READ-ONLY Lakitu reference (the
@@ -1696,22 +1641,11 @@ function bindEntryFields() {
   // is still maintained from the booking by syncBookedParticipantName() (for
   // exports / team matching), but there is no editable field to bind here.
 
-  // Arrived button · sets arrivedAt = now and kicks off the reminder
-  // loop. Re-renders the entry bar in place to show the elapsed pill.
-  const arrivedBtn = document.getElementById('ent_arrived_btn');
-  if (arrivedBtn && !arrivedBtn.dataset.boundEntry) {
-    arrivedBtn.dataset.boundEntry = '1';
-    arrivedBtn.addEventListener('click', () => {
-      if (typeof confirmOperatorArrival === 'function') {
-        confirmOperatorArrival();
-        return;
-      }
-      state.arrivedAt = new Date().toISOString();
-      state.remindersShown = [];
-      saveState();
-      if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
-      if (typeof renderApp === 'function') renderApp();
-      schedulePerHourReminder();
+  const startFirstBtn = document.getElementById('ent_start_first_btn');
+  if (startFirstBtn && !startFirstBtn.dataset.boundEntry) {
+    startFirstBtn.dataset.boundEntry = '1';
+    startFirstBtn.addEventListener('click', () => {
+      if (typeof goToFirstStation === 'function') goToFirstStation();
     });
   }
 
