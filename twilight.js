@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826y';
-const APP_UPDATED_AT = '09/08/2026 16:50';
+const APP_VERSION = '1.3.090826z';
+const APP_UPDATED_AT = '09/08/2026 18:27';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3405,6 +3405,9 @@ function getModListSortValue(mod, key) {
   }
   if (key === 'phone') return f.phoneNumber || '';
   if (key === 'centificEmail') return f.centificEmail || '';
+  if (key === 'status') return (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, f))
+    ? 'Deactivated'
+    : 'Active';
   return '';
 }
 
@@ -9527,6 +9530,7 @@ async function loadModerators(force = false) {
     // Never keep Password (or similar) from the directory read in memory /
     // localStorage. Prefer excluding Password from the PA Response mapping.
     adminState.moderators = arr.map(stripModeratorSecrets);
+    if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators(adminState.moderators);
   } catch (e) {
     if (e && e.isCallerAbort) {
       console.log('[Twilight] Moderators load aborted (force-refresh took over)');
@@ -10111,6 +10115,156 @@ function applyModeratorTrackingMode() {
   }
 }
 
+const DEACTIVATED_USERS_LS_KEY = 'centific_twilight_deactivated_users_v1';
+const DEACTIVATED_USERS_SETTING_ID = 'ss_app_setting_deactivated_users';
+let _deactivatedUserIds = new Set();
+
+function orbitLoginMatchKey(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function loadDeactivatedUsersCache() {
+  try {
+    const raw = localStorage.getItem(DEACTIVATED_USERS_LS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      _deactivatedUserIds = new Set(parsed.map(orbitLoginMatchKey).filter(Boolean));
+    }
+  } catch (_) {}
+}
+
+function cacheDeactivatedUserIds(ids) {
+  _deactivatedUserIds = new Set((ids || []).map(orbitLoginMatchKey).filter(Boolean));
+  try { localStorage.setItem(DEACTIVATED_USERS_LS_KEY, JSON.stringify(Array.from(_deactivatedUserIds))); } catch (_) {}
+}
+
+function parseModeratorDeactivatedField(row) {
+  if (!row || typeof row !== 'object') return null;
+  const raw = (typeof pickField === 'function')
+    ? pickField(row, 'deactivated', 'Deactivated', 'isDeactivated', 'IsDeactivated', 'disabled', 'Disabled', 'inactive', 'Inactive', 'userStatus', 'UserStatus', 'accountStatus', 'AccountStatus')
+    : (row.deactivated != null ? row.deactivated : row.userStatus);
+  if (raw === true || raw === 1) return true;
+  if (raw === false || raw === 0) return false;
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'deactivated', 'deactive', 'inactive', 'disabled'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off', 'active', 'enabled'].includes(s)) return false;
+  return null;
+}
+
+function isUserDeactivated(orbitId, row) {
+  const key = orbitLoginMatchKey(orbitId);
+  if (key && _deactivatedUserIds.has(key)) return true;
+  if (row && parseModeratorDeactivatedField(row) === true) return true;
+  return false;
+}
+
+function setUserDeactivatedInCache(orbitId, deactivated) {
+  const key = orbitLoginMatchKey(orbitId);
+  if (!key) return;
+  if (deactivated) _deactivatedUserIds.add(key);
+  else _deactivatedUserIds.delete(key);
+  cacheDeactivatedUserIds(Array.from(_deactivatedUserIds));
+}
+
+function overlayDeactivatedFlagsOnModerators(rows) {
+  const list = Array.isArray(rows) ? rows : ((typeof adminState !== 'undefined' && adminState && adminState.moderators) || []);
+  let changed = false;
+  list.forEach(m => {
+    if (!m || typeof m !== 'object') return;
+    const id = (typeof pickField === 'function')
+      ? pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id')
+      : m.orbitLoginId;
+    const fromRow = parseModeratorDeactivatedField(m);
+    const key = orbitLoginMatchKey(id);
+    if (fromRow === true && key && !_deactivatedUserIds.has(key)) {
+      _deactivatedUserIds.add(key);
+      changed = true;
+    }
+    m.deactivated = !!(key && _deactivatedUserIds.has(key)) || fromRow === true;
+  });
+  if (changed) cacheDeactivatedUserIds(Array.from(_deactivatedUserIds));
+}
+
+function ingestDeactivatedUsersFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== DEACTIVATED_USERS_SETTING_ID && id !== 'app_setting_deactivated_users') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (parsed && Array.isArray(parsed.ids)) {
+    cacheDeactivatedUserIds(parsed.ids);
+    if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators();
+  }
+}
+
+async function persistDeactivatedUsersSetting() {
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const payload = {
+    sessionStateId: DEACTIVATED_USERS_SETTING_ID,
+    assignmentId: 'app_setting_deactivated_users',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'deactivatedUsers',
+      ids: Array.from(_deactivatedUserIds),
+      updatedAt: new Date().toISOString(),
+      updatedBy: (state && state.username) || 'Admin',
+    }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Deactivated-users setting write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+async function refreshDeactivatedUsers() {
+  loadDeactivatedUsersCache();
+  overlayDeactivatedFlagsOnModerators();
+  if (typeof fetchSessionStateRows !== 'function') return Array.from(_deactivatedUserIds);
+  try {
+    const rows = await fetchSessionStateRows();
+    if (Array.isArray(rows)) ingestDeactivatedUsersFromSessionRows(rows);
+  } catch (_) {}
+  overlayDeactivatedFlagsOnModerators();
+  return Array.from(_deactivatedUserIds);
+}
+
 function ingestAppSettingsFromSessionRows(rows) {
   if (!Array.isArray(rows)) return;
   let best = null;
@@ -10120,16 +10274,20 @@ function ingestAppSettingsFromSessionRows(rows) {
     if (id !== MOD_TRACKING_SETTING_ID && id !== 'app_setting_mod_tracking') continue;
     if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
   }
-  if (!best) return;
-  let parsed = best.stateJson;
-  if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  if (best) {
+    let parsed = best.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+    }
+    if (parsed && typeof parsed.enabled === 'boolean') {
+      cacheModTrackingEnabled(parsed.enabled);
+      syncModTrackingUi();
+    }
   }
-  if (parsed && typeof parsed.enabled === 'boolean') {
-    cacheModTrackingEnabled(parsed.enabled);
-    syncModTrackingUi();
-  }
+  ingestDeactivatedUsersFromSessionRows(rows);
 }
+
+loadDeactivatedUsersCache();
 
 async function persistModTrackingSetting(enabled) {
   if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
@@ -12109,8 +12267,9 @@ function renderModTableHTML(mods) {
         <thead>
           <tr>
             ${modListSortHeaderButton('name', 'Name', sortSpec)}
-            ${modListSortHeaderButton('orbitLoginId', 'Orbit Login ID', sortSpec)}
+            ${modListSortHeaderButton('orbitLoginId', 'Twilight Login ID', sortSpec)}
             ${modListSortHeaderButton('role', 'Role', sortSpec)}
+            ${modListSortHeaderButton('status', 'Status', sortSpec)}
             ${modListSortHeaderButton('phone', 'Phone', sortSpec)}
             ${modListSortHeaderButton('centificEmail', 'Centific Email', sortSpec)}
             <th>Actions</th>
@@ -12122,8 +12281,9 @@ function renderModTableHTML(mods) {
     const name = [f.firstName, f.lastName].filter(Boolean).join(' ').trim() || f.orbitLoginId || '—';
     const origIdx = (adminState.moderators || []).indexOf(m);
     const idx = origIdx >= 0 ? origIdx : i;
+    const deactivated = !!(f.deactivated || (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, m)));
     return `
-      <tr>
+      <tr class="${deactivated ? 'is-deactivated' : ''}">
         <td>
           <div class="mod-table-name">
             <div class="mod-avatar mod-avatar-sm">${escapeHTML(avatarLetters(f.firstName, f.lastName))}</div>
@@ -12132,6 +12292,7 @@ function renderModTableHTML(mods) {
         </td>
         <td class="mod-table-mono">${escapeHTML(f.orbitLoginId || '—')}</td>
         <td><span class="mod-role-pill">${escapeHTML(directoryLoginRoleLabel(f.LoginRole))}</span></td>
+        <td>${modUserStatusPillHTML(deactivated)}</td>
         <td>${escapeHTML(f.phoneNumber || '—')}</td>
         <td>${f.centificEmail ? `<a href="mailto:${escapeForUrl(f.centificEmail)}">${escapeHTML(f.centificEmail)}</a>` : '—'}</td>
         <td class="mod-table-actions">
@@ -12161,6 +12322,7 @@ function extractModeratorFields(m) {
     carType: pickField(m, 'carType', 'car_type', 'CarType', 'Car Type', 'vehicleType', 'vehicle_type', 'VehicleType', 'Vehicle Type'),
     'off-date': pickField(m, 'off-date', 'offDate', 'off_date', 'OffDate', 'Off Date'),
     LoginRole: pickField(m, 'LoginRole', 'loginRole', 'login_role', 'Login Role', 'LOGINROLE'),
+    deactivated: (typeof isUserDeactivated === 'function') ? isUserDeactivated(pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id'), m) : false,
   };
 }
 
@@ -12195,6 +12357,7 @@ function emptyModUserFormValues() {
     smartPhone: '',
     carType: '',
     'off-date': '',
+    deactivated: false,
   };
 }
 
@@ -12219,7 +12382,13 @@ function openModUserModal(mode, row) {
   const values = emptyModUserFormValues();
   if (mode === 'edit' && row) {
     const f = extractModeratorFields(row);
-    Object.keys(values).forEach(k => { values[k] = f[k] != null ? String(f[k]) : ''; });
+    Object.keys(values).forEach(k => {
+      if (k === 'deactivated') {
+        values[k] = !!(f.deactivated || (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, row)));
+        return;
+      }
+      values[k] = f[k] != null ? String(f[k]) : '';
+    });
     values.LoginRole = canonicalizeDirectoryLoginRole(values.LoginRole) || 'Mod';
   }
   adminState.modUserModal = {
@@ -12301,7 +12470,7 @@ function renderModUserModal() {
           Your form draft stays here until that URL is set.
         </div>` : ''}
       <div class="mod-user-form-grid">
-        ${field('orbitLoginId', 'Orbit Login ID', { required: true, readonly: isEdit, hint: isEdit ? 'Orbit Login ID cannot change on edit (Excel key column).' : 'Must be unique in the directory.' })}
+        ${field('orbitLoginId', 'Twilight Login ID', { required: true, readonly: isEdit, hint: isEdit ? 'Twilight Login ID cannot change on edit (Excel key column).' : 'Must be unique in the directory.' })}
         ${field('LoginRole', 'Login Role', { required: true, type: 'select' })}
         ${field('firstName', 'First Name', { required: true })}
         ${field('lastName', 'Last Name', { required: true })}
@@ -12309,6 +12478,13 @@ function renderModUserModal() {
         ${field('centificEmail', 'Centific Email', { type: 'email' })}
         ${field('personalEmail', 'Personal Email', { type: 'email' })}
         ${field('carType', 'Vehicle Type')}
+      </div>
+      <div class="mod-user-deactivate-row">
+        <div class="mod-user-deactivate-copy">
+          <span class="asgn-field-label">Deactivate user</span>
+          <div class="asgn-field-hint">${v.deactivated ? 'This person cannot sign in.' : 'Turn on to block sign-in for this person.'}</div>
+        </div>
+        <button type="button" class="theme-toggle mod-user-deactivate-toggle ${v.deactivated ? 'on' : ''}" id="modUserDeactivateToggle" role="switch" aria-checked="${v.deactivated ? 'true' : 'false'}" aria-label="Deactivate user" ${state.saving ? 'disabled' : ''}></button>
       </div>
       ${state.error ? `<div class="mod-user-form-error" role="alert">${escapeHTML(state.error)}</div>` : ''}
     </div>
@@ -12322,15 +12498,37 @@ function renderModUserModal() {
   document.getElementById('modUserModalClose').addEventListener('click', closeModUserModal);
   document.getElementById('modUserCancelBtn').addEventListener('click', closeModUserModal);
   document.getElementById('modUserSaveBtn').addEventListener('click', () => submitModUserModal());
+  const deactBtn = document.getElementById('modUserDeactivateToggle');
+  if (deactBtn) {
+    deactBtn.addEventListener('click', () => {
+      if (state.saving) return;
+      const next = !deactBtn.classList.contains('on');
+      deactBtn.classList.toggle('on', next);
+      deactBtn.setAttribute('aria-checked', next ? 'true' : 'false');
+      state.values = state.values || emptyModUserFormValues();
+      state.values.deactivated = next;
+      const hint = deactBtn.parentElement && deactBtn.parentElement.querySelector('.asgn-field-hint');
+      if (hint) hint.textContent = next ? 'This person cannot sign in.' : 'Turn on to block sign-in for this person.';
+    });
+  }
+}
+
+function modUserStatusPillHTML(deactivated) {
+  return deactivated
+    ? `<span class="mod-status-pill is-deactivated">Deactivated</span>`
+    : `<span class="mod-status-pill is-active">Active</span>`;
 }
 
 function readModUserFormValues() {
   const out = emptyModUserFormValues();
   Object.keys(out).forEach(k => {
+    if (k === 'deactivated') return;
     const el = document.getElementById('modUser_' + k);
     if (!el) return;
     out[k] = String(el.value || '').trim();
   });
+  const deactBtn = document.getElementById('modUserDeactivateToggle');
+  out.deactivated = !!(deactBtn && deactBtn.classList.contains('on'));
   return out;
 }
 
@@ -12340,7 +12538,7 @@ function isBasicEmailOk(s) {
 }
 
 function validateModUserForm(values, mode, originalOrbitLoginId) {
-  if (!values.orbitLoginId) return 'Orbit Login ID is required.';
+  if (!values.orbitLoginId) return 'Twilight Login ID is required.';
   if (!values.firstName) return 'First name is required.';
   if (!values.lastName) return 'Last name is required.';
   if (!isValidDirectoryLoginRole(values.LoginRole)) {
@@ -12354,10 +12552,14 @@ function validateModUserForm(values, mode, originalOrbitLoginId) {
       const existing = String(pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id') || '').toLowerCase();
       return existing && existing === idLc;
     });
-    if (dup) return `Orbit Login ID "${values.orbitLoginId}" already exists.`;
+    if (dup) return `Twilight Login ID "${values.orbitLoginId}" already exists.`;
   }
   if (mode === 'edit' && originalOrbitLoginId && values.orbitLoginId.toLowerCase() !== String(originalOrbitLoginId).toLowerCase()) {
-    return 'Orbit Login ID cannot be changed when editing.';
+    return 'Twilight Login ID cannot be changed when editing.';
+  }
+  const currentId = String((state && state.username) || '').trim().toLowerCase();
+  if (values.deactivated && currentId && String(values.orbitLoginId || '').trim().toLowerCase() === currentId) {
+    return 'You cannot deactivate the account you are signed in with.';
   }
   return '';
 }
@@ -12369,16 +12571,23 @@ function applyModeratorWriteLocally(values, mode, originalOrbitLoginId) {
     const id = pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id');
     return String(id || '').toLowerCase() === lookupId;
   });
-  const next = Object.assign({}, idx >= 0 ? rows[idx] : {}, values);
+  const next = Object.assign({}, idx >= 0 ? rows[idx] : {}, values, {
+    deactivated: !!values.deactivated,
+    userStatus: values.deactivated ? 'Deactivated' : 'Active',
+  });
   if (idx >= 0) rows[idx] = next;
   else rows.push(next);
   adminState.moderators = rows;
+  if (typeof setUserDeactivatedInCache === 'function') {
+    setUserDeactivatedInCache(values.orbitLoginId, !!values.deactivated);
+  }
 }
 
 async function refreshModeratorDirectoryInBackground() {
   try {
     const data = await fetchModeratorDirectory();
     adminState.moderators = extractArray(data);
+    if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators(adminState.moderators);
     adminState.modError = null;
     if (adminState.tab === 'moderators' && adminState.subtab === 'moderators') {
       renderModerators();
@@ -12431,6 +12640,8 @@ async function submitModUserModal() {
     smartPhone: values.smartPhone,
     carType: values.carType,
     'off-date': values['off-date'],
+    deactivated: !!values.deactivated,
+    userStatus: values.deactivated ? 'Deactivated' : 'Active',
   };
 
   try {
@@ -12444,6 +12655,9 @@ async function submitModUserModal() {
     const savedMode = state.mode;
     const originalOrbitLoginId = state.originalOrbitLoginId;
     applyModeratorWriteLocally(values, savedMode, originalOrbitLoginId);
+    if (typeof persistDeactivatedUsersSetting === 'function') {
+      persistDeactivatedUsersSetting().catch(() => {});
+    }
     toast(state.mode === 'edit' ? 'User updated' : 'User created');
     closeModUserModal();
     renderModerators();
@@ -12683,7 +12897,8 @@ function modCardHTML(m, i, role) {
   const isExpanded = !!adminState.expandedMods[i];
 
   const rows = [
-    { label: 'Orbit Login ID', value: orbitId, mono: true },
+    { label: 'Twilight Login ID', value: orbitId, mono: true },
+    { label: 'Status', value: (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? 'Deactivated' : 'Active' },
     { label: 'First Name', value: firstName },
     { label: 'Last Name', value: lastName },
     { label: 'Phone Number', value: phone, link: phone ? `tel:${escapeForUrl(phone)}` : null },
@@ -12704,7 +12919,7 @@ function modCardHTML(m, i, role) {
         <div class="mod-avatar">${escapeHTML(avatarLetters(firstName, lastName))}</div>
         <div class="mod-name-block">
           <div class="mod-name">
-            ${escapeHTML(fullName)}${role === 'backup' ? ' <span class="mod-role-badge">BU</span>' : ''}${hasResolvedName ? '' : ' <span class="mod-incomplete-badge" title="No first/last name found in Excel for this moderator · showing orbit login ID instead. Add the name columns to the row to fix.">Incomplete</span>'}
+            ${escapeHTML(fullName)}${role === 'backup' ? ' <span class="mod-role-badge">BU</span>' : ''}${(typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? ' <span class="mod-status-pill is-deactivated">Deactivated</span>' : ''}${hasResolvedName ? '' : ' <span class="mod-incomplete-badge" title="No first/last name found in Excel for this moderator · showing orbit login ID instead. Add the name columns to the row to fix.">Incomplete</span>'}
           </div>
           <div class="mod-id">${escapeHTML(orbitId || '·')}</div>
         </div>
@@ -25281,6 +25496,14 @@ function startAdminApp() {
       if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
     }).catch(() => {});
   }
+  if (typeof refreshDeactivatedUsers === 'function') {
+    refreshDeactivatedUsers().then(() => {
+      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
+          && typeof renderModerators === 'function') {
+        renderModerators();
+      }
+    }).catch(() => {});
+  }
   if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
 }
 
@@ -32980,6 +33203,19 @@ function routeAfterSuccessfulAuth(orbitId, profile) {
   }, 900);
 }
 
+async function blockDeactivatedLogin(orbitId) {
+  try {
+    if (typeof refreshDeactivatedUsers === 'function') await refreshDeactivatedUsers();
+    else if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
+  } catch (_) {
+    if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
+  }
+  if (typeof isUserDeactivated !== 'function' || !isUserDeactivated(orbitId)) return false;
+  setLoginError('This account has been deactivated. Ask an admin to restore access.');
+  shakeLoginCard();
+  return true;
+}
+
 function enterPasswordlessAdmin(enteredName) {
   const enteredAdminName = canonicalAdminUsername(enteredName);
   const saved = loadState(enteredAdminName);
@@ -33013,6 +33249,17 @@ async function doLogin() {
     if (pwEl) pwEl.value = '';
     typedPassword = '';
     clearPendingAuth();
+    _loginInFlight = true;
+    setLoginLoading(true);
+    try {
+      if (await blockDeactivatedLogin(canonicalAdminUsername(v))) {
+        setLoginLoading(false);
+        _loginInFlight = false;
+        return;
+      }
+    } catch (_) {}
+    setLoginLoading(false);
+    _loginInFlight = false;
     enterPasswordlessAdmin(v);
     return;
   }
@@ -33044,6 +33291,11 @@ async function doLogin() {
         if (pwEl) pwEl.value = '';
         typedPassword = '';
         clearPendingAuth();
+        if (await blockDeactivatedLogin(loginId)) {
+          setLoginLoading(false);
+          _loginInFlight = false;
+          return;
+        }
         setLoginLoading(false);
         _loginInFlight = false;
         enterPasswordlessAdmin(loginId);
@@ -33094,6 +33346,13 @@ async function doLogin() {
       orbitLoginId: pickField(rawProfile, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id') || loginId,
     }));
     const orbitId = profile.orbitLoginId || loginId;
+    if (await blockDeactivatedLogin(orbitId)) {
+      typedPassword = '';
+      clearPendingAuth();
+      setLoginLoading(false);
+      _loginInFlight = false;
+      return;
+    }
     const mustChange = !!data.mustChangePassword;
 
     if (mustChange) {
