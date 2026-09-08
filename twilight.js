@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826o';
-const APP_UPDATED_AT = '09/08/2026 14:29';
+const APP_VERSION = '1.3.090826p';
+const APP_UPDATED_AT = '09/08/2026 14:38';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -870,9 +870,12 @@ function renderApp() {
 // Returns the operator's display name · preferring firstName from the moderator
 // profile, falling back to the login ID if profile isn't loaded.
 function operatorDisplayName() {
-  const first = firstWordOf(state.modProfile && state.modProfile.firstName);
+  const profile = state.modProfile || {};
+  const first = firstWordOf(profile.firstName)
+    || firstWordOf(profile.name)
+    || firstWordOf(state.username);
   if (first) return first;
-  return firstWordOf(state.username) || state.username || 'Operator';
+  return state.username || 'Operator';
 }
 
 // Returns full name (firstName + lastName) for places that want both.
@@ -5477,9 +5480,10 @@ function firstWordOf(name) {
   if (!name) return '';
   const trimmed = String(name).trim();
   if (!trimmed) return '';
-  const space = trimmed.search(/\s/);
-  if (space === -1) return trimmed;
-  return trimmed.slice(0, space);
+  // Split on spaces, hyphens, dots, or @ so "David Kang", "David-Kang",
+  // "david.kang", and "david@centific.com" all become "David".
+  const part = trimmed.split(/[\s\-_.@]+/).filter(Boolean)[0];
+  return part || trimmed;
 }
 
 /* ----------- Render shell ----------- */
@@ -31873,8 +31877,9 @@ function showNextSessionModal(w) {
     ? `${formatTime(asgn.startMin)} – ${formatTime(asgn.endMin)}`
     : '';
 
-  const greeting = state.modProfile && state.modProfile.firstName
-    ? `Hello, ${state.modProfile.firstName}!`
+  const greetingName = operatorDisplayName();
+  const greeting = greetingName && greetingName !== 'Operator'
+    ? `Hello, ${greetingName}!`
     : 'Hello!';
 
   // Summary block with stacked rows of key info. Reusable styling
