@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826w';
-const APP_UPDATED_AT = '09/08/2026 16:20';
+const APP_VERSION = '1.3.090826y';
+const APP_UPDATED_AT = '09/08/2026 16:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8164,6 +8164,104 @@ function renderPerfStationListHTML(a) {
   `;
 }
 
+const OVERVIEW_HQ_LAT = 47.6446;
+const OVERVIEW_HQ_LNG = -122.1370;
+const OVERVIEW_SUNSET_ALT_DEG = -0.83;
+let _ovHeliosTimer = null;
+
+function overviewSolarAltitudeDeg(at) {
+  const date = at instanceof Date ? at : new Date();
+  const rad = Math.PI / 180;
+  const jd = date.getTime() / 86400000 + 2440587.5;
+  const n = jd - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360;
+  const g = (357.528 + 0.9856003 * n) % 360;
+  const lambda = L + 1.915 * Math.sin(g * rad) + 0.020 * Math.sin(2 * g * rad);
+  const eps = 23.439 - 0.0000004 * n;
+  const decl = Math.asin(Math.sin(eps * rad) * Math.sin(lambda * rad));
+  const ra = Math.atan2(Math.cos(eps * rad) * Math.sin(lambda * rad), Math.cos(lambda * rad));
+  const gmst = (18.697374558 + 24.06570982441908 * n) % 24;
+  const lst = ((gmst + OVERVIEW_HQ_LNG / 15) % 24 + 24) % 24;
+  const ha = lst * 15 * rad - ra;
+  const latR = OVERVIEW_HQ_LAT * rad;
+  const alt = Math.asin(Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(ha));
+  return alt / rad;
+}
+
+function paintOverviewHeliosClock() {
+  const now = new Date();
+  const dateEl = document.getElementById('ovVizDate');
+  const timeEl = document.getElementById('ovVizTime');
+  const altEl = document.querySelector('#ovVizAlt [data-ov-alt]');
+  const orb = document.getElementById('ovSolarOrb');
+  if (!dateEl && !timeEl && !orb) return;
+  const dateFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+  const timeFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  if (dateEl) dateEl.textContent = dateFmt.format(now);
+  if (timeEl) timeEl.textContent = timeFmt.format(now) + ' PT';
+  const alt = overviewSolarAltitudeDeg(now);
+  if (altEl) altEl.textContent = (Number.isFinite(alt) ? alt : 0).toFixed(2);
+  if (orb) {
+    const isDay = Number.isFinite(alt) && alt > OVERVIEW_SUNSET_ALT_DEG;
+    orb.classList.toggle('is-sun', isDay);
+    orb.classList.toggle('is-moon', !isDay);
+    orb.title = isDay ? 'Sun · before local sunset' : 'Moon · after local sunset';
+  }
+}
+
+function startOverviewHeliosClock() {
+  if (_ovHeliosTimer) clearInterval(_ovHeliosTimer);
+  paintOverviewHeliosClock();
+  _ovHeliosTimer = setInterval(paintOverviewHeliosClock, 1000);
+}
+
+function stopOverviewHeliosClock() {
+  if (_ovHeliosTimer) {
+    clearInterval(_ovHeliosTimer);
+    _ovHeliosTimer = null;
+  }
+}
+
+function bindOverviewVizTilt(root) {
+  const stage = (root && root.querySelector) ? root.querySelector('#ovVizContainer') : document.getElementById('ovVizContainer');
+  const well = document.getElementById('ovVizWell');
+  if (!stage || !well || stage._ovTiltWired) return;
+  stage._ovTiltWired = true;
+  stage.addEventListener('mousemove', (e) => {
+    if (window.innerWidth < 900) return;
+    const rect = stage.getBoundingClientRect();
+    const x = e.clientX - rect.left - rect.width / 2;
+    const y = e.clientY - rect.top - rect.height / 2;
+    well.style.transform = 'perspective(1000px) rotateX(' + (-(y / rect.height) * 8).toFixed(2)
+      + 'deg) rotateY(' + ((x / rect.width) * 8).toFixed(2) + 'deg)';
+  });
+  stage.addEventListener('mouseleave', () => {
+    well.style.transform = '';
+  });
+}
+
+function setOverviewTileBar(kind, pct) {
+  const fill = document.getElementById('ovBar-' + kind);
+  if (!fill) return;
+  const n = Math.max(0, Math.min(100, Number(pct) || 0));
+  fill.style.width = n.toFixed(1) + '%';
+}
+
+function setOverviewTileFoot(kind, text) {
+  const el = document.getElementById('ovFoot-' + kind);
+  if (el) el.textContent = text || '';
+}
+
 function renderOverview(body) {
   // Lazy-load missing data so the dashboard works even when the admin opens
   // Overview as their first action.
@@ -8221,12 +8319,14 @@ function renderOverview(body) {
         </div>
       </div>
 
-      <!-- Stat tiles (static shell · values populated by updateOverviewMetrics) -->
-      <div class="ov-stats">
-        ${statTileShellHTML('moderators', 'Moderators')}
-        ${statTileShellHTML('teams', 'Live teams')}
-        ${statTileShellHTML('participants', 'Participants')}
-        ${statTileShellHTML('bookings', 'Bookings')}
+      <div class="ov-helios-row">
+        <div class="ov-metrics-pane ov-stats" id="ovMetricsPane">
+          ${statTileShellHTML('moderators', 'Moderators')}
+          ${statTileShellHTML('teams', 'Live teams')}
+          ${statTileShellHTML('participants', 'Participants')}
+          ${statTileShellHTML('bookings', 'Bookings')}
+        </div>
+        ${overviewVizStageHTML()}
       </div>
 
       <!-- Charts (static shell · values populated by updateOverviewMetrics) -->
@@ -8314,6 +8414,8 @@ function renderOverview(body) {
   // Reset cached "previous values" so the first render animates from 0
   window._ovPrev = null;
   updateOverviewMetrics();
+  startOverviewHeliosClock();
+  bindOverviewVizTilt(body);
 }
 
 // Refresh the moderator dropdown options based on the current team filter
@@ -8339,7 +8441,28 @@ function refreshModDropdown() {
   sel.innerHTML = html;
 }
 
-// Stat tile shell · values populated by updateOverviewMetrics
+function overviewVizStageHTML() {
+  return `
+    <div class="ov-viz-stage" id="ovVizContainer">
+      <div class="ov-viz-well" id="ovVizWell">
+        <div class="ov-viz-hinge ov-viz-hinge-left"></div>
+        <div class="ov-viz-hinge ov-viz-hinge-right"></div>
+        <div class="ov-viz-orb-wrap">
+          <div class="ov-solar-orb is-sun" id="ovSolarOrb" aria-hidden="true"></div>
+        </div>
+        <div class="ov-viz-copy">
+          <div class="ov-viz-label" id="ovVizDate"></div>
+          <div class="ov-viz-value" id="ovVizAlt"><span data-ov-alt>0.00</span><span class="ov-viz-unit">°</span></div>
+          <div class="ov-viz-time" id="ovVizTime"></div>
+        </div>
+        <div class="ov-viz-horizon" aria-hidden="true"></div>
+      </div>
+    </div>
+  `;
+}
+
+// Stat tile shell · Helios metrics-pane card. Values + bar filled by
+// updateOverviewMetrics.
 function statTileShellHTML(kind, label) {
   const icons = {
     moderators: `<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="1.7"/><circle cx="16" cy="9" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5M14 19c0-2.4 2-4 4.5-4S23 16.6 23 19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
@@ -8356,12 +8479,15 @@ function statTileShellHTML(kind, label) {
   const title = titles[kind] || label;
   return `
     <div class="ov-stat-tile ov-stat-${kind}" data-tile="${kind}" role="button" tabindex="0" title="${escapeHTML(title)}" aria-label="${escapeHTML(title)}">
-      <div class="ov-stat-glow"></div>
-      <div class="ov-stat-left">
-        <div class="ov-stat-icon">${icons[kind] || ''}</div>
+      <div class="ov-stat-head">
         <div class="ov-stat-label">${escapeHTML(label)}</div>
+        <div class="ov-stat-icon">${icons[kind] || ''}</div>
       </div>
-      <div class="ov-stat-value" data-ov-count="0">0</div>
+      <div class="ov-stat-body">
+        <div class="ov-stat-value" data-ov-count="0">0</div>
+        <div class="ov-stat-bar" aria-hidden="true"><span class="ov-stat-bar-fill" id="ovBar-${kind}"></span></div>
+        <div class="ov-stat-foot" id="ovFoot-${kind}"></div>
+      </div>
     </div>
   `;
 }
@@ -8444,6 +8570,17 @@ function updateOverviewMetrics() {
     const tile = document.querySelector(`.ov-stat-tile[data-tile="${kind}"] .ov-stat-value`);
     if (tile) tweenNumber(tile, target);
   });
+  const teamDenom = Math.max(1, (adminState.teams || []).length);
+  const partDenom = Math.max(1, m.totalParticipants || 0);
+  const bookDenom = Math.max(1, m.progressTotal || m.totalBookings || 1);
+  setOverviewTileBar('moderators', m.totalMods ? 100 : 0);
+  setOverviewTileBar('teams', (m.totalLiveTeams / teamDenom) * 100);
+  setOverviewTileBar('participants', Math.min(100, (m.completedCount / partDenom) * 100));
+  setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
+  setOverviewTileFoot('moderators', 'In directory');
+  setOverviewTileFoot('teams', m.totalLiveTeams === 1 ? '1 live team' : m.totalLiveTeams + ' live teams');
+  setOverviewTileFoot('participants', 'On the roster');
+  setOverviewTileFoot('bookings', m.completedCount + ' completed');
 
   // 2. Update line chart title + sub based on the current filter set so the
   //    chart self-identifies what it's showing without the user having to
@@ -9245,6 +9382,7 @@ function renderAdminTabBody(opts) {
     if (opts.animate) playAdminTabEnter();
     return;
   }
+  if (typeof stopOverviewHeliosClock === 'function') stopOverviewHeliosClock();
   if (adminState.tab === 'performance') {
     renderPerformance(body);
     if (opts.animate) playAdminTabEnter();
