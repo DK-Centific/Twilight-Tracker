@@ -37,7 +37,7 @@ function sessionKeyFor(username) {
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
 const APP_VERSION = '1.3.090826z';
-const APP_UPDATED_AT = '09/08/2026 18:27';
+const APP_UPDATED_AT = '09/08/2026 19:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3104,18 +3104,8 @@ function stationActionsHTML(station, data) {
   // Completed recording? Yes" confirmation IS the gate there, and the
   // flow opens Lakitu directly (default URL when the field is empty), so
   // we don't also require a pasted URL.
-  const lakituOk = station.recordFlow
-    ? true
-    : ((typeof isLakituUrlProvided === 'function') ? isLakituUrlProvided() : true);
-  // Cal guide acknowledgment gate · same model as the Lakitu gate.
-  // The mod must have clicked "I acknowledge the workflow and this
-  // guideline" in the DOs and DON'Ts popup before any station work
-  // can be submitted. Two-gate approach so the audit trail captures
-  // both: (1) the recording has a Lakitu session URL associated, and
-  // (2) the moderator confirmed they read the calibration guide
-  // BEFORE doing the work, not after.
   const calGuideOk = (typeof isCalGuideAcknowledged === 'function') ? isCalGuideAcknowledged() : true;
-  const submitDisabled = locked || unresolved > 0 || !lakituOk || !calGuideOk;
+  const submitDisabled = locked || unresolved > 0 || !calGuideOk;
 
   const idx = STATIONS.findIndex(s => s.key === station.key);
   const isLast = idx === STATIONS.length - 1;
@@ -3143,7 +3133,6 @@ function stationActionsHTML(station, data) {
         ${!locked && !stationAlreadySubmitted && unresolved > 0 ? `<span class="status-pill" style="background: var(--bg4); color: var(--text3);">${unresolved} unresolved</span>` : ''}
         ${!locked && partialMissingNotes > 0 ? `<span class="status-pill" style="background: var(--amber-bg); color: var(--amber-text);">${partialMissingNotes} partial${partialMissingNotes === 1 ? '' : 's'} need${partialMissingNotes === 1 ? 's' : ''} note${partialMissingNotes === 1 ? '' : 's'}</span>` : ''}
         ${!locked && skipMissingNotes > 0 ? `<span class="status-pill" style="background: var(--amber-bg); color: var(--amber-text);">${skipMissingNotes} skip${skipMissingNotes === 1 ? '' : 's'} need${skipMissingNotes === 1 ? 's' : ''} note${skipMissingNotes === 1 ? '' : 's'}</span>` : ''}
-        ${!locked && !lakituOk ? `<span class="status-pill" style="background: rgba(239,68,68,0.14); color: rgb(239,68,68); cursor: pointer; border: 0.5px solid rgba(239,68,68,0.30);" onclick="focusLakituInput()" title="Click to jump to the Lakitu session field">⚠ ${lakituUrlState() === 'invalid' ? 'Invalid Lakitu URL' : 'Lakitu URL required'}</span>` : ''}
         ${!locked && !calGuideOk ? `<span class="status-pill" style="background: rgba(239,68,68,0.14); color: rgb(239,68,68); cursor: pointer; border: 0.5px solid rgba(239,68,68,0.30);" onclick="openCalGuideForAck()" title="Click to open the calibration guide for acknowledgment">⚠ Acknowledge cal guide</span>` : ''}
         ${stationAlreadySubmitted ? `<span class="status-pill" style="background: rgba(34,197,94,0.14); color: var(--green-text);">&check; Submitted</span>` : ''}
         ${locked ? `<span class="status-pill" style="background: var(--bg4); color: var(--text3);">🔒 Session locked</span>` : ''}
@@ -3159,7 +3148,7 @@ function stationActionsHTML(station, data) {
           ? `<button class="btn btn-ghost" disabled style="opacity: 0.6; cursor: not-allowed;">Locked</button>`
           : (stationAlreadySubmitted && !isLast
             ? `<button class="btn btn-ghost" disabled style="opacity: 0.6; cursor: not-allowed;">Submitted</button>`
-            : `<button class="btn ${submitDisabled ? 'btn-ghost' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? 'disabled' : ''} title="${submitDisabled ? (locked ? 'Session locked' : (!lakituOk ? (lakituUrlState() === 'invalid' ? 'The Lakitu session URL isn’t valid · it must look like https://lakitu.ring.amazon.dev/p/…?session=…' : 'Paste the Lakitu session URL in the entry bar first') : (!calGuideOk ? 'Acknowledge the calibration guide (DOs and DON’Ts) first' : (partialMissingNotes > 0 || skipMissingNotes > 0 ? 'Add notes to all Partial and Skipped scenarios first' : 'Resolve all scenarios first (mark complete, skip+note, or partial+note)')))) : ''}">
+            : `<button class="btn ${submitDisabled ? 'btn-ghost' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? 'disabled' : ''} title="${submitDisabled ? (locked ? 'Session locked' : (!calGuideOk ? 'Acknowledge the calibration guide (DOs and DON’Ts) first' : (partialMissingNotes > 0 || skipMissingNotes > 0 ? 'Add notes to all Partial and Skipped scenarios first' : 'Resolve all scenarios first (mark complete, skip+note, or partial+note)'))) : ''}">
               ${submitLabel}
               ${!isLast ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
             </button>`)}
@@ -3499,6 +3488,117 @@ function getAssignedOpenSession() {
   return null;
 }
 
+function getOpenTeamSession(teamId) {
+  if (teamId == null || teamId === '') return null;
+  const rows = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  return rows.find(a => {
+    if (!a || String(a.teamId) !== String(teamId)) return false;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') return false;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+    } catch (_) {}
+    return true;
+  }) || null;
+}
+
+function teamSessionStatusInfo(team) {
+  const open = team ? getOpenTeamSession(team.id) : null;
+  if (open) {
+    let label = 'In session';
+    try {
+      const latest = (typeof getLatestStatusForAssignment === 'function')
+        ? getLatestStatusForAssignment(open.id) : null;
+      const st = latest && latest.status;
+      if (st && typeof WORKLOG_STATUS_LABELS === 'object' && WORKLOG_STATUS_LABELS[st]) {
+        label = WORKLOG_STATUS_LABELS[st];
+      }
+    } catch (_) {}
+    return { kind: 'open', label: label, assignment: open };
+  }
+  const rows = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+    .filter(a => a && String(a.teamId) === String(team && team.id) && a.status === 'Completed');
+  if (rows.length) {
+    return { kind: 'complete', label: 'Session complete', assignment: rows[rows.length - 1] };
+  }
+  return { kind: 'none', label: 'No session', assignment: null };
+}
+
+function snapshotTeamSessionMods(team) {
+  const ids = [];
+  const seen = new Set();
+  [...((team && team.primaryIds) || []), ...((team && typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : [])]
+    .forEach(id => {
+      const key = String(id || '').toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      ids.push(id);
+    });
+  return ids.map(orbitId => {
+    const mod = (typeof getModeratorByOrbitId === 'function') ? getModeratorByOrbitId(orbitId) : null;
+    return mod ? {
+      orbitLoginId: orbitId,
+      firstName: pickField(mod, 'firstName', 'first_name', 'FirstName', 'First Name'),
+      lastName: pickField(mod, 'lastName', 'last_name', 'LastName', 'Last Name'),
+      phoneNumber: pickField(mod, 'phoneNumber', 'phone_number', 'PhoneNumber', 'Phone Number'),
+      centificEmail: pickField(mod, 'centificEmail', 'centific_email', 'CentificEmail', 'Centific Email'),
+      personalEmail: pickField(mod, 'personalEmail', 'personal_email', 'PersonalEmail', 'Personal Email'),
+    } : { orbitLoginId: orbitId };
+  });
+}
+
+async function persistTeamSessionAssignment(asgn) {
+  if (!asgn || typeof ASSIGNMENT_PA_WRITE_URL === 'undefined' || !ASSIGNMENT_PA_WRITE_URL) return { ok: false };
+  if (typeof buildAssignmentExcelRow !== 'function') return { ok: false };
+  const rows = buildAssignmentExcelRow(asgn);
+  let succeeded = 0;
+  for (const row of rows) {
+    try {
+      const res = (typeof fetchWithRetry === 'function')
+        ? await fetchWithRetry(ASSIGNMENT_PA_WRITE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(row),
+            maxAttempts: 2,
+            timeoutMs: 20000,
+          })
+        : await fetch(ASSIGNMENT_PA_WRITE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(row),
+          });
+      if (res && (res.ok || res.status === 202)) succeeded++;
+    } catch (_) {}
+  }
+  return { ok: succeeded > 0 };
+}
+
+function startNewTeamSession(team) {
+  if (!team) return null;
+  const open = getOpenTeamSession(team.id);
+  if (open) return open;
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : new Date().toISOString().slice(0, 10);
+  const asgn = {
+    id: 'asgn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    teamId: team.id,
+    teamName: team.name || '',
+    date: today,
+    startMin: 8 * 60,
+    endMin: 17 * 60,
+    participantOrbitId: null,
+    participantData: { address: team.teamAddress || '' },
+    modSnapshots: snapshotTeamSessionMods(team),
+    status: 'Booked',
+    comment: '',
+    savedAt: new Date().toISOString(),
+    source: 'team-session',
+  };
+  adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
+  adminState.assignments.push(asgn);
+  if (typeof saveAssignmentData === 'function') saveAssignmentData();
+  persistTeamSessionAssignment(asgn).catch(() => {});
+  return asgn;
+}
+
 function getSessionDisplayTeam() {
   const asgn = getAssignedOpenSession();
   if (asgn && typeof teamForAssignment === 'function') {
@@ -3679,20 +3779,7 @@ function submitStation() {
   // If session already locked, do nothing
   if (typeof isSessionLocked === 'function' && isSessionLocked()) return;
 
-  // Lakitu URL gate · must be a valid Lakitu session URL before advancing.
-  // Same check as the button-disable logic in the actions bar; duplicated
-  // here as defense in depth so a stale render, programmatic call, or
-  // keyboard-driven click can't bypass it. Record-flow stations (0b/0c)
-  // are exempt · the recording confirmation is their gate, and they open
-  // Lakitu directly (default URL when the field is empty). On block,
-  // scroll-and-flash the Lakitu input so the moderator knows where to fix it.
-  const _stSubmitGate = STATIONS.find(s => s.key === currentStationKey);
-  if ((!_stSubmitGate || !_stSubmitGate.recordFlow) && !isLakituUrlProvided()) {
-    focusLakituInput();
-    return;
-  }
-
-  // Cal guide acknowledgment gate · mirror of the Lakitu check above.
+  // Cal guide acknowledgment gate.
   // The mod must have clicked "I acknowledge..." in the DOs and DON'Ts
   // popup before any station can be submitted. On block, open the
   // guide so the ack button is one click away. Order matters here:
@@ -5629,9 +5716,28 @@ function scrollAdminTarget(id) {
   });
 }
 
+function hideAssignmentAdminTab() {
+  return true;
+}
+
+function redirectHiddenAssignmentTab() {
+  if (!hideAssignmentAdminTab()) return false;
+  if (adminState && adminState.tab === 'assignment') {
+    adminState.tab = 'moderators';
+    adminState.subtab = 'moderators';
+    adminState.modView = 'team';
+    return true;
+  }
+  return false;
+}
+
 function selectAdminTab(tab, opts) {
   opts = opts || {};
   if (!tab) return;
+  if (hideAssignmentAdminTab() && tab === 'assignment') {
+    tab = 'moderators';
+    opts = Object.assign({}, opts, { subtab: opts.subtab || 'moderators', modView: opts.modView || 'team' });
+  }
   const prevTab = adminState.tab;
   const prevSubtab = adminState.subtab;
   const prevView = adminState.modView;
@@ -5667,6 +5773,7 @@ function selectAdminTab(tab, opts) {
 }
 
 function renderAdmin() {
+  redirectHiddenAssignmentTab();
   armScrollPreserve();
   const c = document.getElementById('adminContent');
   c.innerHTML = `
@@ -5680,10 +5787,6 @@ function renderAdmin() {
       <div class="admin-tabs" role="tablist">
         <button class="admin-tab ${adminState.tab === 'overview' ? 'active' : ''}" data-tab="overview" role="tab">Overview</button>
         <button class="admin-tab ${adminState.tab === 'moderators' ? 'active' : ''}" data-tab="moderators" role="tab">Moderator Hub</button>
-        <button class="admin-tab ${adminState.tab === 'assignment' ? 'active' : ''}" data-tab="assignment" role="tab">
-          Assignment
-          <span class="admin-tab-count" id="topAsgnCount">${activeAssignmentCount() || ''}</span>
-        </button>
         <button class="admin-tab ${adminState.tab === 'performance' ? 'active' : ''}" data-tab="performance" role="tab">Performance</button>
         <button class="admin-tab ${adminState.tab === 'approval' ? 'active' : ''}" data-tab="approval" role="tab">
           Approval
@@ -8402,7 +8505,7 @@ function renderOverview(body) {
       } else if (kind === 'participants') {
         selectAdminTab('moderators', { subtab: 'participants' });
       } else if (kind === 'bookings') {
-        selectAdminTab('assignment');
+        selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
       }
     };
     tile.addEventListener('click', go);
@@ -9402,10 +9505,14 @@ function renderAdminTabBody(opts) {
   // expects a #subtabBody container · we provide it inline so the
   // function itself can stay unchanged.
   if (adminState.tab === 'assignment') {
-    body.innerHTML = `<div id="subtabBody"></div>`;
-    renderAssignment();
-    if (opts.animate) playAdminTabEnter();
-    return;
+    if (hideAssignmentAdminTab()) {
+      redirectHiddenAssignmentTab();
+    } else {
+      body.innerHTML = `<div id="subtabBody"></div>`;
+      renderAssignment();
+      if (opts.animate) playAdminTabEnter();
+      return;
+    }
   }
   // Moderator Hub · now only has Moderators + Participants. Assignment
   // moved out to its own top-level tab above.
@@ -18023,6 +18130,15 @@ function bindTeamsPanelEvents() {
       e.stopPropagation();
       if (action === 'edit') openTeamModal(teamId);
       else if (action === 'delete') deleteTeam(teamId);
+      else if (action === 'new-session') {
+        const team = (adminState.teams || []).find(t => String(t.id) === String(teamId));
+        if (!team) return;
+        const created = startNewTeamSession(team);
+        if (created) {
+          toast('New session started for ' + (team.name || 'this team'));
+          if (typeof rerenderTeamsPanelInPlace === 'function') rerenderTeamsPanelInPlace();
+        }
+      }
     });
   });
   if (typeof startTeamLivePresenceRefresh === 'function') startTeamLivePresenceRefresh();
@@ -18160,6 +18276,19 @@ function teamCardHTML(team) {
         </div>
         ${teamLivePillHTML(team)}
       </div>
+      ${teamSessionRowHTML(team)}
+    </div>
+  `;
+}
+
+function teamSessionRowHTML(team) {
+  const info = teamSessionStatusInfo(team);
+  const canStart = info.kind !== 'open';
+  const startLabel = info.kind === 'complete' ? 'Start new session' : 'Start session';
+  return `
+    <div class="team-session-row">
+      <span class="team-session-pill is-${escapeHTML(info.kind)}" title="${escapeHTML(info.label)}">${escapeHTML(info.label)}</span>
+      ${canStart ? `<button type="button" class="team-session-start" data-action="new-session" data-team-id="${team.id}">${startLabel}</button>` : ''}
     </div>
   `;
 }
@@ -20932,6 +21061,7 @@ function saveTeam() {
       newTeam._pending = true;
     }
     adminState.teams.push(newTeam);
+    try { startNewTeamSession(newTeam); } catch (_) {}
     if (TEAMLOG_PA_WRITE_URL) {
       writeTeamToTeamLog(newTeam, 'active').then(r => {
         if (r.ok) {
@@ -25448,6 +25578,7 @@ function exportAssignments() {
 }
 /* ----------- Admin entry / exit ----------- */
 function startAdminApp() {
+  if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
   if (typeof startWorklogPolling === 'function') startWorklogPolling();
     document.getElementById('loginScreen').style.display = 'none';
@@ -25996,6 +26127,7 @@ function extractSyncableState(s) {
     // re-deriving it from station states. Used by the login welcome
     // modal to show the "Today's session is completed" prompt.
     sessionCompletedAt: s.sessionCompletedAt || null,
+    sessionStatus: s.sessionCompletedAt ? 'session_done' : (s.sessionStatus || ''),
     // Arrival marker · useful for teammates to know "the team is
     // on-site, not still en route." Synced to cloud so teammates
     // can see it across devices. We intentionally do NOT sync
@@ -26951,6 +27083,11 @@ function saveSyncQueue(q) {
 
 // Build the Worklog row matching the Excel table schema (17 columns).
 // Pure function · given an event payload, return the JSON shape PA expects.
+function worklogStableId(asgn) {
+  const id = asgn && asgn.id != null ? String(asgn.id) : '';
+  return id ? ('wl_' + id) : ('wl_' + Date.now());
+}
+
 function buildWorklogRow(event) {
   return {
     worklogId:            event.worklogId || ('wl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)),
@@ -26970,6 +27107,7 @@ function buildWorklogRow(event) {
     localTimestamp:       event.localTimestamp || new Date().toLocaleString(),
     notes:                event.notes || '',
     appVersion:           APP_VERSION || '1.0',
+    overwrite:            true,
   };
 }
 
@@ -27279,19 +27417,20 @@ function pushWorklogStatus(asgn, status, opts) {
   if (!state.modProfile || !state.modProfile.orbitLoginId) return null;
   if (!asgn) return null;
 
-  // Idempotency guard: if THIS mod already has this exact status logged for
-  // this assignment, skip. Prevents double-clicks and rerun bugs from
-  // creating duplicate rows in Worklog.
+  // One Excel row per session. Later station completions overwrite
+  // that same worklogId instead of adding a new row.
   const myId = String(state.modProfile.orbitLoginId).toLowerCase();
+  const worklogId = worklogStableId(asgn);
   const cacheNow = loadWorklogCache();
-  const dup = cacheNow.find(r =>
-    r.assignmentId === asgn.id &&
-    String(r.orbitLoginId || '').toLowerCase() === myId &&
-    r.status === status
+  const existing = cacheNow.find(r =>
+    r && (r.worklogId === worklogId || (r.assignmentId === asgn.id && String(r.orbitLoginId || '').toLowerCase() === myId))
   );
-  if (dup) {
-    // Already logged. No new row, no toast · silently no-op.
-    return dup;
+  if (existing && existing.status === status) {
+    return existing;
+  }
+  if (existing && statusOrderIdx(existing.status) >= 0 && statusOrderIdx(status) >= 0
+      && statusOrderIdx(existing.status) >= statusOrderIdx(status)) {
+    return existing;
   }
 
   // Resolve session ID · generate one on first push (typically `arrived`)
@@ -27336,8 +27475,8 @@ function pushWorklogStatus(asgn, status, opts) {
 
   const now = new Date();
   const event = {
-    worklogId:            'wl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
-    sessionId:            sessionState.sessionId,
+    worklogId:            worklogId,
+    sessionId:            (existing && existing.sessionId) || sessionState.sessionId,
     assignmentId:         asgn.id,
     orbitLoginId:         state.modProfile.orbitLoginId,
     moderatorName:        [state.modProfile.firstName, state.modProfile.lastName].filter(Boolean).join(' '),
@@ -27359,10 +27498,15 @@ function pushWorklogStatus(asgn, status, opts) {
     statusHistory: [...(sessionState.statusHistory || []), { status, timestamp: event.timestamp, notes: event.notes }],
   });
 
-  // Mirror into the worklog cache so UI updates immediately, even before PA confirms
+  // Mirror into the worklog cache so UI updates immediately, even before PA confirms.
+  // Replace the same session row when it already exists.
   const cache = loadWorklogCache();
-  cache.push(buildWorklogRow(event));
+  const nextRow = buildWorklogRow(event);
+  const cacheIdx = cache.findIndex(r => r && (r.worklogId === worklogId || r.assignmentId === asgn.id));
+  if (cacheIdx >= 0) cache[cacheIdx] = nextRow;
+  else cache.push(nextRow);
   saveWorklogCache(cache);
+  try { if (state) state.sessionStatus = status; } catch (_) {}
 
   // Queue for PA sync
   enqueueWorklogSync(event);
@@ -27395,7 +27539,10 @@ function pushWorklogStatus(asgn, status, opts) {
 
 function enqueueWorklogSync(event) {
   const q = loadSyncQueue();
-  q.push({ event, queuedAt: new Date().toISOString(), attempts: 0 });
+  const next = { event, queuedAt: new Date().toISOString(), attempts: 0 };
+  const idx = q.findIndex(item => item && item.event && item.event.worklogId && item.event.worklogId === event.worklogId);
+  if (idx >= 0) q[idx] = next;
+  else q.push(next);
   saveSyncQueue(q);
 }
 
