@@ -13556,6 +13556,144 @@ h1, h2, h3,
   /* Reserve space so the fixed bottom bar never covers page content. */
   #app .content, #adminApp .content, #adminContent { padding-bottom:100px; }
 }
+
+/* ============================================================
+   ADMIN TILES · Helios neumorphic shells
+   Raised soft-UI surfaces for Overview / Assignment / Performance /
+   Moderator Hub / Approval tiles. Keeps per-tile tint colors and
+   content layout; replaces flat borders + drop shadows.
+   ============================================================ */
+
+/* Overview · filter bar + stat tiles + chart cards */
+#adminApp .ov-filterbar,
+#adminApp .ov-stat-tile,
+#adminApp .ov-chart-card {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 28px !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light) !important;
+}
+#adminApp .ov-stat-tile {
+  overflow: visible;
+  min-height: 148px;
+  padding: 24px 26px;
+  transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.28s ease;
+}
+#adminApp .ov-stat-tile::before { display: none !important; }
+#adminApp .ov-stat-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 10px 10px 22px var(--neu-dark), -10px -10px 22px var(--neu-light) !important;
+}
+#adminApp .ov-stat-glow { display: none !important; }
+#adminApp .ov-stat-icon {
+  width: 40px; height: 40px;
+  border-radius: 50% !important;
+  border: none !important;
+  background: var(--well-bg) !important;
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
+  color: var(--ov-tint, var(--accent));
+}
+#adminApp .ov-stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+#adminApp .ov-donut-legend-row {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+}
+#adminApp .ov-filter-group {
+  background: var(--well-bg) !important;
+  border: none !important;
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+}
+#adminApp .ov-pill.active {
+  background: var(--bg) !important;
+  box-shadow: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
+}
+#adminApp .ov-select {
+  background: var(--well-bg) !important;
+  border: none !important;
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+}
+
+/* Assignment · calendar count tiles */
+#adminApp .cal-stat-tile {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 18px !important;
+  box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+}
+#adminApp .cal-stat-tile[data-drill]:hover {
+  background: var(--bg) !important;
+  transform: translateY(-1px);
+  box-shadow: 8px 8px 16px var(--neu-dark), -8px -8px 16px var(--neu-light);
+}
+#adminApp .cal-stat-tile[data-drill]:focus-visible {
+  box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light),
+              0 0 0 2px var(--accent-soft);
+}
+
+/* Performance · team / moderator tiles */
+#adminApp .perf-tile {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 24px !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+  overflow: hidden;
+}
+#adminApp .perf-tile:hover {
+  box-shadow: 10px 10px 22px var(--neu-dark), -10px -10px 22px var(--neu-light);
+}
+#adminApp .perf-tile[open] {
+  box-shadow: 10px 10px 24px var(--neu-dark), -10px -10px 24px var(--neu-light);
+}
+#adminApp .perf-tile-head:hover { background: transparent; }
+#adminApp .perf-tile-avatar {
+  border-radius: 50% !important;
+  background: var(--well-bg) !important;
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+  color: var(--accent);
+}
+#adminApp .perf-tile-avatar.mod {
+  background: var(--well-bg) !important;
+  color: var(--accent);
+}
+
+/* Moderator Hub · moderator cards */
+#adminApp .mod-card {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 24px !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+}
+#adminApp .mod-card:hover,
+#adminApp .mod-card.expanded {
+  border: none !important;
+  box-shadow: 10px 10px 22px var(--neu-dark), -10px -10px 22px var(--neu-light);
+}
+
+/* Approval · list rows + detail panel */
+#adminApp .appr-row {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+}
+#adminApp .appr-row:hover { background: var(--bg) !important; }
+#adminApp .appr-row.selected {
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
+}
+#adminApp .appr-panel {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 24px !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+}
 </style>
 
 <!-- ============================================================
