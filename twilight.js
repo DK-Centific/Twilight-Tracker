@@ -33037,7 +33037,9 @@ function dockPanicFab(desktop) {
     : null;
   const home = document.body;
   const target = (shouldDock && bar) ? bar : home;
-  if (target && fab.parentNode !== target) target.appendChild(fab);
+  // Always append. If the button is already in the bar, this moves it
+  // to the end so it stays immediately right of Settings.
+  if (target) target.appendChild(fab);
   fab.classList.toggle('is-docked', !!(shouldDock && bar));
   fab.classList.toggle('is-login-hidden', !!loginVisible);
   fab.setAttribute('aria-hidden', loginVisible ? 'true' : 'false');
