@@ -8400,7 +8400,7 @@ function animateLineChart(targetSeries) {
   gridG.innerHTML = gridLines.map(g => {
     const y = yFor(g);
     return `<line x1="${padL}" x2="${W - padR}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2 3"/>
-            <text x="${W - padR}" y="${(y - 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--text3)" font-family="var(--font-num)">${g}</text>`;
+            <text x="${W - padR}" y="${(y - 4).toFixed(1)}" text-anchor="end" font-size="10" font-weight="300" fill="var(--text3)" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif">${g}</text>`;
   }).join('');
 
   // X-axis labels
@@ -8414,7 +8414,7 @@ function animateLineChart(targetSeries) {
   xLabelsG.innerHTML = targetSeries.map((pt, i) => {
     if (i % labelStep !== 0 && i !== targetSeries.length - 1) return '';
     const x = xFor(i, targetSeries.length);
-    return `<text x="${x.toFixed(1)}" y="${(H - 10).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--text3)" font-family="var(--font)">${escapeHTML(fmtShort(pt.date))}</text>`;
+    return `<text x="${x.toFixed(1)}" y="${(H - 10).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="300" fill="var(--text3)" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif">${escapeHTML(fmtShort(pt.date))}</text>`;
   }).join('');
 
   // Build target path strings

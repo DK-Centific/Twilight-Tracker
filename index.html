@@ -9845,7 +9845,12 @@ button.perf-stat-chip.scheduled.active {
 /* =========================================================
    ADMIN OVERVIEW DASHBOARD · large stats + animated charts
    ========================================================= */
-.ov-root { display: flex; flex-direction: column; gap: 22px; }
+.ov-root {
+  display: flex; flex-direction: column; gap: 22px;
+  /* Overview numbers · Apple SF Light (system San Francisco on Apple,
+     Helvetica Neue Light elsewhere). Weight 300 = Light. */
+  --ov-font-num: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
+}
 
 /* ---- Filter bar ---- */
 .ov-filterbar {
@@ -9976,8 +9981,8 @@ button.perf-stat-chip.scheduled.active {
 }
 
 .ov-stat-value {
-  font-family: var(--font-num);
-  font-size: 56px; font-weight: 700;
+  font-family: var(--ov-font-num);
+  font-size: 56px; font-weight: 300;
   letter-spacing: -0.045em;
   line-height: 0.95;
   color: var(--ov-tint, var(--text));
@@ -10069,8 +10074,8 @@ button.perf-stat-chip.scheduled.active {
   font-size: 12.5px;
   color: var(--text3);
   letter-spacing: -0.005em;
-  font-family: var(--font-num);
-  font-weight: 500;
+  font-family: var(--ov-font-num);
+  font-weight: 300;
   transition: opacity 0.3s ease;
 }
 
@@ -10116,8 +10121,8 @@ button.perf-stat-chip.scheduled.active {
 }
 .ov-tooltip-label { color: var(--text3); flex: 1; }
 .ov-tooltip-num {
-  font-family: var(--font-num);
-  font-weight: 700;
+  font-family: var(--ov-font-num);
+  font-weight: 300;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -10149,8 +10154,8 @@ button.perf-stat-chip.scheduled.active {
   pointer-events: none;
 }
 .ov-donut-pct {
-  font-family: var(--font-num);
-  font-size: 34px; font-weight: 700;
+  font-family: var(--ov-font-num);
+  font-size: 34px; font-weight: 300;
   letter-spacing: -0.035em;
   color: var(--text);
   line-height: 1;
@@ -10203,8 +10208,8 @@ button.perf-stat-chip.scheduled.active {
 .ov-donut-legend-row:hover { background: var(--bg4); border-color: var(--border-strong); }
 .ov-donut-legend-row span:nth-child(2) { flex: 1; color: var(--text2); font-weight: 500; }
 .ov-donut-num {
-  font-family: var(--font-num);
-  font-weight: 700;
+  font-family: var(--ov-font-num);
+  font-weight: 300;
   color: var(--text);
   font-size: 15px;
   font-variant-numeric: tabular-nums;
