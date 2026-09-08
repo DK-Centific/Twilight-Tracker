@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826e';
+const APP_VERSION = '1.3.090826f';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9117,7 +9117,7 @@ function renderAdminTabBody(opts) {
   // Moderator Hub · now only has Moderators + Participants. Assignment
   // moved out to its own top-level tab above.
   //
-  // The All / By Team / By Assignment / Activities toggle lives in a
+  // The All / By Team / Activities toggle lives in a
   // horizontal slide next to the Moderators subtab. It opens when
   // Moderators is active and slides closed when Participants is selected.
   body.innerHTML = `
@@ -9320,6 +9320,12 @@ function renderModerators() {
     adminState.modView = 'list';
     view = 'list';
   }
+  // By Assignment tab hidden from UI (logic retained for restore).
+  const SHOW_MOD_ASSIGNMENT_TAB = false;
+  if (!SHOW_MOD_ASSIGNMENT_TAB && view === 'assignment') {
+    adminState.modView = 'list';
+    view = 'list';
+  }
 
   const toolbarHtml = `
       <div class="modview-toggle">
@@ -9331,7 +9337,7 @@ function renderModerators() {
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="11" cy="6" r="2" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5M7.5 13c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           By Team
         </button>
-        <button class="modview-btn ${view === 'assignment' ? 'active' : ''}" data-mview="assignment" title="Grouped by assignment">
+        <button class="modview-btn modview-btn--hidden" hidden aria-hidden="true" tabindex="-1" data-mview="assignment" title="Grouped by assignment" style="display:none !important;">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="11" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M2 6h12M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           By Assignment
         </button>
@@ -9600,6 +9606,13 @@ function activitiesViewAddrLine() {
     }
     return 'No location reported yet';
   }
+  const asgns = (adminState.assignments || []).filter(a =>
+    typeof assignmentMatchesActivitiesFocus === 'function'
+    && assignmentMatchesActivitiesFocus(a)
+    && !!assignmentFenceAddress(a)
+  );
+  const addrs = [...new Set(asgns.map(a => assignmentFenceAddress(a)).filter(Boolean))];
+  if (addrs.length === 1) return addrs[0];
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
   const teamAddr = (typeof getTeamOfficeAddress === 'function')
     ? getTeamOfficeAddress(team)
@@ -9608,13 +9621,77 @@ function activitiesViewAddrLine() {
   return GEO_HQ_ADDRESS;
 }
 
+function formatMilesFromHqLabel(miles) {
+  if (!Number.isFinite(miles) || miles < 0.05) return '';
+  return (Math.round(miles * 10) / 10).toFixed(1) + ' miles from HQ';
+}
+
+function resolveActivitiesMilesFromHq() {
+  const hasFocus = !!(getSelectedActivitiesTeam() || getSelectedActivitiesModeratorId());
+  if (!hasFocus) return null;
+  if (typeof getActivitiesAssignmentCenter === 'function') {
+    const center = getActivitiesAssignmentCenter();
+    if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
+      const miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, center.lat, center.lng) / 1609.344;
+      if (miles >= 0.05) return miles;
+    }
+  }
+  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  if (!rows.length) return null;
+  const asgns = (adminState.assignments || []).filter(a =>
+    typeof assignmentMatchesActivitiesFocus === 'function' && assignmentMatchesActivitiesFocus(a)
+  );
+  const asgnIds = new Set(asgns.map(a => String(a.id)));
+  const team = getSelectedActivitiesTeam();
+  const teamId = team ? String(team.id) : '';
+  let best = null;
+  for (const r of rows) {
+    if (asgnIds.size && !asgnIds.has(String(r.assignmentId || ''))) {
+      if (!teamId || String(r.teamId || '') !== teamId) continue;
+    }
+    let parsed = {};
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    let miles = Number(r.milesFromHq != null ? r.milesFromHq : parsed.milesFromHq);
+    if (!Number.isFinite(miles) && Number.isFinite(Number(parsed.assignmentLat)) && Number.isFinite(Number(parsed.assignmentLng))) {
+      miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, Number(parsed.assignmentLat), Number(parsed.assignmentLng)) / 1609.344;
+    }
+    if (!Number.isFinite(miles) || miles < 0.05) continue;
+    const ts = String(r.lastActive || '');
+    if (!best || ts > best.ts) best = { miles, ts };
+  }
+  return best ? best.miles : null;
+}
+
 function updateActivitiesMapCaption() {
   const title = document.getElementById('activities-map-title') || document.querySelector('.activities-map-title');
   if (title) title.textContent = activitiesViewTitle();
   const eyebrow = document.getElementById('activitiesTeamContext');
   if (eyebrow) eyebrow.textContent = activitiesViewEyebrow();
   const addr = document.querySelector('.activities-map-addr');
-  if (addr) addr.textContent = activitiesViewAddrLine();
+  if (!addr) return;
+  let textEl = addr.querySelector('.activities-map-addr-text');
+  let milesEl = addr.querySelector('.activities-map-miles');
+  if (!textEl) {
+    addr.textContent = '';
+    textEl = document.createElement('span');
+    textEl.className = 'activities-map-addr-text';
+    addr.appendChild(textEl);
+  }
+  if (!milesEl) {
+    milesEl = document.createElement('span');
+    milesEl.className = 'activities-map-miles';
+    addr.appendChild(milesEl);
+  }
+  textEl.textContent = activitiesViewAddrLine();
+  const milesLabel = formatMilesFromHqLabel(resolveActivitiesMilesFromHq());
+  if (milesLabel) {
+    milesEl.hidden = false;
+    milesEl.textContent = milesLabel;
+  } else {
+    milesEl.hidden = true;
+    milesEl.textContent = '';
+  }
 }
 
 function updateActivitiesTeamContext() {
@@ -9877,6 +9954,7 @@ async function refreshActivitiesCloudPings() {
   try {
     const rows = await fetchSessionStateRows();
     if (rows == null) return;
+    if (typeof adminState !== 'undefined') adminState.perfSessionStateRows = rows;
     if (_activitiesMap) {
       try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
     }
@@ -10846,6 +10924,7 @@ async function prefetchActivityHomeGeocodes() {
       playActivitiesSelectionAnimation(_activitiesMap);
     }
   }
+  if (typeof updateActivitiesMapCaption === 'function') updateActivitiesMapCaption();
 }
 
 const ACTIVITIES_OFFICE_PIN_COLOR = '#D946EF';
@@ -11415,7 +11494,10 @@ function renderModActivitiesView() {
         <div class="activities-map-caption">
           <div class="activities-map-eyebrow" id="activitiesTeamContext">${escapeHTML(activitiesViewEyebrow())}</div>
           <div class="activities-map-title" id="activities-map-title">${escapeHTML(activitiesViewTitle())}</div>
-          <div class="activities-map-addr">${escapeHTML(activitiesViewAddrLine())}</div>
+          <div class="activities-map-addr">
+            <span class="activities-map-addr-text">${escapeHTML(activitiesViewAddrLine())}</span>
+            <span class="activities-map-miles" hidden></span>
+          </div>
           <div class="activities-map-legend">
             <span><i class="role-fence-hq"></i> Office fence</span>
             <span><i class="role-fence"></i> Assignment fence</span>
@@ -11933,7 +12015,9 @@ function refreshAfterTeamMutation() {
 }
 
 function renderModAssignmentView() {
+  // Tab button is hidden; kept so By Assignment can be restored.
   const wrap = document.getElementById('modviewBody');
+  if (!wrap) return;
   // Group assignments by moderator orbitLoginId
   const byMod = {};  // { orbitId: [assignments...] }
   (adminState.assignments || []).forEach(a => {
@@ -24781,11 +24865,11 @@ const WORKLOG_PA_READ_URL = '';
      2. Option C · teammate sees the original mod's in-progress work
 
    Architecture:
-     - Each mod writes their session state to the SessionState Excel table
-       every ~5 seconds when state changes (debounced). The row key is
-       deterministic per (orbitLoginId, assignmentId) but PA appends not
-       updates, so multiple rows accumulate over time. We pick the newest
-       by lastActive on read.
+     - Each write uses a stable sessionStateId for the current assignment
+       address (`ss_${assignmentId}`). Later changes overwrite that same
+       Excel row (stateJson + lastActive) until the session is completed.
+       A new assignment / new address gets a new row. A team has one
+       session per day, so one live row per team per day.
      - On login, we fetch SessionState rows matching the user's upcoming
        assignments. If a teammate has session progress on a shared
        assignment, we surface a "Continue from teammate's progress?"
@@ -25156,6 +25240,63 @@ function extractSyncableState(s) {
   };
 }
 
+// Stable Excel row key for one assignment address. Reused on every
+// write so stateJson / lastActive overwrite the same row until the
+// session completes. A later booking at a different address has a
+// new assignmentId → a new row.
+function sessionStateStableId(asgn) {
+  if (!asgn || asgn.id == null || asgn.id === '') return '';
+  return 'ss_' + String(asgn.id);
+}
+
+function assignmentLocationSnapshot(asgn) {
+  const addr = (typeof assignmentFenceAddress === 'function' ? assignmentFenceAddress(asgn) : '')
+    || (state && state.participantAddress) || '';
+  let lat = null, lng = null, miles = null;
+  if (addr && typeof loadGeocodeCache === 'function') {
+    const hit = loadGeocodeCache()[String(addr).trim().toLowerCase()];
+    if (hit && Number.isFinite(hit.lat) && Number.isFinite(hit.lng)) {
+      lat = hit.lat;
+      lng = hit.lng;
+      if (typeof haversineMeters === 'function' && typeof GEO_HQ_CENTER === 'object') {
+        miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, lat, lng) / 1609.344;
+      }
+    }
+  }
+  return { address: addr, lat, lng, miles };
+}
+
+function buildSessionStateCloudPayload(asgn, reason) {
+  const loc = assignmentLocationSnapshot(asgn);
+  const syncable = extractSyncableState(state);
+  if (reason && syncable.lastGeo && typeof syncable.lastGeo === 'object') {
+    syncable.lastGeo = Object.assign({}, syncable.lastGeo, { syncReason: reason });
+  }
+  syncable.assignmentAddress = loc.address || syncable.participantAddress || '';
+  if (Number.isFinite(loc.lat)) syncable.assignmentLat = loc.lat;
+  if (Number.isFinite(loc.lng)) syncable.assignmentLng = loc.lng;
+  if (Number.isFinite(loc.miles)) syncable.milesFromHq = Math.round(loc.miles * 10) / 10;
+  if (typeof GEO_HQ_ADDRESS === 'string') syncable.officeAddress = GEO_HQ_ADDRESS;
+  if (typeof GEO_HQ_CENTER === 'object') {
+    syncable.officeLat = GEO_HQ_CENTER.lat;
+    syncable.officeLng = GEO_HQ_CENTER.lng;
+  }
+  const team = (adminState.teams || []).find(t => String(t.id) === String(asgn.teamId));
+  const teamId = team ? team.id : (asgn.teamId || '');
+  return {
+    sessionStateId: sessionStateStableId(asgn),
+    assignmentId:   String(asgn.id),
+    teamId:         String(teamId),
+    orbitLoginId:   String(state.modProfile && state.modProfile.orbitLoginId || ''),
+    assignmentAddress: syncable.assignmentAddress || '',
+    milesFromHq:    syncable.milesFromHq != null ? syncable.milesFromHq : '',
+    stateJson:      JSON.stringify(syncable),
+    lastActive:     new Date().toISOString(),
+    appVersion:     APP_VERSION,
+    overwrite:      true,
+  };
+}
+
 // In-flight debounce state. _timer holds the pending setTimeout handle;
 // _pending tracks whether a write was requested while one was in
 // progress (so we don't drop edits made during a slow PA call).
@@ -25262,11 +25403,8 @@ async function flushSessionStateSync(opts) {
   // Tracks the outcome to return after the finally block runs.
   let outcome = { ok: false, reason: 'error' };
   try {
-    const orbitId  = state.modProfile.orbitLoginId;
-    const team     = (adminState.teams || []).find(t => t.id === asgn.teamId);
-    const teamId   = team ? team.id : (asgn.teamId || '');
-    const syncable = extractSyncableState(state);
-    const stateJson = JSON.stringify(syncable);
+    const payload = buildSessionStateCloudPayload(asgn, opts.geoSyncReason || '');
+    const stateJson = payload.stateJson;
 
     // No-op diff guard. If the syncable payload is byte-identical to
     // the last successful write for this assignment, skip the PA call
@@ -25280,22 +25418,6 @@ async function flushSessionStateSync(opts) {
       _sessionStateSyncState.inflight = false;
       return { ok: true, reason: 'nochange' };
     }
-
-    const payload = {
-      // Deterministic-ish ID using a fresh timestamp suffix so each
-      // write produces a new row (PA "Add a row" doesn't update). The
-      // prefix (orbitId + assignmentId) helps with debugging · admin
-      // looking at Excel can see who wrote what for which assignment
-      // without parsing stateJson. The Date.now() suffix guarantees
-      // uniqueness within a session.
-      sessionStateId: `ss_${orbitId}_${asgn.id}_${Date.now()}`,
-      assignmentId:   String(asgn.id),
-      teamId:         String(teamId),
-      orbitLoginId:   String(orbitId),
-      stateJson:      stateJson,
-      lastActive:     new Date().toISOString(),
-      appVersion:     APP_VERSION,
-    };
 
     // Use the resilient fetch helper (same one that loads participants /
     // moderators). Critical here because SessionState writes happen
@@ -25841,15 +25963,7 @@ function sendSessionStateBeacon(reason) {
       state.lastGeo.syncReason = reason || 'app_close';
       saveState();
     }
-    const payload = {
-      sessionStateId: `ss_${state.modProfile.orbitLoginId}_${asgn.id}_${Date.now()}`,
-      assignmentId:   String(asgn.id),
-      teamId:         String(asgn.teamId || ''),
-      orbitLoginId:   String(state.modProfile.orbitLoginId),
-      stateJson:      JSON.stringify(extractSyncableState(state)),
-      lastActive:     new Date().toISOString(),
-      appVersion:     APP_VERSION,
-    };
+    const payload = buildSessionStateCloudPayload(asgn, reason || 'app_close');
     // sendBeacon is fire-and-forget but reliably delivered even during
     // page unload. The browser queues it and sends it post-unload.
     const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -25872,15 +25986,7 @@ function postSessionStateLifecycleUpdate(reason) {
     }
     // Build the complete body before logout resets in-memory state. `keepalive`
     // lets this request finish while the app transitions to the login screen.
-    const payload = {
-      sessionStateId: `ss_${state.modProfile.orbitLoginId}_${asgn.id}_${Date.now()}`,
-      assignmentId:   String(asgn.id),
-      teamId:         String(asgn.teamId || ''),
-      orbitLoginId:   String(state.modProfile.orbitLoginId),
-      stateJson:      JSON.stringify(extractSyncableState(state)),
-      lastActive:     new Date().toISOString(),
-      appVersion:     APP_VERSION,
-    };
+    const payload = buildSessionStateCloudPayload(asgn, reason || 'lifecycle');
     const body = JSON.stringify(payload);
     return fetch(SESSIONSTATE_PA_WRITE_URL, {
       method: 'POST',
