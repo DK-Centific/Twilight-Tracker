@@ -12684,19 +12684,6 @@ button.perf-stat-chip.scheduled.active {
                 stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
         </svg>
       </button>
-      <!-- Ring dashboard quick link · opens the Ring account dashboard
-           in a new tab. id stays navLakituBtn so the Helios rail still
-           docks this node. rel="noopener noreferrer" with target="_blank"
-           keeps the destination from accessing window.opener. -->
-      <a href="#" target="_blank" rel="noopener noreferrer"
-         class="icon-btn nav-lakitu-btn" id="navLakituBtn"
-         aria-label="Open Ring dashboard in a new tab"
-         title="Open Ring dashboard">
-        <svg class="nav-lakitu-icon" width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <circle cx="8" cy="8" r="7.25" fill="#1A1A1A"/>
-          <circle cx="8" cy="8" r="4.35" fill="none" stroke="#fff" stroke-width="1.85"/>
-        </svg>
-      </a>
       <button class="icon-btn" id="navRefreshBtn" aria-label="Refresh schedule" title="Refresh next-session queue">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2.5 6a5.5 5.5 0 0 1 9.5-2.5L13.5 5M13.5 10A5.5 5.5 0 0 1 4 12.5L2.5 11M2.5 2.5V5h2.5M13.5 13.5V11h-2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -12774,7 +12761,7 @@ button.perf-stat-chip.scheduled.active {
 
   <!-- MOBILE HELIOS BOTTOM NAV BAR (operator)
        On narrow screens the rail hides and setupNavRails() relocates the
-       same nav action buttons (cal-guide, lakitu, refresh, menu, theme) into
+       same nav action buttons (cal-guide, refresh, menu, theme) into
        this horizontal, rounded-top neumorphic bar fixed at the bottom of the
        screen. Moving the SAME nodes preserves their ids + bound handlers. -->
   <div class="helios-bottombar" id="opBottomBar"></div>
@@ -13698,6 +13685,7 @@ h1, h2, h3,
     background:var(--bg);
     border-top-left-radius:28px; border-top-right-radius:28px;
     box-shadow:0 -7px 22px var(--neu-dark), 0 -1px 0 var(--neu-light);
+    overflow: visible;
   }
   /* Circular icon buttons inside the bar (override the nav's square shape). */
   .helios-bottombar .icon-btn {
@@ -13983,6 +13971,11 @@ h1, h2, h3,
 body:has(#loginScreen:not([style*="display: none"])) .app-build-stamp {
   display: none;
 }
+/* Hide the panic / help button on the login page. */
+body:has(#loginScreen:not([style*="display: none"])) #panicFab,
+#panicFab.is-login-hidden {
+  display: none !important;
+}
 /* Moderator app: version lives under the left sidebar, not over the page. */
 #app[style*="display: block"] ~ #appBuildStamp {
   display: none;
@@ -13996,7 +13989,8 @@ body:has(#loginScreen:not([style*="display: none"])) .app-build-stamp {
 </style>
 
 <!-- ============================================================
-     PANIC / HELP & SAFETY  · fixed bottom-right, always visible
+     PANIC / HELP & SAFETY  · floating on desktop; in the mobile bar
+     next to Settings. Hidden on the login page.
      Soft red circle → menu: Comm / Troubleshooting / Emergency.
      Sits outside #app so it survives renderApp() rebuilds.
      ============================================================ -->
@@ -14099,9 +14093,34 @@ body:has(#loginScreen:not([style*="display: none"])) .app-build-stamp {
 .panic-tier.tier-report { border-left-color:#C9A227; } .panic-tier.tier-report .panic-tier-label { color:#a5851c; }
 .panic-tier.tier-escalate { border-left-color:#D9534F; background:rgba(217,83,79,0.08); } .panic-tier.tier-escalate .panic-tier-label { color:#D9534F; }
 .panic-emg-intro { text-transform:uppercase; letter-spacing:0.15em; font-size:12px; color:var(--text3, #94948C); margin:0 0 6px; }
-/* Float the panic FAB above the fixed Helios bottom nav bar on mobile so
-   the two never overlap (bar is ~72px tall). */
-@media (max-width:760px) { .panic-fab { right:16px; bottom:92px; } .panic-btn { width:54px; height:54px; } .panic-modal-title { font-size:21px; } }
+/* On mobile the panic button sits in the bottom bar, to the right of Settings. */
+.panic-fab.is-docked {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+}
+.panic-fab.is-docked .panic-btn {
+  width: 46px;
+  height: 46px;
+  box-shadow: 4px 4px 9px rgba(0,0,0,0.22), 0 0 16px rgba(217,83,79,0.35);
+}
+.panic-fab.is-docked .panic-btn-ico { width: 22px; height: 22px; }
+.panic-fab.is-docked .panic-menu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+}
+@media (max-width:760px) {
+  .panic-fab:not(.is-docked) { right:16px; bottom:92px; }
+  .panic-btn { width:54px; height:54px; }
+  .panic-fab.is-docked .panic-btn { width:46px; height:46px; }
+  .panic-modal-title { font-size:21px; }
+}
 </style>
 
 <script src="twilight-panic.js" defer></script>

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826t';
-const APP_UPDATED_AT = '09/08/2026 15:45';
+const APP_VERSION = '1.3.090826u';
+const APP_UPDATED_AT = '09/08/2026 15:52';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -25107,6 +25107,7 @@ function startAdminApp() {
       if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
     }).catch(() => {});
   }
+  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
 }
 
 function bindAdminMenu() {
@@ -29417,6 +29418,7 @@ function logoutAndClearOperatorState() {
     setTimeout(() => loginInput.focus(), 100);
   }
   syncLoginPasswordFieldForUsername();
+  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
 }
 
 
@@ -31163,6 +31165,7 @@ function startApp() {
   // variant to show. Stored on window so it's reachable from the
   // setTimeout callback in doLogin without changing function signatures.
   window._orbitInitialAsgnRefresh = _initialAsgnRefresh;
+  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
 }
 
 // Look for teammate SessionState on the current assignment. If found
@@ -33008,12 +33011,43 @@ function wirePasswordLoginUi() {
 // lakitu, cal-guide, menu, and the theme toggle all keep working regardless
 // of where they're docked. Each item names its DESKTOP box (a rail group);
 // on mobile every item goes into the app's single bottom bar in list order.
+function isLoginScreenVisible() {
+  const loginEl = document.getElementById('loginScreen');
+  if (!loginEl) return false;
+  if (loginEl.style.display === 'none') return false;
+  if (loginEl.style.display === 'flex') return true;
+  try { return getComputedStyle(loginEl).display !== 'none'; } catch (_) { return true; }
+}
+
+// Panic help button · floating on desktop, hidden on the login page, and
+// docked in the mobile bottom bar just to the right of Settings (menu).
+function dockPanicFab(desktop) {
+  const fab = document.getElementById('panicFab');
+  if (!fab) return;
+  const loginVisible = typeof isLoginScreenVisible === 'function'
+    ? isLoginScreenVisible()
+    : false;
+  const adminActive = !!(document.getElementById('adminApp')
+    && document.getElementById('adminApp').classList.contains('active'));
+  const appVisible = !!(document.getElementById('app')
+    && document.getElementById('app').style.display === 'block');
+  const shouldDock = !desktop && !loginVisible && (adminActive || appVisible);
+  const bar = shouldDock
+    ? document.getElementById(adminActive ? 'adminBottomBar' : 'opBottomBar')
+    : null;
+  const home = document.body;
+  const target = (shouldDock && bar) ? bar : home;
+  if (target && fab.parentNode !== target) target.appendChild(fab);
+  fab.classList.toggle('is-docked', !!(shouldDock && bar));
+  fab.classList.toggle('is-login-hidden', !!loginVisible);
+  fab.setAttribute('aria-hidden', loginVisible ? 'true' : 'false');
+}
+
 function setupNavRails() {
   const configs = [
     { rail:'opRail', bottomBar:'opBottomBar', themeBtn:'navThemeBtnOp',
       items:[
         { id:'navCalGuideBtn', desktop:'opRailActions' },
-        { id:'navLakituBtn',   desktop:'opRailActions' },
         { id:'navRefreshBtn',  desktop:'opRailActions' },
         { id:'navThemeBtnOp',  desktop:'opRailBottom'  },
         { id:'menuBtn',        desktop:'opRailBottom'  },
@@ -33048,6 +33082,7 @@ function setupNavRails() {
         if (box && el.parentNode !== box) box.appendChild(el);
       });
     });
+    if (typeof dockPanicFab === 'function') dockPanicFab(desktop);
   };
   apply();
 
@@ -33271,6 +33306,7 @@ function init() {
     clearLoginPasswordInputs();
     syncLoginPasswordFieldForUsername();
     document.getElementById('loginUsername').focus();
+    if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
   });
 
   // Sidebar mobile
