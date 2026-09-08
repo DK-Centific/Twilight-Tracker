@@ -10,7 +10,7 @@ You should see a login screen titled **Project Twilight**.
 
 If the page looks old, refresh hard: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac).
 
-Login IDs such as `Admin-orbit` stay the same.
+Login IDs such as `Admin-Twilight` stay the same. The old `Admin-orbit` name still works and opens the same account.
 
 ## Files
 

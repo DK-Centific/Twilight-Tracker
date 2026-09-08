@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ac';
-const APP_UPDATED_AT = '09/08/2026 20:55';
+const APP_VERSION = '1.3.090826ad';
+const APP_UPDATED_AT = '09/08/2026 22:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -524,6 +524,25 @@ function loadState(forUsername) {
           }
         }
       }
+      // Admin-orbit was renamed to Admin-Twilight. Reuse the old session
+      // slot so a refresh after the rename does not look like a new login.
+      if (String(forUsername).toLowerCase() === 'admin-twilight') {
+        const aliasKey = sessionKeyFor('Admin-orbit');
+        if (aliasKey && aliasKey !== key) {
+          const aliasRaw = localStorage.getItem(aliasKey);
+          if (aliasRaw) {
+            const parsed = JSON.parse(aliasRaw);
+            if (parsed && isCompatibleStateVersion(parsed.version)) {
+              parsed.username = 'Admin-Twilight';
+              try {
+                if (key) localStorage.setItem(key, JSON.stringify(parsed));
+                localStorage.removeItem(aliasKey);
+              } catch (_) {}
+              return migrateState(parsed);
+            }
+          }
+        }
+      }
     }
     // Fallback: read the legacy single-bucket key. If forUsername was
     // provided, only return the legacy data if its stored username
@@ -642,6 +661,12 @@ function migrateState(loaded) {
 
   // Other top-level fields with safe defaults
   if (typeof loaded.username !== 'string') loaded.username = '';
+  if (/^admin-orbit$/i.test(loaded.username)) loaded.username = 'Admin-Twilight';
+  if (typeof loaded.isAdmin !== 'boolean') loaded.isAdmin = false;
+  if (typeof loaded.isMasterAdmin !== 'boolean') loaded.isMasterAdmin = false;
+  if (loaded.appView !== 'admin' && loaded.appView !== 'moderator') {
+    loaded.appView = loaded.isAdmin ? 'admin' : 'moderator';
+  }
   if (typeof loaded.participantId !== 'string') loaded.participantId = '';
   if (typeof loaded.participantName !== 'string') loaded.participantName = '';
   if (typeof loaded.participantAddress !== 'string') loaded.participantAddress = '';
@@ -1033,17 +1058,10 @@ function renderWelcome() {
         Today's session
       </div>
       <div class="card-desc">
-        ${todayPretty()} · ${STATIONS.length} stations to complete · Rigs <strong>${RIGS.join(' + ')}</strong> · Equipment <strong>${EQUIPMENT_LIST.filter(i => !i.optional && state.equipment[i.id]).length} / ${EQUIPMENT_LIST.filter(i => !i.optional).length}</strong> packed
+        Please ensure to receive Property Authorization letter signed by the participant before collection begins
       </div>
       <div class="actions-bar" style="margin-top: 8px;">
-        <div class="left">
-          <span class="station-summary">
-            <span class="summary-num">${getOverallProgress().done}</span> / ${STATIONS.length} stations complete
-          </span>
-        </div>
-        <div class="right">
-          ${renderTodaysSessionActionHTML()}
-        </div>
+        ${renderTodaysSessionActionHTML()}
       </div>
     </div>
 
@@ -1214,23 +1232,9 @@ function renderWelcomeWorklogBannerHTML() {
 // What appears in the "Today's session" card's right-hand action area.
 // Reflects the same state machine as the banner.
 function renderTodaysSessionActionHTML() {
-  const asgn = getOperatorAssignment();
-  const todayStr = getPSTDateString();  // PST team-reference day (see renderWelcomeWorklogBannerHTML)
-  if (!asgn || asgn.date !== todayStr) {
-    // Fallback: legacy "jump to first station" button (no assignment context)
-    return `<button class="btn btn-secondary" onclick="document.querySelector('.station-item').click()">
-      Start with first station
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-        <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>`;
-  }
-  // With an assignment, the banner above shows the action · keep this card
-  // focused on stats. Show a subtle "View first station →" link that always
-  // navigates regardless of state.
-  return `<button class="btn btn-ghost" onclick="document.querySelector('.station-item').click()" style="font-size: 13px;">
-    Open first station
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+  return `<button class="btn btn-secondary" onclick="document.querySelector('.station-item').click()">
+    Authorization signed and Start with first station
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
       <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
   </button>`;
@@ -4987,66 +4991,87 @@ function escapeHTML(s) {
 
 // Hardcoded admin allowlist (case-insensitive). Used for nav labels,
 // avatar initials, auto-resume routing, AND passwordless login bypass.
-// Admin-orbit, Ritu-Orbit, and John-Orbit all sign in without a password
-// (see isPasswordlessAdminUsername). Every other Orbit Login ID — including
-// directory LoginRole=Admin rows — must authenticate via the PA login flow.
+// Admin-Twilight, Ritu-Orbit, and John-Orbit all sign in without a password
+// (see isPasswordlessAdminUsername). Admin-orbit is kept as a login alias
+// for Admin-Twilight. Every other Orbit Login ID — including directory
+// LoginRole=Admin rows — must authenticate via the PA login flow.
 //
 // The legacy single-username form is kept as ADMIN_USERNAME (= the first
 // entry) for any code outside the auth path that needs a "default" admin
 // label; everywhere else, prefer isAdminUsername() for display helpers.
-const ADMIN_USERNAMES = ['Admin-orbit', 'Ritu-Orbit', 'John-Orbit'];
-const ADMIN_USERNAME = ADMIN_USERNAMES[0];  // legacy alias, default label
+const ADMIN_USERNAMES = ['Admin-Twilight', 'Ritu-Orbit', 'John-Orbit'];
+const ADMIN_USERNAME = ADMIN_USERNAMES[0];  // default Master Admin label
+const ADMIN_USERNAME_ALIASES = {
+  'admin-orbit': 'Admin-Twilight',
+};
 function isAdminUsername(name) {
   if (!name) return false;
   const lower = String(name).toLowerCase();
+  if (ADMIN_USERNAME_ALIASES[lower]) return true;
   return ADMIN_USERNAMES.some(u => u.toLowerCase() === lower);
 }
-// Passwordless login · same allowlist as isAdminUsername (Admin-orbit,
-// Ritu-Orbit, John-Orbit). Case-insensitive.
+// Passwordless login · same allowlist as isAdminUsername (Admin-Twilight
+// including the Admin-orbit alias, Ritu-Orbit, John-Orbit). Case-insensitive.
 function isPasswordlessAdminUsername(name) {
   return isAdminUsername(name);
 }
 // Resolve the canonical-case version of an admin username from the
 // list (so "ritu-orbit" types matches "Ritu-Orbit" in the display).
-// Falls back to the entered string when no match · should never happen
-// since this is only called after isAdminUsername() returns true.
+// Admin-orbit maps to Admin-Twilight. Falls back to the entered string
+// when no match · should never happen after isAdminUsername() is true.
 function canonicalAdminUsername(name) {
   if (!name) return name;
   const lower = String(name).toLowerCase();
+  if (ADMIN_USERNAME_ALIASES[lower]) return ADMIN_USERNAME_ALIASES[lower];
   return ADMIN_USERNAMES.find(u => u.toLowerCase() === lower) || name;
 }
+function isDefaultMasterAdminUsername(name) {
+  if (!name) return false;
+  const canon = canonicalAdminUsername(name);
+  return String(canon).toLowerCase() === 'admin-twilight'
+    || String(name).toLowerCase() === 'admin-orbit';
+}
 // Role recognition · the Moderators table's `LoginRole` column is the
-// authoritative source. LoginRole = "Admin" routes to the admin app;
-// "Mod"/"Moderator" (or any other / blank value) lands on the moderator
-// app. Accepts a few header spellings/casings for robustness, but the
+// authoritative source. LoginRole = "Admin" or "Master Admin" routes to
+// the admin app; "Mod"/"Moderator" (or any other / blank value) lands
+// on the moderator app. Accepts a few header spellings/casings, but the
 // canonical header is `LoginRole`.
 function directoryLoginRole(row) {
   if (!row) return '';
   const r = pickField(row, 'LoginRole', 'loginRole', 'login_role', 'Login Role', 'LOGINROLE');
   return String(r || '').trim();
 }
+function directoryRoleIsMasterAdmin(row) {
+  const v = directoryLoginRole(row).toLowerCase().replace(/[\s_-]+/g, '');
+  return v === 'masteradmin';
+}
 function directoryRoleIsAdmin(row) {
   const v = directoryLoginRole(row).toLowerCase();
+  if (directoryRoleIsMasterAdmin(row)) return true;
   return v === 'admin' || v === 'administrator';
 }
 // Canonical LoginRole values written to Excel / accepted by the create-user
 // form. Excel historically stores moderators as "Mod"; the UI label is
-// "Moderator". Reviewer and Admin are stored as-is. Login routes
-// LoginRole=Admin to the admin app after successful PA password auth
-// (or passwordless allowlist usernames). See doLogin / isPasswordlessAdminUsername.
+// "Moderator". Reviewer, Admin, and Master Admin are stored as-is. Login
+// routes LoginRole=Admin / Master Admin to the admin app after successful
+// PA password auth (or passwordless allowlist usernames). See doLogin /
+// isPasswordlessAdminUsername. Only a Master Admin can assign Master Admin.
 const DIRECTORY_LOGIN_ROLE_OPTIONS = [
   { value: 'Mod', label: 'Moderator' },
   { value: 'Reviewer', label: 'Reviewer' },
   { value: 'Admin', label: 'Admin' },
+  { value: 'Master Admin', label: 'Master Admin' },
 ];
 function canonicalizeDirectoryLoginRole(raw) {
   const v = String(raw || '').trim().toLowerCase();
   if (!v) return '';
+  const compact = v.replace(/[\s_-]+/g, '');
+  if (compact === 'masteradmin') return 'Master Admin';
   if (v === 'admin' || v === 'administrator') return 'Admin';
   if (v === 'reviewer' || v === 'review') return 'Reviewer';
   if (v === 'mod' || v === 'moderator' || v === 'primary' || v === 'backup') return 'Mod';
   // Preserve unknown non-empty values for display, but form select only
-  // offers the three canonical options above.
+  // offers the canonical options above.
   return String(raw).trim();
 }
 function directoryLoginRoleLabel(raw) {
@@ -10425,6 +10450,7 @@ function overlayDeactivatedFlagsOnModerators(rows) {
     m.deactivated = !!(key && _deactivatedUserIds.has(key)) || fromRow === true;
   });
   if (changed) cacheDeactivatedUserIds(Array.from(_deactivatedUserIds));
+  if (typeof overlayMasterAdminFlagsOnModerators === 'function') overlayMasterAdminFlagsOnModerators(list);
 }
 
 function ingestDeactivatedUsersFromSessionRows(rows) {
@@ -10525,9 +10551,197 @@ function ingestAppSettingsFromSessionRows(rows) {
     }
   }
   ingestDeactivatedUsersFromSessionRows(rows);
+  ingestMasterAdminsFromSessionRows(rows);
 }
 
 loadDeactivatedUsersCache();
+
+const MASTER_ADMIN_LS_KEY = 'centific_twilight_master_admins_v1';
+const MASTER_ADMIN_SETTING_ID = 'ss_app_setting_master_admins';
+const MASTER_ADMIN_BRAND_GIF = 'assets/master-admin-brand.gif';
+let _masterAdminIds = new Set();
+
+function loadMasterAdminsCache() {
+  try {
+    const raw = localStorage.getItem(MASTER_ADMIN_LS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      _masterAdminIds = new Set(parsed.map(orbitLoginMatchKey).filter(Boolean));
+    }
+  } catch (_) {}
+}
+
+function cacheMasterAdminIds(ids) {
+  _masterAdminIds = new Set((ids || []).map(orbitLoginMatchKey).filter(Boolean));
+  try { localStorage.setItem(MASTER_ADMIN_LS_KEY, JSON.stringify(Array.from(_masterAdminIds))); } catch (_) {}
+}
+
+function isGrantedMasterAdmin(orbitId) {
+  const key = orbitLoginMatchKey(orbitId);
+  return !!(key && _masterAdminIds.has(key));
+}
+
+function setMasterAdminInCache(orbitId, granted) {
+  const key = orbitLoginMatchKey(orbitId);
+  if (!key) return;
+  if (granted) _masterAdminIds.add(key);
+  else _masterAdminIds.delete(key);
+  cacheMasterAdminIds(Array.from(_masterAdminIds));
+}
+
+function isMasterAdminAccount(orbitId, row) {
+  if (isDefaultMasterAdminUsername(orbitId)) return true;
+  if (isGrantedMasterAdmin(orbitId)) return true;
+  if (row && directoryRoleIsMasterAdmin(row)) return true;
+  return false;
+}
+
+function isMasterAdminUser(name) {
+  const id = name != null ? name : (state && state.username);
+  if (!id) return !!(state && state.isMasterAdmin);
+  if (isMasterAdminAccount(id, (state && orbitLoginMatchKey(state.username) === orbitLoginMatchKey(id)) ? state.modProfile : null)) {
+    return true;
+  }
+  return !!(state && state.isMasterAdmin && orbitLoginMatchKey(state.username) === orbitLoginMatchKey(id));
+}
+
+function overlayMasterAdminFlagsOnModerators(rows) {
+  const list = Array.isArray(rows) ? rows : ((typeof adminState !== 'undefined' && adminState && adminState.moderators) || []);
+  list.forEach(m => {
+    if (!m || typeof m !== 'object') return;
+    const id = (typeof pickField === 'function')
+      ? pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id')
+      : m.orbitLoginId;
+    if (isMasterAdminAccount(id, m)) {
+      m.LoginRole = 'Master Admin';
+    }
+  });
+}
+
+function ingestMasterAdminsFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== MASTER_ADMIN_SETTING_ID && id !== 'app_setting_master_admins') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (parsed && Array.isArray(parsed.ids)) {
+    cacheMasterAdminIds(parsed.ids);
+    if (typeof overlayMasterAdminFlagsOnModerators === 'function') overlayMasterAdminFlagsOnModerators();
+  }
+}
+
+async function persistMasterAdminsSetting() {
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const payload = {
+    sessionStateId: MASTER_ADMIN_SETTING_ID,
+    assignmentId: 'app_setting_master_admins',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'masterAdmins',
+      ids: Array.from(_masterAdminIds),
+      updatedAt: new Date().toISOString(),
+      updatedBy: (state && state.username) || 'Admin-Twilight',
+    }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Master-admin setting write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+async function refreshMasterAdmins() {
+  loadMasterAdminsCache();
+  overlayMasterAdminFlagsOnModerators();
+  if (typeof fetchSessionStateRows !== 'function') return Array.from(_masterAdminIds);
+  try {
+    const rows = await fetchSessionStateRows();
+    if (Array.isArray(rows)) ingestMasterAdminsFromSessionRows(rows);
+  } catch (_) {}
+  overlayMasterAdminFlagsOnModerators();
+  return Array.from(_masterAdminIds);
+}
+
+function syncMasterAdminChrome() {
+  const on = isMasterAdminUser();
+  try { document.body.classList.toggle('is-master-admin', !!on); } catch (_) {}
+  const adminActive = !!(document.getElementById('adminApp') && document.getElementById('adminApp').classList.contains('active'));
+  ['navSwitchAppBtn', 'adminNavSwitchAppBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.hidden = !on;
+    el.setAttribute('aria-hidden', on ? 'false' : 'true');
+    const toAdmin = id === 'navSwitchAppBtn';
+    const label = toAdmin ? 'Switch to Admin app' : 'Switch to Moderator app';
+    el.setAttribute('aria-label', label);
+    el.setAttribute('title', 'Switch');
+    if (adminActive && toAdmin) el.setAttribute('aria-label', 'Switch to Moderator app');
+    if (!adminActive && !toAdmin) el.setAttribute('aria-label', 'Switch to Admin app');
+  });
+  document.querySelectorAll('.helios-rail .brand-mark').forEach(mark => {
+    mark.classList.toggle('is-master-gif', !!on);
+    const img = mark.querySelector('.brand-mark-master-gif');
+    if (img) {
+      if (on && !img.getAttribute('src')) img.setAttribute('src', MASTER_ADMIN_BRAND_GIF);
+      img.hidden = !on;
+    }
+  });
+}
+
+function switchMasterAdminApp() {
+  if (!isMasterAdminUser()) return;
+  const adminEl = document.getElementById('adminApp');
+  const onAdmin = !!(adminEl && adminEl.classList.contains('active'));
+  state.isMasterAdmin = true;
+  state.isAdmin = true;
+  if (onAdmin) {
+    state.appView = 'moderator';
+    saveState();
+    startApp();
+  } else {
+    state.appView = 'admin';
+    saveState();
+    startAdminApp();
+  }
+  syncMasterAdminChrome();
+}
+
+loadMasterAdminsCache();
 
 async function persistModTrackingSetting(enabled) {
   if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
@@ -12665,9 +12879,18 @@ function renderModUserModal() {
   const v = state.values || emptyModUserFormValues();
   const isEdit = state.mode === 'edit';
   const writeConfigured = !!(ADMIN_PA_MODERATOR_WRITE_URL && String(ADMIN_PA_MODERATOR_WRITE_URL).trim());
-  const roleOpts = DIRECTORY_LOGIN_ROLE_OPTIONS.map(o =>
-    `<option value="${escapeHTML(o.value)}" ${canonicalizeDirectoryLoginRole(v.LoginRole) === o.value ? 'selected' : ''}>${escapeHTML(o.label)}</option>`
-  ).join('');
+  const canAssignMaster = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  const currentRole = canonicalizeDirectoryLoginRole(v.LoginRole);
+  const roleLocked = (typeof isDefaultMasterAdminUsername === 'function' && isDefaultMasterAdminUsername(v.orbitLoginId))
+    || (currentRole === 'Master Admin' && !canAssignMaster);
+  const roleOpts = DIRECTORY_LOGIN_ROLE_OPTIONS.filter(o => {
+    if (o.value !== 'Master Admin') return true;
+    return canAssignMaster || currentRole === 'Master Admin';
+  }).map(o => {
+    const selected = currentRole === o.value;
+    const optionLocked = o.value === 'Master Admin' && !canAssignMaster;
+    return `<option value="${escapeHTML(o.value)}" ${selected ? 'selected' : ''} ${optionLocked ? 'disabled' : ''}>${escapeHTML(o.label)}</option>`;
+  }).join('');
 
   const field = (key, label, opts = {}) => {
     const required = !!opts.required;
@@ -12675,10 +12898,12 @@ function renderModUserModal() {
     const readonly = !!opts.readonly;
     const hint = opts.hint || '';
     if (type === 'select') {
+      const locked = !!opts.locked || !!state.saving;
       return `
         <label class="asgn-field">
           <span class="asgn-field-label">${escapeHTML(label)}${required ? ' *' : ''}</span>
-          <select id="modUser_${key}" ${required ? 'required' : ''} ${state.saving ? 'disabled' : ''}>${roleOpts}</select>
+          <select id="modUser_${key}" ${required ? 'required' : ''} ${locked ? 'disabled' : ''}>${roleOpts}</select>
+          ${hint ? `<div class="asgn-field-hint">${escapeHTML(hint)}</div>` : ''}
         </label>`;
     }
     return `
@@ -12695,7 +12920,7 @@ function renderModUserModal() {
     <div class="asgn-modal-head">
       <div>
         <div class="asgn-modal-title">${isEdit ? 'Edit user' : 'Add user'}</div>
-        <div class="asgn-modal-sub">${isEdit ? 'Update this directory profile' : 'Create a Moderator, Reviewer, or Admin directory profile'}</div>
+        <div class="asgn-modal-sub">${isEdit ? 'Update this directory profile' : 'Create a Moderator, Reviewer, Admin, or Master Admin directory profile'}</div>
       </div>
       <button type="button" class="icon-btn" id="modUserModalClose" aria-label="Close">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -12711,7 +12936,7 @@ function renderModUserModal() {
         </div>` : ''}
       <div class="mod-user-form-grid">
         ${field('orbitLoginId', 'Twilight Login ID', { required: true, readonly: isEdit, hint: isEdit ? 'Twilight Login ID cannot change on edit (Excel key column).' : 'Must be unique in the directory.' })}
-        ${field('LoginRole', 'Login Role', { required: true, type: 'select' })}
+        ${field('LoginRole', 'Login Role', { required: true, type: 'select', locked: roleLocked, hint: roleLocked ? (canAssignMaster ? 'Admin-Twilight always stays Master Admin.' : 'Only a Master Admin can change this role.') : (canAssignMaster ? '' : 'Only a Master Admin can assign Master Admin.') })}
         ${field('firstName', 'First Name', { required: true })}
         ${field('lastName', 'Last Name', { required: true })}
         ${field('phoneNumber', 'Phone Number')}
@@ -12782,7 +13007,20 @@ function validateModUserForm(values, mode, originalOrbitLoginId) {
   if (!values.firstName) return 'First name is required.';
   if (!values.lastName) return 'Last name is required.';
   if (!isValidDirectoryLoginRole(values.LoginRole)) {
-    return 'Login Role must be Moderator, Reviewer, or Admin.';
+    return 'Login Role must be Moderator, Reviewer, Admin, or Master Admin.';
+  }
+  const nextRole = canonicalizeDirectoryLoginRole(values.LoginRole);
+  const canAssignMaster = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  if (nextRole === 'Master Admin' && !canAssignMaster) {
+    return 'Only a Master Admin can assign Master Admin.';
+  }
+  if (typeof isDefaultMasterAdminUsername === 'function' && isDefaultMasterAdminUsername(values.orbitLoginId) && nextRole !== 'Master Admin') {
+    return 'Admin-Twilight always stays Master Admin.';
+  }
+  if (!canAssignMaster && originalOrbitLoginId && typeof isMasterAdminAccount === 'function' && isMasterAdminAccount(originalOrbitLoginId)) {
+    if (nextRole !== 'Master Admin') {
+      return 'Only a Master Admin can change this role.';
+    }
   }
   if (!isBasicEmailOk(values.centificEmail)) return 'Centific Email looks invalid.';
   if (!isBasicEmailOk(values.personalEmail)) return 'Personal Email looks invalid.';
@@ -12820,6 +13058,14 @@ function applyModeratorWriteLocally(values, mode, originalOrbitLoginId) {
   adminState.moderators = rows;
   if (typeof setUserDeactivatedInCache === 'function') {
     setUserDeactivatedInCache(values.orbitLoginId, !!values.deactivated);
+  }
+  const role = canonicalizeDirectoryLoginRole(values.LoginRole);
+  if (typeof setMasterAdminInCache === 'function') {
+    if (role === 'Master Admin' || (typeof isDefaultMasterAdminUsername === 'function' && isDefaultMasterAdminUsername(values.orbitLoginId))) {
+      setMasterAdminInCache(values.orbitLoginId, true);
+    } else {
+      setMasterAdminInCache(values.orbitLoginId, false);
+    }
   }
 }
 
@@ -12892,6 +13138,9 @@ async function submitModUserModal() {
   applyModeratorWriteLocally(values, savedMode, originalOrbitLoginId);
   if (typeof persistDeactivatedUsersSetting === 'function') {
     persistDeactivatedUsersSetting().catch(() => {});
+  }
+  if (typeof persistMasterAdminsSetting === 'function') {
+    persistMasterAdminsSetting().catch(() => {});
   }
   toast(state.mode === 'edit' ? 'User updated' : 'User created');
   closeModUserModal();
@@ -15610,7 +15859,7 @@ async function sendModBookingEmails(assignment) {
 
 function getCurrentAdminId() {
   // Identify which admin triggered the email. Prefer the canonical
-  // adminId helper if present (it handles the Admin-orbit / Ritu-Orbit /
+  // adminId helper if present (it handles the Admin-Twilight / Ritu-Orbit /
   // John-Orbit aliases); otherwise fall back to state.username, which
   // is whatever they typed at the login screen.
   if (typeof canonicalAdminUsername === 'function') {
@@ -25837,12 +26086,11 @@ function startAdminApp() {
   // User chip · show whichever admin name is signed in, and derive
   // initials from that name so Ritu-Orbit shows "RO" and John-Orbit
   // shows "JO" instead of every admin sharing the static "AD" label.
-  // For backwards compat, the legacy Admin-orbit account still shows
-  // "AD" since that's what it always rendered.
+  // Admin-Twilight (and the legacy Admin-orbit alias) still show "AD".
   document.getElementById('adminUserName').textContent = state.username;
   document.getElementById('adminAvatar').textContent = (() => {
     const name = String(state.username || '');
-    if (name.toLowerCase() === 'admin-orbit') return 'AD';
+    if (name.toLowerCase() === 'admin-orbit' || name.toLowerCase() === 'admin-twilight') return 'AD';
     // Take the first letter of each hyphen-separated chunk (capped at 2)
     // so "Ritu-Orbit" → "RO", "John-Orbit" → "JO", "Some-Other-Admin"
     // → "SO" (first two parts).
@@ -25882,6 +26130,16 @@ function startAdminApp() {
       }
     }).catch(() => {});
   }
+  if (typeof refreshMasterAdmins === 'function') {
+    refreshMasterAdmins().then(() => {
+      if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
+          && typeof renderModerators === 'function') {
+        renderModerators();
+      }
+    }).catch(() => {});
+  }
+  if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
 }
 
@@ -31881,6 +32139,7 @@ function startApp() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('adminApp').classList.remove('active');
   document.getElementById('app').style.display = 'block';
+  if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   applyAssignmentToEntryFields();
   if (typeof wireModCalendar === 'function') wireModCalendar();
   if (typeof flushAvailabilityQueue === 'function') flushAvailabilityQueue();
@@ -33217,7 +33476,7 @@ function setLoginLoading(isLoading) {
 }
 
 // Hide/disable password when the typed username is on the passwordless
-// admin allowlist (Admin-orbit / Ritu-Orbit / John-Orbit).
+// admin allowlist (Admin-Twilight / Ritu-Orbit / John-Orbit).
 function syncLoginPasswordFieldForUsername() {
   const userEl = document.getElementById('loginUsername');
   const field = document.getElementById('loginPasswordField');
@@ -33298,11 +33557,40 @@ async function loadOrbitLoginIdIndex() {
   return index;
 }
 
+async function lookupDirectoryRowByOrbitId(orbitId) {
+  const key = orbitLoginIdMatchKey(orbitId);
+  if (!key) return null;
+  const matchRow = (row) => {
+    if (!row || typeof row !== 'object') return false;
+    const exact = String(pickField(row, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id') || '').trim();
+    return orbitLoginIdMatchKey(exact) === key;
+  };
+  try {
+    const cached = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.moderators))
+      ? adminState.moderators.find(matchRow)
+      : null;
+    if (cached) return cached;
+  } catch (_) {}
+  try {
+    const rows = extractArray(await fetchModeratorDirectory({ timeoutMs: 20000, maxAttempts: 2 }));
+    if (typeof adminState !== 'undefined' && adminState && Array.isArray(rows)) {
+      adminState.moderators = rows;
+      if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators(rows);
+    }
+    return (Array.isArray(rows) ? rows : []).find(matchRow) || null;
+  } catch (e) {
+    console.warn('[Twilight] Directory role lookup unavailable:', (e && e.message) || e);
+  }
+  return null;
+}
+
 async function resolveCanonicalOrbitLoginId(typed) {
   const trimmed = String(typed || '').trim();
   if (!trimmed) return trimmed;
   const admin = ADMIN_USERNAMES.find(u => orbitLoginIdMatchKey(u) === orbitLoginIdMatchKey(trimmed));
   if (admin) return admin;
+  const alias = ADMIN_USERNAME_ALIASES[orbitLoginIdMatchKey(trimmed)];
+  if (alias) return alias;
   try {
     const index = await loadOrbitLoginIdIndex();
     if (index && index.size) {
@@ -33513,7 +33801,7 @@ async function submitForcedPasswordChange() {
     const nextProfile = (result.profile && typeof result.profile === 'object')
       ? buildSafeModProfileFromAuth(result.profile)
       : profile;
-    routeAfterSuccessfulAuth(orbitId, nextProfile || buildSafeModProfileFromAuth({ orbitLoginId: orbitId }));
+    await routeAfterSuccessfulAuth(orbitId, nextProfile || buildSafeModProfileFromAuth({ orbitLoginId: orbitId }));
   } catch (e) {
     if (e && e.isInvalidCredentials) {
       setPwChangeError('The new password was not saved. In Condition 2 (Parameters), left box must be operation, middle is equal to, right box setPassword. True must go to Update a row.');
@@ -33531,13 +33819,28 @@ async function submitForcedPasswordChange() {
   }
 }
 
-function routeAfterSuccessfulAuth(orbitId, profile) {
-  const safe = profile || buildSafeModProfileFromAuth({ orbitLoginId: orbitId });
+async function routeAfterSuccessfulAuth(orbitId, profile) {
+  let safe = profile || buildSafeModProfileFromAuth({ orbitLoginId: orbitId });
+  const lookupId = safe.orbitLoginId || orbitId;
+  try {
+    const row = await lookupDirectoryRowByOrbitId(lookupId);
+    if (row) {
+      const role = directoryLoginRole(row);
+      if (role) safe = Object.assign({}, safe, { LoginRole: role });
+    }
+  } catch (_) {}
+  try {
+    if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
+    else if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
+  } catch (_) {
+    if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
+  }
   const id = safe.orbitLoginId || orbitId;
-  // Role comes only from the PA profile response — never from client input.
-  // Directory LoginRole=Admin → admin app. Hardcoded passwordless allowlist
-  // names (Admin-orbit / Ritu-Orbit / John-Orbit) enter admin without PA.
-  const roleIsAdmin = directoryRoleIsAdmin(safe);
+  // Directory LoginRole is authoritative. The PA login profile often omits
+  // LoginRole, which previously sent every Admin to the moderator app.
+  // Admin and Master Admin land on the admin app. Hardcoded passwordless
+  // allowlist names still enter admin when the directory has no role.
+  const roleIsAdmin = directoryRoleIsAdmin(safe) || isMasterAdminAccount(id, safe);
   const roleExplicitNonAdmin = !!(safe.LoginRole && !roleIsAdmin);
   const enterAdmin = roleIsAdmin || (isAdminUsername(id) && !roleExplicitNonAdmin);
 
@@ -33555,9 +33858,12 @@ function routeAfterSuccessfulAuth(orbitId, profile) {
     }
     state.modProfile = safe;
     state.isAdmin = true;
+    state.isMasterAdmin = isMasterAdminAccount(enteredName, safe);
+    state.appView = 'admin';
     saveState();
     setLastLoginUsername(enteredName);
     startAdminApp();
+    if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
     return;
   }
 
@@ -33573,11 +33879,14 @@ function routeAfterSuccessfulAuth(orbitId, profile) {
   }
   state.modProfile = safe;
   state.isAdmin = false;
+  state.isMasterAdmin = isMasterAdminAccount(id, safe);
+  state.appView = 'moderator';
   if (maybeResetStaleSession()) resumed = false;
   saveState();
   setLastLoginUsername(id);
   _loginWelcomePending = true;
   startApp();
+  if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   if (resumed && state.participantId) {
     setTimeout(() => {
       if (typeof showToast === 'function') {
@@ -33607,6 +33916,27 @@ function routeAfterSuccessfulAuth(orbitId, profile) {
   }, 900);
 }
 
+async function maybeRerouteFromDirectoryRole() {
+  if (!state || !state.username) return;
+  if (typeof isMasterAdminUser === 'function' && isMasterAdminUser()) return;
+  if (state.isAdmin || isAdminUsername(state.username)) return;
+  try {
+    const row = await lookupDirectoryRowByOrbitId(state.username);
+    if (!row) return;
+    if (directoryRoleIsAdmin(row) || isMasterAdminAccount(state.username, row)) {
+      state.modProfile = Object.assign({}, state.modProfile || { orbitLoginId: state.username }, {
+        LoginRole: directoryLoginRole(row) || 'Admin',
+      });
+      state.isAdmin = true;
+      state.isMasterAdmin = isMasterAdminAccount(state.username, row);
+      state.appView = 'admin';
+      saveState();
+      startAdminApp();
+      if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+    }
+  } catch (_) {}
+}
+
 async function blockDeactivatedLogin(orbitId) {
   try {
     if (typeof refreshDeactivatedUsers === 'function') await refreshDeactivatedUsers();
@@ -33620,8 +33950,14 @@ async function blockDeactivatedLogin(orbitId) {
   return true;
 }
 
-function enterPasswordlessAdmin(enteredName) {
+async function enterPasswordlessAdmin(enteredName) {
   const enteredAdminName = canonicalAdminUsername(enteredName);
+  try {
+    if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
+    else if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
+  } catch (_) {
+    if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
+  }
   const saved = loadState(enteredAdminName);
   if (saved && saved.username && isAdminUsername(saved.username)) {
     state = saved;
@@ -33631,9 +33967,15 @@ function enterPasswordlessAdmin(enteredName) {
     state.username = enteredAdminName;
   }
   state.isAdmin = true;
+  state.isMasterAdmin = isMasterAdminAccount(enteredAdminName, state.modProfile);
+  state.appView = 'admin';
+  if (state.isMasterAdmin && (!state.modProfile || !state.modProfile.LoginRole)) {
+    state.modProfile = Object.assign({}, state.modProfile || { orbitLoginId: enteredAdminName }, { LoginRole: 'Master Admin' });
+  }
   saveState();
   setLastLoginUsername(enteredAdminName);
   startAdminApp();
+  if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
 }
 
 async function doLogin() {
@@ -33648,7 +33990,7 @@ async function doLogin() {
     return;
   }
 
-  // Passwordless allowlist: Admin-orbit / Ritu-Orbit / John-Orbit.
+  // Passwordless allowlist: Admin-Twilight / Ritu-Orbit / John-Orbit.
   if (isPasswordlessAdminUsername(v)) {
     if (pwEl) pwEl.value = '';
     typedPassword = '';
@@ -33664,7 +34006,7 @@ async function doLogin() {
     } catch (_) {}
     setLoginLoading(false);
     _loginInFlight = false;
-    enterPasswordlessAdmin(v);
+    await enterPasswordlessAdmin(v);
     return;
   }
 
@@ -33702,7 +34044,7 @@ async function doLogin() {
         }
         setLoginLoading(false);
         _loginInFlight = false;
-        enterPasswordlessAdmin(loginId);
+        await enterPasswordlessAdmin(loginId);
         return;
       }
     }
@@ -33776,7 +34118,7 @@ async function doLogin() {
     clearPendingAuth();
     setLoginLoading(false);
     _loginInFlight = false;
-    routeAfterSuccessfulAuth(orbitId, profile);
+    await routeAfterSuccessfulAuth(orbitId, profile);
   } catch (e) {
     if (pwEl) pwEl.value = '';
     typedPassword = '';
@@ -33888,12 +34230,14 @@ function setupNavRails() {
       items:[
         { id:'navCalGuideBtn', desktop:'opRailActions' },
         { id:'navRefreshBtn',  desktop:'opRailActions' },
+        { id:'navSwitchAppBtn', desktop:'opRailActions' },
         { id:'navThemeBtnOp',  desktop:'opRailBottom'  },
         { id:'menuBtn',        desktop:'opRailBottom'  },
       ] },
     { rail:'adminRail', bottomBar:'adminBottomBar', themeBtn:'navThemeBtnAdmin',
       items:[
         { id:'adminNavRefreshBtn', desktop:'adminRailActions' },
+        { id:'adminNavSwitchAppBtn', desktop:'adminRailActions' },
         { id:'navThemeBtnAdmin',   desktop:'adminRailBottom'  },
         { id:'adminMenuBtn',       desktop:'adminRailBottom'  },
       ] },
@@ -33903,6 +34247,15 @@ function setupNavRails() {
   configs.forEach(cfg => {
     const tb = document.getElementById(cfg.themeBtn);
     if (tb && !tb._wired) { tb._wired = true; tb.addEventListener('click', toggleTheme); }
+  });
+  ['navSwitchAppBtn', 'adminNavSwitchAppBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn && !btn._wired) {
+      btn._wired = true;
+      btn.addEventListener('click', () => {
+        if (typeof switchMasterAdminApp === 'function') switchMasterAdminApp();
+      });
+    }
   });
 
   const apply = () => {
@@ -33961,13 +34314,26 @@ function init() {
   let saved = lastUser ? loadState(lastUser) : loadState();
   if (saved && saved.username) {
     state = saved;
-    if (isAdminUsername(state.username) || state.isAdmin) {
+    if (/^admin-orbit$/i.test(state.username)) state.username = 'Admin-Twilight';
+    const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+    const adminish = master
+      || directoryRoleIsAdmin(state.modProfile)
+      || isAdminUsername(state.username)
+      || state.isAdmin;
+    if (master && state.appView === 'moderator') {
+      maybeResetStaleSession();
+      startApp();
+    } else if (adminish) {
       startAdminApp();
     } else {
       // Day-boundary guard · same as the login branch: a refresh/relaunch on
       // a new day must not resurrect yesterday's session.
       maybeResetStaleSession();
       startApp();
+    }
+    if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+    if (typeof maybeRerouteFromDirectoryRole === 'function') {
+      maybeRerouteFromDirectoryRole().catch(() => {});
     }
   } else {
     document.documentElement.setAttribute('data-theme', 'dark');

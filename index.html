@@ -12950,6 +12950,11 @@ button.perf-stat-chip.scheduled.active {
           <path d="M2.5 6a5.5 5.5 0 0 1 9.5-2.5L13.5 5M13.5 10A5.5 5.5 0 0 1 4 12.5L2.5 11M2.5 2.5V5h2.5M13.5 13.5V11h-2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
+      <button class="icon-btn master-admin-only" id="navSwitchAppBtn" hidden aria-hidden="true" aria-label="Switch to Admin app" title="Switch">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M5.5 2.5L3 5h10M10.5 13.5L13 11H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="menuBtn" aria-label="Open menu">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="3" cy="8" r="1.4" fill="currentColor"/>
@@ -13006,7 +13011,7 @@ button.perf-stat-chip.scheduled.active {
        untouched. Left Stations sidebar is unaffected. -->
   <div class="helios-rail" id="opRail">
     <button class="rail-brand" id="railBrandOp" type="button" onclick="showWelcome()" title="Home" aria-label="Home">
-      <span class="brand-mark" role="img" aria-label="Centific"></span>
+      <span class="brand-mark" role="img" aria-label="Centific"><img class="brand-mark-master-gif" src="assets/master-admin-brand.gif" alt="" hidden></span>
     </button>
     <div class="rail-group" id="opRailActions"><!-- cal-guide / lakitu / refresh / save relocate here on desktop --></div>
     <div class="rail-group rail-group-bottom" id="opRailBottom">
@@ -13055,11 +13060,16 @@ button.perf-stat-chip.scheduled.active {
       </span>
       <div class="user-chip">
         <div class="avatar" id="adminAvatar">AD</div>
-        <span class="who" id="adminUserName">Admin-orbit</span>
+        <span class="who" id="adminUserName">Admin-Twilight</span>
       </div>
       <button class="icon-btn" id="adminNavRefreshBtn" aria-label="Refresh" title="Refresh data">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2.5 6a5.5 5.5 0 0 1 9.5-2.5L13.5 5M13.5 10A5.5 5.5 0 0 1 4 12.5L2.5 11M2.5 2.5V5h2.5M13.5 13.5V11h-2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn master-admin-only" id="adminNavSwitchAppBtn" hidden aria-hidden="true" aria-label="Switch to Moderator app" title="Switch">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M5.5 2.5L3 5h10M10.5 13.5L13 11H3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
       <button class="icon-btn" id="adminMenuBtn" aria-label="Open menu">
@@ -13081,7 +13091,7 @@ button.perf-stat-chip.scheduled.active {
        group via setupNavRails(); hidden on mobile (actions re-dock to nav). -->
   <div class="helios-rail" id="adminRail">
     <button class="rail-brand" id="railBrandAdmin" type="button" title="Centific" aria-label="Centific">
-      <span class="brand-mark" role="img" aria-label="Centific"></span>
+      <span class="brand-mark" role="img" aria-label="Centific"><img class="brand-mark-master-gif" src="assets/master-admin-brand.gif" alt="" hidden></span>
     </button>
     <div class="rail-group" id="adminRailActions"><!-- adminNavRefreshBtn relocates here on desktop --></div>
     <div class="rail-group rail-group-bottom" id="adminRailBottom">
@@ -13905,6 +13915,22 @@ h1, h2, h3,
 .helios-rail .rail-brand:hover { transform:translateY(-1px); }
 .helios-rail .rail-brand:active { box-shadow:inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light); }
 .helios-rail .rail-brand .brand-mark { width:26px; height:26px; display:block; }
+.helios-rail .brand-mark .brand-mark-master-gif {
+  display:none;
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  border-radius:50%;
+}
+.helios-rail .brand-mark.is-master-gif {
+  -webkit-mask:none;
+  mask:none;
+  background-image:none !important;
+  background-color:transparent;
+}
+.helios-rail .brand-mark.is-master-gif .brand-mark-master-gif { display:block; }
+.master-admin-only { display:none !important; }
+body.is-master-admin .master-admin-only { display:flex !important; }
 /* Circular icon buttons inside the rail (override the nav's square shape). */
 .helios-rail .icon-btn {
   width:48px; height:48px; border-radius:50% !important;
