@@ -25627,9 +25627,9 @@ function ingestGeoPingsFromSessionRows(rows) {
 }
 
 // Return the newest SessionState row per (orbitLoginId, assignmentId)
-// from the full rows array. PA "Add a row" appends, so over time the
-// table accumulates one row per state change · we collapse to the
-// latest per user-per-assignment via timestamp comparison.
+// from the full rows array. After the write flow overwrites by
+// sessionStateId there should be one live row per assignment; this
+// still collapses older appended rows and teammate writes by timestamp.
 function newestSessionStatePerUser(rows) {
   if (!Array.isArray(rows)) return [];
   const newest = new Map();  // key: `${orbitId}|${asgnId}` → row
