@@ -36,7 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826g';
+const APP_VERSION = '1.3.090826h';
+const APP_UPDATED_AT = '09/08/2026 08:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -32637,6 +32638,13 @@ function init() {
   if (loginVer) loginVer.textContent = 'v' + APP_VERSION;
   const sidebarVer = document.getElementById('sidebarVersionLabel');
   if (sidebarVer) sidebarVer.textContent = `Centific Data Collection · Project Twilight · v${APP_VERSION}`;
+  const buildStamp = document.getElementById('appBuildStamp');
+  if (buildStamp) {
+    const ver = document.getElementById('appBuildStampVer');
+    const updated = document.getElementById('appBuildStampUpdated');
+    if (ver) ver.textContent = 'v' + APP_VERSION;
+    if (updated) updated.textContent = '(last updated: ' + APP_UPDATED_AT + ')';
+  }
 
   // Try to auto-resume if a previous login was recorded. We look up
   // the most-recently logged-in username (kept at LAST_LOGIN_KEY) and

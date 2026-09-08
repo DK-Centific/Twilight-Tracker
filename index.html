@@ -13813,6 +13813,34 @@ h1, h2, h3,
 }
 </style>
 
+<!-- Build stamp · outside #app / #adminApp so it survives re-renders -->
+<div class="app-build-stamp" id="appBuildStamp" aria-hidden="true">
+  <div class="app-build-stamp-ver" id="appBuildStampVer"></div>
+  <div class="app-build-stamp-updated" id="appBuildStampUpdated"></div>
+</div>
+<style id="app-build-stamp-style">
+.app-build-stamp {
+  position: fixed;
+  right: 94px;
+  bottom: 28px;
+  z-index: 4000;
+  pointer-events: none;
+  text-align: right;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  line-height: 1.35;
+  color: var(--text3);
+  opacity: 0.34;
+}
+.app-build-stamp-updated { margin-top: 1px; }
+@media (max-width: 760px) {
+  .app-build-stamp {
+    right: 16px;
+    bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+</style>
+
 <!-- ============================================================
      PANIC / HELP & SAFETY  · fixed bottom-right, always visible
      Soft red circle → menu: Comm / Troubleshooting / Emergency.
