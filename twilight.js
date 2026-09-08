@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826al';
-const APP_UPDATED_AT = '09/08/2026 23:55';
+const APP_VERSION = '1.3.090826am';
+const APP_UPDATED_AT = '09/08/2026 23:58';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8637,6 +8637,8 @@ function renderPerfStationListHTML(a) {
 const OVERVIEW_HQ_LAT = 47.6446;
 const OVERVIEW_HQ_LNG = -122.1370;
 const OVERVIEW_SUNSET_ALT_DEG = -0.83;
+const OVERVIEW_DAY_ALT_DEG = 6;
+const OVERVIEW_NIGHT_ALT_DEG = -6;
 const OVERVIEW_TEMP_REFRESH_MS = 10 * 60 * 1000;
 let _ovHeliosTimer = null;
 let _ovTempF = null;
@@ -8660,6 +8662,35 @@ function overviewSolarAltitudeDeg(at) {
   const latR = OVERVIEW_HQ_LAT * rad;
   const alt = Math.asin(Math.sin(latR) * Math.sin(decl) + Math.cos(latR) * Math.cos(decl) * Math.cos(ha));
   return alt / rad;
+}
+
+function overviewHeliosPhase(alt) {
+  if (!Number.isFinite(alt)) return 'day';
+  if (alt > OVERVIEW_DAY_ALT_DEG) return 'day';
+  if (alt < OVERVIEW_NIGHT_ALT_DEG) return 'night';
+  return 'sunset';
+}
+
+function applyOverviewHeliosPhase(phase) {
+  const well = document.getElementById('ovVizWell');
+  const orb = document.getElementById('ovSolarOrb');
+  const sky = document.getElementById('ovVizSky');
+  const name = (phase === 'sunset' || phase === 'night') ? phase : 'day';
+  if (well) {
+    well.classList.toggle('is-day', name === 'day');
+    well.classList.toggle('is-sunset', name === 'sunset');
+    well.classList.toggle('is-night', name === 'night');
+    well.setAttribute('data-ov-phase', name);
+  }
+  if (sky) sky.setAttribute('data-ov-phase', name);
+  if (orb) {
+    orb.classList.toggle('is-sun', name === 'day');
+    orb.classList.toggle('is-sunset', name === 'sunset');
+    orb.classList.toggle('is-moon', name === 'night');
+    orb.title = name === 'day'
+      ? 'Sun · daytime'
+      : (name === 'sunset' ? 'Sun · sunset' : 'Moon · night');
+  }
 }
 
 function paintOverviewHeliosClock() {
@@ -8693,12 +8724,7 @@ function paintOverviewHeliosClock() {
       : '—';
   }
   const alt = overviewSolarAltitudeDeg(now);
-  if (orb) {
-    const isDay = Number.isFinite(alt) && alt > OVERVIEW_SUNSET_ALT_DEG;
-    orb.classList.toggle('is-sun', isDay);
-    orb.classList.toggle('is-moon', !isDay);
-    orb.title = isDay ? 'Sun · before local sunset' : 'Moon · after local sunset';
-  }
+  applyOverviewHeliosPhase(overviewHeliosPhase(alt));
   if (now - _ovTempFetchedAt > OVERVIEW_TEMP_REFRESH_MS) {
     refreshOverviewHqTemperature();
   }
@@ -8957,7 +8983,8 @@ function refreshModDropdown() {
 function overviewVizStageHTML() {
   return `
     <div class="ov-viz-stage" id="ovVizContainer">
-      <div class="ov-viz-well" id="ovVizWell">
+      <div class="ov-viz-well is-day" id="ovVizWell" data-ov-phase="day">
+        <div class="ov-viz-sky" id="ovVizSky" data-ov-phase="day" aria-hidden="true"></div>
         <div class="ov-viz-hinge ov-viz-hinge-left"></div>
         <div class="ov-viz-hinge ov-viz-hinge-right"></div>
         <div class="ov-viz-orb-wrap">
