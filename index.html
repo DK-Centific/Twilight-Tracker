@@ -12553,9 +12553,6 @@ button.perf-stat-chip.scheduled.active {
         <path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
-    <div class="login-meta" style="justify-content: center">
-      <span id="loginVersionLabel"></span>
-    </div>
   </div>
 </div>
 
@@ -13891,6 +13888,10 @@ h1, h2, h3,
   opacity: 0.34;
 }
 .app-build-stamp-updated { margin-top: 1px; }
+/* Keep the faint stamp off the login card so the sign-in page has no version. */
+body:has(#loginScreen:not([style*="display: none"])) .app-build-stamp {
+  display: none;
+}
 @media (max-width: 760px) {
   .app-build-stamp {
     right: 16px;

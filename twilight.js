@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826m';
-const APP_UPDATED_AT = '09/08/2026 11:37';
+const APP_VERSION = '1.3.090826n';
+const APP_UPDATED_AT = '09/08/2026 11:54';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -32710,15 +32710,8 @@ function setupNavRails() {
 }
 
 function init() {
-  // Stamp the live APP_VERSION into the version labels so the login
-  // screen + sidebar footer always reflect the current build. Without
-  // this, those labels were hardcoded "v1.0" strings that drifted out
-  // of sync every time the version constant moved. Doing it via the
-  // DOM at init keeps the two displays as a single source of truth
-  // (the APP_VERSION constant) and removes the need to remember to
-  // edit hardcoded labels on every release.
-  const loginVer = document.getElementById('loginVersionLabel');
-  if (loginVer) loginVer.textContent = 'v' + APP_VERSION;
+  // Stamp the live APP_VERSION into the sidebar footer and the faint
+  // build stamp. The login card no longer shows a version number.
   const sidebarVer = document.getElementById('sidebarVersionLabel');
   if (sidebarVer) sidebarVer.textContent = `Centific Data Collection · Project Twilight · v${APP_VERSION}`;
   const buildStamp = document.getElementById('appBuildStamp');
