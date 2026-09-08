@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ai';
-const APP_UPDATED_AT = '09/08/2026 23:32';
+const APP_VERSION = '1.3.090826aj';
+const APP_UPDATED_AT = '09/08/2026 23:35';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8467,6 +8467,7 @@ function paintOverviewHeliosClock() {
   const dateEl = document.getElementById('ovVizDate');
   const timeEl = document.getElementById('ovVizTime');
   const tempEl = document.querySelector('#ovVizTemp [data-ov-temp], #ovVizAlt [data-ov-alt]');
+  const tempCEl = document.querySelector('#ovVizTemp [data-ov-temp-c]');
   const orb = document.getElementById('ovSolarOrb');
   if (!dateEl && !timeEl && !orb && !tempEl) return;
   const dateFmt = new Intl.DateTimeFormat('en-US', {
@@ -8485,6 +8486,11 @@ function paintOverviewHeliosClock() {
   if (timeEl) timeEl.textContent = timeFmt.format(now) + ' PT';
   if (tempEl) {
     tempEl.textContent = Number.isFinite(_ovTempF) ? String(Math.round(_ovTempF)) : '—';
+  }
+  if (tempCEl) {
+    tempCEl.textContent = Number.isFinite(_ovTempF)
+      ? String(Math.round((_ovTempF - 32) * 5 / 9))
+      : '—';
   }
   const alt = overviewSolarAltitudeDeg(now);
   if (orb) {
@@ -8759,7 +8765,10 @@ function overviewVizStageHTML() {
         </div>
         <div class="ov-viz-copy">
           <div class="ov-viz-label" id="ovVizDate"></div>
-          <div class="ov-viz-value" id="ovVizTemp"><span data-ov-temp>—</span><span class="ov-viz-unit">°F</span></div>
+          <div class="ov-viz-value" id="ovVizTemp">
+            <span data-ov-temp>—</span><span class="ov-viz-unit">°F</span>
+            <span class="ov-viz-celsius"><span data-ov-temp-c>—</span><span class="ov-viz-unit">°C</span></span>
+          </div>
           <div class="ov-viz-time" id="ovVizTime"></div>
         </div>
         <div class="ov-viz-horizon" aria-hidden="true"></div>
