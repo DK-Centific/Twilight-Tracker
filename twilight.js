@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826h';
-const APP_UPDATED_AT = '09/08/2026 08:40';
+const APP_VERSION = '1.3.090826i';
+const APP_UPDATED_AT = '09/08/2026 09:03';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5534,6 +5534,108 @@ function playAdminTabEnter() {
   }, 850);
 }
 
+function modviewMeta(view) {
+  const v = view || (adminState && adminState.modView) || 'list';
+  const items = {
+    list: {
+      label: 'All',
+      title: 'Open All moderators',
+      icon: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>`,
+    },
+    team: {
+      label: 'By Team',
+      title: 'Open By Team',
+      icon: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.4"/><circle cx="11" cy="6" r="2" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 13c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5M7.5 13c0-2 1.5-3.5 3.5-3.5s3.5 1.5 3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`,
+    },
+    activities: {
+      label: 'Activities',
+      title: 'Open Activities',
+      icon: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5C5.5 1.5 3.5 3.6 3.5 6.2c0 3.4 3.4 6.8 4.2 7.5.2.2.5.2.7 0 .8-.7 4.1-4.1 4.1-7.5C12.5 3.6 10.5 1.5 8 1.5z" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="6.2" r="1.6" stroke="currentColor" stroke-width="1.4"/></svg>`,
+    },
+  };
+  return items[v] || items.list;
+}
+
+function adminModviewPillHTML() {
+  const meta = modviewMeta();
+  return `<button type="button" class="admin-modview-pill" id="adminModviewPill" title="${escapeHTML(meta.title)}" aria-label="${escapeHTML(meta.title)}">${meta.icon}<span class="admin-modview-pill-label">${escapeHTML(meta.label)}</span></button>`;
+}
+
+function syncAdminModviewPill() {
+  const pill = document.getElementById('adminModviewPill');
+  if (!pill) return;
+  const meta = modviewMeta();
+  pill.title = meta.title;
+  pill.setAttribute('aria-label', meta.title);
+  pill.innerHTML = `${meta.icon}<span class="admin-modview-pill-label">${escapeHTML(meta.label)}</span>`;
+}
+
+function bindAdminModviewPill(root) {
+  const host = root || document;
+  const pill = host.querySelector ? host.querySelector('#adminModviewPill') : document.getElementById('adminModviewPill');
+  if (!pill) return;
+  pill.addEventListener('click', () => {
+    const view = adminState.modView || 'list';
+    selectAdminTab('moderators', {
+      subtab: 'moderators',
+      scrollTo: view === 'team' ? 'teamsList' : 'modviewBody',
+    });
+  });
+}
+
+function scrollAdminTarget(id) {
+  if (!id) return;
+  const tryScroll = () => {
+    const el = document.getElementById(id);
+    if (!el) return false;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return true;
+  };
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (tryScroll()) return;
+      setTimeout(tryScroll, 360);
+    });
+  });
+}
+
+function selectAdminTab(tab, opts) {
+  opts = opts || {};
+  if (!tab) return;
+  const prevTab = adminState.tab;
+  const prevSubtab = adminState.subtab;
+  const prevView = adminState.modView;
+  if (opts.subtab) adminState.subtab = opts.subtab;
+  if (opts.modView) adminState.modView = opts.modView;
+  if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo) return;
+  adminState.tab = tab;
+  if (prevTab !== tab) {
+    // Clear the Assignment calendar's team filter AND the side-panel
+    // selection on tab change. Both are transient view state · admin
+    // shouldn't come back to Assignment from another tab and find an
+    // old filter still active. We clear both since they're now kept
+    // in sync (side-panel card click and legend chip click both write
+    // to both).
+    adminState.calTeamFilter = null;
+    adminState._selectedTeam = null;
+  }
+  const c = document.getElementById('adminContent');
+  if (c) {
+    c.querySelectorAll('.admin-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === adminState.tab);
+    });
+  }
+  const viewChanged = prevTab !== adminState.tab
+    || prevSubtab !== adminState.subtab
+    || prevView !== adminState.modView;
+  if (viewChanged) {
+    renderAdminTabBody({ animate: true });
+    resetScrollPreserveToTop();
+  }
+  syncAdminModviewPill();
+  if (opts.scrollTo) scrollAdminTarget(opts.scrollTo);
+}
+
 function renderAdmin() {
   armScrollPreserve();
   const c = document.getElementById('adminContent');
@@ -5544,42 +5646,31 @@ function renderAdmin() {
       <p class="admin-hero-sub">Manage moderators and participants, monitor session performance, and review program-wide activity.</p>
     </div>
 
-    <div class="admin-tabs" role="tablist">
-      <button class="admin-tab ${adminState.tab === 'overview' ? 'active' : ''}" data-tab="overview" role="tab">Overview</button>
-      <button class="admin-tab ${adminState.tab === 'moderators' ? 'active' : ''}" data-tab="moderators" role="tab">Moderator Hub</button>
-      <button class="admin-tab ${adminState.tab === 'assignment' ? 'active' : ''}" data-tab="assignment" role="tab">
-        Assignment
-        <span class="admin-tab-count" id="topAsgnCount">${activeAssignmentCount() || ''}</span>
-      </button>
-      <button class="admin-tab ${adminState.tab === 'performance' ? 'active' : ''}" data-tab="performance" role="tab">Performance</button>
-      <button class="admin-tab ${adminState.tab === 'approval' ? 'active' : ''}" data-tab="approval" role="tab">
-        Approval
-        <span class="admin-tab-count" id="topApprCount">${pendingApprovalCount() || ''}</span>
-      </button>
+    <div class="admin-tabs-row">
+      <div class="admin-tabs" role="tablist">
+        <button class="admin-tab ${adminState.tab === 'overview' ? 'active' : ''}" data-tab="overview" role="tab">Overview</button>
+        <button class="admin-tab ${adminState.tab === 'moderators' ? 'active' : ''}" data-tab="moderators" role="tab">Moderator Hub</button>
+        <button class="admin-tab ${adminState.tab === 'assignment' ? 'active' : ''}" data-tab="assignment" role="tab">
+          Assignment
+          <span class="admin-tab-count" id="topAsgnCount">${activeAssignmentCount() || ''}</span>
+        </button>
+        <button class="admin-tab ${adminState.tab === 'performance' ? 'active' : ''}" data-tab="performance" role="tab">Performance</button>
+        <button class="admin-tab ${adminState.tab === 'approval' ? 'active' : ''}" data-tab="approval" role="tab">
+          Approval
+          <span class="admin-tab-count" id="topApprCount">${pendingApprovalCount() || ''}</span>
+        </button>
+      </div>
+      ${adminModviewPillHTML()}
     </div>
 
     <div id="adminTabBody"></div>
   `;
   c.querySelectorAll('.admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      if (adminState.tab === btn.dataset.tab) return;
-      adminState.tab = btn.dataset.tab;
-      // Clear the Assignment calendar's team filter AND the side-panel
-      // selection on tab change. Both are transient view state · admin
-      // shouldn't come back to Assignment from another tab and find an
-      // old filter still active. We clear both since they're now kept
-      // in sync (side-panel card click and legend chip click both write
-      // to both).
-      adminState.calTeamFilter = null;
-      adminState._selectedTeam = null;
-      // Update active class on tab pills in-place (no full re-render needed)
-      c.querySelectorAll('.admin-tab').forEach(b => {
-        b.classList.toggle('active', b.dataset.tab === adminState.tab);
-      });
-      renderAdminTabBody({ animate: true });
-      resetScrollPreserveToTop();   // intentional tab switch → land at top
+      selectAdminTab(btn.dataset.tab);
     });
   });
+  bindAdminModviewPill(c);
   renderAdminTabBody({ animate: true });
   // App-wide incoming-approval poll powers the "new requests" banner on
   // any admin tab. Idempotent + inert until APPROVAL_PA_READ_URL is set.
@@ -8171,6 +8262,27 @@ function renderOverview(body) {
     });
   }
 
+  body.querySelectorAll('.ov-stat-tile[data-tile]').forEach(tile => {
+    const go = () => {
+      const kind = tile.dataset.tile;
+      if (kind === 'moderators') {
+        selectAdminTab('moderators', { subtab: 'moderators', modView: 'list', scrollTo: 'modviewBody' });
+      } else if (kind === 'teams') {
+        selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
+      } else if (kind === 'participants') {
+        selectAdminTab('moderators', { subtab: 'participants' });
+      } else if (kind === 'bookings') {
+        selectAdminTab('assignment');
+      }
+    };
+    tile.addEventListener('click', go);
+    tile.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      go();
+    });
+  });
+
   // Initial paint · populate metrics with animation from 0
   // Reset cached "previous values" so the first render animates from 0
   window._ovPrev = null;
@@ -8208,8 +8320,15 @@ function statTileShellHTML(kind, label) {
     participants: `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.7"/><path d="M5 20c0-4 3-6 7-6s7 2 7 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
     bookings: `<svg viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="15" rx="2.5" stroke="currentColor" stroke-width="1.7"/><path d="M3 10h18M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
   };
+  const titles = {
+    moderators: 'Open Moderators',
+    teams: 'Open By Team',
+    participants: 'Open Participants',
+    bookings: 'Open Assignment',
+  };
+  const title = titles[kind] || label;
   return `
-    <div class="ov-stat-tile ov-stat-${kind}" data-tile="${kind}">
+    <div class="ov-stat-tile ov-stat-${kind}" data-tile="${kind}" role="button" tabindex="0" title="${escapeHTML(title)}" aria-label="${escapeHTML(title)}">
       <div class="ov-stat-glow"></div>
       <div class="ov-stat-left">
         <div class="ov-stat-icon">${icons[kind] || ''}</div>
@@ -9364,6 +9483,7 @@ function renderModerators() {
         if (!VALID_MOD_VIEWS.has(next)) return;
         adminState.modView = next;
         renderModerators();
+        syncAdminModviewPill();
       });
     });
   };

@@ -3836,6 +3836,13 @@ input#ent_lakitu.lakitu-invalid {
 }
 
 /* Top tabs (Overview / Moderator Hub / Performance) */
+.admin-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 18px 0 22px;
+}
 .admin-tabs {
   display: flex; gap: 4px;
   background: var(--card-bg);
@@ -3846,7 +3853,34 @@ input#ent_lakitu.lakitu-invalid {
   max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  margin: 18px 0 22px;
+  margin: 0;
+}
+.admin-modview-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+  transition: filter 0.18s, transform 0.18s;
+}
+.admin-modview-pill:hover { filter: brightness(0.96); }
+.admin-modview-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+[data-theme="dark"] .admin-modview-pill {
+  background: #D4A82E;
+  color: #fff;
 }
 .admin-tab {
   font-family: var(--font); font-size: 14.5px; font-weight: 500;
@@ -9951,7 +9985,11 @@ button.perf-stat-chip.scheduled.active {
   gap: 16px;
   overflow: hidden;
   transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), border-color 0.22s, box-shadow 0.32s;
-  cursor: default;
+  cursor: pointer;
+}
+.ov-stat-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 .ov-stat-tile::before {
   /* Top accent stripe */
@@ -13632,6 +13670,16 @@ h1, h2, h3,
 #adminApp .admin-tabs {
   border-radius: 28px !important;
 }
+#adminApp .admin-modview-pill {
+  background: var(--accent) !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 4px 4px 10px var(--neu-dark), -2px -2px 8px var(--neu-light) !important;
+}
+[data-theme="dark"] #adminApp .admin-modview-pill {
+  background: #D4A82E !important;
+  color: #fff !important;
+}
 
 #adminApp .cal-stat-tile,
 #adminApp .team-card,
@@ -13652,6 +13700,7 @@ h1, h2, h3,
   overflow: visible;
   min-height: 148px;
   padding: 24px 26px;
+  cursor: pointer;
   transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.28s ease;
 }
 #adminApp .ov-stat-tile::before,
