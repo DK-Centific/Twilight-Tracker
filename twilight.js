@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826b';
+const APP_VERSION = '1.3.090826d';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -19737,8 +19737,10 @@ function renderTeamModal() {
   // which days of the previewed week ALL picked primaries are available
   // together. This is the actually-useful question: "if I create this
   // team, when can they work?"
-  let overlapHTML = '';
-  if (m.primaryIds.length > 0) {
+  // Extracted so a mod-picker click can refresh just this panel without
+  // re-rendering the whole modal (which would reset picker scroll).
+  const buildTeamOverlapHTML = () => {
+    if (m.primaryIds.length === 0) return '';
     const overlapCells = weekDays.map(day => {
       let allYes = true;
       let anyNo = false;
@@ -19768,11 +19770,10 @@ function renderTeamModal() {
         <span class="overlap-dot" aria-hidden="true"></span>
       </span>`;
     }).join('');
-    // Count green days for the headline
     const greenDays = weekDays.filter(day => {
       return m.primaryIds.every(id => getModAvailabilityForDate(id, day.ymd) === 'yes');
     }).length;
-    overlapHTML = `
+    return `
       <details class="team-disclosure" data-team-disclosure="overlap" ${m._overlapOpen ? 'open' : ''}>
         <summary>
           <span class="team-disclosure-title">Team overlap · ${greenDays} day${greenDays === 1 ? '' : 's'} all-available</span>
@@ -19790,7 +19791,36 @@ function renderTeamModal() {
         </div>
       </details>
     `;
-  }
+  };
+  const overlapHTML = buildTeamOverlapHTML();
+
+  // Replace / insert / remove the overlap disclosure after a primary
+  // pick without touching the mod-picker lists (scroll stays put).
+  const refreshTeamOverlapPanel = () => {
+    const body = document.querySelector('#asgnModal .asgn-modal-body');
+    if (!body) return;
+    const existing = body.querySelector('[data-team-disclosure="overlap"]');
+    const html = buildTeamOverlapHTML();
+    if (!html) {
+      if (existing) existing.remove();
+      return;
+    }
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html.trim();
+    const next = wrap.firstElementChild;
+    if (!next) return;
+    next.addEventListener('toggle', () => {
+      if (!adminState.modal) return;
+      adminState.modal._overlapOpen = next.open;
+    });
+    if (existing) {
+      existing.replaceWith(next);
+    } else {
+      const backup = body.querySelector('[data-team-disclosure="backup"]');
+      if (backup) body.insertBefore(next, backup);
+      else body.appendChild(next);
+    }
+  };
 
   document.getElementById('asgnModalContent').innerHTML = `
     <div class="asgn-modal-head">
@@ -19952,19 +19982,44 @@ function renderTeamModal() {
   }
   document.getElementById('teamSaveBtn').addEventListener('click', saveTeam);
   document.querySelectorAll('.mod-picker-item').forEach(item => {
-    item.addEventListener('click', (e) => {
+    item.addEventListener('click', () => {
       if (item.classList.contains('disabled')) return;
       const id = item.dataset.modId;
       const role = item.dataset.role;
       const list = role === 'primary' ? adminState.modal.primaryIds : adminState.modal.backupIds;
       const idx = list.indexOf(id);
-      if (idx >= 0) {
+      const wasSelected = idx >= 0;
+      if (wasSelected) {
         list.splice(idx, 1);
       } else {
         if (list.length >= 2) return;
         list.push(id);
       }
-      renderTeamModal();
+
+      // Surgical DOM update · keep .mod-picker scroll where the admin is.
+      // A full renderTeamModal() rebuilds #asgnModalContent and resets both
+      // picker scrollTop and (often) .asgn-modal-body to the top.
+      const isNowSelected = !wasSelected;
+      item.classList.toggle('selected', isNowSelected);
+
+      if (role === 'primary') {
+        const fieldEl = item.closest('.asgn-field');
+        const labelSpan = fieldEl && fieldEl.querySelector('.asgn-field-label > span');
+        if (labelSpan) labelSpan.textContent = `${list.length}/2`;
+        refreshTeamOverlapPanel();
+      } else {
+        const disclosure = item.closest('[data-team-disclosure="backup"]');
+        const labelSpan = disclosure && disclosure.querySelector('.team-disclosure-title > span');
+        if (labelSpan) labelSpan.textContent = `${list.length}/2`;
+      }
+
+      const oppositeRole = role === 'primary' ? 'backup' : 'primary';
+      const oppositeItem = document.querySelector(
+        `.mod-picker-item[data-mod-id="${CSS.escape(id)}"][data-role="${oppositeRole}"]`
+      );
+      if (oppositeItem) {
+        oppositeItem.classList.toggle('disabled', isNowSelected);
+      }
     });
   });
 }
