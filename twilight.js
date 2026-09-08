@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ah';
-const APP_UPDATED_AT = '09/08/2026 23:20';
+const APP_VERSION = '1.3.090826ai';
+const APP_UPDATED_AT = '09/08/2026 23:32';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8437,7 +8437,11 @@ function renderPerfStationListHTML(a) {
 const OVERVIEW_HQ_LAT = 47.6446;
 const OVERVIEW_HQ_LNG = -122.1370;
 const OVERVIEW_SUNSET_ALT_DEG = -0.83;
+const OVERVIEW_TEMP_REFRESH_MS = 10 * 60 * 1000;
 let _ovHeliosTimer = null;
+let _ovTempF = null;
+let _ovTempFetchedAt = 0;
+let _ovTempInFlight = false;
 
 function overviewSolarAltitudeDeg(at) {
   const date = at instanceof Date ? at : new Date();
@@ -8462,9 +8466,9 @@ function paintOverviewHeliosClock() {
   const now = new Date();
   const dateEl = document.getElementById('ovVizDate');
   const timeEl = document.getElementById('ovVizTime');
-  const altEl = document.querySelector('#ovVizAlt [data-ov-alt]');
+  const tempEl = document.querySelector('#ovVizTemp [data-ov-temp], #ovVizAlt [data-ov-alt]');
   const orb = document.getElementById('ovSolarOrb');
-  if (!dateEl && !timeEl && !orb) return;
+  if (!dateEl && !timeEl && !orb && !tempEl) return;
   const dateFmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
     weekday: 'long',
@@ -8479,19 +8483,52 @@ function paintOverviewHeliosClock() {
   });
   if (dateEl) dateEl.textContent = dateFmt.format(now);
   if (timeEl) timeEl.textContent = timeFmt.format(now) + ' PT';
+  if (tempEl) {
+    tempEl.textContent = Number.isFinite(_ovTempF) ? String(Math.round(_ovTempF)) : '—';
+  }
   const alt = overviewSolarAltitudeDeg(now);
-  if (altEl) altEl.textContent = (Number.isFinite(alt) ? alt : 0).toFixed(2);
   if (orb) {
     const isDay = Number.isFinite(alt) && alt > OVERVIEW_SUNSET_ALT_DEG;
     orb.classList.toggle('is-sun', isDay);
     orb.classList.toggle('is-moon', !isDay);
     orb.title = isDay ? 'Sun · before local sunset' : 'Moon · after local sunset';
   }
+  if (now - _ovTempFetchedAt > OVERVIEW_TEMP_REFRESH_MS) {
+    refreshOverviewHqTemperature();
+  }
+}
+
+async function refreshOverviewHqTemperature(force) {
+  const now = Date.now();
+  if (!force && _ovTempF != null && (now - _ovTempFetchedAt) < OVERVIEW_TEMP_REFRESH_MS) return;
+  if (_ovTempInFlight) return;
+  _ovTempInFlight = true;
+  try {
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + '?latitude=' + encodeURIComponent(OVERVIEW_HQ_LAT)
+      + '&longitude=' + encodeURIComponent(OVERVIEW_HQ_LNG)
+      + '&current=temperature_2m&temperature_unit=fahrenheit'
+      + '&timezone=America%2FLos_Angeles';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const t = Number(data && data.current && data.current.temperature_2m);
+    if (Number.isFinite(t)) {
+      _ovTempF = t;
+      _ovTempFetchedAt = Date.now();
+      paintOverviewHeliosClock();
+    }
+  } catch (e) {
+    console.warn('[Twilight] Overview temperature unavailable:', e && e.message);
+  } finally {
+    _ovTempInFlight = false;
+  }
 }
 
 function startOverviewHeliosClock() {
   if (_ovHeliosTimer) clearInterval(_ovHeliosTimer);
   paintOverviewHeliosClock();
+  refreshOverviewHqTemperature(true);
   _ovHeliosTimer = setInterval(paintOverviewHeliosClock, 1000);
 }
 
@@ -8722,7 +8759,7 @@ function overviewVizStageHTML() {
         </div>
         <div class="ov-viz-copy">
           <div class="ov-viz-label" id="ovVizDate"></div>
-          <div class="ov-viz-value" id="ovVizAlt"><span data-ov-alt>0.00</span><span class="ov-viz-unit">°</span></div>
+          <div class="ov-viz-value" id="ovVizTemp"><span data-ov-temp>—</span><span class="ov-viz-unit">°F</span></div>
           <div class="ov-viz-time" id="ovVizTime"></div>
         </div>
         <div class="ov-viz-horizon" aria-hidden="true"></div>
