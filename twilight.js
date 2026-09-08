@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826v';
-const APP_UPDATED_AT = '09/08/2026 16:00';
+const APP_VERSION = '1.3.090826w';
+const APP_UPDATED_AT = '09/08/2026 16:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9605,7 +9605,9 @@ function normalizeActivitiesFilterState() {
     }
   }
   const activityMods = listActivitiesModeratorOptions();
-  if (adminState.activitiesModeratorId && !activityMods.some(m => String(m.id).toLowerCase() === String(adminState.activitiesModeratorId).toLowerCase())) {
+  if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
+    adminState.activitiesModeratorId = '';
+  } else if (adminState.activitiesModeratorId && !activityMods.some(m => String(m.id).toLowerCase() === String(adminState.activitiesModeratorId).toLowerCase())) {
     if (!(isGeoDemoMode() && String(adminState.activitiesModeratorId).toLowerCase().startsWith('demo-'))) {
       adminState.activitiesModeratorId = '';
     }
@@ -9660,10 +9662,6 @@ function paintActivitiesExtraFilters() {
     const modSel = document.getElementById('activitiesModeratorSelect');
     if (teamSel) {
       teamSel.addEventListener('change', e => {
-        if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
-          e.target.value = adminState.activitiesTeamId || '';
-          return;
-        }
         adminState.activitiesTeamId = e.target.value || '';
         adminState.activitiesModeratorId = '';
         // Keep the filter row mounted — only sync the sibling select.
@@ -9674,6 +9672,10 @@ function paintActivitiesExtraFilters() {
     }
     if (modSel) {
       modSel.addEventListener('change', e => {
+        if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
+          e.target.value = adminState.activitiesModeratorId || '';
+          return;
+        }
         adminState.activitiesModeratorId = e.target.value || '';
         adminState.activitiesTeamId = '';
         const other = document.getElementById('activitiesTeamSelect');
@@ -9939,9 +9941,23 @@ function syncModTrackingUi() {
   }
   const teamSel = document.getElementById('activitiesTeamSelect');
   if (teamSel) {
-    teamSel.disabled = !enabled;
-    teamSel.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-    teamSel.classList.toggle('is-disabled', !enabled);
+    teamSel.disabled = false;
+    teamSel.setAttribute('aria-disabled', 'false');
+    teamSel.classList.remove('is-disabled');
+  }
+  const modSel = document.getElementById('activitiesModeratorSelect');
+  if (modSel) {
+    modSel.disabled = !enabled;
+    modSel.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    modSel.classList.toggle('is-disabled', !enabled);
+    if (!enabled) {
+      modSel.value = '';
+      if (adminState) adminState.activitiesModeratorId = '';
+    }
+  }
+  if (typeof _activitiesMap !== 'undefined' && _activitiesMap
+      && typeof placeActivitiesGeofence === 'function') {
+    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
   }
 }
 
@@ -11417,7 +11433,7 @@ async function playActivitiesSelectionAnimation(map) {
     : '';
 
   try {
-    if (focusMod) {
+    if (focusMod && (typeof isModTrackingEnabled !== 'function' || isModTrackingEnabled())) {
       const pings = loadGeoPings();
       const ping = pings[focusMod] || Object.values(pings).find(p =>
         String((p && p.orbitLoginId) || '').toLowerCase() === focusMod
@@ -11521,35 +11537,60 @@ function placeActivitiesGeofence(map, opts) {
       '<div class="activities-hover-pop"><strong>Assignment</strong><span>' + escapeHTML(assigned.address || 'Assigned address') + '</span></div>');
   }
 
-  const team = getSelectedActivitiesTeam();
-  const focusMod = String(getSelectedActivitiesModeratorId() || '').toLowerCase();
-  const allowed = new Set();
-  const collect = (ids) => {
-    (ids || []).forEach(id => allowed.add(String(id).toLowerCase()));
-  };
-  if (team) {
-    collect(team.primaryIds);
-    collect(
-      (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : team.backupIds
-    );
+  const trackingOn = typeof isModTrackingEnabled !== 'function' || isModTrackingEnabled();
+  if (trackingOn) {
+    const team = getSelectedActivitiesTeam();
+    const focusMod = String(getSelectedActivitiesModeratorId() || '').toLowerCase();
+    const pings = loadGeoPings();
+    const now = Date.now();
+    const teamMemberIds = (t) => {
+      if (!t) return [];
+      const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
+      return (t.primaryIds || []).concat(backups || []);
+    };
+    const lastActivePing = (ids) => {
+      let best = null;
+      (ids || []).forEach(raw => {
+        const id = String(raw || '').toLowerCase();
+        if (!id) return;
+        const ping = pings[id] || Object.values(pings).find(p =>
+          String((p && p.orbitLoginId) || '').toLowerCase() === id
+        );
+        if (!ping || !Number.isFinite(ping.lat) || !Number.isFinite(ping.lng)) return;
+        const at = Number(ping.at) || 0;
+        if (!best || at > best.at) best = { id, ping, at };
+      });
+      return best;
+    };
+    const placePing = (idRaw, ping) => {
+      const role = activitiesMarkerRole(idRaw, ping);
+      const el = document.createElement('div');
+      el.className = 'geo-mod-marker is-' + role + ((now - (ping.at || 0) > GEO_PING_STALE_MS) ? ' is-stale' : '');
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([ping.lng, ping.lat])
+        .addTo(map);
+      el.__marker = marker;
+      activitiesPlaceHoverPopup(map, marker, activitiesPersonPopupHtml(idRaw, ping, role));
+    };
+    if (focusMod) {
+      const ping = pings[focusMod] || Object.values(pings).find(p =>
+        String((p && p.orbitLoginId) || '').toLowerCase() === focusMod
+      );
+      if (ping && Number.isFinite(ping.lat) && Number.isFinite(ping.lng)) placePing(focusMod, ping);
+    } else if (team) {
+      const best = lastActivePing(teamMemberIds(team));
+      if (best) placePing(best.id, best.ping);
+    } else {
+      const shown = new Set();
+      (typeof listActivitiesTeams === 'function' ? listActivitiesTeams() : (adminState.teams || [])).forEach(t => {
+        const best = lastActivePing(teamMemberIds(t));
+        if (best && !shown.has(best.id)) {
+          shown.add(best.id);
+          placePing(best.id, best.ping);
+        }
+      });
+    }
   }
-  const pings = loadGeoPings();
-  const now = Date.now();
-  Object.keys(pings).forEach(idRaw => {
-    const id = String(idRaw).toLowerCase();
-    const ping = pings[idRaw];
-    if (!ping || !Number.isFinite(ping.lat) || !Number.isFinite(ping.lng)) return;
-    if (focusMod && id !== focusMod) return;
-    if (!focusMod && team && !allowed.has(id)) return;
-    const role = activitiesMarkerRole(idRaw, ping);
-    const el = document.createElement('div');
-    el.className = 'geo-mod-marker is-' + role + ((now - (ping.at || 0) > GEO_PING_STALE_MS) ? ' is-stale' : '');
-    const marker = new maplibregl.Marker({ element: el })
-      .setLngLat([ping.lng, ping.lat])
-      .addTo(map);
-    el.__marker = marker;
-    activitiesPlaceHoverPopup(map, marker, activitiesPersonPopupHtml(idRaw, ping, role));
-  });
   updateActivitiesMapCaption();
   if (opts.animateSelection) {
     playActivitiesSelectionAnimation(map);
