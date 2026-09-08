@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826s';
-const APP_UPDATED_AT = '09/08/2026 15:31';
+const APP_VERSION = '1.3.090826t';
+const APP_UPDATED_AT = '09/08/2026 15:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4346,6 +4346,7 @@ function openMenu() {
   document.querySelectorAll('.menu-row-admin-only').forEach(el => {
     el.style.display = isAdminActive ? '' : 'none';
   });
+  if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
   document.getElementById('menuOverlay').classList.add('open');
   document.getElementById('menuDrawer').classList.add('open');
 }
@@ -9659,6 +9660,10 @@ function paintActivitiesExtraFilters() {
     const modSel = document.getElementById('activitiesModeratorSelect');
     if (teamSel) {
       teamSel.addEventListener('change', e => {
+        if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
+          e.target.value = adminState.activitiesTeamId || '';
+          return;
+        }
         adminState.activitiesTeamId = e.target.value || '';
         adminState.activitiesModeratorId = '';
         // Keep the filter row mounted — only sync the sibling select.
@@ -9685,6 +9690,7 @@ function paintActivitiesExtraFilters() {
   }
 
   extraFilters.hidden = false;
+  if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
   const teamSel = document.getElementById('activitiesTeamSelect');
   const modSel = document.getElementById('activitiesModeratorSelect');
   if (teamSel && teamSel.value !== teamId) teamSel.value = teamId;
@@ -9887,11 +9893,158 @@ const GEO_SESSIONSTATE_SYNC_MS = 15 * 60 * 1000;
 const GEO_MOCK_LS_KEY = 'centific_orbit_mock_geo_v1';
 const GEO_BC_NAME = 'centific_orbit_geo_pings_bc_v1';
 const GEO_DEMO_FLAG_KEY = 'centific_orbit_geo_demo_v1';
+const MOD_TRACKING_LS_KEY = 'centific_orbit_mod_tracking_v1';
+const MOD_TRACKING_SETTING_ID = 'ss_app_setting_mod_tracking';
+let _modTrackingEnabled = true;
 let _geoPingTimer = null;
 let _geoSessionStateTimer = null;
 let _geoFlowBusy = false;
 let _geoPermissionDenied = false;
 let _geoLastToastKey = '';
+
+function loadModTrackingCache() {
+  try {
+    const raw = localStorage.getItem(MOD_TRACKING_LS_KEY);
+    if (raw === '0') _modTrackingEnabled = false;
+    else if (raw === '1') _modTrackingEnabled = true;
+  } catch (_) {}
+}
+
+function isModTrackingEnabled() {
+  return _modTrackingEnabled !== false;
+}
+
+function modTrackingStatusText(enabled) {
+  return enabled
+    ? 'The moderator tracking is enabled'
+    : 'The moderator tracking is disabled';
+}
+
+function cacheModTrackingEnabled(enabled) {
+  _modTrackingEnabled = !!enabled;
+  try { localStorage.setItem(MOD_TRACKING_LS_KEY, enabled ? '1' : '0'); } catch (_) {}
+}
+
+function syncModTrackingUi() {
+  const enabled = isModTrackingEnabled();
+  const label = modTrackingStatusText(enabled);
+  const tog = document.getElementById('modTrackingToggle');
+  if (tog) tog.classList.toggle('on', enabled);
+  const desc = document.getElementById('modTrackingDesc');
+  if (desc) desc.textContent = label;
+  const note = document.getElementById('modTrackingNote');
+  if (note) {
+    note.textContent = label;
+    note.classList.toggle('is-off', !enabled);
+  }
+  const banner = document.getElementById('activitiesTrackingStatus');
+  if (banner) {
+    banner.textContent = label;
+    banner.classList.toggle('is-off', !enabled);
+  }
+  const teamSel = document.getElementById('activitiesTeamSelect');
+  if (teamSel) {
+    teamSel.disabled = !enabled;
+    teamSel.setAttribute('aria-disabled', enabled ? 'false' : 'true');
+    teamSel.classList.toggle('is-disabled', !enabled);
+  }
+}
+
+function applyModeratorTrackingMode() {
+  syncModTrackingUi();
+  const app = document.getElementById('app');
+  const isModApp = !!(app && app.style.display === 'block');
+  if (!isModApp) return;
+  if (isModTrackingEnabled()) {
+    if (typeof startModeratorGeofence === 'function') startModeratorGeofence();
+  } else if (typeof stopModeratorGeofence === 'function') {
+    stopModeratorGeofence();
+  }
+}
+
+function ingestAppSettingsFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== MOD_TRACKING_SETTING_ID && id !== 'app_setting_mod_tracking') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (parsed && typeof parsed.enabled === 'boolean') {
+    cacheModTrackingEnabled(parsed.enabled);
+    syncModTrackingUi();
+  }
+}
+
+async function persistModTrackingSetting(enabled) {
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const payload = {
+    sessionStateId: MOD_TRACKING_SETTING_ID,
+    assignmentId: 'app_setting_mod_tracking',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'modTracking',
+      enabled: !!enabled,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (state && state.username) || 'Admin',
+    }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Mod tracking setting write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+async function refreshModTrackingSetting() {
+  loadModTrackingCache();
+  syncModTrackingUi();
+  if (typeof fetchSessionStateRows !== 'function') return isModTrackingEnabled();
+  try {
+    const rows = await fetchSessionStateRows();
+    if (Array.isArray(rows)) ingestAppSettingsFromSessionRows(rows);
+  } catch (_) {}
+  return isModTrackingEnabled();
+}
+
+async function setModTrackingEnabled(enabled) {
+  cacheModTrackingEnabled(!!enabled);
+  syncModTrackingUi();
+  await persistModTrackingSetting(!!enabled);
+  applyModeratorTrackingMode();
+}
 let _geoLastToastAt = 0;
 let _lastGeoSyncAt = 0;
 let _activitiesFocusKey = '';
@@ -10380,6 +10533,10 @@ try { window.setOrbitMockGeo = setOrbitMockGeo; } catch (_) {}
 
 function readCurrentPosition() {
   return new Promise((resolve, reject) => {
+    if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
+      reject(Object.assign(new Error('Moderator tracking is disabled.'), { code: 0, trackingOff: true }));
+      return;
+    }
     const mock = getOrbitMockGeo();
     if (mock) {
       resolve({
@@ -10891,6 +11048,7 @@ async function tickModeratorGeoFlow(opts) {
   if (_geoFlowBusy && !opts.force) return;
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return;
   if (state.isAdmin || isAdminUsername(state.username)) return;
+  if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) return;
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
   _geoFlowBusy = true;
@@ -10939,6 +11097,10 @@ async function tickModeratorGeoFlow(opts) {
 
 function startModeratorGeofence() {
   if (state.isAdmin || isAdminUsername(state.username)) return;
+  if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
+    if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
+    return;
+  }
   hideModeratorGeoUi();
   if (typeof syncModeratorRingLinks === 'function') syncModeratorRingLinks();
   // App-open upload: location is captured and written to SessionState
@@ -11636,6 +11798,7 @@ function renderModActivitiesView() {
   destroyActivitiesMap();
   wrap.innerHTML = `
     <div class="activities-viz-outer" id="activitiesVizContainer">
+      <div class="activities-tracking-status" id="activitiesTrackingStatus">${escapeHTML(typeof modTrackingStatusText === 'function' ? modTrackingStatusText(isModTrackingEnabled()) : 'The moderator tracking is enabled')}</div>
       <div class="activities-viz-well" id="activitiesMapWell">
         <div class="activities-map-slot">
           <div id="activitiesMap" class="activities-map" role="img" aria-label="Live map"></div>
@@ -11673,6 +11836,7 @@ function renderModActivitiesView() {
   }
   updateActivitiesMapCaption();
   refreshActivitiesCloudPings();
+  if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
 }
 
 function renderModListView() {
@@ -24938,6 +25102,11 @@ function startAdminApp() {
   // local cache is per-browser). When ASSIGNMENT_PA_READ_URL isn't set yet,
   // this is a no-op and the admin keeps seeing local-only data.
   if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
+  if (typeof refreshModTrackingSetting === 'function') {
+    refreshModTrackingSetting().then(() => {
+      if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+    }).catch(() => {});
+  }
 }
 
 function bindAdminMenu() {
@@ -25827,6 +25996,7 @@ async function fetchSessionStateRows() {
       }
       return normalized;
     });
+    ingestAppSettingsFromSessionRows(normalizedRows);
     ingestGeoPingsFromSessionRows(normalizedRows);
     _sessionStateReadRetryAt = 0;
     _sessionStateReadWarned = false;
@@ -25859,7 +26029,8 @@ function ingestGeoPingsFromSessionRows(rows) {
     const g = parsed && parsed.lastGeo;
     if (!g || !Number.isFinite(Number(g.lat)) || !Number.isFinite(Number(g.lng))) return;
     const id = String(r.orbitLoginId || '').toLowerCase();
-    if (!id) return;
+    if (!id || id === '_app_setting') return;
+    if (parsed && parsed.type === 'appSetting') return;
     const existing = (loadGeoPings() || {})[id];
     const at = Number(g.at) || Date.parse(r.lastActive) || Date.now();
     if (existing && existing.at && existing.at > at) return;
@@ -30977,7 +31148,11 @@ function startApp() {
   // and admin edits without needing to log out / refresh / use the
   // nav refresh button.
   if (typeof startModAssignmentRefresh === 'function') startModAssignmentRefresh();
-  if (typeof startModeratorGeofence === 'function') startModeratorGeofence();
+  Promise.resolve(typeof refreshModTrackingSetting === 'function'
+    ? refreshModTrackingSetting()
+    : null).finally(() => {
+    if (typeof applyModeratorTrackingMode === 'function') applyModeratorTrackingMode();
+  });
   Promise.resolve(_initialAsgnRefresh).then(() => {
     if (typeof startSessionStateHeartbeat === 'function') startSessionStateHeartbeat();
   }).catch(() => {
@@ -32884,6 +33059,7 @@ function setupNavRails() {
 }
 
 function init() {
+  if (typeof loadModTrackingCache === 'function') loadModTrackingCache();
   // Stamp the live APP_VERSION into the sidebar footer and the faint
   // build stamp. The login card no longer shows a version number.
   const sidebarVer = document.getElementById('sidebarVersionLabel');
@@ -32935,6 +33111,14 @@ function init() {
   document.getElementById('menuClose').addEventListener('click', closeMenu);
   document.getElementById('menuOverlay').addEventListener('click', closeMenu);
   document.getElementById('themeRow').addEventListener('click', toggleTheme);
+  const modTrackingRow = document.getElementById('modTrackingRow');
+  if (modTrackingRow) {
+    modTrackingRow.addEventListener('click', () => {
+      if (typeof setModTrackingEnabled === 'function') {
+        setModTrackingEnabled(!isModTrackingEnabled());
+      }
+    });
+  }
   // Orientation lock · toggle row + the "Disable lock instead" escape
   // hatch in the overlay. Both flip the same preference.
   const orientationRow = document.getElementById('orientationRow');
