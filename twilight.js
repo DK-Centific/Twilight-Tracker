@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826n';
-const APP_UPDATED_AT = '09/08/2026 11:54';
+const APP_VERSION = '1.3.090826o';
+const APP_UPDATED_AT = '09/08/2026 14:29';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4850,7 +4850,7 @@ const ADMIN_PA_MODERATOR_LOGIN_URL = 'https://default9b415834803a4da0afdcfe6b1d5
 // is blank. Client never reads Excel Password; this constant is used only
 // to reject re-using the default when forcing a password change, and as
 // the documented default for the PA guide.
-const DEFAULT_FIRST_LOGIN_PASSWORD = 'Twilight2006';
+const DEFAULT_FIRST_LOGIN_PASSWORD = 'Twilight2026';
 
 // Participant column schema · single source of truth for headers,
 // field keys, default visibility, and rendering style.
