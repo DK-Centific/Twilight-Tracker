@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826af';
-const APP_UPDATED_AT = '09/08/2026 22:45';
+const APP_VERSION = '1.3.090826ag';
+const APP_UPDATED_AT = '09/08/2026 22:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -14436,7 +14436,10 @@ function buildTeamLogRows(team, status) {
       // TeamLog reuses personalEmail for the versioned Lakitu project JSON
       // (encodeTeamLakituProjectPayload). Not a moderator email.
       personalEmail:    encodeTeamLakituProjectPayload(team),
-      teamId:           team.id,
+      // TeamLog HTTP trigger / Excel columns are Text. Sending a number
+      // for teamId is rejected (Expected String but got Integer) and the
+      // delete/edit is saved only in this browser.
+      teamId:           team.id == null || team.id === '' ? '' : String(team.id),
       teamName:         team.name || '',
       role:             role,
       status:           baseStatus,
@@ -14456,7 +14459,7 @@ function buildTeamLogRows(team, status) {
       orbitLoginId: '',
       firstName: '', lastName: '', phoneNumber: '',
       centificEmail: '', personalEmail: encodeTeamLakituProjectPayload(team),
-      teamId: team.id,
+      teamId: team.id == null || team.id === '' ? '' : String(team.id),
       teamName: team.name || '',
       role: 'primary',
       status: baseStatus,
@@ -14485,7 +14488,14 @@ async function writeTeamToTeamLog(team, status) {
         body: JSON.stringify(row),
       });
       if (res.ok || res.status === 202) succeeded++;
-      else { failed++; lastError = `HTTP ${res.status}`; }
+      else {
+        failed++;
+        let detail = '';
+        try { detail = (await res.text()) || ''; } catch (_) {}
+        lastError = /Expected String but got Integer/i.test(detail)
+          ? 'TeamLog needs team id as text'
+          : (`HTTP ${res.status}`);
+      }
     } catch (e) { failed++; lastError = e.message || String(e); }
   }
   return { ok: failed === 0, succeeded, failed, lastError };
