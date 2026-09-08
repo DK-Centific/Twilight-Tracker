@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ad';
-const APP_UPDATED_AT = '09/08/2026 22:15';
+const APP_VERSION = '1.3.090826ae';
+const APP_UPDATED_AT = '09/08/2026 22:30';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10558,7 +10558,7 @@ loadDeactivatedUsersCache();
 
 const MASTER_ADMIN_LS_KEY = 'centific_twilight_master_admins_v1';
 const MASTER_ADMIN_SETTING_ID = 'ss_app_setting_master_admins';
-const MASTER_ADMIN_BRAND_GIF = 'assets/master-admin-brand.gif';
+const MASTER_ADMIN_BRAND_GIF = 'assets/master-admin-brand.gif?v=ae';
 let _masterAdminIds = new Set();
 
 function loadMasterAdminsCache() {
