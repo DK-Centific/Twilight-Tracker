@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826u';
-const APP_UPDATED_AT = '09/08/2026 15:52';
+const APP_VERSION = '1.3.090826v';
+const APP_UPDATED_AT = '09/08/2026 16:00';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9932,11 +9932,6 @@ function syncModTrackingUi() {
   if (tog) tog.classList.toggle('on', enabled);
   const desc = document.getElementById('modTrackingDesc');
   if (desc) desc.textContent = label;
-  const note = document.getElementById('modTrackingNote');
-  if (note) {
-    note.textContent = label;
-    note.classList.toggle('is-off', !enabled);
-  }
   const banner = document.getElementById('activitiesTrackingStatus');
   if (banner) {
     banner.textContent = label;
