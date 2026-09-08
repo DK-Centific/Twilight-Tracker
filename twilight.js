@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826aj';
-const APP_UPDATED_AT = '09/08/2026 23:35';
+const APP_VERSION = '1.3.090826ak';
+const APP_UPDATED_AT = '09/08/2026 23:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -396,6 +396,10 @@ function defaultState() {
     // mid-session doesn't lose the acknowledgment. Cleared on session
     // completion (defaultState fires fresh on new state init).
     calGuideAck: null,
+    // Lakitu session URL the moderator pastes when submitting Station 1
+    // calibration for review. Ready to record opens this URL; Approval
+    // uses it as the admin review link.
+    recordLakituUrl: '',
   };
   // Initialize equipment as unpacked
   EQUIPMENT_LIST.forEach(it => { s.equipment[it.id] = false; });
@@ -704,6 +708,7 @@ function migrateState(loaded) {
   if (loaded.calGuideAck !== null && typeof loaded.calGuideAck !== 'object') {
     loaded.calGuideAck = null;
   }
+  if (typeof loaded.recordLakituUrl !== 'string') loaded.recordLakituUrl = '';
 
   return loaded;
 }
@@ -2087,6 +2092,8 @@ function _rfKey(stationKey, num) { return String(stationKey) + '|' + String(num)
 // pasted Lakitu session URL if it looks like one, else the default
 // sessions page.
 function resolveLakituUrl() {
+  const submitted = (state && state.recordLakituUrl) ? String(state.recordLakituUrl).trim() : '';
+  if (submitted && isSafeHttpUrl(submitted)) return submitted;
   const v = (state && state.participantId) ? String(state.participantId).trim() : '';
   if (v && isValidLakituUrl(v)) return v;
   return DEFAULT_LAKITU_URL;
@@ -3731,6 +3738,7 @@ function shouldBindAssignedSessionLinks() {
 function clearSessionBackendBindingsAfterComplete(asgn) {
   if (state) {
     state.participantId = '';
+    state.recordLakituUrl = '';
     try { if (typeof saveState === 'function') saveState(); } catch (_) {}
   }
   try {
@@ -4088,13 +4096,197 @@ function _gateModContext() {
              : ((typeof getOperatorTeam === 'function') ? getOperatorTeam() : null);
   const teamId   = (asgn && (asgn.teamId || asgn.team_id)) || (team && (team.teamId || team.id || team.team_id)) || '';
   const teamName = (team && (team.teamName || team.name || team.team_name)) || (asgn && (asgn.teamName || asgn.team_name)) || '';
-  const lakitu = (state.participantId && typeof isValidLakituUrl === 'function' && isValidLakituUrl(state.participantId))
+  const submitted = (state.recordLakituUrl && String(state.recordLakituUrl).trim()) || '';
+  const fromPid = (state.participantId && typeof isValidLakituUrl === 'function' && isValidLakituUrl(state.participantId))
     ? state.participantId : '';
+  const lakitu = submitted || fromPid;
   return { asgn, orbitId, modName, teamId, teamName, lakitu };
 }
 
+function isSubmitLakituUrl(v) {
+  const s = (v == null ? '' : String(v)).trim();
+  if (!s) return false;
+  if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(s)) return true;
+  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(s)) return true;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' && /(?:^|\.)lakitu\.ring\.amazon\.dev$/i.test(u.hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+function lakituInfoPopoverMarkup(idPrefix) {
+  const gif = (typeof LAKITU_INFO_GIF_B64 !== 'undefined') ? LAKITU_INFO_GIF_B64 : '';
+  return `
+    <span class="entry-info-wrap" id="${idPrefix}_wrap">
+      <button type="button" class="entry-info-btn" id="${idPrefix}_btn"
+              aria-label="What is a Lakitu session?"
+              aria-expanded="false"
+              aria-controls="${idPrefix}_popover">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.4"/>
+          <circle cx="8" cy="4.8" r="0.9" fill="currentColor"/>
+          <path d="M8 7.2v4.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <div class="entry-info-popover" id="${idPrefix}_popover" role="dialog" aria-labelledby="${idPrefix}_title">
+        <button type="button" class="entry-info-popover-close" id="${idPrefix}_close" aria-label="Close info">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+            <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="entry-info-popover-title" id="${idPrefix}_title">What is a Lakitu session?</div>
+        <p class="entry-info-popover-body">
+          Paste the <strong>Lakitu session URL</strong> that shows the GIF of
+          your calibration recording. Copy it <strong>exactly</strong> from Lakitu.
+        </p>
+        ${gif ? `<img class="entry-info-popover-img" src="${gif}" alt="Demo of the Lakitu session list · find the session and copy its URL" loading="lazy" decoding="async">` : ''}
+      </div>
+    </span>`;
+}
+
+function bindLakituInfoPopover(idPrefix, root) {
+  const scope     = root || document;
+  const infoBtn   = scope.querySelector('#' + idPrefix + '_btn');
+  const infoPop   = scope.querySelector('#' + idPrefix + '_popover');
+  const infoWrap  = scope.querySelector('#' + idPrefix + '_wrap');
+  const infoClose = scope.querySelector('#' + idPrefix + '_close');
+  if (!infoBtn || !infoPop || !infoWrap || infoBtn.dataset.boundLakituInfo) return function () {};
+  infoBtn.dataset.boundLakituInfo = '1';
+  const placePopover = () => {
+    infoPop.classList.remove('flip-up');
+    const rect = infoBtn.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom;
+    if (below < 320 && rect.top > 320) infoPop.classList.add('flip-up');
+  };
+  const openPopover = () => {
+    placePopover();
+    infoPop.classList.add('open');
+    infoBtn.classList.add('open');
+    infoBtn.setAttribute('aria-expanded', 'true');
+  };
+  const closePopover = () => {
+    infoPop.classList.remove('open');
+    infoBtn.classList.remove('open');
+    infoBtn.setAttribute('aria-expanded', 'false');
+  };
+  infoBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (infoPop.classList.contains('open')) closePopover();
+    else openPopover();
+  });
+  if (infoClose) {
+    infoClose.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      closePopover();
+    });
+  }
+  const onDocClick = (e) => {
+    if (!infoWrap.isConnected) return;
+    if (!infoWrap.contains(e.target) && infoPop.classList.contains('open')) closePopover();
+  };
+  const onDocKey = (e) => {
+    if (e.key === 'Escape' && infoPop.classList.contains('open')) {
+      closePopover();
+      infoBtn.focus();
+    }
+  };
+  document.addEventListener('click', onDocClick);
+  document.addEventListener('keydown', onDocKey);
+  return () => {
+    document.removeEventListener('click', onDocClick);
+    document.removeEventListener('keydown', onDocKey);
+  };
+}
+
+function promptStation1LakituUrl() {
+  return new Promise((resolve) => {
+    let overlay = document.getElementById('apprLakituSubmitOverlay');
+    if (overlay) overlay.remove();
+    overlay = document.createElement('div');
+    overlay.id = 'apprLakituSubmitOverlay';
+    overlay.className = 'appr-lakitu-submit-overlay open';
+    const preset = (state && state.recordLakituUrl) ? String(state.recordLakituUrl).trim() : '';
+    overlay.innerHTML = `
+      <div class="appr-lakitu-submit-modal" role="dialog" aria-modal="true" aria-labelledby="apprLakituSubmitTitle">
+        <div class="appr-lakitu-submit-head">
+          <div class="appr-lakitu-submit-title-row">
+            <div class="appr-lakitu-submit-title" id="apprLakituSubmitTitle">Lakitu session URL</div>
+            ${lakituInfoPopoverMarkup('lakitu_info')}
+          </div>
+          <p class="appr-lakitu-submit-lead">Paste the Lakitu URL that includes the GIF of this calibration. Admins use it to review and unlock the rest of Station 1.</p>
+        </div>
+        <label class="appr-lakitu-submit-label" for="apprLakituSubmitInput">Lakitu URL</label>
+        <input type="url" id="apprLakituSubmitInput" class="appr-lakitu-submit-input" placeholder="https://lakitu.ring.amazon.dev/p/…?session=…" value="${escapeHTML(preset)}" autocomplete="off" spellcheck="false">
+        <div class="appr-lakitu-submit-err" id="apprLakituSubmitErr" hidden></div>
+        <div class="appr-lakitu-submit-foot">
+          <button type="button" class="btn" id="apprLakituSubmitCancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="apprLakituSubmitBtn">Submit</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const unbindInfo = bindLakituInfoPopover('lakitu_info', overlay);
+    const input = document.getElementById('apprLakituSubmitInput');
+    const errEl = document.getElementById('apprLakituSubmitErr');
+    const finish = (value) => {
+      if (typeof unbindInfo === 'function') unbindInfo();
+      if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      resolve(value);
+    };
+    const trySubmit = () => {
+      const v = input ? String(input.value || '').trim() : '';
+      if (!isSubmitLakituUrl(v)) {
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = 'Paste the full Lakitu session URL (the one that shows the GIF).';
+        }
+        if (input) {
+          input.classList.add('is-invalid');
+          input.focus();
+        }
+        return;
+      }
+      finish(v);
+    };
+    document.getElementById('apprLakituSubmitBtn').addEventListener('click', trySubmit);
+    document.getElementById('apprLakituSubmitCancel').addEventListener('click', () => finish(null));
+    overlay.addEventListener('click', e => { if (e.target === overlay) finish(null); });
+    if (input) {
+      input.addEventListener('input', () => {
+        input.classList.remove('is-invalid');
+        if (errEl) errEl.hidden = true;
+      });
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); trySubmit(); }
+        if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+      });
+      setTimeout(() => { try { input.focus(); input.select(); } catch (_) {} }, 50);
+    }
+  });
+}
+
+async function beginApprovalSubmit(stationKey, resubmit) {
+  const ctx = _gateModContext();
+  if (!ctx.asgn || !ctx.asgn.id) {
+    appAlert({ title: 'No active session', message: 'Start your booked session before submitting calibration for review.' });
+    return;
+  }
+  let lakituUrl = '';
+  if (stationKey === 'station1') {
+    lakituUrl = await promptStation1LakituUrl();
+    if (!lakituUrl) return;
+    state.recordLakituUrl = lakituUrl;
+    saveState();
+    if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  }
+  return submitApprovalFromStation(stationKey, resubmit, lakituUrl);
+}
+
 // Submit (or resubmit) the calibration for review for a station.
-async function submitApprovalFromStation(stationKey, resubmit) {
+async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride) {
   const ctx = _gateModContext();
   if (!ctx.asgn || !ctx.asgn.id) {
     appAlert({ title: 'No active session', message: 'Start your booked session before submitting calibration for review.' });
@@ -4103,12 +4295,16 @@ async function submitApprovalFromStation(stationKey, resubmit) {
   const g = getGate(stationKey);
   const apprId = g.approvalId || ('appr_' + ctx.orbitId + '_' + ctx.asgn.id + '_' + gateStationLabel(stationKey) + '_' + Date.now());
   const resubmitCount = (g.resubmitCount || 0) + (resubmit ? 1 : 0);
+  const lakituUrl = (lakituUrlOverride && String(lakituUrlOverride).trim())
+    || (state.recordLakituUrl && String(state.recordLakituUrl).trim())
+    || ctx.lakitu
+    || '';
   // Optimistic local state · gate goes Pending immediately so the UI
   // reflects "waiting" even if the cloud write is a no-op (empty URL).
   setGate(stationKey, {
     approvalId: apprId, status: 'Pending',
     submittedAt: new Date().toISOString(), resubmitCount,
-    note: '', decidedBy: '',
+    note: '', decidedBy: '', lakituUrl,
   });
   if (typeof renderApp === 'function') renderApp();
   showApprovalWaitingPopup(stationKey);
@@ -4121,7 +4317,7 @@ async function submitApprovalFromStation(stationKey, resubmit) {
     teamId: ctx.teamId, teamName: ctx.teamName,
     orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
     station: gateStationLabel(stationKey), scenario: 'calibration',
-    lakituUrl: ctx.lakitu, resubmit: !!resubmit, resubmitCount,
+    lakituUrl, resubmit: !!resubmit, resubmitCount,
   });
   if (!writtenId && typeof showToast === 'function') {
     showToast('Saved locally, but logging to the server failed · it won\u2019t appear in the admin queue yet. Check the Approval Write flow / connection.', 'error', 6500);
@@ -4323,9 +4519,9 @@ function decorateApprovalGate(c, station) {
   // Bind the submit / resubmit buttons (class-based · there may be two
   // layers, one per layout).
   c.querySelectorAll('.appr-submit-btn[data-act="submit"]').forEach(b =>
-    b.addEventListener('click', () => submitApprovalFromStation(k, false)));
+    b.addEventListener('click', () => beginApprovalSubmit(k, false)));
   c.querySelectorAll('.appr-submit-btn[data-act="resubmit"]').forEach(b =>
-    b.addEventListener('click', () => submitApprovalFromStation(k, true)));
+    b.addEventListener('click', () => beginApprovalSubmit(k, true)));
 }
 
 // --- poll: mirror cloud decisions into local gates + client auto-approve ---
@@ -9445,6 +9641,11 @@ function renderApprovalTab(body) {
     </div>
   `;
   wireApprovalFilterBar();
+  if (typeof hydrateTeamSessionsFromTeamLog === 'function') {
+    hydrateTeamSessionsFromTeamLog().then(() => {
+      if (adminState.tab === 'approval') renderApprovalPanelInto();
+    }).catch(() => {});
+  }
   // First paint from cache (instant), then refresh from cloud.
   if (adminState.approvals) { renderApprovalListInto(); renderApprovalPanelInto(); }
   ensureApprovalData({ force: true }).then(() => {
@@ -9507,6 +9708,33 @@ function renderApprovalListInto() {
   });
 }
 
+function resolveApprovalRingUrl(appr) {
+  const fallback = (typeof getRingDashboardByKey === 'function')
+    ? getRingDashboardByKey('nighttime-centific-1')
+    : ((typeof RING_DASHBOARDS !== 'undefined' && RING_DASHBOARDS[0]) || null);
+  const fallbackUrl = (fallback && fallback.url) ? fallback.url : '';
+  if (!appr) return fallbackUrl;
+  const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  let team = null;
+  if (appr.team_id) {
+    team = teams.find(t => t && String(t.id) === String(appr.team_id));
+  }
+  if (!team && appr.team_name) {
+    const want = String(appr.team_name).trim().toLowerCase();
+    team = teams.find(t => t && String(t.name || t.teamName || '').trim().toLowerCase() === want);
+  }
+  if (!team && appr.assignment_id && typeof adminState !== 'undefined' && adminState && adminState.assignments) {
+    const asgn = adminState.assignments.find(x => x && String(x.id) === String(appr.assignment_id));
+    if (asgn && typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
+    else if (asgn && asgn.teamId) team = teams.find(t => t && String(t.id) === String(asgn.teamId));
+  }
+  const mapped = (typeof resolveTeamRingDashboardUrl === 'function')
+    ? resolveTeamRingDashboardUrl(team)
+    : '';
+  if (mapped && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(mapped)) return mapped;
+  return fallbackUrl;
+}
+
 function renderApprovalPanelInto() {
   const panel = document.getElementById('apprPanel');
   if (!panel) return;
@@ -9516,13 +9744,20 @@ function renderApprovalPanelInto() {
     panel.innerHTML = `<div class="appr-panel-empty">Select a request to review.</div>`;
     return;
   }
-  const reviewUrl = a.lakitu_url
-    ? (typeof lakituReviewUrl === 'function' ? lakituReviewUrl(a.lakitu_url) : a.lakitu_url)
+  const rawLakitu = (a.lakitu_url && String(a.lakitu_url).trim()) || '';
+  const reviewUrl = rawLakitu
+    ? ((typeof lakituReviewUrl === 'function' && isValidLakituUrl(rawLakitu))
+        ? lakituReviewUrl(rawLakitu)
+        : (isSafeHttpUrl(rawLakitu) ? rawLakitu : ''))
     : '';
+  const ringUrl = resolveApprovalRingUrl(a);
   const decided = (a.status === 'Approved' || a.status === 'Rejected' || a.status === 'AutoApproved');
   const lakituBtn = reviewUrl
     ? `<a class="appr-icon-btn" href="${escapeHTML(reviewUrl)}" target="_blank" rel="noopener">↗ Lakitu session</a>`
     : `<span class="appr-icon-btn disabled" title="No Lakitu URL submitted">↗ Lakitu session</span>`;
+  const ringBtn = (ringUrl && isSafeHttpsUrl(ringUrl))
+    ? `<a class="appr-icon-btn" href="${escapeHTML(ringUrl)}" target="_blank" rel="noopener">◎ Ring</a>`
+    : `<span class="appr-icon-btn disabled" title="No Ring dashboard assigned">◎ Ring</span>`;
   const decidedBlock = decided
     ? `<div class="appr-decided-note">
          <strong>${escapeHTML(apprStatusLabel(a.status))}</strong>${a.decided_by ? ' by ' + escapeHTML(a.decided_by) : ''}.
@@ -9544,7 +9779,7 @@ function renderApprovalPanelInto() {
     ${metaLine}
     <div class="appr-icon-row">
       ${lakituBtn}
-      <a class="appr-icon-btn" href="https://ring.com" target="_blank" rel="noopener">◎ Ring</a>
+      ${ringBtn}
     </div>
     ${decidedBlock}
   `;
@@ -26723,6 +26958,7 @@ function extractSyncableState(s) {
     // but don't overwrite their own (mergeTeammateState's default
     // shallow-overlay applies · first-write wins per device).
     calGuideAck:        s.calGuideAck        || null,
+    recordLakituUrl:    s.recordLakituUrl    || '',
   };
 }
 
@@ -27397,6 +27633,7 @@ function mergeTeammateState(syncableState) {
     const current  = String(state.officeCheckedOutAt || '');
     if (!current || incoming > current) state.officeCheckedOutAt = incoming;
   }
+  if (syncableState.recordLakituUrl)    state.recordLakituUrl    = String(syncableState.recordLakituUrl);
   if (syncableState.equipment)          state.equipment          = { ...state.equipment, ...syncableState.equipment };
   if (syncableState.stations) {
     // Deep merge stations · for each station, overlay scenarios + cameras.
@@ -27468,6 +27705,7 @@ function applySelfSyncReplace(s) {
   state.officeCheckedOutAt = s.officeCheckedOutAt || '';
   state.lastGeo            = s.lastGeo            || null;
   state.calGuideAck        = s.calGuideAck         || null;
+  state.recordLakituUrl    = s.recordLakituUrl     || '';
   // Personal per-device reminder tracking is re-derived from the
   // adopted arrival anchor (same rationale as mergeTeammateState).
   state.remindersShown = [];
@@ -28589,7 +28827,7 @@ function addReminderShown(hourMark) {
 // the modal links out to it (opens in a new tab · SharePoint docs can't be
 // reliably embedded due to auth + X-Frame-Options). The acknowledgment flow
 // below is unchanged: the mod opens the doc, reviews it, then acknowledges.
-const CAL_GUIDE_DOC_URL = 'https://digitaltechedge.sharepoint.com/:w:/r/sites/ProjectORBITModerators/_layouts/15/Doc.aspx?sourcedoc=%7B2A420A1F-4139-49D3-83B7-1C80B77596FA%7D&file=Calibration_Recording_DOs_and_DONTs.docx&action=default&mobileredirect=true';
+const CAL_GUIDE_DOC_URL = 'https://centifictd.github.io/twilight-onboarding/?utm_source=chatgpt.com';
 
 // Data · kept as a top-level const inside the function's closure so the
 // DOM build is a pure transform of static data. Editable in one place.
@@ -28709,7 +28947,7 @@ const CAL_GUIDE_CHECKLIST = [
 // clickable "≥90s" pill is tapped.
 const LENGTH_REMINDER_HTML = `
   <div class="len-reminder">
-    <div class="len-reminder-eyebrow">As of 7/8 · minimum recording length</div>
+    <div class="len-reminder-eyebrow">Minimum recording length</div>
     <div class="len-reminder-title">All calibration recordings must be a minimum of 90 seconds long</div>
     <div class="len-reminder-warn">⚠️ Calibration recordings shorter than 60 seconds do not meet the project requirements and will be rejected by the client.</div>
     <div class="len-reminder-title" style="margin-top:12px;">All scenario recordings must be a minimum of 60 seconds long</div>
@@ -28835,8 +29073,8 @@ function buildCalGuideModal() {
         </svg>
       </span>
       <span class="cal-guide-doclink-label">
-        <span class="cal-guide-doclink-title">Open the Calibration Recording DOs &amp; DON'Ts</span>
-        <span class="cal-guide-doclink-sub">Opens the full guide (Word doc) in a new tab · review it, then acknowledge below</span>
+        <span class="cal-guide-doclink-title">Open the Project Twilight Onboarding Document</span>
+        <span class="cal-guide-doclink-sub">Opens the full onboarding guide in a new tab · review it, then acknowledge below.</span>
       </span>
       <span class="cal-guide-doclink-ext" aria-hidden="true">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
