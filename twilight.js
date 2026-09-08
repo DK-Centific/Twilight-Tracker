@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826';
+const APP_VERSION = '1.3.090826b';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5518,6 +5518,21 @@ function armScrollPreserve() {
 // tab's offset · force the pending restore to a no-op (stay clamped at top).
 function resetScrollPreserveToTop() { _scrollPreserveY = 0; }
 
+function playAdminTabEnter() {
+  // Mirror Moderator `.content.view-enter`: play once on intentional
+  // Admin tab navigation / first paint. `admin-enter` gates the tile
+  // stagger so poll-driven re-renders do not replay it.
+  const body = document.getElementById('adminTabBody');
+  if (!body) return;
+  body.classList.remove('view-enter', 'admin-enter');
+  void body.offsetWidth;
+  body.classList.add('view-enter', 'admin-enter');
+  if (window._adminEnterTimer) clearTimeout(window._adminEnterTimer);
+  window._adminEnterTimer = setTimeout(() => {
+    body.classList.remove('admin-enter');
+  }, 850);
+}
+
 function renderAdmin() {
   armScrollPreserve();
   const c = document.getElementById('adminContent');
@@ -5546,6 +5561,7 @@ function renderAdmin() {
   `;
   c.querySelectorAll('.admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (adminState.tab === btn.dataset.tab) return;
       adminState.tab = btn.dataset.tab;
       // Clear the Assignment calendar's team filter AND the side-panel
       // selection on tab change. Both are transient view state · admin
@@ -5559,11 +5575,11 @@ function renderAdmin() {
       c.querySelectorAll('.admin-tab').forEach(b => {
         b.classList.toggle('active', b.dataset.tab === adminState.tab);
       });
-      renderAdminTabBody();
+      renderAdminTabBody({ animate: true });
       resetScrollPreserveToTop();   // intentional tab switch → land at top
     });
   });
-  renderAdminTabBody();
+  renderAdminTabBody({ animate: true });
   // App-wide incoming-approval poll powers the "new requests" banner on
   // any admin tab. Idempotent + inert until APPROVAL_PA_READ_URL is set.
   if (typeof startApprovalPoll === 'function') startApprovalPoll();
@@ -9043,7 +9059,8 @@ function hideApprovalIncomingBanner() {
   if (b) b.remove();
 }
 
-function renderAdminTabBody() {
+function renderAdminTabBody(opts) {
+  opts = opts || {};
   const body = document.getElementById('adminTabBody');
   // Clean up the Assignment-tab polling timer when admin navigates AWAY
   // from the Assignment tab. The timer was started by renderAssignment
@@ -9073,14 +9090,17 @@ function renderAdminTabBody() {
   }
   if (adminState.tab === 'overview') {
     renderOverview(body);
+    if (opts.animate) playAdminTabEnter();
     return;
   }
   if (adminState.tab === 'performance') {
     renderPerformance(body);
+    if (opts.animate) playAdminTabEnter();
     return;
   }
   if (adminState.tab === 'approval') {
     renderApprovalTab(body);
+    if (opts.animate) playAdminTabEnter();
     return;
   }
   // Assignment as a top-level tab. Previously lived under Moderator Hub as
@@ -9091,6 +9111,7 @@ function renderAdminTabBody() {
   if (adminState.tab === 'assignment') {
     body.innerHTML = `<div id="subtabBody"></div>`;
     renderAssignment();
+    if (opts.animate) playAdminTabEnter();
     return;
   }
   // Moderator Hub · now only has Moderators + Participants. Assignment
@@ -9187,6 +9208,7 @@ function renderAdminTabBody() {
     setModviewSlideOpen(false);
     renderParticipants();
   }
+  if (opts.animate) playAdminTabEnter();
 }
 
 /* ----------- Moderators ----------- */
