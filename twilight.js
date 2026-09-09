@@ -2505,12 +2505,12 @@ function paintScenarioFlow() {
     const span = Math.max(1, axis === 'x' ? r.width : r.height);
     const offset = (tCenter - center) / span;
     const abs = Math.abs(offset);
-    const opacity = Math.max(0.28, 1 - abs * 0.5);
-    const scale = Math.max(0.82, 1 - abs * 0.14);
-    const rot = Math.max(-22, Math.min(22, offset * 16));
-    const twist = reduce ? '' : (axis === 'x' ? `rotateY(${-rot}deg)` : `rotateX(${rot}deg)`);
+    const opacity = Math.max(0.34, 1 - abs * 0.48);
+    const scale = Math.max(0.9, 1 - abs * 0.08);
+    const rot = (reduce || abs < 0.36) ? 0 : Math.max(-10, Math.min(10, offset * 8));
+    const twist = rot ? (axis === 'x' ? `rotateY(${-rot}deg)` : `rotateX(${rot}deg)`) : '';
     tile.style.opacity = String(opacity);
-    tile.style.transform = `translateZ(${Math.max(0, (1 - abs) * 28)}px) ${twist} scale(${scale})`;
+    tile.style.transform = `${twist} scale(${scale})`;
     tile.classList.toggle('is-current', abs < 0.38);
     tile.setAttribute('aria-current', abs < 0.38 ? 'true' : 'false');
     tile.style.zIndex = String(Math.round(24 - abs * 10));
@@ -2523,7 +2523,7 @@ function paintScenarioFlow() {
       tile.classList.add('is-current');
       tile.setAttribute('aria-current', 'true');
       tile.style.opacity = '1';
-      tile.style.transform = 'translateZ(28px) scale(1)';
+      tile.style.transform = 'scale(1)';
     }
   }
   updateScenarioFlowCount();
