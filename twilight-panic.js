@@ -71,7 +71,7 @@
         '<div class="panic-tier-label">Escalate immediately</div>' +
         '<span class="panic-more-pill">Press for more options</span>' +
       '</div>' +
-      '<p>Police contact of any kind, a lost or corrupted capture, a demand touching the consent form you cannot answer, an allegation of misconduct, harm or threat of harm. <strong>Notify Ritu and Sander directly.</strong></p>' +
+      '<p>Police contact of any kind, a lost or corrupted capture, a demand touching the consent form you cannot answer, an allegation of misconduct, harm or threat of harm. <strong>Notify project manager directly.</strong></p>' +
       '<div class="panic-escalate-grid" hidden>' +
         escOpt('contact_police', 'Contact Police', ESC_ICONS.contact_police) +
         escOpt('data_loss', 'Data Loss', ESC_ICONS.data_loss) +
