@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ax';
-const APP_UPDATED_AT = '09/09/2026 05:40';
+const APP_VERSION = '1.3.090826ay';
+const APP_UPDATED_AT = '09/09/2026 05:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3718,8 +3718,9 @@ function ensureTeamSessionAssignments() {
   if (added && typeof saveAssignmentData === 'function') saveAssignmentData();
 }
 
-function startNewTeamSession(team) {
+function startNewTeamSession(team, opts) {
   if (!team) return null;
+  opts = opts || {};
   const open = getOpenTeamSession(team.id);
   if (open) {
     stampTeamOpenSession(team, open);
@@ -3746,7 +3747,11 @@ function startNewTeamSession(team) {
   stampTeamOpenSession(team, asgn);
   if (typeof saveAssignmentData === 'function') saveAssignmentData();
   persistTeamSessionAssignment(asgn).catch(() => {});
-  if (typeof TEAMLOG_PA_WRITE_URL !== 'undefined' && TEAMLOG_PA_WRITE_URL
+  // Caller may already be writing TeamLog (saveTeam on create). A second
+  // write in the same click produced duplicate member rows and, after
+  // merge, a second team card with the same name.
+  if (!opts.skipTeamLog
+      && typeof TEAMLOG_PA_WRITE_URL !== 'undefined' && TEAMLOG_PA_WRITE_URL
       && typeof writeTeamToTeamLog === 'function' && !team._pending) {
     writeTeamToTeamLog(team, 'active').catch(() => {});
   }
@@ -15433,7 +15438,7 @@ async function fetchTeamsFromPA() {
         return g;
       });
     const deletedIds = new Set(
-      allGroups.filter(g => g.status === 'deleted').map(g => g.id)
+      allGroups.filter(g => g.status === 'deleted').map(g => teamIdKey(g.id))
     );
     console.log(`[Twilight] TeamLog sync: ${rows.length} rows → ${teams.length} active teams, ${deletedIds.size} tombstoned (max id seen: ${maxSeenId})`);
     return { teams, deletedIds, configured: true };
@@ -16745,6 +16750,33 @@ function getTeamBackupIds(team) {
 // has a consistent shape regardless of when it was created. Always strips
 // the legacy `backupId` field (whether truthy or null) so memory state
 // only carries the canonical array form.
+function normalizeTeamId(id) {
+  if (id == null || id === '') return id;
+  if (typeof id === 'number' && Number.isFinite(id)) return id;
+  const trimmed = String(id).trim();
+  if (!trimmed) return id;
+  const n = Number(trimmed);
+  if (Number.isFinite(n) && String(n) === trimmed) return n;
+  return id;
+}
+
+function teamIdKey(id) {
+  const n = normalizeTeamId(id);
+  return n == null || n === '' ? '' : String(n);
+}
+
+function dedupeTeamsById(teams) {
+  const map = new Map();
+  for (const raw of teams || []) {
+    if (!raw) continue;
+    const t = migrateTeamShape(raw);
+    const key = teamIdKey(t.id);
+    if (!key) continue;
+    map.set(key, t);
+  }
+  return [...map.values()];
+}
+
 function migrateTeamShape(team) {
   if (!team) return team;
   let backupIds;
@@ -16757,6 +16789,7 @@ function migrateTeamShape(team) {
   }
   const out = { ...team, backupIds: backupIds };
   if ('backupId' in out) delete out.backupId;
+  if (out.id != null) out.id = normalizeTeamId(out.id);
   return out;
 }
 
@@ -16923,12 +16956,12 @@ async function hydrateTeamSessionsFromTeamLog() {
     try {
       const tl = await fetchTeamsFromPA();
       if (tl && Array.isArray(tl.teams) && tl.teams.length > 0) {
-        const remoteIds = new Set(tl.teams.map(t => t.id));
-        const localOnly = (adminState.teams || []).filter(t => t && !remoteIds.has(t.id));
-        adminState.teams = [
+        const remoteIds = new Set(tl.teams.map(t => teamIdKey(t.id)));
+        const localOnly = (adminState.teams || []).filter(t => t && !remoteIds.has(teamIdKey(t.id)));
+        adminState.teams = dedupeTeamsById([
           ...tl.teams.map(t => (typeof migrateTeamShape === 'function') ? migrateTeamShape(t) : t),
           ...localOnly,
-        ];
+        ]);
       }
     } catch (_) {}
   }
@@ -17455,32 +17488,22 @@ async function fetchAssignmentsFromPA() {
   // consistent.
   const localTeamById = new Map((local.teams || []).map(t => {
     const mt = migrateTeamShape(t);
-    // Same normalization as remote, in case localStorage was written before
-    // this fix and contains stringified IDs.
-    if (mt.id != null && typeof mt.id !== 'number') {
-      const n = Number(mt.id);
-      if (!isNaN(n)) mt.id = n;
-    }
-    return [mt.id, mt];
+    return [teamIdKey(mt.id), mt];
   }));
   let mergedTeams = remoteTeams.map(rt => {
-    const lt = localTeamById.get(rt.id);
+    const lt = localTeamById.get(teamIdKey(rt.id));
     const localBackups = lt ? getTeamBackupIds(lt) : [];
     if (localBackups.length > 0) return { ...rt, backupIds: localBackups };
     return rt;
   });
   for (const lt of localTeamById.values()) {
-    if (!teamMap.has(lt.id)) mergedTeams.push(lt);
+    if (!teamMap.has(lt.id) && !teamMap.has(teamIdKey(lt.id))) mergedTeams.push(lt);
   }
 
   // Final defensive dedup: even if some subtle type or merge bug still
   // exists, the final team list must have unique IDs. Last-write-wins so
   // locally edited backups don't lose to a stale remote shape.
-  const dedup = new Map();
-  for (const t of mergedTeams) {
-    dedup.set(t.id, t);
-  }
-  mergedTeams = [...dedup.values()];
+  mergedTeams = dedupeTeamsById(mergedTeams);
 
   // If the TeamLog flow is configured, fetch the authoritative team list
   // and let it OVERRIDE the assignment-row reconstruction. TeamLog carries
@@ -17500,7 +17523,7 @@ async function fetchAssignmentsFromPA() {
     try {
       const tl = await fetchTeamsFromPA();
       if (tl.teams && tl.teams.length > 0) {
-        const remoteIds = new Set(tl.teams.map(t => t.id));
+        const remoteIds = new Set(tl.teams.map(t => teamIdKey(t.id)));
         // Apply TeamLog tombstones FIRST · any team id TeamLog marks
         // deleted gets purged from mergedTeams regardless of whether the
         // assignment-row reconstruction tried to revive it. Without this
@@ -17508,7 +17531,7 @@ async function fetchAssignmentsFromPA() {
         // rows on every refresh.
         if (tl.deletedIds && tl.deletedIds.size > 0) {
           const before = mergedTeams.length;
-          mergedTeams = mergedTeams.filter(t => !tl.deletedIds.has(t.id));
+          mergedTeams = mergedTeams.filter(t => !tl.deletedIds.has(teamIdKey(t.id)));
           if (mergedTeams.length < before) {
             console.log(`[Twilight] TeamLog tombstones purged ${before - mergedTeams.length} resurrected team${before - mergedTeams.length === 1 ? '' : 's'} from assignment-row fallback`);
           }
@@ -17516,15 +17539,11 @@ async function fetchAssignmentsFromPA() {
         // Local-only teams: in mergedTeams but not in TeamLog. These are
         // either pending writes (TeamLog hasn't processed yet) or genuinely
         // local-only teams from a transition period. Either way, keep them.
-        const localOnlyTeams = mergedTeams.filter(t => !remoteIds.has(t.id));
-        mergedTeams = [
+        const localOnlyTeams = mergedTeams.filter(t => !remoteIds.has(teamIdKey(t.id)));
+        mergedTeams = dedupeTeamsById([
           ...tl.teams.map(t => migrateTeamShape(t)),
           ...localOnlyTeams,
-        ];
-        // Final dedup in case any team appears in both lists
-        const dedup2 = new Map();
-        for (const t of mergedTeams) dedup2.set(t.id, t);
-        mergedTeams = [...dedup2.values()];
+        ]);
         info.teamCount = mergedTeams.length;
       } else if (tl.error) {
         console.warn('[Twilight] TeamLog fetch errored; using assignment-row fallback for teams:', tl.error);
@@ -17549,7 +17568,7 @@ async function fetchAssignmentsFromPA() {
         // removed). Still apply the tombstones so the assignment-row
         // fallback doesn't revive any of them.
         const before = mergedTeams.length;
-        mergedTeams = mergedTeams.filter(t => !tl.deletedIds.has(t.id));
+        mergedTeams = mergedTeams.filter(t => !tl.deletedIds.has(teamIdKey(t.id)));
         if (mergedTeams.length < before) {
           console.log(`[Twilight] TeamLog tombstones purged ${before - mergedTeams.length} team${before - mergedTeams.length === 1 ? '' : 's'} (TeamLog had only deletions)`);
         }
@@ -17567,7 +17586,7 @@ async function fetchAssignmentsFromPA() {
   const hiddenSet = new Set(loadHiddenTeamIds());
   if (hiddenSet.size > 0) {
     const before = mergedTeams.length;
-    mergedTeams = mergedTeams.filter(t => !hiddenSet.has(t.id));
+    mergedTeams = mergedTeams.filter(t => !hiddenSet.has(t.id) && !hiddenSet.has(teamIdKey(t.id)));
     if (mergedTeams.length < before) {
       console.log(`[Twilight] Tombstone filter: hid ${before - mergedTeams.length} team${before - mergedTeams.length === 1 ? '' : 's'}`);
     }
@@ -17580,9 +17599,9 @@ async function fetchAssignmentsFromPA() {
   // forward, a mid-session refresh would wipe drafts the admin is
   // actively working with.
   if (typeof adminState !== 'undefined' && Array.isArray(adminState.teams)) {
-    const seenIds = new Set(mergedTeams.map(t => t.id));
+    const seenIds = new Set(mergedTeams.map(t => teamIdKey(t.id)));
     for (const t of adminState.teams) {
-      if (t._pending && !seenIds.has(t.id)) mergedTeams.push(t);
+      if (t._pending && !seenIds.has(teamIdKey(t.id))) mergedTeams.push(t);
     }
   }
 
@@ -17962,7 +17981,10 @@ if (typeof window !== 'undefined') {
 function nextTeamId() {
   // Start with the highest id among currently-visible teams. This handles
   // the normal case where no teams have been deleted.
-  const visibleIds = adminState.teams.map(t => t.id || 0);
+  const visibleIds = (adminState.teams || []).map(t => {
+    const n = Number(t && t.id);
+    return Number.isFinite(n) ? n : 0;
+  });
   let maxId = visibleIds.length ? Math.max(...visibleIds) : 0;
   // Also consult the historical high-water mark from TeamLog. The bug case
   // it prevents: admin deletes team 1, then creates a "new" team. Without
@@ -19113,7 +19135,10 @@ function openAdminAvailabilitySubmit(modId) {
 
 /* ----------- Teams Panel ----------- */
 function renderTeamsPanelHTML() {
-  const teams = adminState.teams || [];
+  const teams = dedupeTeamsById(adminState.teams || []);
+  if (teams.length !== (adminState.teams || []).length) {
+    adminState.teams = teams;
+  }
   const isModeratorHubTeamView = adminState.tab === 'moderators' && adminState.modView === 'team';
   // Sort/search state · defaults are admin-friendly: alphabetical
   // ascending (predictable), no search filter applied. Both persist
@@ -22123,7 +22148,7 @@ function renderTeamModal() {
       ${isEdit ? '<button class="btn btn-danger" id="teamDeleteBtn">Delete team</button>' : ''}
       <div style="flex: 1"></div>
       <button class="btn btn-ghost" id="teamCancelBtn">Cancel</button>
-      <button class="btn btn-primary" id="teamSaveBtn">${isEdit ? 'Save changes' : 'Create team'}</button>
+      <button type="button" class="btn btn-primary" id="teamSaveBtn">${isEdit ? 'Save changes' : 'Create team'}</button>
     </div>
   `;
 
@@ -22233,7 +22258,9 @@ function renderTeamModal() {
 }
 
 function saveTeam() {
+  if (adminState._savingTeam) return;
   const m = adminState.modal;
+  if (!m) return;
   const name = (m.name || '').trim();
   if (!name) {
     appAlert({
@@ -22251,6 +22278,9 @@ function saveTeam() {
     });
     return;
   }
+  adminState._savingTeam = true;
+  const saveBtn = document.getElementById('teamSaveBtn');
+  if (saveBtn) saveBtn.disabled = true;
   // Resolve the admin-assigned Lakitu project (if any) to a stored key +
   // mapped url. Empty key clears any prior assignment (falls back to the
   // moderator's manual paste flow).
@@ -22290,7 +22320,7 @@ function saveTeam() {
       newTeam._pending = true;
     }
     adminState.teams.push(newTeam);
-    try { startNewTeamSession(newTeam); } catch (_) {}
+    try { startNewTeamSession(newTeam, { skipTeamLog: true }); } catch (_) {}
     if (TEAMLOG_PA_WRITE_URL) {
       writeTeamToTeamLog(newTeam, 'active').then(r => {
         if (r.ok) {
@@ -22303,7 +22333,7 @@ function saveTeam() {
       });
     }
   } else {
-    const t = adminState.teams.find(t => t.id === m.teamId);
+    const t = adminState.teams.find(t => teamIdKey(t.id) === teamIdKey(m.teamId));
     if (t) {
       t.name = name;
       t.primaryIds = m.primaryIds;
@@ -22334,9 +22364,14 @@ function saveTeam() {
   // memory for the session. They get persisted when a booking is saved
   // that references them · at which point saveAssignment() clears the
   // _pending flag and calls saveAssignmentData() so both commit together.
-  saveAssignmentData();
-  closeAsgnModal();
-  refreshAfterTeamMutation();
+  try {
+    adminState.teams = dedupeTeamsById(adminState.teams || []);
+    saveAssignmentData();
+    closeAsgnModal();
+    refreshAfterTeamMutation();
+  } finally {
+    adminState._savingTeam = false;
+  }
 }
 
 function deleteTeam(teamId) {
