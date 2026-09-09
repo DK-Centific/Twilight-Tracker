@@ -2567,6 +2567,15 @@ function renderStationFlowView() {
     c.innerHTML = stationFlowChromeHTML();
     bindStationFlow();
   } else {
+    const axis = getStationFlowAxis();
+    existing.dataset.axis = axis;
+    existing.classList.toggle('is-x', axis === 'x');
+    existing.classList.toggle('is-y', axis === 'y');
+    existing.querySelectorAll('[data-flow-axis]').forEach(btn => {
+      const on = btn.getAttribute('data-flow-axis') === axis;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     existing.querySelectorAll('.st-flow-tile').forEach(tile => {
       const key = tile.getAttribute('data-key');
       const st = STATIONS.find(s => s.key === key);
