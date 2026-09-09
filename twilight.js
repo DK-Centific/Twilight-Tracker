@@ -2434,9 +2434,11 @@ function stationFlowChromeHTML() {
       </div>
       <div class="st-flow-hint">Scroll to move between stations. The middle tile stays in focus.</div>
       <div class="st-flow-viewport" id="stationFlowViewport">
-        <div class="st-flow-spacer" aria-hidden="true"></div>
-        ${tiles}
-        <div class="st-flow-spacer" aria-hidden="true"></div>
+        <div class="st-flow-stage">
+          <div class="st-flow-spacer" aria-hidden="true"></div>
+          ${tiles}
+          <div class="st-flow-spacer" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
     <div id="stationFlowBody" class="st-flow-body"></div>`;

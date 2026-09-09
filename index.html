@@ -476,6 +476,8 @@ a.icon-btn:focus-visible {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   margin-bottom: 6px;
+  position: relative;
+  z-index: 3;
 }
 .st-flow-kicker {
   font-family: var(--font-num);
@@ -518,21 +520,29 @@ a.icon-btn:focus-visible {
   overflow-x: hidden;
   scroll-snap-type: y mandatory;
   scroll-behavior: smooth;
-  perspective: 980px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   border-radius: 18px;
   padding: 8px 6px;
+  position: relative;
+  z-index: 1;
 }
 .st-flow-viewport::-webkit-scrollbar { display: none; }
+.st-flow-stage {
+  perspective: 980px;
+  transform-style: preserve-3d;
+}
 .st-flow.is-x .st-flow-viewport {
   height: 188px;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
+  padding: 10px 8px;
+}
+.st-flow.is-x .st-flow-stage {
   display: flex;
   align-items: center;
-  padding: 10px 8px;
+  min-height: 100%;
 }
 .st-flow-spacer {
   flex: 0 0 auto;
