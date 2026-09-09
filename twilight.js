@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bj';
-const APP_UPDATED_AT = '09/09/2026 16:30';
+const APP_VERSION = '1.3.090826bl';
+const APP_UPDATED_AT = '09/09/2026 17:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -11282,41 +11282,99 @@ function activitiesViewAddrLine() {
 }
 
 function formatMilesFromHqLabel(miles) {
-  if (!Number.isFinite(miles) || miles < 0.05) return '';
+  if (!Number.isFinite(miles) || miles < 0) return '';
+  if (miles < 0.05) return 'At HQ';
   return (Math.round(miles * 10) / 10).toFixed(1) + ' miles from HQ';
 }
 
-function resolveActivitiesMilesFromHq() {
-  const hasFocus = !!(getSelectedActivitiesTeam() || getSelectedActivitiesModeratorId());
-  if (!hasFocus) return null;
-  if (typeof getActivitiesAssignmentCenter === 'function') {
-    const center = getActivitiesAssignmentCenter();
-    if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)) {
-      const miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, center.lat, center.lng) / 1609.344;
-      if (miles >= 0.05) return miles;
+// Addresses we can use for "miles from HQ" when a Team is selected.
+// Team office first, then the open session, then any other assignment
+// for that team (not only today's booking). Moderator-only and All-teams
+// views do not use this list.
+function listActivitiesTeamAddressCandidates(team) {
+  if (!team) return [];
+  const out = [];
+  const seen = new Set();
+  const add = (addr) => {
+    const q = String(addr || '').trim();
+    if (!q) return;
+    const key = q.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(q);
+  };
+  add((typeof getTeamOfficeAddress === 'function')
+    ? getTeamOfficeAddress(team)
+    : (team.teamAddress ? String(team.teamAddress).trim() : ''));
+  const open = (typeof getOpenTeamSession === 'function')
+    ? getOpenTeamSession(team.id)
+    : null;
+  if (open && typeof assignmentFenceAddress === 'function') add(assignmentFenceAddress(open));
+  const rows = ((adminState && adminState.assignments) || []).filter(a => {
+    if (!a || String(a.teamId) !== String(team.id)) return false;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+    return true;
+  });
+  rows.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  rows.forEach(a => {
+    if (typeof assignmentFenceAddress === 'function') add(assignmentFenceAddress(a));
+  });
+  return out;
+}
+
+function resolveActivitiesTeamMapCenter(team) {
+  if (!team) return null;
+  const cache = (typeof loadGeocodeCache === 'function') ? loadGeocodeCache() : {};
+  const addrs = listActivitiesTeamAddressCandidates(team);
+  for (const addr of addrs) {
+    const hit = cache[String(addr).toLowerCase()];
+    if (hit && Number.isFinite(hit.lat) && Number.isFinite(hit.lng)) {
+      return { lat: hit.lat, lng: hit.lng, address: addr };
     }
   }
+  const teamId = String(team.id);
   const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
     ? adminState.perfSessionStateRows : [];
-  if (!rows.length) return null;
-  const asgns = (adminState.assignments || []).filter(a =>
-    typeof assignmentMatchesActivitiesFocus === 'function' && assignmentMatchesActivitiesFocus(a)
-  );
-  const asgnIds = new Set(asgns.map(a => String(a.id)));
-  const team = getSelectedActivitiesTeam();
-  const teamId = team ? String(team.id) : '';
   let best = null;
   for (const r of rows) {
-    if (asgnIds.size && !asgnIds.has(String(r.assignmentId || ''))) {
-      if (!teamId || String(r.teamId || '') !== teamId) continue;
-    }
+    if (String(r.teamId || '') !== teamId) continue;
+    let parsed = {};
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    const lat = Number(parsed.assignmentLat);
+    const lng = Number(parsed.assignmentLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const ts = String(r.lastActive || parsed.progressAt || '');
+    if (!best || ts > best.ts) best = { lat, lng, ts };
+  }
+  return best ? { lat: best.lat, lng: best.lng } : null;
+}
+
+function resolveActivitiesMilesFromHq() {
+  // Miles is a Team fact (house vs HQ). Hide it on All teams and when a
+  // single moderator is selected so the caption does not show a leftover number.
+  if (typeof getSelectedActivitiesModeratorId === 'function' && getSelectedActivitiesModeratorId()) {
+    return null;
+  }
+  const team = (typeof getSelectedActivitiesTeam === 'function')
+    ? getSelectedActivitiesTeam()
+    : null;
+  if (!team) return null;
+  const center = resolveActivitiesTeamMapCenter(team);
+  if (center && Number.isFinite(center.lat) && Number.isFinite(center.lng)
+      && typeof haversineMeters === 'function' && typeof GEO_HQ_CENTER === 'object') {
+    const miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, center.lat, center.lng) / 1609.344;
+    if (Number.isFinite(miles)) return miles;
+  }
+  const teamId = String(team.id);
+  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  let best = null;
+  for (const r of rows) {
+    if (String(r.teamId || '') !== teamId) continue;
     let parsed = {};
     try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
     let miles = Number(r.milesFromHq != null ? r.milesFromHq : parsed.milesFromHq);
-    if (!Number.isFinite(miles) && Number.isFinite(Number(parsed.assignmentLat)) && Number.isFinite(Number(parsed.assignmentLng))) {
-      miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, Number(parsed.assignmentLat), Number(parsed.assignmentLng)) / 1609.344;
-    }
-    if (!Number.isFinite(miles) || miles < 0.05) continue;
+    if (!Number.isFinite(miles)) continue;
     const ts = String(r.lastActive || '');
     if (!best || ts > best.ts) best = { miles, ts };
   }
@@ -13089,12 +13147,12 @@ function activitiesFenceFeatures() {
 
 async function prefetchActivityHomeGeocodes() {
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
-  const teamAddr = (typeof getTeamOfficeAddress === 'function')
-    ? getTeamOfficeAddress(team)
-    : (team && team.teamAddress ? String(team.teamAddress).trim() : '');
   const hadAssigned = !!(typeof getActivitiesAssignmentCenter === 'function' && getActivitiesAssignmentCenter());
-  if (teamAddr) {
-    try { await geocodeAddress(teamAddr); } catch (_) {}
+  const teamAddrs = (typeof listActivitiesTeamAddressCandidates === 'function' && team)
+    ? listActivitiesTeamAddressCandidates(team)
+    : [];
+  for (const addr of teamAddrs) {
+    try { await geocodeAddress(addr); } catch (_) {}
   }
   const asgns = (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
   for (const a of asgns) {
