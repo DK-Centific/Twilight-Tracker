@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ap';
-const APP_UPDATED_AT = '09/09/2026 00:25';
+const APP_VERSION = '1.3.090826aq';
+const APP_UPDATED_AT = '09/09/2026 01:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -298,7 +298,18 @@ const RECORD_FLOW_COMPLETE_STATUS = 'Calibrated';
 
 function isScenarioComplete(sc) {
   if (!sc) return false;
+  // Tapping Uploaded is the moderator "this scenario is done" mark.
+  // Count it even when the iteration stepper was never used.
+  if (sc.status === 'Uploaded') return true;
   return COMPLETE_VALUES.includes(sc.status) && (sc.iterations || 0) >= (sc.iter || ITERATION_TARGET);
+}
+// Station / session complete: Uploaded (or other complete statuses) OR
+// Skip with a required note. Partial-with-note stays "in progress".
+function isScenarioDoneForStation(sc) {
+  if (!sc) return false;
+  if (isScenarioComplete(sc)) return true;
+  if (isScenarioSkipped(sc) && (sc.notes || '').trim().length > 0) return true;
+  return false;
 }
 function isScenarioSkipped(sc) {
   if (!sc) return false;
@@ -400,6 +411,7 @@ function defaultState() {
     // calibration for review. Ready to record opens this URL; Approval
     // uses it as the admin review link.
     recordLakituUrl: '',
+    stationCompletedAt: {},
   };
   // Initialize equipment as unpacked
   EQUIPMENT_LIST.forEach(it => { s.equipment[it.id] = false; });
@@ -709,6 +721,9 @@ function migrateState(loaded) {
     loaded.calGuideAck = null;
   }
   if (typeof loaded.recordLakituUrl !== 'string') loaded.recordLakituUrl = '';
+  if (!loaded.stationCompletedAt || typeof loaded.stationCompletedAt !== 'object') {
+    loaded.stationCompletedAt = {};
+  }
 
   return loaded;
 }
@@ -730,7 +745,8 @@ function getStationStatus(stationKey) {
 
   const scenarios = Object.values(data.scenarios);
   const total = scenarios.length;
-  const completeCount = scenarios.filter(s => isScenarioComplete(s)).length;
+  const doneFn = (typeof isScenarioDoneForStation === 'function') ? isScenarioDoneForStation : isScenarioComplete;
+  const completeCount = scenarios.filter(s => doneFn(s)).length;
   const inProgressCount = scenarios.filter(s => isScenarioInProgress(s)).length;
 
   if (completeCount === total) return 'complete';
@@ -747,10 +763,10 @@ function getOverallProgress() {
 
 // Strict "is the whole session done" gate used to allow finishing. Every
 // station must be 'complete' by the app's own canonical rule (getStationStatus
-// · all scenarios complete + cameras confirmed for capture stations) AND have
-// at least one logged scenario, so an untouched/empty station can never count
-// as complete (getStationStatus returns 'complete' for an empty scenario set,
-// which we explicitly reject here).
+// · every scenario Uploaded/complete or Skip+note, cameras confirmed when
+// shown) AND have at least one logged scenario, so an untouched/empty station
+// can never count as complete (getStationStatus returns 'complete' for an
+// empty scenario set, which we explicitly reject here).
 function isEntireSessionComplete() {
   if (!Array.isArray(STATIONS) || !state || !state.stations) return false;
   for (const st of STATIONS) {
@@ -2624,6 +2640,17 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
         sc.status = 'Not Started';
       } else {
         sc.status = newStatus;
+        // Uploaded = done. Stamp iterations to the scenario target so
+        // station counts, session-complete, and Admin progress agree.
+        if (newStatus === 'Uploaded') {
+          const stDef = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+            ? STATIONS.find(s => s.key === k) : null;
+          const scDef = stDef && stDef.scenarios
+            ? stDef.scenarios.find(s => String(s.num) === String(num)) : null;
+          const target = (scDef && scDef.iter) || sc.iter || 1;
+          sc.iter = target;
+          if ((sc.iterations || 0) < target) sc.iterations = target;
+        }
       }
       saveState();
       if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
@@ -3092,7 +3119,8 @@ let _lastAccordionMode = null;
 
 function stationActionsHTML(station, data) {
   const total = station.scenarios.length;
-  const done = Object.values(data.scenarios).filter(s => isScenarioComplete(s)).length;
+  const doneFn = (typeof isScenarioDoneForStation === 'function') ? isScenarioDoneForStation : isScenarioComplete;
+  const done = Object.values(data.scenarios).filter(s => doneFn(s)).length;
   const inProg = Object.values(data.scenarios).filter(s => isScenarioInProgress(s)).length;
 
   const locked = (typeof isSessionLocked === 'function') ? isSessionLocked() : false;
@@ -3919,6 +3947,16 @@ function submitStation() {
   if (status) {
     pushWorklogStatus(asgn, status);
   }
+  // Stamp station completion so Admin progress can show this station done
+  // from SessionState even when Worklog read is empty.
+  try {
+    state.stationCompletedAt = state.stationCompletedAt || {};
+    const stamp = new Date().toISOString();
+    state.stationCompletedAt[station.key] = stamp;
+    const legacyKey = ({ station1: 'Station1', station2: 'Station2', station3: 'Station3', station4: 'Station4' })[station.key];
+    if (legacyKey) state.stationCompletedAt[legacyKey] = stamp;
+    saveState();
+  } catch (_) {}
   // Station submission is the strongest signal of moderator progress ·
   // always sync to cloud so teammates and admin see the new station
   // state immediately. Done after the worklog push so the cloud row
@@ -8506,7 +8544,13 @@ function renderPerfStationListHTML(a) {
     //   - any scenario activity   → partial
     //   - otherwise               → not started
     let status = 'notstarted';
-    if (completedAt) status = 'done';
+    const doneFn = (typeof isScenarioDoneForStation === 'function')
+      ? isScenarioDoneForStation
+      : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+    const scenarioVals = sd.scenarios ? Object.values(sd.scenarios) : [];
+    const doneCount = doneFn ? scenarioVals.filter(s => doneFn(s)).length : 0;
+    const uploadedCount = scenarioVals.filter(s => s && s.status === 'Uploaded').length;
+    if (completedAt || (scenarioVals.length > 0 && doneCount === scenarioVals.length)) status = 'done';
     else if (sd.scenarios) {
       for (const num of Object.keys(sd.scenarios)) {
         const sc = sd.scenarios[num] || {};
@@ -8516,15 +8560,15 @@ function renderPerfStationListHTML(a) {
         }
       }
     }
-    // Also count: scenarios with any iterations
+    // Count uploaded / completed scenarios for the Admin sub-line.
     let activeScenarios = 0;
     let totalIterations = 0;
     if (sd.scenarios) {
       for (const num of Object.keys(sd.scenarios)) {
         const sc = sd.scenarios[num] || {};
-        if ((sc.iterations || 0) > 0) {
+        if ((sc.iterations || 0) > 0 || (doneFn && doneFn(sc)) || sc.status === 'Uploaded') {
           activeScenarios++;
-          totalIterations += sc.iterations;
+          totalIterations += sc.iterations || 0;
         }
       }
     }
@@ -8549,7 +8593,11 @@ function renderPerfStationListHTML(a) {
 
     // Sub-line: scenario activity + camera count
     const parts = [];
-    if (activeScenarios > 0) parts.push(`${activeScenarios} scenario${activeScenarios === 1 ? '' : 's'} · ${totalIterations} iter`);
+    if (scenarioVals.length > 0 && (doneCount > 0 || uploadedCount > 0)) {
+      parts.push(`${doneCount}/${scenarioVals.length} complete`);
+    } else if (activeScenarios > 0) {
+      parts.push(`${activeScenarios} scenario${activeScenarios === 1 ? '' : 's'} · ${totalIterations} iter`);
+    }
     if (camsConfirmed > 0)   parts.push(`${camsConfirmed} cams confirmed`);
     const sub = parts.join(' · ') || (status === 'notstarted' ? 'Not started' : '');
 
@@ -23695,7 +23743,8 @@ async function saveAssignment() {
         if (!a || a.id === m.editingId) continue;
         if (String(a.date) !== String(m.date)) continue;
         const st = a.status || 'Booked';
-        if (st === 'Cancelled' || st === 'Unassigned') continue;
+        // Completed sessions free the moderator for a new booking the same day.
+        if (st === 'Cancelled' || st === 'Unassigned' || st === 'Completed') continue;
         let otherIds = (Array.isArray(a.modSnapshots) && a.modSnapshots.length)
           ? a.modSnapshots.map(s => s && s.orbitLoginId).filter(Boolean)
           : [];
@@ -25732,7 +25781,15 @@ function renderBulkResendResultsStep(modal, render, close) {
  * Notified row → status becomes Completed in the calendar view. */
 async function completeAssignment(asgnId, opts) {
   opts = opts || {};
-  const idx = adminState.assignments.findIndex(x => x.id === asgnId);
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
+  let idx = adminState.assignments.findIndex(x => x && String(x.id) === String(asgnId));
+  if (idx === -1 && opts.assignment && opts.assignment.id) {
+    // Moderator device may not have this booking in the Assignment cache.
+    // Use the live assignment object so we can still write Completed.
+    adminState.assignments.push({ ...opts.assignment });
+    idx = adminState.assignments.length - 1;
+  }
   if (idx === -1) {
     // Assignment isn't in our local cache · happens when moderator's local
     // state doesn't include this assignment record (rare, but defensive).
@@ -27045,6 +27102,7 @@ function extractSyncableState(s) {
     // modal to show the "Today's session is completed" prompt.
     sessionCompletedAt: s.sessionCompletedAt || null,
     sessionStatus: s.sessionCompletedAt ? 'session_done' : (s.sessionStatus || ''),
+    stationCompletedAt: s.stationCompletedAt || {},
     // Arrival marker · useful for teammates to know "the team is
     // on-site, not still en route." Synced to cloud so teammates
     // can see it across devices. We intentionally do NOT sync
@@ -27710,6 +27768,9 @@ function mergeTeammateState(syncableState) {
       state.sessionCompletedAt = incoming;
     }
   }
+  if (syncableState.stationCompletedAt && typeof syncableState.stationCompletedAt === 'object') {
+    state.stationCompletedAt = Object.assign({}, state.stationCompletedAt || {}, syncableState.stationCompletedAt);
+  }
   // Arrival marker · EARLIEST wins. If a teammate already stamped
   // arrival at 10:23 AM and another arrives at 10:31, the team
   // arrival anchor stays at 10:23 (whoever got there first is when
@@ -27805,6 +27866,8 @@ function applySelfSyncReplace(s) {
     ? JSON.parse(JSON.stringify(s.stations))
     : {};
   state.sessionCompletedAt = s.sessionCompletedAt || null;
+  state.stationCompletedAt = (s.stationCompletedAt && typeof s.stationCompletedAt === 'object')
+    ? { ...s.stationCompletedAt } : (state.stationCompletedAt || {});
   state.arrivedAt          = s.arrivedAt          || '';
   state.officeCheckedInAt  = s.officeCheckedInAt  || '';
   state.officeCheckedOutAt = s.officeCheckedOutAt || '';
@@ -28195,6 +28258,25 @@ function deriveLatestStatusFromSessionState(asgnId) {
         if (!stationCompletedAt[k]) stationCompletedAt[k] = parsed.stationCompletedAt[k];
       }
     }
+    // Infer station-done from Uploaded / completed scenarios when the
+    // stamp is missing. Same rule as getStationStatus.
+    if (parsed.stations && typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)) {
+      const doneFn = (typeof isScenarioDoneForStation === 'function')
+        ? isScenarioDoneForStation
+        : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+      if (doneFn) {
+        const legacy = { station1: 'Station1', station2: 'Station2', station3: 'Station3', station4: 'Station4' };
+        for (const st of STATIONS) {
+          const data = parsed.stations[st.key];
+          const vals = data && data.scenarios ? Object.values(data.scenarios) : [];
+          if (!vals.length || !vals.every(s => doneFn(s))) continue;
+          const at = (parsed.stationCompletedAt && (parsed.stationCompletedAt[st.key] || parsed.stationCompletedAt[legacy[st.key]]))
+            || r.lastActive || new Date().toISOString();
+          if (!stationCompletedAt[st.key]) stationCompletedAt[st.key] = at;
+          if (legacy[st.key] && !stationCompletedAt[legacy[st.key]]) stationCompletedAt[legacy[st.key]] = at;
+        }
+      }
+    }
     if (parsed.arrivedAt && !arrivedAt) {
       arrivedAt = parsed.arrivedAt;
       if (!attributionRow) attributionRow = r;
@@ -28443,6 +28525,7 @@ function pushWorklogStatus(asgn, status, opts) {
   if (status === 'session_done' && typeof completeAssignment === 'function') {
     completeAssignment(asgn.id, {
       completedBy: event.moderatorName || '',
+      assignment: asgn,
     });
     // Empty the session Lakitu binding only after wrap-up is queued, so
     // the next booking does not inherit this session's URL.
@@ -29726,6 +29809,11 @@ function getOperatorAssignment() {
   // means admin removed the team · the mod is no longer responsible
   // until/unless a new team gets assigned.
   const isCompleted = (asgn) => {
+    if (!asgn) return false;
+    if (asgn.status === 'Completed') return true;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(asgn)) return true;
+    } catch (_) {}
     if (typeof getMyLatestStatusForAssignment !== 'function') return false;
     const my = getMyLatestStatusForAssignment(asgn.id);
     return my && my.status === 'session_done';
@@ -29735,21 +29823,14 @@ function getOperatorAssignment() {
       .localeCompare(b.date + '_' + String(b.startMin).padStart(4, '0'))
   );
   if (upcoming.length > 0) return upcoming[0];
-  // Fallback: include completed today's sessions (so the entry bar still has
-  // SOMETHING to show until a fresh assignment exists). Still skip
-  // terminal-status rows · they're not valid "current" assignments
-  // even as a fallback.
-  const allTodayPlus = mine.filter(a => a.date >= todayStr && !isTerminalStatus(a.status)).sort((a, b) =>
+  // After Session complete the booking is done · do not keep it as the
+  // current assignment. The moderator stays free until Admin assigns a new one.
+  const allTodayPlus = mine.filter(a => a.date >= todayStr && !isCompleted(a) && !isTerminalStatus(a.status)).sort((a, b) =>
     (a.date + '_' + String(a.startMin).padStart(4, '0'))
       .localeCompare(b.date + '_' + String(b.startMin).padStart(4, '0'))
   );
   if (allTodayPlus.length > 0) return allTodayPlus[0];
-  // Final fallback: most recent past
-  const past = [...mine].sort((a, b) =>
-    (b.date + '_' + String(b.startMin).padStart(4, '0'))
-      .localeCompare(a.date + '_' + String(a.startMin).padStart(4, '0'))
-  );
-  return past[0];
+  return null;
 }
 
 
@@ -29843,7 +29924,15 @@ function getOperatorTeams() {
 function getOperatorCarouselAssignments() {
   const todayStr = getPSTDateString();  // PST team-reference day. CRITICAL: with local time, a device ahead of Pacific filtered OUT today's PST session (a.date < local-today) AND matched tomorrow's as "today" · the exact login-vs-MySession mismatch this fixes.
   return (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : [])
-    .filter(a => !isTerminalStatus(a.status) && (!a.date || a.date >= todayStr));
+    .filter(a => {
+      if (!a) return false;
+      if (isTerminalStatus(a.status)) return false;
+      if (a.status === 'Completed') return false;
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+      } catch (_) {}
+      return !a.date || a.date >= todayStr;
+    });
 }
 
 // Best-effort first-name resolution for a teammate's orbitLoginId, used in
@@ -33189,7 +33278,8 @@ function showTeammateSyncModal(result) {
       // valid · just means this station has no work logged yet.
       const scenarioObjs = Object.values(scenarios);
       scenariosTotal += scenarioObjs.length;
-      const completeInStation = scenarioObjs.filter(s => isScenarioComplete(s)).length;
+      const doneFn = (typeof isScenarioDoneForStation === 'function') ? isScenarioDoneForStation : isScenarioComplete;
+      const completeInStation = scenarioObjs.filter(s => doneFn(s)).length;
       scenariosDone += completeInStation;
       // Station-level "done" check · mirrors getStationStatus.
       // 1. Every scenario must be complete (completeInStation === total)
