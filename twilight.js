@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bo';
-const APP_UPDATED_AT = '09/09/2026 19:20';
+const APP_VERSION = '1.3.090826bp';
+const APP_UPDATED_AT = '09/09/2026 20:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -953,16 +953,11 @@ function renderApp() {
   _lastRenderedView = newView;
 
   if (currentStationKey) {
-    // Mobile (<=760px): inline per-station accordion. Desktop: the full
-    // single-station view as before. _accordionCollapsed only applies in
-    // accordion mode and is reset whenever we leave it.
-    if (isStationAccordionMode()) {
-      renderStationsAccordion();
-    } else {
-      _accordionCollapsed = false;
-      removeAccordionStepper();
-      renderStation(currentStationKey);
-    }
+    // Station cover-flow (vertical or horizontal). Adjacent tiles stay
+    // visible but faded; the focused tile is the working station.
+    _accordionCollapsed = false;
+    removeAccordionStepper();
+    renderStationFlowView();
   } else {
     _accordionCollapsed = false;
     removeAccordionStepper();
@@ -2360,6 +2355,236 @@ function iterStepperHTML(stationKey, scenarioNum, iters, stateClass, target) {
       </button>
     </div>
   `;
+}
+
+const STATION_FLOW_AXIS_KEY = 'centific_orbit_station_flow_axis';
+let _stationFlowAxis = '';
+let _stationFlowScrollTimer = null;
+let _stationFlowTicking = false;
+
+function getStationFlowAxis() {
+  if (_stationFlowAxis === 'x' || _stationFlowAxis === 'y') return _stationFlowAxis;
+  try {
+    const saved = localStorage.getItem(STATION_FLOW_AXIS_KEY);
+    if (saved === 'x' || saved === 'y') {
+      _stationFlowAxis = saved;
+      return saved;
+    }
+  } catch (_) {}
+  _stationFlowAxis = 'y';
+  return 'y';
+}
+
+function setStationFlowAxis(axis) {
+  const next = axis === 'x' ? 'x' : 'y';
+  _stationFlowAxis = next;
+  try { localStorage.setItem(STATION_FLOW_AXIS_KEY, next); } catch (_) {}
+  const root = document.getElementById('stationFlow');
+  if (root) {
+    root.dataset.axis = next;
+    root.classList.toggle('is-x', next === 'x');
+    root.classList.toggle('is-y', next === 'y');
+    root.querySelectorAll('[data-flow-axis]').forEach(btn => {
+      const on = btn.getAttribute('data-flow-axis') === next;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    requestAnimationFrame(() => {
+      snapStationFlowToCurrent('auto');
+      paintStationFlow();
+    });
+  }
+}
+
+function stationFlowSignature() {
+  return STATIONS.map(st => st.key).join('|');
+}
+
+function stationFlowTileHTML(st) {
+  const status = (typeof getStationStatus === 'function') ? getStationStatus(st.key) : '';
+  const num = stationTag(st.key);
+  const n = Array.isArray(st.scenarios) ? st.scenarios.length : 0;
+  const loc = escapeHTML(st.location || '');
+  return `
+    <button type="button" class="st-flow-tile" data-key="${escapeHTML(st.key)}" aria-label="${escapeHTML(st.label)}">
+      <span class="st-flow-num">${escapeHTML(num)}</span>
+      <span class="st-flow-copy">
+        <span class="st-flow-label">${escapeHTML(st.label)}</span>
+        <span class="st-flow-meta">
+          ${loc ? `<span class="st-flow-loc">${loc}</span>` : ''}
+          ${st.lights ? stationLightsPillHTML(st) : ''}
+          <span class="st-flow-count">${n} scenarios</span>
+        </span>
+      </span>
+      <span class="status-pill ${status}" title="${prettyStatus(status)}">${pillLabel(status)}</span>
+    </button>`;
+}
+
+function stationFlowChromeHTML() {
+  const axis = getStationFlowAxis();
+  const tiles = STATIONS.map(st => stationFlowTileHTML(st)).join('');
+  return `
+    <div class="st-flow ${axis === 'x' ? 'is-x' : 'is-y'}" id="stationFlow" data-axis="${axis}" data-sig="${stationFlowSignature()}">
+      <div class="st-flow-head">
+        <div class="st-flow-kicker">Stations</div>
+        <div class="st-flow-axes" role="group" aria-label="Station scroll direction">
+          <button type="button" class="st-flow-axis-btn ${axis === 'y' ? 'active' : ''}" data-flow-axis="y" aria-pressed="${axis === 'y' ? 'true' : 'false'}">Vertical</button>
+          <button type="button" class="st-flow-axis-btn ${axis === 'x' ? 'active' : ''}" data-flow-axis="x" aria-pressed="${axis === 'x' ? 'true' : 'false'}">Horizontal</button>
+        </div>
+      </div>
+      <div class="st-flow-hint">Scroll to move between stations. The middle tile stays in focus.</div>
+      <div class="st-flow-viewport" id="stationFlowViewport">
+        <div class="st-flow-spacer" aria-hidden="true"></div>
+        ${tiles}
+        <div class="st-flow-spacer" aria-hidden="true"></div>
+      </div>
+    </div>
+    <div id="stationFlowBody" class="st-flow-body"></div>`;
+}
+
+function paintStationFlow() {
+  const root = document.getElementById('stationFlow');
+  const vp = document.getElementById('stationFlowViewport');
+  if (!root || !vp) return;
+  const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+  const vr = vp.getBoundingClientRect();
+  const center = axis === 'x' ? vr.left + vr.width / 2 : vr.top + vr.height / 2;
+  const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  vp.querySelectorAll('.st-flow-tile').forEach(tile => {
+    const r = tile.getBoundingClientRect();
+    const tCenter = axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2;
+    const span = Math.max(1, axis === 'x' ? r.width : r.height);
+    const offset = (tCenter - center) / span;
+    const abs = Math.abs(offset);
+    const opacity = Math.max(0.32, 1 - abs * 0.46);
+    const scale = Math.max(0.78, 1 - abs * 0.18);
+    const rot = Math.max(-26, Math.min(26, offset * 18));
+    const twist = reduce ? '' : (axis === 'x' ? `rotateY(${-rot}deg)` : `rotateX(${rot}deg)`);
+    tile.style.opacity = String(opacity);
+    tile.style.transform = `translateZ(${Math.max(0, (1 - abs) * 36)}px) ${twist} scale(${scale})`;
+    tile.style.filter = abs > 0.22 ? `saturate(${Math.max(0.45, 1 - abs * 0.35)})` : 'none';
+    tile.classList.toggle('is-current', abs < 0.38);
+    tile.setAttribute('aria-current', abs < 0.38 ? 'true' : 'false');
+    tile.style.zIndex = String(Math.round(24 - abs * 10));
+  });
+}
+
+function nearestStationFlowKey() {
+  const root = document.getElementById('stationFlow');
+  const vp = document.getElementById('stationFlowViewport');
+  if (!root || !vp) return '';
+  const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+  const vr = vp.getBoundingClientRect();
+  const center = axis === 'x' ? vr.left + vr.width / 2 : vr.top + vr.height / 2;
+  let best = { key: '', dist: Infinity };
+  vp.querySelectorAll('.st-flow-tile').forEach(tile => {
+    const r = tile.getBoundingClientRect();
+    const tCenter = axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2;
+    const dist = Math.abs(tCenter - center);
+    if (dist < best.dist) best = { key: tile.getAttribute('data-key') || '', dist };
+  });
+  return best.key;
+}
+
+function snapStationFlowToCurrent(behavior) {
+  const vp = document.getElementById('stationFlowViewport');
+  if (!vp || !currentStationKey) return;
+  const tile = vp.querySelector(`.st-flow-tile[data-key="${currentStationKey}"]`);
+  if (!tile) return;
+  tile.scrollIntoView({
+    behavior: behavior === 'smooth' ? 'smooth' : 'auto',
+    block: 'center',
+    inline: 'center',
+  });
+}
+
+function applyStationFromFlow(key) {
+  if (!key || key === currentStationKey) return;
+  if (typeof guardEnterStation === 'function' && !guardEnterStation(key)) {
+    snapStationFlowToCurrent('smooth');
+    return;
+  }
+  currentStationKey = key;
+  const body = document.getElementById('stationFlowBody');
+  if (body && typeof renderStation === 'function') {
+    renderStation(key, { container: body });
+  } else {
+    renderApp();
+    return;
+  }
+  if (typeof renderSidebar === 'function') renderSidebar();
+  if (typeof renderProgress === 'function') renderProgress();
+  const root = document.getElementById('stationFlow');
+  if (root) {
+    root.querySelectorAll('.st-flow-tile').forEach(tile => {
+      tile.classList.toggle('is-active', tile.getAttribute('data-key') === key);
+    });
+  }
+}
+
+function onStationFlowScroll() {
+  if (_stationFlowTicking) return;
+  _stationFlowTicking = true;
+  requestAnimationFrame(() => {
+    _stationFlowTicking = false;
+    paintStationFlow();
+  });
+  if (_stationFlowScrollTimer) clearTimeout(_stationFlowScrollTimer);
+  _stationFlowScrollTimer = setTimeout(() => {
+    const key = nearestStationFlowKey();
+    if (key) applyStationFromFlow(key);
+  }, 140);
+}
+
+function bindStationFlow() {
+  const root = document.getElementById('stationFlow');
+  const vp = document.getElementById('stationFlowViewport');
+  if (!root || !vp || root._wired) return;
+  root._wired = true;
+  vp.addEventListener('scroll', onStationFlowScroll, { passive: true });
+  root.querySelectorAll('[data-flow-axis]').forEach(btn => {
+    btn.addEventListener('click', () => setStationFlowAxis(btn.getAttribute('data-flow-axis')));
+  });
+  vp.querySelectorAll('.st-flow-tile').forEach(tile => {
+    tile.addEventListener('click', () => {
+      const key = tile.getAttribute('data-key');
+      if (!key) return;
+      tile.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      applyStationFromFlow(key);
+      requestAnimationFrame(paintStationFlow);
+    });
+  });
+}
+
+function renderStationFlowView() {
+  const c = document.getElementById('content');
+  if (!c) return;
+  const existing = document.getElementById('stationFlow');
+  const same = existing && existing.dataset.sig === stationFlowSignature();
+  if (!same) {
+    c.innerHTML = stationFlowChromeHTML();
+    bindStationFlow();
+  } else {
+    existing.querySelectorAll('.st-flow-tile').forEach(tile => {
+      const key = tile.getAttribute('data-key');
+      const st = STATIONS.find(s => s.key === key);
+      if (!st) return;
+      const status = (typeof getStationStatus === 'function') ? getStationStatus(key) : '';
+      const pill = tile.querySelector('.status-pill');
+      if (pill) {
+        pill.className = 'status-pill ' + status;
+        pill.textContent = pillLabel(status);
+        pill.title = prettyStatus(status);
+      }
+      tile.classList.toggle('is-active', key === currentStationKey);
+    });
+  }
+  const body = document.getElementById('stationFlowBody');
+  if (body) renderStation(currentStationKey, { container: body });
+  requestAnimationFrame(() => {
+    snapStationFlowToCurrent('auto');
+    paintStationFlow();
+  });
 }
 
 function renderStation(key, opts) {
