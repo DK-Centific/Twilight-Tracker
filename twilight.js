@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bl';
-const APP_UPDATED_AT = '09/09/2026 17:55';
+const APP_VERSION = '1.3.090826bm';
+const APP_UPDATED_AT = '09/09/2026 18:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3494,6 +3494,44 @@ function resolveTeamRingDashboardUrl(team) {
 function getTeamOfficeAddress(team) {
   if (!team || team.teamAddress == null) return '';
   return String(team.teamAddress).trim();
+}
+
+const TEAM_ADDR_MEMORY_KEY = 'centific_orbit_team_addr_v1';
+
+function loadRememberedTeamAddresses() {
+  try {
+    const raw = localStorage.getItem(TEAM_ADDR_MEMORY_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) { return {}; }
+}
+
+function rememberTeamAddress(teamId, addr) {
+  const id = String(teamId || '').trim();
+  const q = String(addr || '').trim();
+  if (!id || !q) return;
+  const cache = loadRememberedTeamAddresses();
+  if (String(cache[id] || '').trim().toLowerCase() === q.toLowerCase()) return;
+  cache[id] = q;
+  try { localStorage.setItem(TEAM_ADDR_MEMORY_KEY, JSON.stringify(cache)); } catch (_) {}
+}
+
+function recalledTeamAddress(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return '';
+  const cache = loadRememberedTeamAddresses();
+  return cache[id] ? String(cache[id]).trim() : '';
+}
+
+function keepRicherTeamAddress(next, prev) {
+  if (!next) return next;
+  const remoteAddr = next.teamAddress != null ? String(next.teamAddress).trim() : '';
+  const localAddr = prev && prev.teamAddress != null ? String(prev.teamAddress).trim() : '';
+  if (!remoteAddr && localAddr) {
+    next = Object.assign({}, next, { teamAddress: localAddr });
+  }
+  if (next.teamAddress) rememberTeamAddress(next.id, next.teamAddress);
+  return next;
 }
 
 // Moderator Hub → All → List column sort. Empty values sort last in both
@@ -11197,7 +11235,12 @@ function paintActivitiesExtraFilters() {
 function getSelectedActivitiesTeam() {
   const id = adminState.activitiesTeamId;
   if (!id) return null;
-  return (adminState.teams || []).find(t => String(t.id) === String(id)) || null;
+  const team = (adminState.teams || []).find(t => String(t.id) === String(id)) || null;
+  if (team && !String(team.teamAddress || '').trim() && typeof recalledTeamAddress === 'function') {
+    const recalled = recalledTeamAddress(team.id);
+    if (recalled) team.teamAddress = recalled;
+  }
+  return team;
 }
 
 function listActivitiesModeratorDirectory() {
@@ -11287,6 +11330,50 @@ function formatMilesFromHqLabel(miles) {
   return (Math.round(miles * 10) / 10).toFixed(1) + ' miles from HQ';
 }
 
+function normalizeActivitiesAddressKey(addr) {
+  return String(addr || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function activitiesAddressLooksLikeHq(addr) {
+  const a = normalizeActivitiesAddressKey(addr);
+  const hq = normalizeActivitiesAddressKey(typeof GEO_HQ_ADDRESS === 'string' ? GEO_HQ_ADDRESS : '');
+  if (!a) return false;
+  if (hq && (a === hq || a.includes('14980ne31st'))) return true;
+  return false;
+}
+
+function listActivitiesTeamSessionFacts(teamId) {
+  const id = String(teamId || '');
+  if (!id) return [];
+  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const facts = [];
+  for (const r of rows) {
+    if (String(r.teamId || '') !== id) continue;
+    let parsed = {};
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    const addr = String(
+      r.assignmentAddress || parsed.assignmentAddress || parsed.participantAddress || ''
+    ).trim();
+    const lat = Number(parsed.assignmentLat != null ? parsed.assignmentLat : r.assignmentLat);
+    const lng = Number(parsed.assignmentLng != null ? parsed.assignmentLng : r.assignmentLng);
+    const milesRaw = (r.milesFromHq != null && r.milesFromHq !== '')
+      ? r.milesFromHq
+      : parsed.milesFromHq;
+    const miles = Number(milesRaw);
+    const ts = String(r.lastActive || parsed.progressAt || '');
+    facts.push({
+      addr: addr,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      miles: Number.isFinite(miles) ? miles : null,
+      ts: ts,
+    });
+  }
+  facts.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+  return facts;
+}
+
 // Addresses we can use for "miles from HQ" when a Team is selected.
 // Team office first, then the open session, then any other assignment
 // for that team (not only today's booking). Moderator-only and All-teams
@@ -11302,10 +11389,12 @@ function listActivitiesTeamAddressCandidates(team) {
     if (seen.has(key)) return;
     seen.add(key);
     out.push(q);
+    if (typeof rememberTeamAddress === 'function') rememberTeamAddress(team.id, q);
   };
   add((typeof getTeamOfficeAddress === 'function')
     ? getTeamOfficeAddress(team)
     : (team.teamAddress ? String(team.teamAddress).trim() : ''));
+  if (typeof recalledTeamAddress === 'function') add(recalledTeamAddress(team.id));
   const open = (typeof getOpenTeamSession === 'function')
     ? getOpenTeamSession(team.id)
     : null;
@@ -11319,34 +11408,31 @@ function listActivitiesTeamAddressCandidates(team) {
   rows.forEach(a => {
     if (typeof assignmentFenceAddress === 'function') add(assignmentFenceAddress(a));
   });
+  listActivitiesTeamSessionFacts(team.id).forEach(fact => add(fact.addr));
   return out;
 }
 
 function resolveActivitiesTeamMapCenter(team) {
   if (!team) return null;
+  if (typeof ensureHqGeocodeSeed === 'function') ensureHqGeocodeSeed();
   const cache = (typeof loadGeocodeCache === 'function') ? loadGeocodeCache() : {};
   const addrs = listActivitiesTeamAddressCandidates(team);
   for (const addr of addrs) {
+    if (activitiesAddressLooksLikeHq(addr) && typeof GEO_HQ_CENTER === 'object') {
+      return { lat: GEO_HQ_CENTER.lat, lng: GEO_HQ_CENTER.lng, address: addr };
+    }
     const hit = cache[String(addr).toLowerCase()];
     if (hit && Number.isFinite(hit.lat) && Number.isFinite(hit.lng)) {
       return { lat: hit.lat, lng: hit.lng, address: addr };
     }
   }
-  const teamId = String(team.id);
-  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
-    ? adminState.perfSessionStateRows : [];
-  let best = null;
-  for (const r of rows) {
-    if (String(r.teamId || '') !== teamId) continue;
-    let parsed = {};
-    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
-    const lat = Number(parsed.assignmentLat);
-    const lng = Number(parsed.assignmentLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-    const ts = String(r.lastActive || parsed.progressAt || '');
-    if (!best || ts > best.ts) best = { lat, lng, ts };
+  const facts = listActivitiesTeamSessionFacts(team.id);
+  for (const fact of facts) {
+    if (Number.isFinite(fact.lat) && Number.isFinite(fact.lng)) {
+      return { lat: fact.lat, lng: fact.lng, address: fact.addr || '' };
+    }
   }
-  return best ? { lat: best.lat, lng: best.lng } : null;
+  return null;
 }
 
 function resolveActivitiesMilesFromHq() {
@@ -11365,20 +11451,11 @@ function resolveActivitiesMilesFromHq() {
     const miles = haversineMeters(GEO_HQ_CENTER.lat, GEO_HQ_CENTER.lng, center.lat, center.lng) / 1609.344;
     if (Number.isFinite(miles)) return miles;
   }
-  const teamId = String(team.id);
-  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
-    ? adminState.perfSessionStateRows : [];
-  let best = null;
-  for (const r of rows) {
-    if (String(r.teamId || '') !== teamId) continue;
-    let parsed = {};
-    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
-    let miles = Number(r.milesFromHq != null ? r.milesFromHq : parsed.milesFromHq);
-    if (!Number.isFinite(miles)) continue;
-    const ts = String(r.lastActive || '');
-    if (!best || ts > best.ts) best = { miles, ts };
+  const facts = listActivitiesTeamSessionFacts(team.id);
+  for (const fact of facts) {
+    if (Number.isFinite(fact.miles)) return fact.miles;
   }
-  return best ? best.miles : null;
+  return null;
 }
 
 function updateActivitiesMapCaption() {
@@ -11989,9 +12066,29 @@ const GEO_DEMO_MODS = [
   { orbitLoginId: 'demo-casey', firstName: 'Casey', lastName: 'Demo', LoginRole: 'Moderator' },
 ];
 const GEO_DEMO_TEAMS = [
-  { id: 'demo-team-01', name: 'Team 01', primaryIds: ['demo-annie'], backupIds: ['demo-blake'] },
-  { id: 'demo-team-02', name: 'Team 02', primaryIds: ['demo-casey'], backupIds: [] },
+  { id: 'demo-team-01', name: 'Team 01', teamAddress: '220 2nd Ave S, Seattle, WA 98104', primaryIds: ['demo-annie'], backupIds: ['demo-blake'] },
+  { id: 'demo-team-02', name: 'Team 02', teamAddress: '400 Broad St, Seattle, WA 98109', primaryIds: ['demo-casey'], backupIds: [] },
 ];
+const GEO_DEMO_ADDR_COORDS = {
+  '220 2nd ave s, seattle, wa 98104': { lat: 47.6006, lng: -122.3313 },
+  '400 broad st, seattle, wa 98109': { lat: 47.6205, lng: -122.3493 },
+};
+
+function seedDemoTeamGeocodes() {
+  const cache = (typeof loadGeocodeCache === 'function') ? loadGeocodeCache() : {};
+  let changed = false;
+  Object.keys(GEO_DEMO_ADDR_COORDS).forEach(key => {
+    if (cache[key] && Number.isFinite(cache[key].lat)) return;
+    cache[key] = Object.assign({ at: Date.now(), seed: true }, GEO_DEMO_ADDR_COORDS[key]);
+    changed = true;
+  });
+  if (changed && typeof saveGeocodeCache === 'function') saveGeocodeCache(cache);
+  GEO_DEMO_TEAMS.forEach(dt => {
+    if (dt.teamAddress && typeof rememberTeamAddress === 'function') {
+      rememberTeamAddress(dt.id, dt.teamAddress);
+    }
+  });
+}
 
 function isGeoDemoMode() {
   try {
@@ -12018,12 +12115,19 @@ function mergeGeoDemoRoster() {
   });
   if (!Array.isArray(adminState.teams)) adminState.teams = [];
   GEO_DEMO_TEAMS.forEach(dt => {
-    if (adminState.teams.some(t => String(t.id) === String(dt.id))) return;
-    adminState.teams.push(Object.assign({}, dt, {
-      primaryIds: [...(dt.primaryIds || [])],
-      backupIds: [...(dt.backupIds || [])],
-    }));
+    const existing = adminState.teams.find(t => String(t.id) === String(dt.id));
+    if (!existing) {
+      adminState.teams.push(Object.assign({}, dt, {
+        primaryIds: [...(dt.primaryIds || [])],
+        backupIds: [...(dt.backupIds || [])],
+      }));
+      return;
+    }
+    if (!String(existing.teamAddress || '').trim() && dt.teamAddress) {
+      existing.teamAddress = dt.teamAddress;
+    }
   });
+  if (typeof seedDemoTeamGeocodes === 'function') seedDemoTeamGeocodes();
   adminState._asgnLoaded = true;
   // Persist demo teams into the assignment cache so a later loadAssignmentData()
   // (or TeamLog empty wipe of localStorage) does not erase them mid-session.
@@ -12032,11 +12136,17 @@ function mergeGeoDemoRoster() {
     const parsed = raw ? JSON.parse(raw) : { teams: [], assignments: [] };
     const teams = Array.isArray(parsed.teams) ? parsed.teams.slice() : [];
     GEO_DEMO_TEAMS.forEach(dt => {
-      if (teams.some(t => String(t.id) === String(dt.id))) return;
-      teams.push(Object.assign({}, dt, {
-        primaryIds: [...(dt.primaryIds || [])],
-        backupIds: [...(dt.backupIds || [])],
-      }));
+      const existing = teams.find(t => String(t.id) === String(dt.id));
+      if (!existing) {
+        teams.push(Object.assign({}, dt, {
+          primaryIds: [...(dt.primaryIds || [])],
+          backupIds: [...(dt.backupIds || [])],
+        }));
+        return;
+      }
+      if (!String(existing.teamAddress || '').trim() && dt.teamAddress) {
+        existing.teamAddress = dt.teamAddress;
+      }
     });
     localStorage.setItem(ASGN_STORAGE_KEY, JSON.stringify({
       ...parsed,
@@ -12230,9 +12340,11 @@ function geofenceCirclePolygon(lng, lat, radiusM, steps) {
 }
 
 function assignmentFenceAddress(asgn) {
-  if (!asgn || !asgn.participantData) return '';
-  const pd = asgn.participantData;
-  return [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ').trim();
+  if (!asgn) return '';
+  const pd = asgn.participantData || {};
+  const fromPd = [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ').trim();
+  if (fromPd) return fromPd;
+  return String(asgn.location || asgn.address || '').trim();
 }
 
 function loadGeocodeCache() {
@@ -12244,6 +12356,15 @@ function loadGeocodeCache() {
 }
 function saveGeocodeCache(cache) {
   try { localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+}
+
+function ensureHqGeocodeSeed() {
+  if (typeof GEO_HQ_ADDRESS !== 'string' || typeof GEO_HQ_CENTER !== 'object') return;
+  const cache = loadGeocodeCache();
+  const key = String(GEO_HQ_ADDRESS).toLowerCase();
+  if (cache[key] && Number.isFinite(cache[key].lat) && Number.isFinite(cache[key].lng)) return;
+  cache[key] = { lat: GEO_HQ_CENTER.lat, lng: GEO_HQ_CENTER.lng, at: Date.now(), seed: true };
+  saveGeocodeCache(cache);
 }
 
 async function geocodeAddress(address) {
@@ -13148,11 +13269,13 @@ function activitiesFenceFeatures() {
 async function prefetchActivityHomeGeocodes() {
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
   const hadAssigned = !!(typeof getActivitiesAssignmentCenter === 'function' && getActivitiesAssignmentCenter());
+  if (typeof ensureHqGeocodeSeed === 'function') ensureHqGeocodeSeed();
   const teamAddrs = (typeof listActivitiesTeamAddressCandidates === 'function' && team)
     ? listActivitiesTeamAddressCandidates(team)
     : [];
   for (const addr of teamAddrs) {
     try { await geocodeAddress(addr); } catch (_) {}
+    if (typeof updateActivitiesMapCaption === 'function') updateActivitiesMapCaption();
   }
   const asgns = (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
   for (const a of asgns) {
@@ -18314,8 +18437,9 @@ async function fetchAssignmentsFromPA() {
   let mergedTeams = remoteTeams.map(rt => {
     const lt = localTeamById.get(rt.id);
     const localBackups = lt ? getTeamBackupIds(lt) : [];
-    if (localBackups.length > 0) return { ...rt, backupIds: localBackups };
-    return rt;
+    let next = localBackups.length > 0 ? { ...rt, backupIds: localBackups } : rt;
+    if (typeof keepRicherTeamAddress === 'function') next = keepRicherTeamAddress(next, lt);
+    return next;
   });
   for (const lt of localTeamById.values()) {
     if (!teamMap.has(lt.id)) mergedTeams.push(lt);
@@ -18366,7 +18490,16 @@ async function fetchAssignmentsFromPA() {
         // local-only teams from a transition period. Either way, keep them.
         const localOnlyTeams = mergedTeams.filter(t => !remoteIds.has(t.id));
         mergedTeams = [
-          ...tl.teams.map(t => migrateTeamShape(t)),
+          ...tl.teams.map(t => {
+            const shaped = migrateTeamShape(t);
+            const prev = (typeof adminState !== 'undefined' && Array.isArray(adminState.teams))
+              ? adminState.teams.find(x => String(x.id) === String(shaped.id))
+              : null;
+            const localPrev = localTeamById.get(shaped.id) || prev;
+            return (typeof keepRicherTeamAddress === 'function')
+              ? keepRicherTeamAddress(shaped, localPrev)
+              : shaped;
+          }),
           ...localOnlyTeams,
         ];
         // Final dedup in case any team appears in both lists
@@ -28830,7 +28963,8 @@ async function fetchSessionStateRows() {
     // shouldn't happen but isn't impossible if someone manually added
     // a duplicate column).
     const CANONICAL_KEYS = ['sessionStateId', 'assignmentId', 'teamId', 'orbitLoginId',
-                            'stateJson', 'lastActive', 'appVersion'];
+                            'stateJson', 'lastActive', 'appVersion',
+                            'assignmentAddress', 'milesFromHq', 'assignmentLat', 'assignmentLng'];
     const normalize = (key) => {
       // Strip non-alphanumeric and lowercase · produces a stable
       // comparison form. "OrbitLoginId" → "orbitloginid",
