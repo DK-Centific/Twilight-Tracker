@@ -10362,17 +10362,18 @@ button.perf-stat-chip.scheduled.active {
   position: absolute;
   left: 0;
   right: 0;
+  top: 30%;
   bottom: 0;
-  height: 54%;
+  height: auto;
   z-index: 2;
   pointer-events: none;
   opacity: 0;
   background: linear-gradient(
     to bottom,
     rgba(20,16,24,0) 0%,
-    rgba(74,34,24,0.18) 10%,
-    rgba(196,83,28,0.55) 28%,
-    #c4531c 46%,
+    rgba(74,34,24,0.22) 7%,
+    rgba(196,83,28,0.62) 16%,
+    #c4531c 32%,
     #f08a3a 100%
   );
   transition: opacity 1s ease;
@@ -10396,8 +10397,24 @@ button.perf-stat-chip.scheduled.active {
 }
 .ov-solar-orb.is-sunset {
   background: radial-gradient(circle at 42% 28%, #ffe7b0 0%, #ff8a2b 52%, #d63a10 100%);
-  box-shadow: 0 0 42px rgba(255,110,30,0.35);
+  box-shadow: 0 -8px 28px rgba(255,110,30,0.28);
   animation: ov-orb-sunset 9s ease-in-out infinite;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 46%,
+    rgba(0,0,0,0.55) 52%,
+    rgba(0,0,0,0.12) 58%,
+    transparent 66%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 46%,
+    rgba(0,0,0,0.55) 52%,
+    rgba(0,0,0,0.12) 58%,
+    transparent 66%
+  );
 }
 .ov-solar-orb.is-moon {
   background: radial-gradient(circle at 32% 30%, #f6f3ea 0%, #c9c4b8 62%, #8b8680 100%);
