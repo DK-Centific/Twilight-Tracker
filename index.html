@@ -3709,7 +3709,8 @@ input#ent_lakitu.lakitu-invalid {
 }
 
 @media (max-width: 480px) {
-  .welcome-title { font-size: 24px; }
+  .welcome-title,
+  .admin-hero-title { font-size: 24px; }
   /* .camera-grid intentionally NOT collapsed here · it must stay
      3-column at all viewport sizes so the physical Left/Center/Right
      positions remain readable. The items shrink to fit instead. */
@@ -3845,18 +3846,18 @@ input#ent_lakitu.lakitu-invalid {
   overflow: visible;
 }
 .admin-hero-title {
-  /* Was clamp(28px, 4vw, 42px) · extended upper bound for ultra-wide
-     screens so the page-level hero scales gracefully on 27"+
-     monitors (where 42px starts to look small relative to the rest
-     of the layout). The min stays at 28px for phones. */
-  font-size: clamp(28px, 3.6vw, 52px);
-  font-weight: 600;
-  letter-spacing: -0.035em;
-  line-height: 1.07;
+  /* Same type treatment as .welcome-title in the moderator app:
+     sans family, medium weight, tracked-out uppercase, accent-ink.
+     font-family uses !important to beat the helios-skin h1 serif rule. */
+  font-family: var(--font) !important;
+  font-size: clamp(26px, 3.4vw, 38px);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  line-height: 1.08;
   margin-bottom: clamp(8px, 0.8vw, 14px);
-  /* Negative tracking can overhang the left content edge; pad so
-     overflow-x:clip on <html> never eats the first glyph. */
-  padding-inline-start: 0.06em;
+  padding-inline-start: 0.12em;
   overflow: visible;
 }
 .admin-hero-sub {
@@ -11275,7 +11276,6 @@ button.perf-stat-chip.scheduled.active {
 }
 .activities-team-filter {
   display: inline-flex; align-items: center; gap: 8px;
-  animation: activitiesFilterIn 0.18s ease both;
 }
 .activities-team-filter-label {
   font-size: 11px; font-weight: 700;
@@ -11297,9 +11297,10 @@ button.perf-stat-chip.scheduled.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
-@keyframes activitiesFilterIn {
-  from { opacity: 0; transform: translateX(-4px); }
-  to { opacity: 1; transform: translateX(0); }
+.activities-reset-filters-btn {
+  font-size: 12px !important;
+  padding: 7px 12px !important;
+  white-space: nowrap;
 }
 @media (max-width: 600px) {
   .activities-map-filters { width: 100%; }
@@ -14095,10 +14096,10 @@ body::before {
 #app, #adminApp, #loginScreen { position:relative; z-index:1; }
 
 /* Crimson Pro display headings
-   (.welcome-title intentionally excluded · it mirrors the .brand-sub type
-   treatment instead of the serif display style; see the .welcome-title rule.) */
+   (.welcome-title and .admin-hero-title intentionally excluded · they
+   mirror the .brand-sub type treatment instead of the serif display style.) */
 h1, h2, h3,
-.login-title, .admin-hero-title, .mod-cal-title,
+.login-title, .mod-cal-title,
 .perf-panel-title, .cal-drill-modal-title, .mod-group-title, .progress-reminder-title {
   font-family:var(--font-serif) !important; font-weight:600; letter-spacing:-0.02em;
 }

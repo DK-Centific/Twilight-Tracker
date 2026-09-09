@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826at';
-const APP_UPDATED_AT = '09/09/2026 04:50';
+const APP_VERSION = '1.3.090826av';
+const APP_UPDATED_AT = '09/09/2026 05:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10460,6 +10460,26 @@ function listActivitiesTeamMemberIds(team) {
   return out;
 }
 
+function activitiesModeratorOrbitId(row) {
+  return pickField(row, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId',
+    'Orbit Login ID', 'loginId', 'username', 'id');
+}
+
+function isActivitiesModeratorRole(rowOrId) {
+  const row = (rowOrId && typeof rowOrId === 'object')
+    ? rowOrId
+    : ((typeof getModeratorByOrbitId === 'function') ? getModeratorByOrbitId(rowOrId) : null);
+  if (!row) return false;
+  if (typeof directoryRoleIsAdmin === 'function' && directoryRoleIsAdmin(row)) return false;
+  const role = (typeof canonicalizeDirectoryLoginRole === 'function')
+    ? canonicalizeDirectoryLoginRole(directoryLoginRole(row))
+    : '';
+  if (role === 'Reviewer' || role === 'Admin' || role === 'Master Admin') return false;
+  return typeof directoryRoleIsModerator === 'function'
+    ? directoryRoleIsModerator(row)
+    : role === 'Mod';
+}
+
 function resetActivitiesFilters() {
   adminState.activitiesTeamId = '';
   adminState.activitiesModeratorId = '';
@@ -10486,6 +10506,46 @@ function normalizeActivitiesFilterState() {
   }
 }
 
+function activitiesModeratorOptionsHtml(activityMods) {
+  return `<option value="">View all moderators</option>` +
+    activityMods.map(m => `<option value="${escapeHTML(m.id)}">${escapeHTML(m.name)}</option>`).join('');
+}
+
+function fillActivitiesModeratorSelect(modSel) {
+  if (!modSel) return;
+  const activityMods = listActivitiesModeratorOptions();
+  const current = String(adminState.activitiesModeratorId || '');
+  const match = activityMods.find(m => String(m.id).toLowerCase() === current.toLowerCase());
+  if (!match) adminState.activitiesModeratorId = '';
+  const html = activitiesModeratorOptionsHtml(activityMods);
+  if (modSel.dataset.optSig !== html) {
+    modSel.innerHTML = html;
+    modSel.dataset.optSig = html;
+  }
+  const next = match ? match.id : '';
+  if (modSel.value !== next) modSel.value = next;
+}
+
+function applyActivitiesTeamFilter(teamId) {
+  adminState.activitiesTeamId = teamId || '';
+  const nextMods = listActivitiesModeratorOptions();
+  const stillListed = nextMods.some(m =>
+    String(m.id).toLowerCase() === String(adminState.activitiesModeratorId || '').toLowerCase()
+  );
+  if (!stillListed) adminState.activitiesModeratorId = '';
+  fillActivitiesModeratorSelect(document.getElementById('activitiesModeratorSelect'));
+  const teamSel = document.getElementById('activitiesTeamSelect');
+  if (teamSel && teamSel.value !== (adminState.activitiesTeamId || '')) {
+    teamSel.value = adminState.activitiesTeamId || '';
+  }
+  refreshActivitiesMapFocus();
+}
+
+function applyActivitiesResetFilters() {
+  resetActivitiesFilters();
+  applyActivitiesTeamFilter('');
+}
+
 function paintActivitiesExtraFilters() {
   const extraFilters = document.getElementById('modviewExtraFilters');
   if (!extraFilters) return;
@@ -10495,22 +10555,23 @@ function paintActivitiesExtraFilters() {
   if (!show) {
     extraFilters.hidden = true;
     if (extraFilters.innerHTML) extraFilters.innerHTML = '';
+    delete extraFilters.dataset.filterSig;
     return;
   }
   normalizeActivitiesFilterState();
   const activityTeams = listActivitiesTeams();
-  const activityMods = listActivitiesModeratorOptions();
+  const directoryMods = listActivitiesModeratorDirectory();
   const teamId = String(adminState.activitiesTeamId || '');
-  const modId = String(adminState.activitiesModeratorId || '');
   const signature = [
-    'v2',
-    teamId,
+    'v3',
     activityTeams.map(t => String(t.id) + ':' + (t.name || '')).join('|'),
-    activityMods.map(m => String(m.id) + ':' + (m.name || '')).join('|'),
+    directoryMods.map(m => String(m.id) + ':' + (m.name || '')).join('|'),
+    isGeoDemoMode() ? 'demo' : 'live',
   ].join('::');
 
-  // Rebuild markup only when the option lists change. Filter *selection*
-  // updates sync values in place so the controls never flash away.
+  // Rebuild markup only when the team roster or directory changes.
+  // Selecting a team or moderator updates values / scoped options in place
+  // so the filter row never remounts or flashes.
   if (extraFilters.dataset.filterSig !== signature || !document.getElementById('activitiesTeamSelect')) {
     extraFilters.innerHTML = `
       <div class="activities-map-filters">
@@ -10524,29 +10585,19 @@ function paintActivitiesExtraFilters() {
         <label class="activities-team-filter" for="activitiesModeratorSelect">
           <span class="activities-team-filter-label">Moderator</span>
           <select class="activities-team-select" id="activitiesModeratorSelect">
-            <option value="">View all moderators</option>
-            ${activityMods.map(m => `<option value="${escapeHTML(m.id)}">${escapeHTML(m.name)}</option>`).join('')}
+            ${activitiesModeratorOptionsHtml(listActivitiesModeratorOptions())}
           </select>
         </label>
+        <button type="button" class="btn btn-ghost activities-reset-filters-btn" id="activitiesResetFiltersBtn">Reset filter</button>
         ${isGeoDemoMode() ? `<button type="button" class="btn btn-ghost activities-demo-ping-btn" id="activitiesDemoPingBtn" title="Write a local demo ping for Blake">Simulate Blake ping</button>` : ''}
       </div>`;
     extraFilters.dataset.filterSig = signature;
     const teamSel = document.getElementById('activitiesTeamSelect');
     const modSel = document.getElementById('activitiesModeratorSelect');
+    if (modSel) modSel.dataset.optSig = activitiesModeratorOptionsHtml(listActivitiesModeratorOptions());
     if (teamSel) {
       teamSel.addEventListener('change', e => {
-        adminState.activitiesTeamId = e.target.value || '';
-        if (!adminState.activitiesTeamId) {
-          adminState.activitiesModeratorId = '';
-        } else {
-          const nextMods = listActivitiesModeratorOptions();
-          const stillOnTeam = nextMods.some(m =>
-            String(m.id).toLowerCase() === String(adminState.activitiesModeratorId || '').toLowerCase()
-          );
-          if (!stillOnTeam) adminState.activitiesModeratorId = '';
-        }
-        paintActivitiesExtraFilters();
-        refreshActivitiesMapFocus();
+        applyActivitiesTeamFilter(e.target.value || '');
       });
     }
     if (modSel) {
@@ -10555,15 +10606,14 @@ function paintActivitiesExtraFilters() {
           e.target.value = adminState.activitiesModeratorId || '';
           return;
         }
-        const next = e.target.value || '';
-        if (!next) {
-          resetActivitiesFilters();
-          paintActivitiesExtraFilters();
-          refreshActivitiesMapFocus();
-          return;
-        }
-        adminState.activitiesModeratorId = next;
+        adminState.activitiesModeratorId = e.target.value || '';
         refreshActivitiesMapFocus();
+      });
+    }
+    const resetBtn = document.getElementById('activitiesResetFiltersBtn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        applyActivitiesResetFilters();
       });
     }
     const demoBtn = document.getElementById('activitiesDemoPingBtn');
@@ -10579,11 +10629,7 @@ function paintActivitiesExtraFilters() {
   const teamSel = document.getElementById('activitiesTeamSelect');
   const modSel = document.getElementById('activitiesModeratorSelect');
   if (teamSel && teamSel.value !== teamId) teamSel.value = teamId;
-  if (modSel) {
-    const match = activityMods.find(m => String(m.id).toLowerCase() === modId.toLowerCase());
-    const next = match ? match.id : '';
-    if (modSel.value !== next) modSel.value = next;
-  }
+  fillActivitiesModeratorSelect(modSel);
 }
 
 function getSelectedActivitiesTeam() {
@@ -10592,24 +10638,34 @@ function getSelectedActivitiesTeam() {
   return (adminState.teams || []).find(t => String(t.id) === String(id)) || null;
 }
 
-function listActivitiesModeratorOptions(team) {
-  const scope = team === undefined
-    ? ((typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null)
-    : team;
-  if (!scope) return [];
+function listActivitiesModeratorDirectory() {
+  const rows = adminState.moderators || [];
   const seen = new Set();
   const out = [];
-  listActivitiesTeamMemberIds(scope).forEach(id => {
-    const lower = id.toLowerCase();
+  rows.forEach(m => {
+    if (!isActivitiesModeratorRole(m)) return;
+    const key = String(activitiesModeratorOrbitId(m) || '').trim();
+    if (!key) return;
+    const lower = key.toLowerCase();
     if (seen.has(lower)) return;
     seen.add(lower);
     const name = (typeof getModeratorDisplayName === 'function')
-      ? getModeratorDisplayName(id)
-      : id;
-    out.push({ id, name: name || id });
+      ? getModeratorDisplayName(key)
+      : key;
+    out.push({ id: key, name: name || key });
   });
   out.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return out;
+}
+
+function listActivitiesModeratorOptions(team) {
+  const all = listActivitiesModeratorDirectory();
+  const scope = team === undefined
+    ? ((typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null)
+    : team;
+  if (!scope) return all;
+  const allowed = new Set(listActivitiesTeamMemberIds(scope).map(id => String(id).toLowerCase()));
+  return all.filter(m => allowed.has(String(m.id).toLowerCase()));
 }
 
 function getSelectedActivitiesModeratorId() {
