@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bm';
-const APP_UPDATED_AT = '09/09/2026 18:20';
+const APP_VERSION = '1.3.090826bn';
+const APP_UPDATED_AT = '09/09/2026 19:05';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -36262,6 +36262,7 @@ function setupNavRails() {
       ] },
     { rail:'adminRail', bottomBar:'adminBottomBar', themeBtn:'navThemeBtnAdmin',
       items:[
+        { id:'adminApprovalGuideBtn', desktop:'adminRailActions' },
         { id:'adminNavRefreshBtn', desktop:'adminRailActions' },
         { id:'adminNavSwitchAppBtn', desktop:'adminRailActions' },
         { id:'navThemeBtnAdmin',   desktop:'adminRailBottom'  },
