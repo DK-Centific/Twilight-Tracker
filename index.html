@@ -1559,7 +1559,85 @@ a.icon-btn:focus-visible {
      accent tweaks if we want the button to draw more attention. */
 }
 .nav-appr-guide-btn {
-  /* Admin / Reviewer Helios rail · opens the Approval gate tutorial. */
+  /* Admin / Reviewer Helios rail · opens the Approval tutorial slide. */
+}
+.nav-appr-guide-btn[aria-expanded="true"] {
+  background: var(--accent-soft, rgba(198,138,0,0.18));
+  color: var(--accent);
+}
+
+.appr-guide-overlay {
+  position: fixed; inset: 0; z-index: 420;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.appr-guide-overlay.open { opacity: 1; pointer-events: all; }
+.appr-guide-overlay[hidden],
+.appr-guide-drawer[hidden] {
+  display: none !important;
+}
+
+.appr-guide-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 421;
+  width: min(760px, 96vw);
+  background: var(--bg2);
+  border-left: 0.5px solid var(--border);
+  box-shadow: -8px 0 48px rgba(0,0,0,0.30);
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.35s cubic-bezier(0.4,0,0.2,1);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-right: env(safe-area-inset-right);
+}
+.appr-guide-drawer.open { transform: translateX(0); }
+.appr-guide-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+}
+.appr-guide-head h3 {
+  margin: 0;
+  font-size: 17px; font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.appr-guide-head-actions {
+  display: flex; align-items: center; gap: 6px;
+  flex-shrink: 0;
+}
+.appr-guide-open-tab {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text2);
+  background: transparent;
+  border: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.appr-guide-open-tab:hover {
+  color: var(--text);
+  background: var(--bg4);
+}
+.appr-guide-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #fff;
+  min-height: 0;
+}
+@media (max-width: 760px) {
+  .appr-guide-drawer {
+    width: 100vw;
+    border-left: 0;
+  }
 }
 
 /* On narrow phones, drop modal max-width and let it stretch closer to
@@ -13528,15 +13606,15 @@ button.perf-stat-chip.scheduled.active {
         <div class="avatar" id="adminAvatar">AD</div>
         <span class="who" id="adminUserName">Admin-Twilight</span>
       </div>
-      <a class="icon-btn nav-appr-guide-btn" id="adminApprovalGuideBtn"
-         href="docs/approval-gate-guide.html" target="_blank" rel="noopener noreferrer"
-         aria-label="Open Approval gate tutorial" title="Approval gate tutorial">
+      <button type="button" class="icon-btn nav-appr-guide-btn" id="adminApprovalGuideBtn"
+         aria-label="Open Approval tutorial" title="Approval tutorial"
+         aria-controls="apprGuideDrawer" aria-expanded="false">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <rect x="3.4" y="2.6" width="9.2" height="11.2" rx="1.4" stroke="currentColor" stroke-width="1.4"/>
           <path d="M6 2.4h4v1.8H6z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
           <path d="M5.7 8.7l1.7 1.6 3.1-3.3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-      </a>
+      </button>
       <button class="icon-btn" id="adminNavRefreshBtn" aria-label="Refresh" title="Refresh data">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2.5 6a5.5 5.5 0 0 1 9.5-2.5L13.5 5M13.5 10A5.5 5.5 0 0 1 4 12.5L2.5 11M2.5 2.5V5h2.5M13.5 13.5V11h-2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -13602,6 +13680,22 @@ button.perf-stat-chip.scheduled.active {
     </div>
     <button class="orientation-overlay-btn" id="orientationOverlayDismiss">Disable lock instead</button>
   </div>
+</div>
+
+<div class="appr-guide-overlay" id="apprGuideOverlay" hidden></div>
+<div class="appr-guide-drawer" id="apprGuideDrawer" hidden role="dialog" aria-modal="true" aria-labelledby="apprGuideTitle">
+  <div class="appr-guide-head">
+    <h3 id="apprGuideTitle">Approval tutorial</h3>
+    <div class="appr-guide-head-actions">
+      <button type="button" class="appr-guide-open-tab" id="apprGuideOpenTab">Open in new tab</button>
+      <button type="button" class="icon-btn" id="apprGuideClose" aria-label="Close Approval tutorial">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <iframe class="appr-guide-frame" id="apprGuideFrame" title="Approval tutorial"></iframe>
 </div>
 
 <div class="menu-overlay" id="menuOverlay"></div>

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bn';
-const APP_UPDATED_AT = '09/09/2026 19:05';
+const APP_VERSION = '1.3.090826bo';
+const APP_UPDATED_AT = '09/09/2026 19:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4898,6 +4898,102 @@ function openMenu() {
 function closeMenu() {
   document.getElementById('menuOverlay').classList.remove('open');
   document.getElementById('menuDrawer').classList.remove('open');
+}
+
+function approvalGuideUrl() {
+  const ver = (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '1';
+  return 'docs/approval-gate-guide.html?v=' + encodeURIComponent(ver);
+}
+
+function isApprovalGuideOpen() {
+  const drawer = document.getElementById('apprGuideDrawer');
+  return !!(drawer && drawer.classList.contains('open'));
+}
+
+function syncApprovalGuideTrigger() {
+  const open = isApprovalGuideOpen();
+  const btn = document.getElementById('adminApprovalGuideBtn');
+  if (btn) {
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.setAttribute('aria-label', open ? 'Close Approval tutorial' : 'Open Approval tutorial');
+  }
+}
+
+function openApprovalGuideSlide() {
+  const overlay = document.getElementById('apprGuideOverlay');
+  const drawer = document.getElementById('apprGuideDrawer');
+  const frame = document.getElementById('apprGuideFrame');
+  if (!overlay || !drawer) return;
+  if (typeof closeMenu === 'function') closeMenu();
+  overlay.hidden = false;
+  drawer.hidden = false;
+  if (frame && !frame.getAttribute('src')) {
+    frame.src = approvalGuideUrl();
+  }
+  if (!drawer._escHandler) {
+    drawer._escHandler = e => {
+      if (e.key === 'Escape') closeApprovalGuideSlide();
+    };
+  }
+  document.addEventListener('keydown', drawer._escHandler);
+  requestAnimationFrame(() => {
+    overlay.classList.add('open');
+    drawer.classList.add('open');
+    syncApprovalGuideTrigger();
+    const closeBtn = document.getElementById('apprGuideClose');
+    if (closeBtn) closeBtn.focus();
+  });
+}
+
+function closeApprovalGuideSlide() {
+  const overlay = document.getElementById('apprGuideOverlay');
+  const drawer = document.getElementById('apprGuideDrawer');
+  if (!overlay || !drawer) return;
+  overlay.classList.remove('open');
+  drawer.classList.remove('open');
+  if (drawer._escHandler) {
+    document.removeEventListener('keydown', drawer._escHandler);
+  }
+  syncApprovalGuideTrigger();
+  const finish = () => {
+    if (drawer.classList.contains('open')) return;
+    overlay.hidden = true;
+    drawer.hidden = true;
+  };
+  window.setTimeout(finish, 360);
+}
+
+function toggleApprovalGuideSlide() {
+  if (isApprovalGuideOpen()) closeApprovalGuideSlide();
+  else openApprovalGuideSlide();
+}
+
+function wireApprovalGuideSlide() {
+  const btn = document.getElementById('adminApprovalGuideBtn');
+  if (btn && !btn._apprGuideWired) {
+    btn._apprGuideWired = true;
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      toggleApprovalGuideSlide();
+    });
+  }
+  const overlay = document.getElementById('apprGuideOverlay');
+  if (overlay && !overlay._apprGuideWired) {
+    overlay._apprGuideWired = true;
+    overlay.addEventListener('click', () => closeApprovalGuideSlide());
+  }
+  const closeBtn = document.getElementById('apprGuideClose');
+  if (closeBtn && !closeBtn._apprGuideWired) {
+    closeBtn._apprGuideWired = true;
+    closeBtn.addEventListener('click', () => closeApprovalGuideSlide());
+  }
+  const openTab = document.getElementById('apprGuideOpenTab');
+  if (openTab && !openTab._apprGuideWired) {
+    openTab._apprGuideWired = true;
+    openTab.addEventListener('click', () => {
+      window.open(approvalGuideUrl(), '_blank', 'noopener,noreferrer');
+    });
+  }
 }
 
 function openSidebarMobile() {
@@ -36284,6 +36380,7 @@ function setupNavRails() {
       });
     }
   });
+  if (typeof wireApprovalGuideSlide === 'function') wireApprovalGuideSlide();
 
   const apply = () => {
     const desktop = window.innerWidth > 760;
