@@ -106,7 +106,7 @@ Keep every Excel column as **Text**.
 14. Click **Save**.
 15. Open the HTTP trigger.
 16. Copy the **HTTP POST URL**.
-17. Send that URL back so it can be pasted into `PANICLOG_PA_READ_URL`.
+17. Paste the HTTP POST URL into `PANICLOG_PA_READ_URL` in `twilight.js`. This is already done.
 
 Until that URL is pasted, the Incident Report page still shows reports sent from the same computer.
 
