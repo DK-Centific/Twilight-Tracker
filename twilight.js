@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826br';
-const APP_UPDATED_AT = '09/09/2026 22:10';
+const APP_VERSION = '1.3.090826bt';
+const APP_UPDATED_AT = '09/09/2026 22:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2397,9 +2397,13 @@ function setScenarioFlowAxis(axis) {
     btn.classList.toggle('active', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  requestAnimationFrame(() => {
+  const relayout = () => {
     snapScenarioFlowToFocus('auto');
     paintScenarioFlow();
+  };
+  requestAnimationFrame(() => {
+    requestAnimationFrame(relayout);
+    setTimeout(relayout, 160);
   });
 }
 
@@ -2467,14 +2471,16 @@ function scenarioFlowHTML(station, data) {
           <button type="button" class="sc-flow-axis-btn ${axis === 'x' ? 'active' : ''}" data-flow-axis="x" aria-pressed="${axis === 'x' ? 'true' : 'false'}">Horizontal</button>
         </div>
       </div>
-      <div class="sc-flow-hint">Swipe or tap the arrows. The middle card stays in focus.</div>
-      <div class="sc-flow-viewport" id="scenarioFlowViewport">
+      <div class="sc-flow-nav-row">
         <button type="button" class="sc-flow-nav sc-flow-nav-prev" aria-label="Previous scenario">
           <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 10L8 6L12 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <button type="button" class="sc-flow-nav sc-flow-nav-next" aria-label="Next scenario">
           <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+      </div>
+      <div class="sc-flow-hint">Swipe the cards or tap the arrows. The middle card stays in focus.</div>
+      <div class="sc-flow-viewport" id="scenarioFlowViewport">
         <div class="sc-flow-stage">
           <div class="sc-flow-spacer" aria-hidden="true"></div>
           ${tiles}
@@ -2492,6 +2498,7 @@ function paintScenarioFlow() {
   const vr = vp.getBoundingClientRect();
   const center = axis === 'x' ? vr.left + vr.width / 2 : vr.top + vr.height / 2;
   const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  let anyCurrent = false;
   vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
     const r = tile.getBoundingClientRect();
     const tCenter = axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2;
@@ -2507,8 +2514,18 @@ function paintScenarioFlow() {
     tile.classList.toggle('is-current', abs < 0.38);
     tile.setAttribute('aria-current', abs < 0.38 ? 'true' : 'false');
     tile.style.zIndex = String(Math.round(24 - abs * 10));
-    if (abs < 0.38) _scenarioFlowFocusNum = tile.getAttribute('data-num') || _scenarioFlowFocusNum;
+    if (abs < 0.38) anyCurrent = true;
   });
+  if (!anyCurrent) {
+    const num = nearestScenarioFlowNum();
+    const tile = num ? vp.querySelector(`.sc-flow-tile[data-num="${num}"]`) : null;
+    if (tile) {
+      tile.classList.add('is-current');
+      tile.setAttribute('aria-current', 'true');
+      tile.style.opacity = '1';
+      tile.style.transform = 'translateZ(28px) scale(1)';
+    }
+  }
   updateScenarioFlowCount();
   const tiles = [...vp.querySelectorAll('.sc-flow-tile')];
   const cur = tiles.findIndex(t => t.classList.contains('is-current'));
@@ -2536,16 +2553,23 @@ function nearestScenarioFlowNum() {
 }
 
 function snapScenarioFlowToFocus(behavior) {
+  const root = document.getElementById('scenarioFlow');
   const vp = document.getElementById('scenarioFlowViewport');
   if (!vp) return;
   const num = _scenarioFlowFocusNum;
   const tile = num ? vp.querySelector(`.sc-flow-tile[data-num="${num}"]`) : vp.querySelector('.sc-flow-tile');
   if (!tile) return;
-  tile.scrollIntoView({
-    behavior: behavior === 'smooth' ? 'smooth' : 'auto',
-    block: 'center',
-    inline: 'center',
-  });
+  const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
+  const smooth = behavior === 'smooth';
+  const vr = vp.getBoundingClientRect();
+  const tr = tile.getBoundingClientRect();
+  if (axis === 'x') {
+    const delta = (tr.left + tr.width / 2) - (vr.left + vr.width / 2);
+    vp.scrollTo({ left: Math.max(0, vp.scrollLeft + delta), behavior: smooth ? 'smooth' : 'auto' });
+  } else {
+    const delta = (tr.top + tr.height / 2) - (vr.top + vr.height / 2);
+    vp.scrollTo({ top: Math.max(0, vp.scrollTop + delta), behavior: smooth ? 'smooth' : 'auto' });
+  }
 }
 
 function stepScenarioFlow(dir) {
@@ -2600,7 +2624,7 @@ function bindScenarioFlow() {
         const num = tile.getAttribute('data-num');
         if (!num) return;
         _scenarioFlowFocusNum = num;
-        tile.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        snapScenarioFlowToFocus('smooth');
         requestAnimationFrame(paintScenarioFlow);
       });
     });

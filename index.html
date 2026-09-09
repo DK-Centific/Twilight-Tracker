@@ -626,10 +626,13 @@ a.icon-btn:focus-visible {
     border: 0;
   }
   .acc-item.open .acc-inner:has(.sc-flow) {
-    overflow: visible;
+    overflow-x: clip;
+    overflow-y: visible;
     padding-left: 8px;
-    padding-right: 8px;
+    padding-right: 62px;
+    min-width: 0;
   }
+  .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
   .sc-flow-head {
     display: flex;
     align-items: center;
@@ -637,6 +640,13 @@ a.icon-btn:focus-visible {
     gap: 10px;
     position: relative;
     z-index: 3;
+    flex-wrap: wrap;
+  }
+  .sc-flow-nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
   }
   .sc-flow-kicker {
     font-family: var(--font-num);
@@ -689,6 +699,8 @@ a.icon-btn:focus-visible {
   }
   .sc-flow-viewport {
     position: relative;
+    width: 100%;
+    max-width: 100%;
     height: min(72dvh, 680px);
     overflow-y: auto;
     overflow-x: hidden;
@@ -706,31 +718,31 @@ a.icon-btn:focus-visible {
     transform-style: preserve-3d;
   }
   .sc-flow.is-x .sc-flow-viewport {
+    width: 100%;
+    max-width: 100%;
     height: auto;
-    min-height: 420px;
+    min-height: min(78dvh, 720px);
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
-    padding: 18px 56px 28px;
+    padding: 18px 20px 28px;
   }
   .sc-flow.is-x .sc-flow-stage {
     display: flex;
     align-items: stretch;
     min-height: 100%;
+    width: max-content;
   }
   .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
   .sc-flow.is-y .sc-flow-spacer { height: 72px; }
   .sc-flow.is-x .sc-flow-spacer { width: 12vw; min-width: 36px; }
   .sc-flow-nav {
-    position: absolute;
-    z-index: 5;
-    width: 56px;
-    height: 56px;
+    width: 52px;
+    height: 52px;
+    flex: 0 0 auto;
     border-radius: 50%;
     border: 0.5px solid var(--border-strong);
-    background: color-mix(in srgb, var(--card-bg, var(--bg2)) 88%, transparent);
-    -webkit-backdrop-filter: blur(14px);
-    backdrop-filter: blur(14px);
+    background: var(--card-bg, var(--bg2));
     color: var(--text);
     box-shadow: var(--shadow-sm);
     cursor: pointer;
@@ -739,17 +751,9 @@ a.icon-btn:focus-visible {
     padding: 0;
     transition: transform 0.28s var(--sc-flow-ease), opacity 0.22s ease;
   }
-  .sc-flow-nav svg { width: 26px; height: 26px; }
+  .sc-flow-nav svg { width: 24px; height: 24px; }
   .sc-flow-nav:active { transform: scale(0.9); }
   .sc-flow-nav:disabled { opacity: 0.28; pointer-events: none; }
-  .sc-flow.is-y .sc-flow-nav-prev { top: 8px; left: 50%; transform: translateX(-50%); }
-  .sc-flow.is-y .sc-flow-nav-next { bottom: 14px; left: 50%; transform: translateX(-50%); }
-  .sc-flow.is-y .sc-flow-nav-prev:active { transform: translateX(-50%) scale(0.9); }
-  .sc-flow.is-y .sc-flow-nav-next:active { transform: translateX(-50%) scale(0.9); }
-  .sc-flow.is-x .sc-flow-nav-prev { top: 50%; left: 4px; transform: translateY(-50%); }
-  .sc-flow.is-x .sc-flow-nav-next { top: 50%; right: 4px; transform: translateY(-50%); }
-  .sc-flow.is-x .sc-flow-nav-prev:active { transform: translateY(-50%) scale(0.9); }
-  .sc-flow.is-x .sc-flow-nav-next:active { transform: translateY(-50%) scale(0.9); }
   .sc-flow.is-x .sc-flow-nav-prev svg,
   .sc-flow.is-x .sc-flow-nav-next svg { transform: rotate(-90deg); }
   .sc-flow-tile {
@@ -772,7 +776,7 @@ a.icon-btn:focus-visible {
     transition: box-shadow 0.4s var(--sc-flow-ease), border-color 0.28s ease;
   }
   .sc-flow.is-x .sc-flow-tile {
-    width: min(84vw, 380px);
+    width: min(260px, 70vw);
     margin: 0 10px;
     flex: 0 0 auto;
   }
@@ -820,7 +824,7 @@ a.icon-btn:focus-visible {
   .sc-flow-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
   .sc-flow-name {
     font-size: 20px;
-    font-weight: 750;
+    font-weight: 700;
     letter-spacing: -0.03em;
     line-height: 1.25;
     overflow-wrap: anywhere;
