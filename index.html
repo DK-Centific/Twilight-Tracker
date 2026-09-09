@@ -82,6 +82,8 @@ html {
   --rl: 18px;
   --font: 'Inter', -apple-system, 'SF Pro Text', BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   --font-num: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  --apple-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --apple-page-ms: 0.68s;
 }
 
 [data-theme="dark"] {
@@ -530,15 +532,27 @@ a.icon-btn:focus-visible {
   padding: 28px 32px 64px;
   max-width: 100%;
   min-width: 0;
-  /* No automatic entrance animation. JS adds .view-enter only on real view
-     navigation (welcome ↔ station, station ↔ station). */
+  /* JS adds .view-enter only on real view navigation
+     (login → app, welcome ↔ station, station ↔ station, Admin pages). */
 }
-.content.view-enter {
-  animation: viewEnter 0.32s cubic-bezier(0.32, 0.72, 0, 1) both;
+.content.view-enter,
+#adminTabBody.view-enter,
+#subtabBody.view-enter,
+#modCalBody.view-enter,
+.login-screen.view-enter {
+  animation: viewEnter var(--apple-page-ms) var(--apple-ease) both;
 }
 @keyframes viewEnter {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes applePageLeave {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to   { opacity: 0; transform: translate3d(0, -12px, 0); }
+}
+.login-screen.login-leave {
+  animation: applePageLeave 0.48s var(--apple-ease) both;
+  pointer-events: none;
 }
 
 /* Welcome / hero */
@@ -2887,7 +2901,7 @@ button, a, label, input, select, textarea,
   box-shadow: var(--shadow-lg);
   padding: 44px 38px;
   width: 100%; max-width: 420px;
-  animation: fadeUp 0.6s cubic-bezier(0.4,0,0.2,1);
+  animation: fadeUp 0.72s var(--apple-ease);
 }
 .login-mark {
   width: 56px; height: 56px;
@@ -3292,8 +3306,8 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
    ANIMATIONS
    ========================================================= */
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 @keyframes blink {
   0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
@@ -11051,17 +11065,17 @@ button.perf-stat-chip.scheduled.active {
 
 /* Subtle entrance animation on first paint */
 .ov-stat-tile, .ov-chart-card {
-  animation: ov-fade-up 0.5s cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: ov-fade-up var(--apple-page-ms, 0.68s) var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 .ov-stats .ov-stat-tile:nth-child(1) { animation-delay: 0.00s; }
-.ov-stats .ov-stat-tile:nth-child(2) { animation-delay: 0.06s; }
-.ov-stats .ov-stat-tile:nth-child(3) { animation-delay: 0.12s; }
-.ov-stats .ov-stat-tile:nth-child(4) { animation-delay: 0.18s; }
-.ov-charts .ov-chart-card:nth-child(1) { animation-delay: 0.24s; }
-.ov-charts .ov-chart-card:nth-child(2) { animation-delay: 0.30s; }
+.ov-stats .ov-stat-tile:nth-child(2) { animation-delay: 0.08s; }
+.ov-stats .ov-stat-tile:nth-child(3) { animation-delay: 0.16s; }
+.ov-stats .ov-stat-tile:nth-child(4) { animation-delay: 0.24s; }
+.ov-charts .ov-chart-card:nth-child(1) { animation-delay: 0.20s; }
+.ov-charts .ov-chart-card:nth-child(2) { animation-delay: 0.28s; }
 @keyframes ov-fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translate3d(0, 16px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
 }
 
 /* Cancelled assignment chip · visible but visually muted */
@@ -12107,7 +12121,7 @@ button.perf-stat-chip.scheduled.active {
   z-index: 200;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity 0.48s var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1));
 }
 [data-theme="light"] .mod-cal-overlay {
   /* Lighter scrim so the page behind doesn't go muddy gray */
@@ -12128,7 +12142,7 @@ button.perf-stat-chip.scheduled.active {
   border-left: 0.5px solid var(--border);
   display: flex; flex-direction: column;
   transform: translateX(100%);
-  transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 0.62s var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1));
   box-shadow: -16px 0 48px -16px rgba(0, 0, 0, 0.32);
   /* Respect iOS safe area · keeps the header below the status bar /
      notch and the bottom content above the home indicator on iPhones
@@ -14644,10 +14658,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
   box-shadow: 18px 18px 44px var(--neu-dark), -18px -18px 44px var(--neu-light) !important;
 }
 
-/* Tab body · Moderator-style viewEnter + one-shot tile stagger */
-#adminTabBody.view-enter {
-  animation: viewEnter 0.32s cubic-bezier(0.32, 0.72, 0, 1) both;
-}
+/* Tab body · Apple-like viewEnter + one-shot tile stagger */
 #adminTabBody.admin-enter .ov-stat-tile,
 #adminTabBody.admin-enter .ov-chart-card,
 #adminTabBody.admin-enter .mod-card,
@@ -14656,7 +14667,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 #adminTabBody.admin-enter .cal-stat-tile,
 #adminTabBody.admin-enter .appr-row,
 #adminTabBody.admin-enter .perf-status-tile {
-  animation: ov-fade-up 0.5s cubic-bezier(0.32, 0.72, 0, 1) both;
+  animation: ov-fade-up var(--apple-page-ms, 0.68s) var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1)) both;
 }
 #adminTabBody.admin-enter .ov-stat-tile:nth-child(1),
 #adminTabBody.admin-enter .mod-card:nth-child(1),
@@ -14669,21 +14680,43 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 #adminTabBody.admin-enter .perf-tile:nth-child(2),
 #adminTabBody.admin-enter .team-card:nth-child(2),
 #adminTabBody.admin-enter .cal-stat-tile:nth-child(2),
-#adminTabBody.admin-enter .appr-row:nth-child(2) { animation-delay: 0.06s; }
+#adminTabBody.admin-enter .appr-row:nth-child(2) { animation-delay: 0.08s; }
 #adminTabBody.admin-enter .ov-stat-tile:nth-child(3),
 #adminTabBody.admin-enter .mod-card:nth-child(3),
 #adminTabBody.admin-enter .perf-tile:nth-child(3),
 #adminTabBody.admin-enter .team-card:nth-child(3),
 #adminTabBody.admin-enter .cal-stat-tile:nth-child(3),
-#adminTabBody.admin-enter .appr-row:nth-child(3) { animation-delay: 0.12s; }
+#adminTabBody.admin-enter .appr-row:nth-child(3) { animation-delay: 0.16s; }
 #adminTabBody.admin-enter .ov-stat-tile:nth-child(4),
 #adminTabBody.admin-enter .mod-card:nth-child(4),
 #adminTabBody.admin-enter .perf-tile:nth-child(4),
 #adminTabBody.admin-enter .team-card:nth-child(4),
 #adminTabBody.admin-enter .cal-stat-tile:nth-child(4),
 #adminTabBody.admin-enter .appr-row:nth-child(4),
-#adminTabBody.admin-enter .ov-chart-card:nth-child(1) { animation-delay: 0.18s; }
-#adminTabBody.admin-enter .ov-chart-card:nth-child(2) { animation-delay: 0.24s; }
+#adminTabBody.admin-enter .ov-chart-card:nth-child(1) { animation-delay: 0.20s; }
+#adminTabBody.admin-enter .ov-chart-card:nth-child(2) { animation-delay: 0.28s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .content.view-enter,
+  #adminTabBody.view-enter,
+  #subtabBody.view-enter,
+  #modCalBody.view-enter,
+  .login-screen.view-enter,
+  .login-screen.login-leave,
+  .login-card,
+  .ov-stat-tile,
+  .ov-chart-card,
+  #adminTabBody.admin-enter .ov-stat-tile,
+  #adminTabBody.admin-enter .ov-chart-card,
+  #adminTabBody.admin-enter .mod-card,
+  #adminTabBody.admin-enter .perf-tile,
+  #adminTabBody.admin-enter .team-card,
+  #adminTabBody.admin-enter .cal-stat-tile,
+  #adminTabBody.admin-enter .appr-row,
+  #adminTabBody.admin-enter .perf-status-tile {
+    animation: none !important;
+  }
+}
 
 /* Moderators list · Helios yellow emails + avatars matching adminAvatar
    Dark: --accent #E8C24A · Light: darker --accent #C68A00 */

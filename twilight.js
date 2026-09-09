@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bd';
-const APP_UPDATED_AT = '09/09/2026 09:50';
+const APP_VERSION = '1.3.090826be';
+const APP_UPDATED_AT = '09/09/2026 10:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -873,8 +873,71 @@ function deferRenderWhileEditing(container, key, renderFn) {
    ===================================================================== */
 // Track the currently-visible "view" so we can distinguish navigation
 // (welcome ↔ station, station ↔ station) from in-place updates (clicking a
-// camera, ticking equipment, etc.). We only animate on real navigation.
+// camera, ticking equipment, etc.). We only animate on real navigation
+// and the first paint after login.
 let _lastRenderedView = null;
+let _loginTransitionPending = false;
+function prefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+function markLoginPageTransition() {
+  _loginTransitionPending = true;
+}
+function consumeLoginTransition() {
+  const pending = !!_loginTransitionPending;
+  _loginTransitionPending = false;
+  return pending;
+}
+function replayPageEnter(el, extraClass) {
+  if (!el) return;
+  const extras = String(extraClass || '').split(/\s+/).filter(Boolean);
+  el.classList.remove('view-enter');
+  extras.forEach((c) => el.classList.remove(c));
+  if (prefersReducedMotion()) return;
+  void el.offsetWidth;
+  el.classList.add('view-enter');
+  extras.forEach((c) => el.classList.add(c));
+  if (el._pageEnterTimer) clearTimeout(el._pageEnterTimer);
+  el._pageEnterTimer = setTimeout(() => {
+    el.classList.remove('view-enter');
+    extras.forEach((c) => el.classList.remove(c));
+    el._pageEnterTimer = null;
+  }, 900);
+}
+function afterLoginLeave(next) {
+  const login = document.getElementById('loginScreen');
+  const shouldFade = consumeLoginTransition()
+    && login
+    && login.style.display !== 'none'
+    && !prefersReducedMotion();
+  const finish = () => {
+    if (login) {
+      login.style.display = 'none';
+      login.classList.remove('login-leave');
+    }
+    if (typeof next === 'function') next();
+  };
+  if (!shouldFade) {
+    finish();
+    return;
+  }
+  login.classList.add('login-leave');
+  setTimeout(finish, 420);
+}
+function revealLoginScreen() {
+  const app = document.getElementById('app');
+  const adminAppEl = document.getElementById('adminApp');
+  const loginEl = document.getElementById('loginScreen');
+  if (app) app.style.display = 'none';
+  if (adminAppEl) adminAppEl.classList.remove('active');
+  if (!loginEl) return;
+  loginEl.style.display = 'flex';
+  replayPageEnter(loginEl);
+}
 function renderApp() {
   // Focus guard · never rebuild #content while the operator is typing in a
   // scenario-notes (or any) text field; defer until they leave the field.
@@ -886,7 +949,7 @@ function renderApp() {
   renderProgress();
 
   const newView = currentStationKey || '__welcome__';
-  const isNavigation = _lastRenderedView !== null && _lastRenderedView !== newView;
+  const isNavigation = _lastRenderedView !== newView;
   _lastRenderedView = newView;
 
   if (currentStationKey) {
@@ -907,17 +970,7 @@ function renderApp() {
   }
   if (typeof isStationAccordionMode === 'function') _lastAccordionMode = isStationAccordionMode();
 
-  if (isNavigation) {
-    const c = document.getElementById('content');
-    if (c) {
-      // Restart the CSS animation by toggling the class
-      c.classList.remove('view-enter');
-      // force reflow so the animation re-runs
-      // eslint-disable-next-line no-unused-expressions
-      void c.offsetWidth;
-      c.classList.add('view-enter');
-    }
-  }
+  if (isNavigation) replayPageEnter(document.getElementById('content'));
 }
 
 // Returns the operator's display name · preferring firstName from the moderator
@@ -6053,15 +6106,7 @@ function playAdminTabEnter() {
   // Mirror Moderator `.content.view-enter`: play once on intentional
   // Admin tab navigation / first paint. `admin-enter` gates the tile
   // stagger so poll-driven re-renders do not replay it.
-  const body = document.getElementById('adminTabBody');
-  if (!body) return;
-  body.classList.remove('view-enter', 'admin-enter');
-  void body.offsetWidth;
-  body.classList.add('view-enter', 'admin-enter');
-  if (window._adminEnterTimer) clearTimeout(window._adminEnterTimer);
-  window._adminEnterTimer = setTimeout(() => {
-    body.classList.remove('admin-enter');
-  }, 850);
+  replayPageEnter(document.getElementById('adminTabBody'), 'admin-enter');
 }
 
 function modviewMeta(view) {
@@ -10653,18 +10698,21 @@ function renderAdminTabBody(opts) {
             settled = true;
             slide.removeEventListener('transitionend', settle);
             finishParticipants();
+            replayPageEnter(document.getElementById('subtabBody'));
           };
           slide.addEventListener('transitionend', settle);
           setTimeout(settle, 400);
         } else {
           setModviewSlideOpen(false);
           finishParticipants();
+          replayPageEnter(document.getElementById('subtabBody'));
         }
         return;
       }
 
       // Moderators · render content first (fills the toolbar), then slide open.
       renderModerators();
+      replayPageEnter(document.getElementById('subtabBody'));
       // Double rAF so the closed → open transition actually plays after paint.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => setModviewSlideOpen(true));
@@ -10839,6 +10887,7 @@ function renderModerators() {
         if (!VALID_MOD_VIEWS.has(next)) return;
         adminState.modView = next;
         renderModerators();
+        replayPageEnter(document.getElementById('subtabBody'));
         syncAdminModviewPill();
       });
     });
@@ -17265,6 +17314,7 @@ function wirePerfSectionTabs(body) {
       adminState.perfSection = next;
       if (next === 'incidents') adminState.incidentScope = adminState.incidentScope || 'all';
       renderPerformance(body);
+      playAdminTabEnter();
     });
   });
 }
@@ -27532,10 +27582,14 @@ function startReviewerApp() {
 }
 
 function startAdminApp() {
+  afterLoginLeave(() => {
+    startAdminAppAfterLogin();
+  });
+}
+function startAdminAppAfterLogin() {
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
   if (typeof startWorklogPolling === 'function') startWorklogPolling();
-    document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'none';
   document.getElementById('adminApp').classList.add('active');
   // Theme
@@ -32144,11 +32198,7 @@ function logoutAndClearOperatorState() {
   adminState._asgnLoaded = false;
 
   // Send back to the login screen
-  document.getElementById('app').style.display = 'none';
-  const adminAppEl = document.getElementById('adminApp');
-  if (adminAppEl) adminAppEl.classList.remove('active');
-  const loginEl = document.getElementById('loginScreen');
-  if (loginEl) loginEl.style.display = 'flex';
+  revealLoginScreen();
   clearPendingAuth();
   closePasswordChangeModal();
   clearLoginPasswordInputs();
@@ -33801,6 +33851,7 @@ function wireModCalendar() {
         t.setAttribute('aria-selected', t.dataset.mctab === modCalState.tab);
       });
       renderModCalBody();
+      replayPageEnter(document.getElementById('modCalBody'));
     });
   });
   // Tap outside the panel to close
@@ -33817,9 +33868,14 @@ function wireModCalendar() {
    INIT
    ===================================================================== */
 function startApp() {
-  document.getElementById('loginScreen').style.display = 'none';
+  afterLoginLeave(() => {
+    startAppAfterLogin();
+  });
+}
+function startAppAfterLogin() {
   document.getElementById('adminApp').classList.remove('active');
   document.getElementById('app').style.display = 'block';
+  _lastRenderedView = null;
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   applyAssignmentToEntryFields();
   if (typeof wireModCalendar === 'function') wireModCalendar();
@@ -35555,6 +35611,7 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
     state.appView = 'reviewer';
     saveState();
     setLastLoginUsername(id);
+    markLoginPageTransition();
     startReviewerApp();
     if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
     return;
@@ -35579,6 +35636,7 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
     state.appView = 'admin';
     saveState();
     setLastLoginUsername(enteredName);
+    markLoginPageTransition();
     startAdminApp();
     if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
     return;
@@ -35603,6 +35661,7 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
   saveState();
   setLastLoginUsername(id);
   _loginWelcomePending = true;
+  markLoginPageTransition();
   startApp();
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   if (resumed && state.participantId) {
@@ -35706,6 +35765,7 @@ async function enterPasswordlessAdmin(enteredName) {
   }
   saveState();
   setLastLoginUsername(enteredAdminName);
+  markLoginPageTransition();
   startAdminApp();
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
 }
