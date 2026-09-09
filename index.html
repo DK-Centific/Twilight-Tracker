@@ -10025,7 +10025,8 @@ button.perf-stat-chip.scheduled.active {
 /* Operator nav refresh button · spin animation while refreshing */
 #navRefreshBtn { transition: color 0.18s ease, transform 0.18s ease; }
 #navRefreshBtn:hover { color: var(--accent-ink); }
-#navRefreshBtn.refreshing svg { animation: nav-refresh-spin 0.8s linear infinite; }
+#navRefreshBtn.refreshing svg,
+#adminNavRefreshBtn.refreshing svg { animation: nav-refresh-spin 0.8s linear infinite; }
 @keyframes nav-refresh-spin {
   to { transform: rotate(360deg); }
 }
