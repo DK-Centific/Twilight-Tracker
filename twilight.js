@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826aw';
-const APP_UPDATED_AT = '09/09/2026 05:15';
+const APP_VERSION = '1.3.090826ax';
+const APP_UPDATED_AT = '09/09/2026 05:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -683,9 +683,10 @@ function migrateState(loaded) {
   if (/^admin-orbit$/i.test(loaded.username)) loaded.username = 'Admin-Twilight';
   if (typeof loaded.isAdmin !== 'boolean') loaded.isAdmin = false;
   if (typeof loaded.isMasterAdmin !== 'boolean') loaded.isMasterAdmin = false;
-  if (loaded.appView !== 'admin' && loaded.appView !== 'moderator') {
+  if (loaded.appView !== 'admin' && loaded.appView !== 'moderator' && loaded.appView !== 'reviewer') {
     loaded.appView = loaded.isAdmin ? 'admin' : 'moderator';
   }
+  if (typeof loaded.isReviewer !== 'boolean') loaded.isReviewer = false;
   if (typeof loaded.participantId !== 'string') loaded.participantId = '';
   if (typeof loaded.participantName !== 'string') loaded.participantName = '';
   if (typeof loaded.participantAddress !== 'string') loaded.participantAddress = '';
@@ -4422,11 +4423,15 @@ function showApprovalApprovedPopup(k, token) {
   });
 }
 function showApprovalRejectedPopup(by, note) {
-  const safeBy = escapeHTML(by || 'the admin');
-  const safeNote = note ? ('<br><br>“' + escapeHTML(note) + '”') : '';
+  const safeBy = escapeHTML(by || 'the reviewer');
+  const feedback = (typeof approvalQaFeedbackHtml === 'function')
+    ? approvalQaFeedbackHtml(note, by)
+    : (note ? ('<br><br>“' + escapeHTML(note) + '”') : '');
   appAlert({
-    title: 'Review complete · Rejected', html: true, okLabel: 'Confirm',
-    message: 'Rejected by <strong>' + safeBy + '</strong>.' + safeNote + '<br><br>The other scenarios stay locked. Please resubmit for review.',
+    title: 'Review complete · Sent back', html: true, okLabel: 'Confirm',
+    message: 'Sent back by <strong>' + safeBy + '</strong>.'
+      + (feedback ? '<br><br>' + feedback : '')
+      + '<br>The other scenarios stay locked. Fix the items above, then resubmit.',
   }).then(() => { if (typeof renderApp === 'function') renderApp(); });
 }
 
@@ -4501,20 +4506,22 @@ function decorateApprovalGate(c, station) {
   // Build the slide-down content for the current gate status.
   const g = getGate(k);
   // A capture station's approval unlocks the rest of that station's scenarios.
-  const unlockSub = 'The other scenarios stay locked until an admin approves.';
-  const pendingSub = 'Waiting for an admin decision. Other scenarios stay locked until it\u2019s approved.';
+  const unlockSub = 'The other scenarios stay locked until a reviewer approves.';
+  const pendingSub = 'Waiting for a reviewer decision. Other scenarios stay locked until it\u2019s approved.';
   let inner = '', stateClass = '';
   if (g.status === 'Pending' || g.status === 'InReview') {
     stateClass = 'pending';
     inner = '<div class="appr-slidedown-title">Calibration submitted for review</div>' +
             '<div class="appr-slidedown-sub">' + pendingSub + '</div>' +
-            '<div class="appr-waiting-row"><span class="appr-waiting-dot"></span> Awaiting review' + (g.status === 'InReview' ? ' \u00b7 admin reviewing\u2026' : '\u2026') + '</div>';
+            '<div class="appr-waiting-row"><span class="appr-waiting-dot"></span> Awaiting review' + (g.status === 'InReview' ? ' \u00b7 reviewer checking\u2026' : '\u2026') + '</div>';
   } else if (g.status === 'Rejected') {
     stateClass = 'rejected';
-    const note = g.note ? '<div class="appr-slidedown-note">\u201c' + escapeHTML(g.note) + '\u201d \u2014 ' + escapeHTML(g.decidedBy || 'admin') + '</div>' : '';
-    inner = '<div class="appr-slidedown-title">Calibration rejected</div>' +
-            '<div class="appr-slidedown-sub">Re-record the calibration video, then resubmit for review.</div>' +
-            note +
+    const feedback = (typeof approvalQaFeedbackHtml === 'function')
+      ? approvalQaFeedbackHtml(g.note, g.decidedBy)
+      : (g.note ? '<div class="appr-slidedown-note">\u201c' + escapeHTML(g.note) + '\u201d \u2014 ' + escapeHTML(g.decidedBy || 'reviewer') + '</div>' : '');
+    inner = '<div class="appr-slidedown-title">Calibration sent back</div>' +
+            '<div class="appr-slidedown-sub">Fix the QA items below, re-record if needed, then resubmit.</div>' +
+            feedback +
             '<button class="appr-submit-btn" data-act="resubmit">Resubmit for review</button>';
   } else {
     const ready = calibrationComplete(k);
@@ -5297,6 +5304,24 @@ function directoryRoleIsAdmin(row) {
 }
 function directoryRoleIsModerator(row) {
   return canonicalizeDirectoryLoginRole(directoryLoginRole(row)) === 'Mod';
+}
+function directoryRoleIsReviewer(row) {
+  return canonicalizeDirectoryLoginRole(directoryLoginRole(row)) === 'Reviewer';
+}
+function isReviewerSession() {
+  if (typeof state === 'undefined' || !state) return false;
+  if (state.appView === 'reviewer' || state.isReviewer) return true;
+  return typeof directoryRoleIsReviewer === 'function' && directoryRoleIsReviewer(state.modProfile);
+}
+function isAdminSession() {
+  if (typeof state === 'undefined' || !state) return false;
+  if (isReviewerSession()) return false;
+  return !!(state.isAdmin || state.appView === 'admin'
+    || (typeof isAdminUsername === 'function' && isAdminUsername(state.username))
+    || (typeof directoryRoleIsAdmin === 'function' && directoryRoleIsAdmin(state.modProfile)));
+}
+function canWorkApprovalQueue() {
+  return isReviewerSession() || isAdminSession();
 }
 // Canonical LoginRole values written to Excel / accepted by the create-user
 // form. Excel historically stores moderators as "Mod"; the UI label is
@@ -6116,6 +6141,9 @@ function redirectHiddenAssignmentTab() {
 function selectAdminTab(tab, opts) {
   opts = opts || {};
   if (!tab) return;
+  if (typeof isReviewerSession === 'function' && isReviewerSession() && tab !== 'approval') {
+    tab = 'approval';
+  }
   if (hideAssignmentAdminTab() && tab === 'assignment') {
     tab = 'moderators';
     opts = Object.assign({}, opts, { subtab: opts.subtab || 'moderators', modView: opts.modView || 'team' });
@@ -6157,15 +6185,30 @@ function selectAdminTab(tab, opts) {
 function renderAdmin() {
   redirectHiddenAssignmentTab();
   armScrollPreserve();
+  const reviewer = typeof isReviewerSession === 'function' && isReviewerSession();
+  if (reviewer) adminState.tab = 'approval';
   const c = document.getElementById('adminContent');
-  c.innerHTML = `
-    <div class="admin-hero">
+  const hero = reviewer
+    ? `<div class="admin-hero admin-hero--reviewer">
+      <div class="admin-hero-eyebrow">Reviewer</div>
+      <h1 class="admin-hero-title">Project Twilight Live QA Console</h1>
+      <p class="admin-hero-sub">Place to QA check live for Twilight sessions for Calibration checkpoint and all live collections.</p>
+    </div>`
+    : `<div class="admin-hero">
       <div class="admin-hero-eyebrow">Admin</div>
       <h1 class="admin-hero-title">Project Twilight Console</h1>
       <p class="admin-hero-sub">Manage moderators and participants, monitor session performance, and review program-wide activity.</p>
-    </div>
-
-    <div class="admin-tabs-row">
+    </div>`;
+  const tabs = reviewer
+    ? `<div class="admin-tabs-row">
+      <div class="admin-tabs" role="tablist">
+        <button class="admin-tab active" data-tab="approval" role="tab">
+          Approval
+          <span class="admin-tab-count" id="topApprCount">${pendingApprovalCount() || ''}</span>
+        </button>
+      </div>
+    </div>`
+    : `<div class="admin-tabs-row">
       <div class="admin-tabs" role="tablist">
         <button class="admin-tab ${adminState.tab === 'overview' ? 'active' : ''}" data-tab="overview" role="tab">Overview</button>
         <button class="admin-tab ${adminState.tab === 'moderators' ? 'active' : ''}" data-tab="moderators" role="tab">Moderator Hub</button>
@@ -6176,8 +6219,10 @@ function renderAdmin() {
         </button>
       </div>
       ${adminModviewPillHTML()}
-    </div>
-
+    </div>`;
+  c.innerHTML = `
+    ${hero}
+    ${tabs}
     <div id="adminTabBody"></div>
   `;
   c.querySelectorAll('.admin-tab').forEach(btn => {
@@ -9698,6 +9743,90 @@ function wireApprovalFilterBar() {
   sync();
 }
 
+const APPROVAL_QA_REASONS = [
+  { id: 'cal_checker', label: 'Calibration Checker Box Correction needed' },
+  { id: 'rec_length', label: 'Recording length is not meeting the minimum' },
+  { id: 'camera_angle', label: 'Camera angle not following the SOP' },
+  { id: 'lux_light', label: 'Lux/Light setting issue' },
+  { id: 'rec_missing', label: 'Recording is not showing (check camera setting)' },
+];
+
+function approvalQaReasonById(id) {
+  return APPROVAL_QA_REASONS.find(r => r.id === id) || null;
+}
+
+function buildApprovalFeedbackNote(reasonIds, comment) {
+  const ids = (reasonIds || []).map(id => String(id || '').trim()).filter(id => approvalQaReasonById(id));
+  const labels = ids.map(id => approvalQaReasonById(id).label);
+  const extra = String(comment || '').trim();
+  const parts = [];
+  if (ids.length) parts.push('QA:' + ids.join(','));
+  if (labels.length) {
+    parts.push('QA issues to fix:');
+    labels.forEach(label => parts.push('• ' + label));
+  }
+  if (extra) {
+    if (parts.length) parts.push('', 'Additional note:', extra);
+    else parts.push(extra);
+  }
+  return parts.join('\n');
+}
+
+function parseApprovalQaFeedback(note) {
+  const text = String(note || '').replace(/\r\n/g, '\n');
+  const reasons = [];
+  const seen = new Set();
+  const add = (idOrLabel) => {
+    const byId = approvalQaReasonById(idOrLabel);
+    const byLabel = APPROVAL_QA_REASONS.find(r => r.label === idOrLabel);
+    const row = byId || byLabel;
+    if (!row || seen.has(row.id)) return;
+    seen.add(row.id);
+    reasons.push(row);
+  };
+  const idLine = text.match(/^QA:([a-z0-9_,]+)\s*$/m);
+  if (idLine) idLine[1].split(',').forEach(id => add(id.trim()));
+  String(text || '').split('\n').forEach(line => {
+    const cleaned = line.replace(/^[•\-\*]\s*/, '').trim();
+    if (APPROVAL_QA_REASONS.some(r => r.label === cleaned)) add(cleaned);
+  });
+  let comment = text;
+  comment = comment.replace(/^QA:[a-z0-9_,]+\s*$/m, '');
+  comment = comment.replace(/^QA issues to fix:\s*$/m, '');
+  APPROVAL_QA_REASONS.forEach(r => {
+    comment = comment.replace(new RegExp('^[•\\-\\*]\\s*' + r.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*$', 'mg'), '');
+  });
+  comment = comment.replace(/^Additional note:\s*$/m, '');
+  comment = comment.replace(/\n{3,}/g, '\n\n').trim();
+  return { reasons, comment };
+}
+
+function approvalQaFeedbackHtml(note, decidedBy) {
+  const parsed = parseApprovalQaFeedback(note);
+  const who = decidedBy ? escapeHTML(decidedBy) : '';
+  let html = '';
+  if (parsed.reasons.length) {
+    html += '<div class="appr-qa-feedback">'
+      + '<div class="appr-qa-feedback-label">Send back · fix these</div>'
+      + '<ul class="appr-qa-feedback-list">'
+      + parsed.reasons.map(r => '<li>' + escapeHTML(r.label) + '</li>').join('')
+      + '</ul></div>';
+  }
+  if (parsed.comment) {
+    html += '<div class="appr-slidedown-note">\u201c' + escapeHTML(parsed.comment) + '\u201d'
+      + (who ? ' \u2014 ' + who : '') + '</div>';
+  } else if (who && !parsed.reasons.length) {
+    html += '<div class="appr-slidedown-note">Rejected by ' + who + '</div>';
+  }
+  return html;
+}
+
+function collectApprovalQaReasonIds() {
+  return Array.from(document.querySelectorAll('.appr-qa-check:checked'))
+    .map(el => String(el.value || '').trim())
+    .filter(id => approvalQaReasonById(id));
+}
+
 function renderApprovalTab(body) {
   if (!body) return;
   body.innerHTML = `
@@ -9847,16 +9976,32 @@ function renderApprovalPanelInto() {
   const ringBtn = (ringUrl && isSafeHttpsUrl(ringUrl))
     ? `<a class="appr-icon-btn" href="${escapeHTML(ringUrl)}" target="_blank" rel="noopener">◎ Ring</a>`
     : `<span class="appr-icon-btn disabled" title="No Ring dashboard assigned">◎ Ring</span>`;
+  const parsedNote = parseApprovalQaFeedback(a.feedback_note || '');
+  const decidedFeedback = decided
+    ? approvalQaFeedbackHtml(a.feedback_note || '', a.decided_by)
+    : '';
+  const rejectOpen = !!(adminState._apprRejectOpen && String(adminState._apprSelected) === String(a.approval_id));
+  const qaChecks = APPROVAL_QA_REASONS.map(r => `
+        <label class="appr-qa-item">
+          <input type="checkbox" class="appr-qa-check" value="${escapeHTML(r.id)}">
+          <span>${escapeHTML(r.label)}</span>
+        </label>`).join('');
   const decidedBlock = decided
     ? `<div class="appr-decided-note">
          <strong>${escapeHTML(apprStatusLabel(a.status))}</strong>${a.decided_by ? ' by ' + escapeHTML(a.decided_by) : ''}.
-         ${a.feedback_note ? '<br>“' + escapeHTML(a.feedback_note) + '”' : ''}
+         ${decidedFeedback}
        </div>`
-    : `<textarea class="appr-note" id="apprNote" placeholder="Feedback note (optional)">${escapeHTML(a.feedback_note || '')}</textarea>
+    : `${rejectOpen ? `<div class="appr-qa-box" id="apprQaBox">
+         <div class="appr-qa-box-title">Send back to moderator</div>
+         <div class="appr-qa-box-sub">Pick every issue that needs a fix. The moderator sees this list on their session.</div>
+         <div class="appr-qa-list">${qaChecks}</div>
+       </div>` : ''}
+       <textarea class="appr-note" id="apprNote" placeholder="Additional message (optional)">${escapeHTML(parsedNote.comment || '')}</textarea>
        <div class="appr-decide-row">
          <button class="appr-btn-approve" id="apprApproveBtn">Approve</button>
-         <button class="appr-btn-reject"  id="apprRejectBtn">Reject</button>
-       </div>`;
+         <button class="appr-btn-reject"  id="apprRejectBtn">${rejectOpen ? 'Send back to moderator' : 'Reject'}</button>
+       </div>
+       ${rejectOpen ? `<button type="button" class="appr-qa-cancel" id="apprRejectCancel">Cancel</button>` : ''}`;
   const subTs = apprFmtTime(a.submitted_at);
   const decTs = apprFmtTime(a.decided_at);
   const metaLine = (subTs || decTs)
@@ -9875,11 +10020,33 @@ function renderApprovalPanelInto() {
   const approveBtn = document.getElementById('apprApproveBtn');
   const rejectBtn  = document.getElementById('apprRejectBtn');
   const noteEl     = document.getElementById('apprNote');
-  if (approveBtn) approveBtn.addEventListener('click', () => decideSelectedApproval('approve', noteEl ? noteEl.value : ''));
-  if (rejectBtn)  rejectBtn.addEventListener('click',  () => decideSelectedApproval('reject',  noteEl ? noteEl.value : ''));
+  const cancelBtn  = document.getElementById('apprRejectCancel');
+  if (approveBtn) approveBtn.addEventListener('click', () => {
+    adminState._apprRejectOpen = false;
+    decideSelectedApproval('approve', noteEl ? noteEl.value : '');
+  });
+  if (rejectBtn) rejectBtn.addEventListener('click', () => {
+    if (!canWorkApprovalQueue()) return;
+    if (!adminState._apprRejectOpen || String(adminState._apprSelected) !== String(a.approval_id)) {
+      adminState._apprRejectOpen = true;
+      renderApprovalPanelInto();
+      return;
+    }
+    const reasons = collectApprovalQaReasonIds();
+    if (!reasons.length) {
+      if (typeof showToast === 'function') showToast('Pick at least one QA item to send back.', 'warn', 2800);
+      return;
+    }
+    decideSelectedApproval('reject', buildApprovalFeedbackNote(reasons, noteEl ? noteEl.value : ''));
+  });
+  if (cancelBtn) cancelBtn.addEventListener('click', () => {
+    adminState._apprRejectOpen = false;
+    renderApprovalPanelInto();
+  });
 }
 
 function selectApproval(id) {
+  adminState._apprRejectOpen = false;
   adminState._apprSelected = id;
   // Opening a Pending request flips it to In review (fire-and-forget).
   const a = ((adminState.approvals) || []).find(x => String(x.approval_id) === String(id));
@@ -9896,6 +10063,7 @@ function selectApproval(id) {
 }
 
 function decideSelectedApproval(decision, note) {
+  if (!canWorkApprovalQueue()) return;
   const id = adminState._apprSelected;
   if (!id) return;
   adminState._apprBusyIds = adminState._apprBusyIds || new Set();
@@ -9936,6 +10104,7 @@ function decideSelectedApproval(decision, note) {
   cur.feedback_note = String(note || '');
   cur.last_modified = nowIso;
   cur._epoch = Date.parse(nowIso) || Date.now();
+  adminState._apprRejectOpen = false;
   adminState._apprOverrides = adminState._apprOverrides || {};
   adminState._apprOverrides[id] = { row: { ...cur }, at: Date.now() };
   adminState._apprBusyIds.add(String(id));
@@ -10049,6 +10218,9 @@ function hideApprovalIncomingBanner() {
 
 function renderAdminTabBody(opts) {
   opts = opts || {};
+  if (typeof isReviewerSession === 'function' && isReviewerSession()) {
+    adminState.tab = 'approval';
+  }
   const body = document.getElementById('adminTabBody');
   // Clean up the Assignment-tab polling timer when admin navigates AWAY
   // from the Assignment tab. The timer was started by renderAssignment
@@ -10093,6 +10265,10 @@ function renderAdminTabBody(opts) {
     return;
   }
   if (adminState.tab === 'approval') {
+    if (typeof canWorkApprovalQueue === 'function' && !canWorkApprovalQueue()) {
+      body.innerHTML = `<div class="appr-empty">This QA page is only for Reviewer accounts.</div>`;
+      return;
+    }
     renderApprovalTab(body);
     if (opts.animate) playAdminTabEnter();
     return;
@@ -26642,6 +26818,15 @@ function exportAssignments() {
   toast(`Exported ${rows.length} row${rows.length === 1 ? '' : 's'}`);
 }
 /* ----------- Admin entry / exit ----------- */
+function startReviewerApp() {
+  if (!state) return;
+  state.appView = 'reviewer';
+  state.isReviewer = true;
+  state.isAdmin = false;
+  if (typeof adminState !== 'undefined' && adminState) adminState.tab = 'approval';
+  startAdminApp();
+}
+
 function startAdminApp() {
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
@@ -26929,7 +27114,7 @@ function currentAdminIdentity() {
   }
   // 3) Fall back to the canonical username, then a generic label.
   if (!name && typeof canonicalAdminUsername === 'function') name = canonicalAdminUsername(id);
-  return { id, name: name || id || 'Admin' };
+  return { id, name: name || id || (typeof isReviewerSession === 'function' && isReviewerSession() ? 'Reviewer' : 'Admin') };
 }
 
 // Pacific-time hour/minute (DST-safe via Intl) for the 3:30 PM gate.
@@ -34646,8 +34831,30 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
   // Admin and Master Admin land on the admin app. Hardcoded passwordless
   // allowlist names still enter admin when the directory has no role.
   const roleIsAdmin = directoryRoleIsAdmin(safe) || isMasterAdminAccount(id, safe);
+  const roleIsReviewer = typeof directoryRoleIsReviewer === 'function' && directoryRoleIsReviewer(safe);
   const roleExplicitNonAdmin = !!(safe.LoginRole && !roleIsAdmin);
-  const enterAdmin = roleIsAdmin || (isAdminUsername(id) && !roleExplicitNonAdmin);
+  const enterAdmin = roleIsAdmin || (isAdminUsername(id) && !roleExplicitNonAdmin && !roleIsReviewer);
+
+  if (roleIsReviewer && !roleIsAdmin) {
+    const savedR = loadState(id);
+    if (savedR && savedR.username && String(savedR.username).toLowerCase() === String(id).toLowerCase()) {
+      state = savedR;
+      state.username = id;
+    } else {
+      state = defaultState();
+      state.username = id;
+    }
+    state.modProfile = safe;
+    state.isAdmin = false;
+    state.isMasterAdmin = false;
+    state.isReviewer = true;
+    state.appView = 'reviewer';
+    saveState();
+    setLastLoginUsername(id);
+    startReviewerApp();
+    if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+    return;
+  }
 
   if (enterAdmin) {
     const enteredName = isAdminUsername(id) ? canonicalAdminUsername(id) : id;
@@ -34664,6 +34871,7 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
     state.modProfile = safe;
     state.isAdmin = true;
     state.isMasterAdmin = isMasterAdminAccount(enteredName, safe);
+    state.isReviewer = false;
     state.appView = 'admin';
     saveState();
     setLastLoginUsername(enteredName);
@@ -34685,6 +34893,7 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
   state.modProfile = safe;
   state.isAdmin = false;
   state.isMasterAdmin = isMasterAdminAccount(id, safe);
+  state.isReviewer = false;
   state.appView = 'moderator';
   if (maybeResetStaleSession()) resumed = false;
   saveState();
@@ -34728,6 +34937,20 @@ async function maybeRerouteFromDirectoryRole() {
   try {
     const row = await lookupDirectoryRowByOrbitId(state.username);
     if (!row) return;
+    if (typeof directoryRoleIsReviewer === 'function' && directoryRoleIsReviewer(row)
+        && !directoryRoleIsAdmin(row) && !isMasterAdminAccount(state.username, row)) {
+      state.modProfile = Object.assign({}, state.modProfile || { orbitLoginId: state.username }, {
+        LoginRole: 'Reviewer',
+      });
+      state.isAdmin = false;
+      state.isMasterAdmin = false;
+      state.isReviewer = true;
+      state.appView = 'reviewer';
+      saveState();
+      startReviewerApp();
+      if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+      return;
+    }
     if (directoryRoleIsAdmin(row) || isMasterAdminAccount(state.username, row)) {
       state.modProfile = Object.assign({}, state.modProfile || { orbitLoginId: state.username }, {
         LoginRole: directoryLoginRole(row) || 'Admin',
@@ -35131,6 +35354,8 @@ function init() {
     state = saved;
     if (/^admin-orbit$/i.test(state.username)) state.username = 'Admin-Twilight';
     const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+    const reviewer = (typeof isReviewerSession === 'function' && isReviewerSession())
+      || (typeof directoryRoleIsReviewer === 'function' && directoryRoleIsReviewer(state.modProfile));
     const adminish = master
       || directoryRoleIsAdmin(state.modProfile)
       || isAdminUsername(state.username)
@@ -35138,6 +35363,8 @@ function init() {
     if (master && state.appView === 'moderator') {
       maybeResetStaleSession();
       startApp();
+    } else if (reviewer && !adminish) {
+      startReviewerApp();
     } else if (adminish) {
       startAdminApp();
     } else {

@@ -3860,6 +3860,9 @@ input#ent_lakitu.lakitu-invalid {
   padding-inline-start: 0.12em;
   overflow: visible;
 }
+.admin-hero--reviewer .admin-hero-eyebrow {
+  color: var(--accent-ink);
+}
 .admin-hero-sub {
   /* Sub-line gets a slight bump at wider viewports too · keeps the
      visual hierarchy correct (heading and sub scale together rather
@@ -4074,6 +4077,42 @@ input#ent_lakitu.lakitu-invalid {
   border-radius: 9px; padding: 9px 11px; border: 0.5px solid var(--border);
   animation: appr-decided-in 0.22s ease-out;
 }
+.appr-qa-box {
+  background: var(--bg3);
+  border: 0.5px solid rgba(239,68,68,0.28);
+  border-radius: 10px;
+  padding: 11px 12px;
+  margin-bottom: 10px;
+}
+.appr-qa-box-title {
+  font-size: 13px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.01em; margin-bottom: 3px;
+}
+.appr-qa-box-sub {
+  font-size: 12px; color: var(--text3); line-height: 1.4; margin-bottom: 10px;
+}
+.appr-qa-list { display: flex; flex-direction: column; gap: 7px; }
+.appr-qa-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 12.5px; color: var(--text); line-height: 1.35; cursor: pointer;
+}
+.appr-qa-item input { margin-top: 2px; accent-color: #ef4444; }
+.appr-qa-cancel {
+  margin-top: 8px; background: none; border: none; padding: 0;
+  font: inherit; font-size: 12px; color: var(--text3); cursor: pointer;
+}
+.appr-qa-cancel:hover { color: var(--text); }
+.appr-qa-feedback { margin: 8px 0 10px; }
+.appr-qa-feedback-label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: #b91c1c; margin-bottom: 6px;
+}
+[data-theme="dark"] .appr-qa-feedback-label { color: #fca5a5; }
+.appr-qa-feedback-list {
+  margin: 0; padding-left: 18px;
+  font-size: 12.5px; color: var(--text); line-height: 1.45;
+}
+.appr-qa-feedback-list li { margin: 3px 0; }
 @keyframes appr-decided-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
@@ -4118,10 +4157,10 @@ input#ent_lakitu.lakitu-invalid {
 .appr-slidedown.appr-exit  { animation: apprSlideUp 0.38s cubic-bezier(0.4,0,0.2,1) both; pointer-events: none; }
 @keyframes apprSlideDown {
   from { opacity: 0; transform: translateY(-10px); max-height: 0; }
-  to   { opacity: 1; transform: translateY(0);     max-height: 460px; }
+  to   { opacity: 1; transform: translateY(0);     max-height: 720px; }
 }
 @keyframes apprSlideUp {
-  from { opacity: 1; transform: translateY(0);     max-height: 460px; margin-top: 12px; }
+  from { opacity: 1; transform: translateY(0);     max-height: 720px; margin-top: 12px; }
   to   { opacity: 0; transform: translateY(-10px); max-height: 0;     margin-top: 0; padding-top: 0; padding-bottom: 0; }
 }
 .appr-slidedown-inner { padding: 14px 16px; }
