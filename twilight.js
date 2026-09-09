@@ -10510,10 +10510,7 @@ function refreshApprovalTabFromCloud(opts) {
     if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
     refreshTopApprCount();
     if (typeof playAdminTabEnter === 'function') playAdminTabEnter();
-    if (opts.notify !== false) {
-      if (typeof showToast === 'function') showToast('Approvals refreshed', 'success', 1800);
-      else if (typeof toast === 'function') toast('Approvals refreshed');
-    }
+    if (opts.notify !== false && typeof toast === 'function') toast('Approvals refreshed');
   };
   const fetchP = (typeof ensureApprovalData === 'function')
     ? ensureApprovalData({ force: true })
