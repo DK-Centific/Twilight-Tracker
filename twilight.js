@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826as';
-const APP_UPDATED_AT = '09/09/2026 04:25';
+const APP_VERSION = '1.3.090826at';
+const APP_UPDATED_AT = '09/09/2026 04:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5437,7 +5437,7 @@ const adminState = {
   modListSort: null,  // set on first header click · { key, dir:'asc'|'desc' }
   modUserModal: null,        // { mode:'create'|'edit', values:{}, error:'', saving:false } | null
   activitiesTeamId: '',      // selected team context in the Activities map
-  activitiesModeratorId: '', // selected moderator on the Activities map (mutually exclusive with team)
+  activitiesModeratorId: '', // selected moderator on the Activities map (scoped to the selected team)
   // Assignment state
   teams: [],                 // [{ id, name, primaryIds: [orbitLoginId,...], backupIds: [orbitLoginId,...] }]
   assignments: [],           // [{ id, teamId, date (YYYY-MM-DD), startMin, endMin, participantOrbitId, participantData, modSnapshots, savedAt }]
@@ -10441,6 +10441,30 @@ function listActivitiesTeams() {
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 }
 
+function listActivitiesTeamMemberIds(team) {
+  if (!team) return [];
+  const raw = [
+    ...(team.primaryIds || []),
+    ...((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : (team.backupIds || [])),
+  ];
+  const seen = new Set();
+  const out = [];
+  raw.forEach(id => {
+    const key = String(id || '').trim();
+    if (!key) return;
+    const lower = key.toLowerCase();
+    if (seen.has(lower)) return;
+    seen.add(lower);
+    out.push(key);
+  });
+  return out;
+}
+
+function resetActivitiesFilters() {
+  adminState.activitiesTeamId = '';
+  adminState.activitiesModeratorId = '';
+}
+
 function normalizeActivitiesFilterState() {
   if (adminState.activitiesTeamId == null) adminState.activitiesTeamId = '';
   if (adminState.activitiesModeratorId == null) adminState.activitiesModeratorId = '';
@@ -10455,9 +10479,10 @@ function normalizeActivitiesFilterState() {
   if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
     adminState.activitiesModeratorId = '';
   } else if (adminState.activitiesModeratorId && !activityMods.some(m => String(m.id).toLowerCase() === String(adminState.activitiesModeratorId).toLowerCase())) {
-    if (!(isGeoDemoMode() && String(adminState.activitiesModeratorId).toLowerCase().startsWith('demo-'))) {
-      adminState.activitiesModeratorId = '';
-    }
+    const keepDemoSolo = isGeoDemoMode()
+      && !adminState.activitiesTeamId
+      && String(adminState.activitiesModeratorId).toLowerCase().startsWith('demo-');
+    if (!keepDemoSolo) adminState.activitiesModeratorId = '';
   }
 }
 
@@ -10478,7 +10503,8 @@ function paintActivitiesExtraFilters() {
   const teamId = String(adminState.activitiesTeamId || '');
   const modId = String(adminState.activitiesModeratorId || '');
   const signature = [
-    'v1',
+    'v2',
+    teamId,
     activityTeams.map(t => String(t.id) + ':' + (t.name || '')).join('|'),
     activityMods.map(m => String(m.id) + ':' + (m.name || '')).join('|'),
   ].join('::');
@@ -10498,7 +10524,7 @@ function paintActivitiesExtraFilters() {
         <label class="activities-team-filter" for="activitiesModeratorSelect">
           <span class="activities-team-filter-label">Moderator</span>
           <select class="activities-team-select" id="activitiesModeratorSelect">
-            <option value="">All moderators</option>
+            <option value="">View all moderators</option>
             ${activityMods.map(m => `<option value="${escapeHTML(m.id)}">${escapeHTML(m.name)}</option>`).join('')}
           </select>
         </label>
@@ -10510,10 +10536,16 @@ function paintActivitiesExtraFilters() {
     if (teamSel) {
       teamSel.addEventListener('change', e => {
         adminState.activitiesTeamId = e.target.value || '';
-        adminState.activitiesModeratorId = '';
-        // Keep the filter row mounted — only sync the sibling select.
-        const other = document.getElementById('activitiesModeratorSelect');
-        if (other) other.value = '';
+        if (!adminState.activitiesTeamId) {
+          adminState.activitiesModeratorId = '';
+        } else {
+          const nextMods = listActivitiesModeratorOptions();
+          const stillOnTeam = nextMods.some(m =>
+            String(m.id).toLowerCase() === String(adminState.activitiesModeratorId || '').toLowerCase()
+          );
+          if (!stillOnTeam) adminState.activitiesModeratorId = '';
+        }
+        paintActivitiesExtraFilters();
         refreshActivitiesMapFocus();
       });
     }
@@ -10523,10 +10555,14 @@ function paintActivitiesExtraFilters() {
           e.target.value = adminState.activitiesModeratorId || '';
           return;
         }
-        adminState.activitiesModeratorId = e.target.value || '';
-        adminState.activitiesTeamId = '';
-        const other = document.getElementById('activitiesTeamSelect');
-        if (other) other.value = '';
+        const next = e.target.value || '';
+        if (!next) {
+          resetActivitiesFilters();
+          paintActivitiesExtraFilters();
+          refreshActivitiesMapFocus();
+          return;
+        }
+        adminState.activitiesModeratorId = next;
         refreshActivitiesMapFocus();
       });
     }
@@ -10556,22 +10592,21 @@ function getSelectedActivitiesTeam() {
   return (adminState.teams || []).find(t => String(t.id) === String(id)) || null;
 }
 
-function listActivitiesModeratorOptions() {
-  const rows = adminState.moderators || [];
+function listActivitiesModeratorOptions(team) {
+  const scope = team === undefined
+    ? ((typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null)
+    : team;
+  if (!scope) return [];
   const seen = new Set();
   const out = [];
-  rows.forEach(m => {
-    const id = pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id');
-    const key = String(id || '').trim();
-    if (!key) return;
-    const lower = key.toLowerCase();
+  listActivitiesTeamMemberIds(scope).forEach(id => {
+    const lower = id.toLowerCase();
     if (seen.has(lower)) return;
     seen.add(lower);
     const name = (typeof getModeratorDisplayName === 'function')
-      ? getModeratorDisplayName(key)
-      : ([pickField(m, 'firstName', 'first_name', 'FirstName', 'First Name'),
-          pickField(m, 'lastName', 'last_name', 'LastName', 'Last Name')].filter(Boolean).join(' ').trim() || key);
-    out.push({ id: key, name });
+      ? getModeratorDisplayName(id)
+      : id;
+    out.push({ id, name: name || id });
   });
   out.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   return out;
