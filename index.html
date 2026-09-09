@@ -4056,15 +4056,26 @@ input#ent_lakitu.lakitu-invalid {
 .appr-decide-row { display: flex; gap: 9px; }
 .appr-btn-approve, .appr-btn-reject {
   flex: 1; padding: 10px; border-radius: 9px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: filter 0.16s ease;
+  transition: filter 0.12s ease, transform 0.12s ease, opacity 0.12s ease;
 }
 .appr-btn-approve { border: none; background: #16a34a; color: #fff; }
 .appr-btn-approve:hover { filter: brightness(1.06); }
+.appr-btn-approve:active { transform: scale(0.98); filter: brightness(0.96); }
 .appr-btn-reject { border: 0.5px solid #ef4444; background: transparent; color: #ef4444; }
 .appr-btn-reject:hover { background: rgba(239,68,68,0.08); }
+.appr-btn-reject:active { transform: scale(0.98); background: rgba(239,68,68,0.14); }
+.appr-btn-approve.is-busy,
+.appr-btn-reject.is-busy,
+.appr-btn-approve:disabled,
+.appr-btn-reject:disabled { opacity: 0.7; cursor: default; pointer-events: none; }
 .appr-decided-note {
   font-size: 12px; color: var(--text2); background: var(--bg3);
   border-radius: 9px; padding: 9px 11px; border: 0.5px solid var(--border);
+  animation: appr-decided-in 0.22s ease-out;
+}
+@keyframes appr-decided-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Non-blocking "new requests" banner (reuses self-sync visual language) */
