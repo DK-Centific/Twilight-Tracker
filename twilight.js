@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826am';
-const APP_UPDATED_AT = '09/08/2026 23:58';
+const APP_VERSION = '1.3.090826an';
+const APP_UPDATED_AT = '09/09/2026 00:08';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8988,7 +8988,9 @@ function overviewVizStageHTML() {
         <div class="ov-viz-hinge ov-viz-hinge-left"></div>
         <div class="ov-viz-hinge ov-viz-hinge-right"></div>
         <div class="ov-viz-orb-wrap">
-          <div class="ov-solar-orb is-sun" id="ovSolarOrb" aria-hidden="true"></div>
+          <div class="ov-viz-orb-cut">
+            <div class="ov-solar-orb is-sun" id="ovSolarOrb" aria-hidden="true"></div>
+          </div>
         </div>
         <div class="ov-viz-copy">
           <div class="ov-viz-label" id="ovVizDate"></div>
