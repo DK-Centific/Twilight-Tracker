@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bd';
-const APP_UPDATED_AT = '09/09/2026 09:50';
+const APP_VERSION = '1.3.090826be';
+const APP_UPDATED_AT = '09/09/2026 09:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -15319,8 +15319,7 @@ const PANIC_ALERT_EMAIL = 'ben_prod_twilight@centific.com';
 const PANIC_TEAMS_FOLLOW_UP = 'Also, please notify the managers in the Teams chat immediately.';
 // Empty until the PanicLog write flow URL is pasted here.
 const PANICLOG_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/25/workflows/c6ce5448f600450bbd947871da0bc0f6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rFHMxswsjCYL-1I5uZxrRMqXnLvst0t-5Qwr3qwmUqI';
-// Empty until the PanicLog read flow URL is pasted here.
-const PANICLOG_PA_READ_URL = '';
+const PANICLOG_PA_READ_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/ef8b9a533932481e953493557c9c0fd6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=GG2DJpbmspryoVU9cnl3OJtBCY15RQDJCCqfb-HkwT0';
 
 // =====================================================================
 // EMAIL LOG · audit trail for every confirmation email sent
