@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bp';
-const APP_UPDATED_AT = '09/09/2026 20:45';
+const APP_VERSION = '1.3.090826br';
+const APP_UPDATED_AT = '09/09/2026 22:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -953,11 +953,13 @@ function renderApp() {
   _lastRenderedView = newView;
 
   if (currentStationKey) {
-    // Station cover-flow (vertical or horizontal). Adjacent tiles stay
-    // visible but faded; the focused tile is the working station.
-    _accordionCollapsed = false;
-    removeAccordionStepper();
-    renderStationFlowView();
+    if (isStationAccordionMode()) {
+      renderStationsAccordion();
+    } else {
+      _accordionCollapsed = false;
+      removeAccordionStepper();
+      renderStation(currentStationKey);
+    }
   } else {
     _accordionCollapsed = false;
     removeAccordionStepper();
@@ -2357,10 +2359,266 @@ function iterStepperHTML(stationKey, scenarioNum, iters, stateClass, target) {
   `;
 }
 
-const STATION_FLOW_AXIS_KEY = 'centific_orbit_station_flow_axis';
-let _stationFlowAxis = '';
-let _stationFlowScrollTimer = null;
-let _stationFlowTicking = false;
+const SCENARIO_FLOW_AXIS_KEY = 'centific_orbit_scenario_flow_axis';
+let _scenarioFlowAxis = '';
+let _scenarioFlowFocusNum = '';
+let _scenarioFlowStationKey = '';
+let _scenarioFlowScrollTimer = null;
+let _scenarioFlowTicking = false;
+
+function isScenarioFlowMode() {
+  return typeof isStationAccordionMode === 'function' && isStationAccordionMode();
+}
+
+function getScenarioFlowAxis() {
+  if (_scenarioFlowAxis === 'x' || _scenarioFlowAxis === 'y') return _scenarioFlowAxis;
+  try {
+    const saved = localStorage.getItem(SCENARIO_FLOW_AXIS_KEY);
+    if (saved === 'x' || saved === 'y') {
+      _scenarioFlowAxis = saved;
+      return saved;
+    }
+  } catch (_) {}
+  _scenarioFlowAxis = 'y';
+  return 'y';
+}
+
+function setScenarioFlowAxis(axis) {
+  const next = axis === 'x' ? 'x' : 'y';
+  _scenarioFlowAxis = next;
+  try { localStorage.setItem(SCENARIO_FLOW_AXIS_KEY, next); } catch (_) {}
+  const root = document.getElementById('scenarioFlow');
+  if (!root) return;
+  root.dataset.axis = next;
+  root.classList.toggle('is-x', next === 'x');
+  root.classList.toggle('is-y', next === 'y');
+  root.querySelectorAll('[data-flow-axis]').forEach(btn => {
+    const on = btn.getAttribute('data-flow-axis') === next;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  requestAnimationFrame(() => {
+    snapScenarioFlowToFocus('auto');
+    paintScenarioFlow();
+  });
+}
+
+function firstOpenScenarioNum(station, data) {
+  if (!station || !Array.isArray(station.scenarios)) return '';
+  const hit = station.scenarios.find(sc => {
+    const sd = data && data.scenarios ? data.scenarios[sc.num] : null;
+    return sd && !isScenarioComplete(sd) && !isScenarioSkipped(sd);
+  });
+  return String((hit || station.scenarios[0] || {}).num || '');
+}
+
+function updateScenarioFlowCount() {
+  const root = document.getElementById('scenarioFlow');
+  const el = document.getElementById('scenarioFlowCount');
+  if (!root || !el) return;
+  const tiles = [...root.querySelectorAll('.sc-flow-tile')];
+  const cur = tiles.findIndex(t => t.classList.contains('is-current'));
+  const idx = cur >= 0 ? cur + 1 : 1;
+  el.textContent = idx + ' of ' + tiles.length;
+}
+
+function scenarioFlowTileHTML(station, data, sc) {
+  const sd = data.scenarios[sc.num] || {};
+  const iters = sd.iterations || 0;
+  const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
+  const rf = scenarioUsesRecordFlow(station, sc);
+  const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
+  const done = isScenarioComplete(sd);
+  const skipped = isScenarioSkipped(sd);
+  const stateClass = done ? 'is-done' : skipped ? 'is-skipped' : isScenarioInProgress(sd) ? 'is-progress' : '';
+  return `
+    <article class="sc-flow-tile ${stateClass}" data-num="${escapeHTML(String(sc.num))}" data-key="${escapeHTML(station.key)}">
+      <div class="sc-flow-tile-top">
+        <div class="sc-flow-num" aria-hidden="true">${escapeHTML(String(sc.num))}</div>
+        <div class="sc-flow-copy">
+          <div class="sc-flow-name">${escapeHTML(sc.name)}${vehIcon}</div>
+          <div class="sc-flow-id">${escapeHTML(sc.id)}</div>
+        </div>
+      </div>
+      <div class="sc-flow-actions">
+        ${rf ? '' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}
+        ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
+        ${station.type === 'capture' ? `
+          <input class="scenario-notes" data-num="${sc.num}" data-key="${station.key}"
+            type="text" placeholder="Add a note" value="${escapeHTML(sd.notes || '')}" inputmode="text">
+        ` : ''}
+      </div>
+    </article>`;
+}
+
+function scenarioFlowHTML(station, data) {
+  if (!isScenarioFlowMode()) return '';
+  const axis = getScenarioFlowAxis();
+  const tiles = station.scenarios.map(sc => scenarioFlowTileHTML(station, data, sc)).join('');
+  return `
+    <div class="sc-flow ${axis === 'x' ? 'is-x' : 'is-y'}" id="scenarioFlow" data-axis="${axis}" data-station="${escapeHTML(station.key)}">
+      <div class="sc-flow-head">
+        <div>
+          <div class="sc-flow-kicker">Scenarios</div>
+          <div class="sc-flow-count" id="scenarioFlowCount"></div>
+        </div>
+        <div class="sc-flow-axes" role="group" aria-label="Scenario scroll direction">
+          <button type="button" class="sc-flow-axis-btn ${axis === 'y' ? 'active' : ''}" data-flow-axis="y" aria-pressed="${axis === 'y' ? 'true' : 'false'}">Vertical</button>
+          <button type="button" class="sc-flow-axis-btn ${axis === 'x' ? 'active' : ''}" data-flow-axis="x" aria-pressed="${axis === 'x' ? 'true' : 'false'}">Horizontal</button>
+        </div>
+      </div>
+      <div class="sc-flow-hint">Swipe or tap the arrows. The middle card stays in focus.</div>
+      <div class="sc-flow-viewport" id="scenarioFlowViewport">
+        <button type="button" class="sc-flow-nav sc-flow-nav-prev" aria-label="Previous scenario">
+          <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 10L8 6L12 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="sc-flow-nav sc-flow-nav-next" aria-label="Next scenario">
+          <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="sc-flow-stage">
+          <div class="sc-flow-spacer" aria-hidden="true"></div>
+          ${tiles}
+          <div class="sc-flow-spacer" aria-hidden="true"></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function paintScenarioFlow() {
+  const root = document.getElementById('scenarioFlow');
+  const vp = document.getElementById('scenarioFlowViewport');
+  if (!root || !vp) return;
+  const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+  const vr = vp.getBoundingClientRect();
+  const center = axis === 'x' ? vr.left + vr.width / 2 : vr.top + vr.height / 2;
+  const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
+    const r = tile.getBoundingClientRect();
+    const tCenter = axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2;
+    const span = Math.max(1, axis === 'x' ? r.width : r.height);
+    const offset = (tCenter - center) / span;
+    const abs = Math.abs(offset);
+    const opacity = Math.max(0.28, 1 - abs * 0.5);
+    const scale = Math.max(0.82, 1 - abs * 0.14);
+    const rot = Math.max(-22, Math.min(22, offset * 16));
+    const twist = reduce ? '' : (axis === 'x' ? `rotateY(${-rot}deg)` : `rotateX(${rot}deg)`);
+    tile.style.opacity = String(opacity);
+    tile.style.transform = `translateZ(${Math.max(0, (1 - abs) * 28)}px) ${twist} scale(${scale})`;
+    tile.classList.toggle('is-current', abs < 0.38);
+    tile.setAttribute('aria-current', abs < 0.38 ? 'true' : 'false');
+    tile.style.zIndex = String(Math.round(24 - abs * 10));
+    if (abs < 0.38) _scenarioFlowFocusNum = tile.getAttribute('data-num') || _scenarioFlowFocusNum;
+  });
+  updateScenarioFlowCount();
+  const tiles = [...vp.querySelectorAll('.sc-flow-tile')];
+  const cur = tiles.findIndex(t => t.classList.contains('is-current'));
+  const prevBtn = root.querySelector('.sc-flow-nav-prev');
+  const nextBtn = root.querySelector('.sc-flow-nav-next');
+  if (prevBtn) prevBtn.disabled = cur <= 0;
+  if (nextBtn) nextBtn.disabled = cur < 0 || cur >= tiles.length - 1;
+}
+
+function nearestScenarioFlowNum() {
+  const root = document.getElementById('scenarioFlow');
+  const vp = document.getElementById('scenarioFlowViewport');
+  if (!root || !vp) return '';
+  const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+  const vr = vp.getBoundingClientRect();
+  const center = axis === 'x' ? vr.left + vr.width / 2 : vr.top + vr.height / 2;
+  let best = { num: '', dist: Infinity };
+  vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
+    const r = tile.getBoundingClientRect();
+    const tCenter = axis === 'x' ? r.left + r.width / 2 : r.top + r.height / 2;
+    const dist = Math.abs(tCenter - center);
+    if (dist < best.dist) best = { num: tile.getAttribute('data-num') || '', dist };
+  });
+  return best.num;
+}
+
+function snapScenarioFlowToFocus(behavior) {
+  const vp = document.getElementById('scenarioFlowViewport');
+  if (!vp) return;
+  const num = _scenarioFlowFocusNum;
+  const tile = num ? vp.querySelector(`.sc-flow-tile[data-num="${num}"]`) : vp.querySelector('.sc-flow-tile');
+  if (!tile) return;
+  tile.scrollIntoView({
+    behavior: behavior === 'smooth' ? 'smooth' : 'auto',
+    block: 'center',
+    inline: 'center',
+  });
+}
+
+function stepScenarioFlow(dir) {
+  const root = document.getElementById('scenarioFlow');
+  if (!root) return;
+  const tiles = [...root.querySelectorAll('.sc-flow-tile')];
+  if (!tiles.length) return;
+  const cur = tiles.findIndex(t => (t.getAttribute('data-num') || '') === _scenarioFlowFocusNum);
+  const idx = Math.max(0, Math.min(tiles.length - 1, (cur < 0 ? 0 : cur) + (dir < 0 ? -1 : 1)));
+  const next = tiles[idx];
+  if (!next) return;
+  _scenarioFlowFocusNum = next.getAttribute('data-num') || '';
+  snapScenarioFlowToFocus('smooth');
+  requestAnimationFrame(paintScenarioFlow);
+}
+
+function onScenarioFlowScroll() {
+  if (_scenarioFlowTicking) return;
+  _scenarioFlowTicking = true;
+  requestAnimationFrame(() => {
+    _scenarioFlowTicking = false;
+    paintScenarioFlow();
+  });
+  if (_scenarioFlowScrollTimer) clearTimeout(_scenarioFlowScrollTimer);
+  _scenarioFlowScrollTimer = setTimeout(() => {
+    const num = nearestScenarioFlowNum();
+    if (num && num !== _scenarioFlowFocusNum) {
+      _scenarioFlowFocusNum = num;
+      try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+    }
+    paintScenarioFlow();
+  }, 120);
+}
+
+function bindScenarioFlow() {
+  const root = document.getElementById('scenarioFlow');
+  const vp = document.getElementById('scenarioFlowViewport');
+  if (!root || !vp) return;
+  if (!root._wired) {
+    root._wired = true;
+    vp.addEventListener('scroll', onScenarioFlowScroll, { passive: true });
+    root.querySelectorAll('[data-flow-axis]').forEach(btn => {
+      btn.addEventListener('click', () => setScenarioFlowAxis(btn.getAttribute('data-flow-axis')));
+    });
+    const prevBtn = root.querySelector('.sc-flow-nav-prev');
+    const nextBtn = root.querySelector('.sc-flow-nav-next');
+    if (prevBtn) prevBtn.addEventListener('click', e => { e.stopPropagation(); stepScenarioFlow(-1); });
+    if (nextBtn) nextBtn.addEventListener('click', e => { e.stopPropagation(); stepScenarioFlow(1); });
+    vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
+      tile.addEventListener('click', e => {
+        if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow')) return;
+        const num = tile.getAttribute('data-num');
+        if (!num) return;
+        _scenarioFlowFocusNum = num;
+        tile.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+        requestAnimationFrame(paintScenarioFlow);
+      });
+    });
+  }
+  const stationKey = root.dataset.station || '';
+  const focusStillHere = _scenarioFlowFocusNum
+    && vp.querySelector(`.sc-flow-tile[data-num="${_scenarioFlowFocusNum}"]`);
+  if (_scenarioFlowStationKey !== stationKey || !focusStillHere) {
+    _scenarioFlowStationKey = stationKey;
+    const st = STATIONS.find(s => s.key === stationKey);
+    const data = st && state.stations ? state.stations[st.key] : null;
+    _scenarioFlowFocusNum = firstOpenScenarioNum(st, data);
+  }
+  requestAnimationFrame(() => {
+    snapScenarioFlowToFocus('auto');
+    paintScenarioFlow();
+  });
+}
 
 function getStationFlowAxis() {
   if (_stationFlowAxis === 'x' || _stationFlowAxis === 'y') return _stationFlowAxis;
@@ -2750,10 +3008,13 @@ function renderStation(key, opts) {
     `;
   }
 
-  // Scenario table
+  // Scenario table (desktop / tablet) · on phones the stacked cards are
+  // replaced by a cover-flow of one scenario at a time.
   const isLocked = station.requiresCameras && !stationCamerasSatisfied(data);
+  const useScenarioFlow = isScenarioFlowMode();
   html += `
-    <div class="scenario-table-wrap ${isLocked ? 'locked' : ''}">
+    <div class="scenario-table-wrap ${isLocked ? 'locked' : ''}${useScenarioFlow ? ' has-sc-flow' : ''}">
+      ${useScenarioFlow ? scenarioFlowHTML(station, data) : `
       <table class="scenario-table">
         <thead>
           <tr>
@@ -2824,6 +3085,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
           `;
         }).join('')}
       </div>
+      `}
     </div>
 
     ${stationActionsHTML(station, data)}
@@ -2957,7 +3219,8 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
         && (sc.notes || '').trim().length === 0;
       if (needsNoteNow) {
         setTimeout(() => {
-          const noteInput = c.querySelector(`.scenario-notes[data-key="${k}"][data-num="${num}"]`);
+          const noteInput = c.querySelector(`.sc-flow-tile .scenario-notes[data-key="${k}"][data-num="${num}"]`)
+            || c.querySelector(`.scenario-notes[data-key="${k}"][data-num="${num}"]`);
           if (noteInput) {
             noteInput.focus();
             // Soft visual nudge
@@ -3030,7 +3293,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
       // never accidentally touch warnings on OTHER scenarios that happen
       // to share the same station · each scenario has its own
       // .scenario-status-group.
-      const container = e.target.closest('tr') || e.target.closest('.scenario-card');
+      const container = e.target.closest('tr') || e.target.closest('.sc-flow-tile') || e.target.closest('.scenario-card');
       if (container) {
         const partialMissing = isScenarioPartialMissingNote(sc);
         const skipMissing    = isScenarioSkipMissingNote(sc);
@@ -3168,6 +3431,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
   // the slide-down "submit for review" layer on capture stations when the
   // gate is active. Runs every render so it survives renderApp() rebuilds.
   if (typeof decorateApprovalGate === 'function') decorateApprovalGate(c, station);
+  bindScenarioFlow();
 }
 
 /* =====================================================================
@@ -4786,7 +5050,7 @@ function animateApprovalSlideAway(done) {
 function _lockAllScenarios(c, k) {
   c.querySelectorAll('.scenario-status-group').forEach(grp => {
     if (String(grp.getAttribute('data-key')) !== String(k)) return;
-    const container = grp.closest('tr') || grp.closest('.scenario-card');
+    const container = grp.closest('tr') || grp.closest('.sc-flow-tile') || grp.closest('.scenario-card');
     if (!container) return;
     container.classList.add('appr-locked');
     container.querySelectorAll('button, input').forEach(el => {
@@ -4821,7 +5085,7 @@ function decorateApprovalGate(c, station) {
     const key = grp.getAttribute('data-key');
     if (String(key) !== String(k)) return;
     if (!isScenarioGateLocked(k, num)) return;
-    const container = grp.closest('tr') || grp.closest('.scenario-card');
+    const container = grp.closest('tr') || grp.closest('.sc-flow-tile') || grp.closest('.scenario-card');
     if (!container) return;
     container.classList.add('appr-locked');
     container.querySelectorAll('button, input').forEach(el => {
@@ -4892,6 +5156,8 @@ function decorateApprovalGate(c, station) {
   const calGrp = c.querySelector('.scenario-card-list .scenario-status-group[data-num="02"]');
   const calCard = calGrp ? calGrp.closest('.scenario-card') : null;
   if (calCard) { calCard.insertAdjacentElement('afterend', buildDiv()); anchored = true; }
+  const calFlowActions = c.querySelector('.sc-flow-tile[data-num="02"] .sc-flow-actions');
+  if (calFlowActions) { calFlowActions.appendChild(buildDiv()); anchored = true; }
   // Fallback · if CAL_GND can't be found, append after the table wrap.
   if (!anchored) {
     const wrap = c.querySelector('.scenario-table-wrap');

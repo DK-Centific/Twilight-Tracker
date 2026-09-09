@@ -466,10 +466,10 @@ a.icon-btn:focus-visible {
   color: var(--text3);
   border: 0.5px solid var(--border-strong);
 }
-/* Station cover-flow · scroll between station tiles. The focused tile
-   stays large; neighbors fade and tilt so the next / previous stop is
-   still visible. */
+/* Station cover-flow · kept for unused helpers; hidden so stations
+   stay in the accordion and only scenarios scroll on phones. */
 .st-flow {
+  display: none !important;
   margin: 0 0 22px;
 }
 .st-flow-head {
@@ -607,6 +607,320 @@ a.icon-btn:focus-visible {
   .st-flow-viewport { height: 300px; }
   .st-flow.is-x .st-flow-viewport { height: 176px; }
   .st-flow-label { font-size: 16px; }
+}
+
+/* Mobile scenario cover-flow · phones only. Desktop keeps the table.
+   One focused scenario card; neighbors fade, scale, and tilt. */
+.sc-flow { display: none; }
+@media (max-width: 760px) {
+  .sc-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 2px 0 6px;
+    --sc-flow-ease: var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+  .scenario-table-wrap.has-sc-flow {
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+  .acc-item.open .acc-inner:has(.sc-flow) {
+    overflow: visible;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .sc-flow-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    position: relative;
+    z-index: 3;
+  }
+  .sc-flow-kicker {
+    font-family: var(--font-num);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text3);
+  }
+  .sc-flow-count {
+    margin-top: 2px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .sc-flow-axes {
+    display: inline-flex;
+    padding: 5px;
+    border-radius: 999px;
+    background: var(--bg3);
+    border: 0.5px solid var(--border);
+    gap: 4px;
+  }
+  .sc-flow-axis-btn {
+    appearance: none;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text2);
+    background: transparent;
+    border: 0;
+    border-radius: 999px;
+    min-height: 44px;
+    padding: 0 16px;
+    cursor: pointer;
+    transition: background 0.35s var(--sc-flow-ease), color 0.25s ease, transform 0.2s ease;
+  }
+  .sc-flow-axis-btn.active {
+    background: var(--accent);
+    color: var(--pill-fg);
+  }
+  .sc-flow-axis-btn:active { transform: scale(0.96); }
+  .sc-flow-hint {
+    font-size: 13px;
+    color: var(--text3);
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  .sc-flow-viewport {
+    position: relative;
+    height: min(72dvh, 680px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    border-radius: 22px;
+    padding: 8px 2px 36px;
+  }
+  .sc-flow-viewport::-webkit-scrollbar { display: none; }
+  .sc-flow-stage {
+    perspective: 1100px;
+    transform-style: preserve-3d;
+  }
+  .sc-flow.is-x .sc-flow-viewport {
+    height: auto;
+    min-height: 420px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    padding: 18px 56px 28px;
+  }
+  .sc-flow.is-x .sc-flow-stage {
+    display: flex;
+    align-items: stretch;
+    min-height: 100%;
+  }
+  .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
+  .sc-flow.is-y .sc-flow-spacer { height: 72px; }
+  .sc-flow.is-x .sc-flow-spacer { width: 12vw; min-width: 36px; }
+  .sc-flow-nav {
+    position: absolute;
+    z-index: 5;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: 0.5px solid var(--border-strong);
+    background: color-mix(in srgb, var(--card-bg, var(--bg2)) 88%, transparent);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    transition: transform 0.28s var(--sc-flow-ease), opacity 0.22s ease;
+  }
+  .sc-flow-nav svg { width: 26px; height: 26px; }
+  .sc-flow-nav:active { transform: scale(0.9); }
+  .sc-flow-nav:disabled { opacity: 0.28; pointer-events: none; }
+  .sc-flow.is-y .sc-flow-nav-prev { top: 8px; left: 50%; transform: translateX(-50%); }
+  .sc-flow.is-y .sc-flow-nav-next { bottom: 14px; left: 50%; transform: translateX(-50%); }
+  .sc-flow.is-y .sc-flow-nav-prev:active { transform: translateX(-50%) scale(0.9); }
+  .sc-flow.is-y .sc-flow-nav-next:active { transform: translateX(-50%) scale(0.9); }
+  .sc-flow.is-x .sc-flow-nav-prev { top: 50%; left: 4px; transform: translateY(-50%); }
+  .sc-flow.is-x .sc-flow-nav-next { top: 50%; right: 4px; transform: translateY(-50%); }
+  .sc-flow.is-x .sc-flow-nav-prev:active { transform: translateY(-50%) scale(0.9); }
+  .sc-flow.is-x .sc-flow-nav-next:active { transform: translateY(-50%) scale(0.9); }
+  .sc-flow.is-x .sc-flow-nav-prev svg,
+  .sc-flow.is-x .sc-flow-nav-next svg { transform: rotate(-90deg); }
+  .sc-flow-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+    margin: 14px auto;
+    padding: 22px 18px 20px;
+    border-radius: 28px;
+    border: 0.5px solid var(--border);
+    background: var(--card-bg, var(--bg2));
+    color: var(--text);
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+    transform-origin: center center;
+    transform-style: preserve-3d;
+    will-change: transform, opacity;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.12);
+    transition: box-shadow 0.4s var(--sc-flow-ease), border-color 0.28s ease;
+  }
+  .sc-flow.is-x .sc-flow-tile {
+    width: min(84vw, 380px);
+    margin: 0 10px;
+    flex: 0 0 auto;
+  }
+  .sc-flow-tile.is-current {
+    border-color: var(--brand-line, var(--accent));
+    box-shadow: 0 22px 50px rgba(0,0,0,0.18);
+    z-index: 2;
+  }
+  .sc-flow-tile.is-done .sc-flow-name { opacity: 0.78; }
+  .sc-flow-tile.is-skipped .sc-flow-name {
+    opacity: 0.62;
+    text-decoration: line-through;
+    text-decoration-thickness: 0.5px;
+  }
+  .sc-flow-tile-top {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .sc-flow-num {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    border: 0.5px solid var(--border);
+  }
+  .sc-flow-tile.is-current .sc-flow-num {
+    background: var(--accent);
+    color: var(--pill-fg);
+    border-color: var(--accent);
+  }
+  .sc-flow-tile.is-done .sc-flow-num {
+    background: var(--green-bg);
+    color: var(--green-text);
+    border-color: rgba(34,197,94,0.40);
+  }
+  .sc-flow-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+  .sc-flow-name {
+    font-size: 20px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .sc-flow-id {
+    font-family: var(--font-num);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--text3);
+  }
+  .sc-flow-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .sc-flow-tile .scenario-status-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    width: 100%;
+  }
+  .sc-flow-tile .scenario-status-btn {
+    flex: 1 1 0;
+    min-height: 56px;
+    min-width: 0;
+    padding: 14px 12px;
+    font-size: 16px;
+    font-weight: 700;
+    border-radius: 16px;
+  }
+  .sc-flow-tile .scenario-skip-btn {
+    flex: 0 0 100%;
+    min-height: 52px;
+    margin-left: 0;
+    font-size: 16px;
+    font-style: normal;
+  }
+  .sc-flow-tile .scenario-skip-btn::before { content: none; }
+  .sc-flow-tile .iter-stepper {
+    height: 56px;
+    width: 100%;
+    max-width: none;
+    border-radius: 18px;
+  }
+  .sc-flow-tile .iter-btn {
+    width: 56px;
+    min-width: 56px;
+    height: 56px;
+  }
+  .sc-flow-tile .iter-btn svg { width: 18px; height: 18px; }
+  .sc-flow-tile .iter-value { font-size: 22px; min-width: 72px; }
+  .sc-flow-tile .scenario-notes {
+    min-height: 56px;
+    font-size: 16px;
+    line-height: 1.45;
+    border-radius: 16px;
+    padding: 14px 16px;
+    background: var(--input-bg);
+    border-color: var(--border-strong);
+  }
+  .sc-flow-tile .cal-ref-videos { gap: 8px; margin-bottom: 2px; }
+  .sc-flow-tile .cal-ref-btn {
+    min-height: 48px;
+    padding: 12px 16px;
+    font-size: 15px;
+    border-radius: 14px;
+  }
+  .sc-flow-tile .record-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+  .sc-flow-tile .record-ready-btn,
+  .sc-flow-tile .record-confirm-yes,
+  .sc-flow-tile .record-confirm-no,
+  .sc-flow-tile .record-undo-btn {
+    min-height: 56px;
+    width: 100%;
+    justify-content: center;
+    font-size: 16px;
+    border-radius: 16px;
+  }
+  .sc-flow-tile .record-complete-pill {
+    min-height: 52px;
+    justify-content: center;
+    font-size: 15px;
+    border-radius: 16px;
+  }
+  .sc-flow-tile .scenario-note-required {
+    font-size: 14px;
+    white-space: normal;
+  }
+  .sc-flow-tile .appr-slidedown { margin-top: 4px; }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .sc-flow-viewport { scroll-behavior: auto; }
+  .sc-flow-axis-btn, .sc-flow-nav, .sc-flow-tile { transition: none; }
 }
 
 .station-item.active .lights-pill.off {
@@ -14583,6 +14897,20 @@ h1, h2, h3,
 }
 .st-flow-axes {
   background: var(--bg) !important; border: none !important;
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
+.sc-flow-tile {
+  background: var(--bg) !important; border: none !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+}
+.sc-flow-tile.is-current {
+  box-shadow: 12px 12px 24px var(--neu-dark), -12px -12px 24px var(--neu-light);
+}
+.sc-flow-axes, .sc-flow-nav {
+  background: var(--bg) !important; border: none !important;
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+}
+.sc-flow-axis-btn.active {
   box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
 }
 
