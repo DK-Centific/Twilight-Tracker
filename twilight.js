@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bf';
-const APP_UPDATED_AT = '09/09/2026 10:55';
+const APP_VERSION = '1.3.090826bg';
+const APP_UPDATED_AT = '09/09/2026 11:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10232,12 +10232,27 @@ function renderApprovalTab(body) {
   }, APPROVAL_CACHE_TTL_MS);
 }
 
-function renderApprovalListInto() {
+function approvalListPaintSignature() {
+  const sel = (typeof adminState !== 'undefined' && adminState && adminState._apprSelected) || '';
+  const all = (typeof sortedApprovals === 'function') ? sortedApprovals() : [];
+  const list = all.filter((a) => (typeof apprPassesDateFilter === 'function' ? apprPassesDateFilter(a) : true));
+  const err = (typeof adminState !== 'undefined' && adminState && adminState._apprReadError) || '';
+  if (!list.length) return 'empty|' + (err ? 'err' : (all.length ? 'range' : 'none')) + '|' + sel;
+  return list.map((a) => [
+    a.approval_id, a.status, a.submitted_at, a.decided_at, a.last_modified, a.team_name, a.moderator_name,
+  ].join(':')).join('|') + '#' + sel;
+}
+
+function renderApprovalListInto(opts) {
+  opts = opts || {};
   const listEl = document.getElementById('apprList');
   if (!listEl) return;
   updateApprFilterCounts();
   const all = sortedApprovals();
   const list = all.filter(apprPassesDateFilter);
+  const sig = approvalListPaintSignature();
+  if (!opts.force && listEl.dataset.apprSig === sig) return;
+  listEl.dataset.apprSig = sig;
   if (!list.length) {
     const readErr = (typeof adminState !== 'undefined' && adminState._apprReadError) || '';
     if (readErr) {
@@ -10299,9 +10314,24 @@ function resolveApprovalRingUrl(appr) {
   return fallbackUrl;
 }
 
-function renderApprovalPanelInto() {
+function approvalPanelPaintSignature() {
+  const id = (typeof adminState !== 'undefined' && adminState && adminState._apprSelected) || '';
+  const a = ((typeof adminState !== 'undefined' && adminState && adminState.approvals) || [])
+    .find((x) => String(x.approval_id) === String(id));
+  const rejectOpen = !!(adminState && adminState._apprRejectOpen && String(adminState._apprSelected) === String(id));
+  if (!a) return 'empty|' + id;
+  return [
+    id, a.status, a.feedback_note, a.decided_by, a.lakitu_url, a.last_modified, rejectOpen ? '1' : '0',
+  ].join('|');
+}
+
+function renderApprovalPanelInto(opts) {
+  opts = opts || {};
   const panel = document.getElementById('apprPanel');
   if (!panel) return;
+  const panelSig = approvalPanelPaintSignature();
+  if (!opts.force && panel.dataset.apprPanelSig === panelSig) return;
+  panel.dataset.apprPanelSig = panelSig;
   const id = adminState._apprSelected || '';
   const a = ((adminState.approvals) || []).find(x => String(x.approval_id) === String(id));
   if (!a) {
@@ -10505,11 +10535,12 @@ function refreshApprovalTabFromCloud(opts) {
   if (listEl) listEl.classList.add('is-refreshing');
   if (panelEl) panelEl.classList.add('is-refreshing');
   const paint = () => {
+    if (listEl) listEl.classList.remove('is-refreshing');
+    if (panelEl) panelEl.classList.remove('is-refreshing');
     if (typeof markApprovalsSeen === 'function') markApprovalsSeen();
-    if (typeof renderApprovalListInto === 'function') renderApprovalListInto();
-    if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
+    if (typeof renderApprovalListInto === 'function') renderApprovalListInto({ force: true });
+    if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto({ force: true });
     refreshTopApprCount();
-    if (typeof playAdminTabEnter === 'function') playAdminTabEnter();
     if (opts.notify !== false && typeof toast === 'function') toast('Approvals refreshed');
   };
   const fetchP = (typeof ensureApprovalData === 'function')
