@@ -10454,33 +10454,23 @@ button.perf-stat-chip.scheduled.active {
 }
 .ov-solar-orb.is-moon {
   overflow: hidden;
-  background:
-    radial-gradient(circle at 30% 28%, #f4f1e8 0%, #d5d0c4 42%, #9a958c 100%);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.28), inset -10px -14px 22px rgba(40,38,36,0.18);
+  background-color: #ececec;
+  background-image: url('icons/ov-moon-face.png');
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.32),
+    inset 0 0 0 1px rgba(255,255,255,0.22);
 }
 .ov-solar-orb.is-moon::before,
 .ov-solar-orb.is-moon::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-}
-.ov-solar-orb.is-moon::before {
-  background:
-    radial-gradient(ellipse 34% 28% at 36% 46%, rgba(72,70,66,0.48) 0 58%, transparent 74%),
-    radial-gradient(ellipse 22% 18% at 64% 58%, rgba(68,66,62,0.40) 0 52%, transparent 72%),
-    radial-gradient(ellipse 16% 14% at 52% 30%, rgba(80,76,70,0.32) 0 50%, transparent 70%);
-}
-.ov-solar-orb.is-moon::after {
-  background:
-    radial-gradient(circle 11% at 28% 64%, rgba(60,58,54,0.42) 0 55%, transparent 72%),
-    radial-gradient(circle 8% at 72% 34%, rgba(62,60,56,0.36) 0 52%, transparent 70%),
-    radial-gradient(circle 6% at 58% 72%, rgba(58,56,52,0.34) 0 50%, transparent 68%),
-    radial-gradient(circle 5% at 44% 22%, rgba(70,68,64,0.28) 0 48%, transparent 66%);
+  content: none;
 }
 .ov-viz-well.is-night .ov-solar-orb.is-moon {
-  box-shadow: 0 16px 44px rgba(0,0,0,0.38), inset -10px -14px 22px rgba(20,22,28,0.22);
+  box-shadow:
+    0 16px 44px rgba(0,0,0,0.40),
+    inset 0 0 0 1px rgba(255,255,255,0.16);
 }
 @keyframes ov-orb-float {
   0%, 100% { transform: translateY(0) scale(1); }
