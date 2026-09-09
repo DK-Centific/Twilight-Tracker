@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bu';
-const APP_UPDATED_AT = '09/09/2026 22:55';
+const APP_VERSION = '1.3.090826bv';
+const APP_UPDATED_AT = '09/09/2026 23:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2363,6 +2363,7 @@ const SCENARIO_FLOW_AXIS_KEY = 'centific_orbit_scenario_flow_axis';
 let _scenarioFlowAxis = '';
 let _scenarioFlowFocusNum = '';
 let _scenarioFlowStationKey = '';
+let _scenarioFlowAdvanceOnComplete = null;
 let _scenarioFlowScrollTimer = null;
 let _scenarioFlowTicking = false;
 
@@ -2407,11 +2408,30 @@ function setScenarioFlowAxis(axis) {
   });
 }
 
+function markScenarioFlowAdvance(stationKey, num) {
+  if (!isScenarioFlowMode()) return;
+  _scenarioFlowAdvanceOnComplete = { key: String(stationKey || ''), num: String(num || '') };
+}
+
+function nextOpenScenarioNumAfter(stationKey, doneNum) {
+  const st = STATIONS.find(s => s.key === stationKey);
+  const data = st && state.stations ? state.stations[st.key] : null;
+  if (!st || !Array.isArray(st.scenarios)) return '';
+  const nums = st.scenarios.map(sc => String(sc.num));
+  const start = nums.indexOf(String(doneNum));
+  const order = start >= 0 ? nums.slice(start + 1).concat(nums.slice(0, start)) : nums;
+  const hit = order.find(n => {
+    const sd = data && data.scenarios ? data.scenarios[n] : null;
+    return sd && !isScenarioDoneForStation(sd);
+  });
+  return hit || '';
+}
+
 function firstOpenScenarioNum(station, data) {
   if (!station || !Array.isArray(station.scenarios)) return '';
   const hit = station.scenarios.find(sc => {
     const sd = data && data.scenarios ? data.scenarios[sc.num] : null;
-    return sd && !isScenarioComplete(sd) && !isScenarioSkipped(sd);
+    return sd && !isScenarioDoneForStation(sd);
   });
   return String((hit || station.scenarios[0] || {}).num || '');
 }
@@ -2630,6 +2650,17 @@ function bindScenarioFlow() {
     });
   }
   const stationKey = root.dataset.station || '';
+  if (_scenarioFlowAdvanceOnComplete && _scenarioFlowAdvanceOnComplete.key === stationKey) {
+    const doneNum = _scenarioFlowAdvanceOnComplete.num;
+    _scenarioFlowAdvanceOnComplete = null;
+    _scenarioFlowStationKey = stationKey;
+    _scenarioFlowFocusNum = nextOpenScenarioNumAfter(stationKey, doneNum) || doneNum;
+    requestAnimationFrame(() => {
+      snapScenarioFlowToFocus('smooth');
+      paintScenarioFlow();
+    });
+    return;
+  }
   const focusStillHere = _scenarioFlowFocusNum
     && vp.querySelector(`.sc-flow-tile[data-num="${_scenarioFlowFocusNum}"]`);
   if (_scenarioFlowStationKey !== stationKey || !focusStillHere) {
@@ -3215,6 +3246,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
       const k = btn.dataset.key;
       const newStatus = btn.dataset.status;
       const sc = state.stations[k].scenarios[num];
+      const wasDone = isScenarioDoneForStation(sc);
 
       // Toggle behavior: tapping the active button reverts to "Not Started"
       // (so the operator can correct an accidental tap without using a separate clear)
@@ -3236,6 +3268,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
       }
       saveState();
       if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+      if (!wasDone && isScenarioDoneForStation(sc)) markScenarioFlowAdvance(k, num);
       // If we just set Partially Recorded OR Skipped without a note, focus
       // the notes input so the operator can immediately add the required note.
       const needsNoteNow =
@@ -3304,8 +3337,10 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
       const num = e.target.dataset.num;
       const k = e.target.dataset.key;
       const sc = state.stations[k].scenarios[num];
+      const wasDone = isScenarioDoneForStation(sc);
       sc.notes = e.target.value;
       saveState();
+      if (!wasDone && isScenarioDoneForStation(sc)) markScenarioFlowAdvance(k, num);
 
       // --- (a) Surgically toggle the inline "Note required" warning ---
       // The warning row(s) live as siblings of the .scenario-status-group

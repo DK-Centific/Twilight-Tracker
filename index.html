@@ -3939,7 +3939,8 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
    Hovers over the accordion; no reserved gutter. z-index 70 sits above
    tiles and below the Helios bottom bar (180). */
 .acc-stepper {
-  position: fixed; right: 10px; top: 50%; transform: translateY(-50%);
+  position: fixed; right: 10px; top: auto; transform: none;
+  bottom: calc(108px + env(safe-area-inset-bottom, 0px));
   z-index: 70; display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 7px 6px; border-radius: 999px;
   background: var(--card-bg); border: 0.5px solid var(--border);
