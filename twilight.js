@@ -8992,6 +8992,7 @@ function overviewVizStageHTML() {
             <div class="ov-solar-orb is-sun" id="ovSolarOrb" aria-hidden="true"></div>
           </div>
         </div>
+        <div class="ov-viz-cut-plane" aria-hidden="true"></div>
         <div class="ov-viz-copy">
           <div class="ov-viz-label" id="ovVizDate"></div>
           <div class="ov-viz-value" id="ovVizTemp">
