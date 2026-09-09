@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826an';
-const APP_UPDATED_AT = '09/09/2026 00:08';
+const APP_VERSION = '1.3.090826ao';
+const APP_UPDATED_AT = '09/09/2026 00:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4214,15 +4214,16 @@ function promptStation1LakituUrl() {
     overlay.id = 'apprLakituSubmitOverlay';
     overlay.className = 'appr-lakitu-submit-overlay open';
     const preset = (state && state.recordLakituUrl) ? String(state.recordLakituUrl).trim() : '';
+    const gif = (typeof LAKITU_INFO_GIF_B64 !== 'undefined') ? LAKITU_INFO_GIF_B64 : '';
     overlay.innerHTML = `
       <div class="appr-lakitu-submit-modal" role="dialog" aria-modal="true" aria-labelledby="apprLakituSubmitTitle">
         <div class="appr-lakitu-submit-head">
           <div class="appr-lakitu-submit-title-row">
             <div class="appr-lakitu-submit-title" id="apprLakituSubmitTitle">Lakitu session URL</div>
-            ${lakituInfoPopoverMarkup('lakitu_info')}
           </div>
           <p class="appr-lakitu-submit-lead">Paste the Lakitu URL that includes the GIF of this calibration. Admins use it to review and unlock the rest of Station 1.</p>
         </div>
+        ${gif ? `<img class="appr-lakitu-submit-gif" src="${gif}" alt="Find the session in Lakitu and copy its URL" decoding="async">` : ''}
         <label class="appr-lakitu-submit-label" for="apprLakituSubmitInput">Lakitu URL</label>
         <input type="url" id="apprLakituSubmitInput" class="appr-lakitu-submit-input" placeholder="https://lakitu.ring.amazon.dev/p/…?session=…" value="${escapeHTML(preset)}" autocomplete="off" spellcheck="false">
         <div class="appr-lakitu-submit-err" id="apprLakituSubmitErr" hidden></div>
@@ -4232,7 +4233,7 @@ function promptStation1LakituUrl() {
         </div>
       </div>`;
     document.body.appendChild(overlay);
-    const unbindInfo = bindLakituInfoPopover('lakitu_info', overlay);
+    const unbindInfo = function () {};
     const input = document.getElementById('apprLakituSubmitInput');
     const errEl = document.getElementById('apprLakituSubmitErr');
     const finish = (value) => {
@@ -34634,7 +34635,17 @@ function init() {
   // Stamp the live APP_VERSION into the sidebar footer and the faint
   // build stamp. The login card no longer shows a version number.
   const sidebarVer = document.getElementById('sidebarVersionLabel');
-  if (sidebarVer) sidebarVer.textContent = `Centific Data Collection · Project Twilight · v${APP_VERSION}`;
+  if (sidebarVer) {
+    const nameEl = document.getElementById('sidebarVersionName');
+    const verEl = document.getElementById('sidebarVersionApp');
+    const updatedEl = document.getElementById('sidebarVersionUpdated');
+    if (nameEl) nameEl.textContent = 'Centific Data Collection';
+    if (verEl) verEl.textContent = 'v' + APP_VERSION;
+    if (updatedEl) updatedEl.textContent = '(last updated: ' + APP_UPDATED_AT + ')';
+    if (!nameEl && !verEl) {
+      sidebarVer.textContent = `Centific Data Collection · v${APP_VERSION} · (last updated: ${APP_UPDATED_AT})`;
+    }
+  }
   const stampVerText = 'v' + APP_VERSION;
   const stampUpdatedText = '(last updated: ' + APP_UPDATED_AT + ')';
   const buildStamp = document.getElementById('appBuildStamp');
