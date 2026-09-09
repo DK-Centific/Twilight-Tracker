@@ -4061,6 +4061,12 @@ input#ent_lakitu.lakitu-invalid {
 .appr-wrap { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items: start; }
 @media (max-width: 860px) { .appr-wrap { grid-template-columns: 1fr; } }
 .appr-list { display: flex; flex-direction: column; gap: 7px; }
+.appr-list.is-refreshing,
+.appr-panel.is-refreshing {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.2s var(--apple-ease, ease);
+}
 .appr-empty { padding: 40px 20px; text-align: center; color: var(--text3); font-size: 13.5px; }
 .appr-row {
   display: flex; align-items: center; gap: 11px;

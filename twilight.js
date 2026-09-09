@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826be';
-const APP_UPDATED_AT = '09/09/2026 10:40';
+const APP_VERSION = '1.3.090826bf';
+const APP_UPDATED_AT = '09/09/2026 10:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10496,6 +10496,29 @@ function decideSelectedApproval(decision, note) {
 function refreshTopApprCount() {
   const el = document.getElementById('topApprCount');
   if (el) el.textContent = pendingApprovalCount() || '';
+}
+
+function refreshApprovalTabFromCloud(opts) {
+  opts = opts || {};
+  const listEl = document.getElementById('apprList');
+  const panelEl = document.getElementById('apprPanel');
+  if (listEl) listEl.classList.add('is-refreshing');
+  if (panelEl) panelEl.classList.add('is-refreshing');
+  const paint = () => {
+    if (typeof markApprovalsSeen === 'function') markApprovalsSeen();
+    if (typeof renderApprovalListInto === 'function') renderApprovalListInto();
+    if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
+    refreshTopApprCount();
+    if (typeof playAdminTabEnter === 'function') playAdminTabEnter();
+    if (opts.notify !== false) {
+      if (typeof showToast === 'function') showToast('Approvals refreshed', 'success', 1800);
+      else if (typeof toast === 'function') toast('Approvals refreshed');
+    }
+  };
+  const fetchP = (typeof ensureApprovalData === 'function')
+    ? ensureApprovalData({ force: true })
+    : Promise.resolve();
+  return Promise.resolve(fetchP).then(paint).catch(paint);
 }
 
 // --- app-wide incoming-approval poll + banner ---
@@ -27750,6 +27773,12 @@ function bindAdminMenu() {
         if (typeof loadModerators === 'function')         loadModerators(true);
         if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
         if (typeof fetchWorklogFromPA === 'function')     fetchWorklogFromPA();
+      } else if (tab === 'approval') {
+        // Approval was missing from this dispatcher · Refresh spun the
+        // icon but never re-fetched the queue, so the list looked frozen.
+        refreshApprovalTabFromCloud({ notify: true }).finally(() => {
+          refreshBtn.classList.remove('refreshing');
+        });
       }
     });
   }
