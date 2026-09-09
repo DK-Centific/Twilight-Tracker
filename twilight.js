@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ax';
-const APP_UPDATED_AT = '09/09/2026 05:40';
+const APP_VERSION = '1.3.090826az';
+const APP_UPDATED_AT = '09/09/2026 05:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -11406,13 +11406,18 @@ async function refreshMasterAdmins() {
 
 function syncMasterAdminChrome() {
   const on = isMasterAdminUser();
+  const reviewer = typeof isReviewerSession === 'function' && isReviewerSession();
   try { document.body.classList.toggle('is-master-admin', !!on); } catch (_) {}
   const adminActive = !!(document.getElementById('adminApp') && document.getElementById('adminApp').classList.contains('active'));
-  const roleLabel = on ? 'Master Admin' : 'Admin';
+  const roleLabel = reviewer ? 'Reviewer' : (on ? 'Master Admin' : 'Admin');
   const adminRoleText = document.getElementById('adminRolePillText');
   if (adminRoleText) adminRoleText.textContent = roleLabel;
   const adminRolePill = document.getElementById('adminRolePill');
   if (adminRolePill) adminRolePill.setAttribute('aria-label', roleLabel);
+  const adminBrandSub = document.getElementById('adminBrandSub');
+  if (adminBrandSub) {
+    adminBrandSub.textContent = reviewer ? 'Project Twilight · QA' : 'Project Twilight · Admin';
+  }
   const modRolePill = document.getElementById('modRolePill');
   if (modRolePill) {
     modRolePill.hidden = !on;
