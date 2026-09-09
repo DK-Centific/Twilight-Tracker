@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bd';
-const APP_UPDATED_AT = '09/09/2026 09:50';
+const APP_VERSION = '1.3.090826bf';
+const APP_UPDATED_AT = '09/09/2026 10:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -15319,8 +15319,8 @@ const PANIC_ALERT_EMAIL = 'ben_prod_twilight@centific.com';
 const PANIC_TEAMS_FOLLOW_UP = 'Also, please notify the managers in the Teams chat immediately.';
 // Empty until the PanicLog write flow URL is pasted here.
 const PANICLOG_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/25/workflows/c6ce5448f600450bbd947871da0bc0f6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rFHMxswsjCYL-1I5uZxrRMqXnLvst0t-5Qwr3qwmUqI';
-// Empty until the PanicLog read flow URL is pasted here.
-const PANICLOG_PA_READ_URL = '';
+const PANICLOG_PA_READ_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/ef8b9a533932481e953493557c9c0fd6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=GG2DJpbmspryoVU9cnl3OJtBCY15RQDJCCqfb-HkwT0';
+const TWILIGHT_APP_URL = 'https://dk-centific.github.io/Twilight-Tracker/';
 
 // =====================================================================
 // EMAIL LOG · audit trail for every confirmation email sent
@@ -16975,9 +16975,85 @@ async function loadPanicEmailTemplate() {
   return _panicEmailTemplateCache;
 }
 
+function panicEmailDetailRow(label, value) {
+  if (!value) return '';
+  return '<tr>' +
+    '<td style="padding:8px 0 4px; vertical-align:top;">' +
+      '<p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">' + escapeHTML(label) + '</p>' +
+    '</td>' +
+    '<td style="padding:8px 0 4px; vertical-align:top;">' +
+      '<p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, \'Segoe UI\', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F;">' + escapeHTML(value) + '</p>' +
+    '</td>' +
+  '</tr>';
+}
+
+function panicIncidentNoteText(reportKey, comment) {
+  if (reportKey === 'contact_police') {
+    return 'The local authority was contacted for this escalation, please follow up on this incident.';
+  }
+  const note = String(comment || '').trim();
+  if (note) return note;
+  return 'Please follow up with the moderator for additional details.';
+}
+
+function panicDisplayNameForOrbitId(orbitId) {
+  if (!orbitId) return '';
+  if (typeof getModeratorByOrbitId === 'function') {
+    const m = getModeratorByOrbitId(orbitId);
+    if (m) {
+      const fn = pickField(m, 'firstName', 'first_name', 'FirstName', 'First Name');
+      const ln = pickField(m, 'lastName', 'last_name', 'LastName', 'Last Name');
+      const full = [fn, ln].filter(Boolean).join(' ').trim();
+      if (full) return full;
+    }
+  }
+  if (typeof getOperatorTeammateFirstName === 'function') return getOperatorTeammateFirstName(orbitId);
+  return String(orbitId);
+}
+
+function panicTeamRosterLines(team, reporterOrbitId) {
+  const myId = String(reporterOrbitId || '').toLowerCase();
+  const primaries = (team && team.primaryIds) || [];
+  const backups = (typeof getTeamBackupIds === 'function')
+    ? getTeamBackupIds(team)
+    : ((team && (team.backupIds || (team.backupId ? [team.backupId] : []))) || []);
+  const names = (ids) => (ids || [])
+    .filter((id) => String(id || '').toLowerCase() !== myId)
+    .map(panicDisplayNameForOrbitId)
+    .filter(Boolean);
+  const join = (list) => {
+    if (!list.length) return '';
+    if (list.length === 1) return list[0];
+    if (list.length === 2) return list[0] + ' & ' + list[1];
+    return list.slice(0, -1).join(', ') + ' & ' + list[list.length - 1];
+  };
+  return {
+    teamMemberName: join(names(primaries)),
+    backupName: join(names(backups)),
+  };
+}
+
+function formatPanicReportDate(value) {
+  const dt = (value instanceof Date) ? value : new Date(value || Date.now());
+  if (isNaN(dt.getTime())) return String(value || '—');
+  const weekday = dt.toLocaleDateString(undefined, { weekday: 'long' });
+  return weekday + ', ' + dt.toLocaleString();
+}
+
 function fillPanicEmailTemplate(template, data) {
   const safe = (s) => escapeHTML(String(s == null || s === '' ? '—' : s)).replace(/\n/g, '<br>');
+  const address = String((data && data.assignmentAddress) || (data && data.location) || '').trim();
+  const backup = String((data && data.backupName) || '').trim();
   return String(template || '')
+    .replace(/\{escalationTier\}/g, safe(data.escalationTier || data.reportType || data.alertTitle))
+    .replace(/\{modName\}/g, safe(data.modName || data.reporterName))
+    .replace(/\{dateTime\}/g, safe(data.dateTime || data.reportedAt))
+    .replace(/\{reportDateLong\}/g, safe(data.reportDateLong || data.reportedAt))
+    .replace(/\{teamMemberName\}/g, safe(data.teamMemberName))
+    .replace(/\{incidentNote\}/g, safe(data.incidentNote || data.comment))
+    .replace(/\{orbitAppUrl\}/g, String((data && data.orbitAppUrl) || (typeof TWILIGHT_APP_URL !== 'undefined' ? TWILIGHT_APP_URL : '#')).replace(/"/g, ''))
+    .replace(/\{addressRow\}/g, panicEmailDetailRow('Address', address))
+    .replace(/\{backupRow\}/g, panicEmailDetailRow('Backup', backup))
     .replace(/\{alertTitle\}/g, safe(data.alertTitle))
     .replace(/\{reportType\}/g, safe(data.reportType))
     .replace(/\{reportSubtype\}/g, safe(data.reportSubtype))
@@ -17010,6 +17086,10 @@ function collectPanicReportContext() {
     reportedAt: new Date().toLocaleString(),
     reportedAtIso: new Date().toISOString(),
     appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    assignmentAddress: (pd.address || (team && team.teamAddress) || '').trim(),
+    ...((typeof panicTeamRosterLines === 'function')
+      ? panicTeamRosterLines(team, (state && state.username) || '')
+      : { teamMemberName: '', backupName: '' }),
   };
 }
 
@@ -17291,6 +17371,12 @@ async function sendPanicEscalationAlert(report) {
     comment: (report && report.comment) || '',
     followUpNote: followUp,
     alertTitle: (report && report.alertTitle) || ((report && report.reportType) || 'Escalation'),
+    escalationTier: (report && report.reportType) || '',
+    modName: ctx.reporterName,
+    dateTime: ctx.reportedAt,
+    reportDateLong: formatPanicReportDate(ctx.reportedAtIso || ctx.reportedAt),
+    incidentNote: panicIncidentNoteText((report && report.reportKey) || '', (report && report.comment) || ''),
+    orbitAppUrl: (typeof TWILIGHT_APP_URL !== 'undefined') ? TWILIGHT_APP_URL : 'https://dk-centific.github.io/Twilight-Tracker/',
   });
   const panicLogId = 'pl_' + (payload.reporterOrbitId || 'user') + '_' + Date.now();
   const logRow = {
