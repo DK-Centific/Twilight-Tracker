@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826az';
-const APP_UPDATED_AT = '09/09/2026 05:55';
+const APP_VERSION = '1.3.090826ba';
+const APP_UPDATED_AT = '09/09/2026 06:00';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9744,7 +9744,7 @@ function wireApprovalFilterBar() {
 }
 
 const APPROVAL_QA_REASONS = [
-  { id: 'cal_checker', label: 'Calibration Checker Box Correction needed' },
+  { id: 'cal_checker', label: 'Calibration Checker Board correction needed' },
   { id: 'rec_length', label: 'Recording length is not meeting the minimum' },
   { id: 'camera_angle', label: 'Camera angle not following the SOP' },
   { id: 'lux_light', label: 'Lux/Light setting issue' },
