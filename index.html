@@ -14725,11 +14725,64 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 .panic-table td:first-child { font-weight:600; width:42%; }
 .panic-tier { border-radius:14px; padding:12px 14px; margin:10px 0; background:var(--well-bg, #F0F0E8); border-left:4px solid var(--text3, #94948C); }
 .panic-tier-label { font-weight:700; font-size:12.5px; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px; }
+.panic-tier-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:4px; }
+.panic-tier-head .panic-tier-label { margin-bottom:0; }
+.panic-more-pill {
+  flex:0 0 auto; display:inline-flex; align-items:center;
+  padding:4px 10px; border-radius:999px; font-size:11px; font-weight:700;
+  letter-spacing:0.02em; color:#D9534F; background:rgba(217,83,79,0.14);
+  border:1px solid rgba(217,83,79,0.28); white-space:nowrap;
+}
 .panic-tier p { margin:0; }
 .panic-tier.tier-ok { border-left-color:#4C9A6A; } .panic-tier.tier-ok .panic-tier-label { color:#3d8459; }
 .panic-tier.tier-flag { border-left-color:var(--accent, #E07A2B); } .panic-tier.tier-flag .panic-tier-label { color:var(--accent, #E07A2B); }
 .panic-tier.tier-report { border-left-color:#C9A227; } .panic-tier.tier-report .panic-tier-label { color:#a5851c; }
-.panic-tier.tier-escalate { border-left-color:#D9534F; background:rgba(217,83,79,0.08); } .panic-tier.tier-escalate .panic-tier-label { color:#D9534F; }
+.panic-tier.tier-escalate { border-left-color:#D9534F; background:rgba(217,83,79,0.08); cursor:pointer; } .panic-tier.tier-escalate .panic-tier-label { color:#D9534F; }
+.panic-tier.tier-escalate.is-open { cursor:default; }
+.panic-escalate-grid {
+  display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px;
+  margin-top:12px;
+}
+.panic-esc-opt {
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding:10px 6px; border:none; border-radius:12px; cursor:pointer;
+  background:var(--bg, #F7F7F2); color:var(--text, #3C3C3B);
+  box-shadow:3px 3px 8px rgba(0,0,0,0.10), -2px -2px 6px rgba(255,255,255,0.35);
+  font-family:var(--font, 'Inter', sans-serif); font-size:11px; font-weight:650; line-height:1.25; text-align:center;
+}
+.panic-esc-opt:hover { transform:translateY(-1px); }
+.panic-esc-ico { width:44px; height:44px; border-radius:50%; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.panic-esc-ico img { width:40px; height:40px; display:block; }
+.panic-esc-name { max-width:100%; }
+.panic-form h3 { margin-top:0; }
+.panic-followup { margin:0 0 12px; padding:10px 12px; border-radius:10px; background:rgba(217,83,79,0.08); color:var(--text, #3C3C3B); font-weight:600; }
+.panic-form-label { display:block; font-size:12px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text2, #666); margin:12px 0 6px; }
+.panic-comment {
+  width:100%; min-height:96px; resize:vertical; box-sizing:border-box;
+  font-family:var(--font, 'Inter', sans-serif); font-size:14px; line-height:1.45;
+  padding:10px 12px; border-radius:10px; border:1px solid var(--border, rgba(0,0,0,0.12));
+  background:var(--input-bg, #fff); color:var(--text, #3C3C3B);
+}
+.panic-choices { display:flex; flex-direction:column; gap:8px; margin:8px 0 4px; }
+.panic-choice {
+  text-align:left; padding:10px 12px; border-radius:10px; cursor:pointer;
+  border:1px solid var(--border, rgba(0,0,0,0.12)); background:var(--bg, #F7F7F2);
+  font-family:var(--font, 'Inter', sans-serif); font-size:14px; font-weight:600; color:var(--text, #3C3C3B);
+}
+.panic-choice.is-selected { border-color:#D9534F; background:rgba(217,83,79,0.10); color:#D9534F; }
+.panic-form-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+.panic-form-back, .panic-form-send {
+  border:none; border-radius:999px; padding:9px 16px; cursor:pointer;
+  font-family:var(--font, 'Inter', sans-serif); font-size:13.5px; font-weight:700;
+}
+.panic-form-back { background:var(--bg4, #EDEDE4); color:var(--text, #3C3C3B); }
+.panic-form-send { background:#D9534F; color:#fff; }
+.panic-form-send:disabled { opacity:0.6; cursor:not-allowed; }
+.panic-form-status { margin:10px 0 0; font-size:13px; color:var(--text2, #666); }
+@media (max-width:760px) {
+  .panic-escalate-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .panic-more-pill { white-space:normal; text-align:center; }
+}
 .panic-emg-intro { text-transform:uppercase; letter-spacing:0.15em; font-size:12px; color:var(--text3, #94948C); margin:0 0 6px; }
 /* On mobile the panic button sits in the bottom bar, to the right of Settings. */
 .panic-fab.is-docked {
@@ -14761,6 +14814,6 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 }
 </style>
 
-<script src="twilight-panic.js" defer></script>
+<script src="twilight-panic.js?v=1.3.090826bb" defer></script>
 </body>
 </html>

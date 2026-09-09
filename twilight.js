@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ba';
-const APP_UPDATED_AT = '09/09/2026 06:00';
+const APP_VERSION = '1.3.090826bb';
+const APP_UPDATED_AT = '09/09/2026 07:35';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -15014,6 +15014,11 @@ const ASSIGNMENT_PA_READ_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49
 // =====================================================================
 const EMAIL_PA_SEND_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/e938e13988e64d27aee8d64118c7a7c2/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=YGownJUTVE8NwUrGC4op6Z2jU2B5jUbzrtBhCYMPe4Y';
 
+const PANIC_ALERT_EMAIL = 'ben_prod_twilight@centific.com';
+const PANIC_TEAMS_FOLLOW_UP = 'Also, please notify the managers in the Teams chat immediately.';
+// Empty until the PanicLog write flow URL is pasted here.
+const PANICLOG_PA_WRITE_URL = '';
+
 // =====================================================================
 // EMAIL LOG · audit trail for every confirmation email sent
 //
@@ -16651,6 +16656,161 @@ async function logEmailSend(entry) {
     console.warn('[Twilight] EmailLog write threw:', e && e.message);
     return { ok: false, error: e.message || String(e) };
   }
+}
+
+let _panicEmailTemplateCache = '';
+async function loadPanicEmailTemplate() {
+  if (_panicEmailTemplateCache) return _panicEmailTemplateCache;
+  try {
+    const res = await fetch('email-template-preview-moderator.html?v=' + ((typeof APP_VERSION !== 'undefined') ? APP_VERSION : '1'), { cache: 'no-cache' });
+    if (res.ok) {
+      _panicEmailTemplateCache = await res.text();
+      return _panicEmailTemplateCache;
+    }
+  } catch (_) {}
+  _panicEmailTemplateCache = '<p><strong>{alertTitle}</strong></p><p>{reportType} · {reportSubtype}</p><p>{comment}</p><p>{followUpNote}</p>';
+  return _panicEmailTemplateCache;
+}
+
+function fillPanicEmailTemplate(template, data) {
+  const safe = (s) => escapeHTML(String(s == null || s === '' ? '—' : s)).replace(/\n/g, '<br>');
+  return String(template || '')
+    .replace(/\{alertTitle\}/g, safe(data.alertTitle))
+    .replace(/\{reportType\}/g, safe(data.reportType))
+    .replace(/\{reportSubtype\}/g, safe(data.reportSubtype))
+    .replace(/\{reporterName\}/g, safe(data.reporterName))
+    .replace(/\{reporterOrbitId\}/g, safe(data.reporterOrbitId))
+    .replace(/\{teamName\}/g, safe(data.teamName))
+    .replace(/\{sessionDate\}/g, safe(data.sessionDate))
+    .replace(/\{location\}/g, safe(data.location))
+    .replace(/\{reportedAt\}/g, safe(data.reportedAt))
+    .replace(/\{comment\}/g, safe(data.comment))
+    .replace(/\{followUpNote\}/g, safe(data.followUpNote))
+    .replace(/\{assignmentId\}/g, safe(data.assignmentId))
+    .replace(/\{appVersion\}/g, safe(data.appVersion));
+}
+
+function collectPanicReportContext() {
+  const asgn = (typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null;
+  const team = (typeof getSessionDisplayTeam === 'function')
+    ? getSessionDisplayTeam()
+    : ((typeof getOperatorTeam === 'function') ? getOperatorTeam() : null);
+  const pd = (asgn && asgn.participantData) || {};
+  return {
+    reporterName: (typeof operatorFullName === 'function') ? operatorFullName() : ((state && state.username) || 'Unknown'),
+    reporterOrbitId: (state && state.username) || '',
+    teamName: (team && team.name) || (asgn && asgn.teamName) || '',
+    teamId: (team && team.id != null) ? String(team.id) : (asgn && asgn.teamId != null ? String(asgn.teamId) : ''),
+    assignmentId: (asgn && asgn.id) || '',
+    sessionDate: (asgn && asgn.date) || ((typeof getPSTDateString === 'function') ? getPSTDateString() : ''),
+    location: (pd.address || (team && team.teamAddress) || '').trim(),
+    reportedAt: new Date().toLocaleString(),
+    reportedAtIso: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+  };
+}
+
+function saveLocalPanicLog(row) {
+  try {
+    const key = 'twilight_panic_log_v1';
+    const list = JSON.parse(localStorage.getItem(key) || '[]');
+    if (!Array.isArray(list)) return;
+    list.unshift(row);
+    localStorage.setItem(key, JSON.stringify(list.slice(0, 200)));
+  } catch (_) {}
+}
+
+async function writePanicLog(row) {
+  saveLocalPanicLog(row);
+  if (!PANICLOG_PA_WRITE_URL) {
+    console.log('[Twilight] PanicLog (no flow):', row);
+    return { ok: false, skipped: true };
+  }
+  try {
+    const res = await fetch(PANICLOG_PA_WRITE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(row),
+    });
+    if (!res.ok && res.status !== 202) {
+      console.warn('[Twilight] PanicLog write HTTP', res.status);
+      return { ok: false, status: res.status };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] PanicLog write threw:', e && e.message);
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
+async function sendPanicEscalationAlert(report) {
+  const ctx = collectPanicReportContext();
+  const followUp = (report && report.followUpNote) || '';
+  const payload = Object.assign({}, ctx, {
+    reportType: (report && report.reportType) || '',
+    reportSubtype: (report && report.reportSubtype) || '',
+    comment: (report && report.comment) || '',
+    followUpNote: followUp,
+    alertTitle: (report && report.alertTitle) || ((report && report.reportType) || 'Escalation'),
+  });
+  const panicLogId = 'pl_' + (payload.reporterOrbitId || 'user') + '_' + Date.now();
+  const logRow = {
+    panicLogId: panicLogId,
+    reportedAt: payload.reportedAtIso || payload.reportedAt,
+    reportedBy: payload.reporterOrbitId,
+    reporterName: payload.reporterName,
+    teamId: payload.teamId,
+    teamName: payload.teamName,
+    assignmentId: payload.assignmentId,
+    sessionDate: payload.sessionDate,
+    reportType: (report && report.reportKey) || '',
+    reportLabel: payload.reportType,
+    reportSubtype: payload.reportSubtype,
+    comment: payload.comment,
+    followUpNote: payload.followUpNote,
+    emailTo: PANIC_ALERT_EMAIL,
+    emailStatus: '',
+    emailError: '',
+    appVersion: payload.appVersion,
+    localTimestamp: new Date().toString(),
+  };
+
+  let emailResult = { ok: false, skipped: true };
+  if (!EMAIL_PA_SEND_URL) {
+    logRow.emailStatus = 'skipped';
+    logRow.emailError = 'Email flow not configured';
+  } else {
+    try {
+      const template = await loadPanicEmailTemplate();
+      const body = fillPanicEmailTemplate(template, payload);
+      const subject = 'HIGH PRIORITY · Twilight escalation · ' + payload.reportType + ' · ' + payload.reporterName;
+      const res = await fetch(EMAIL_PA_SEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: PANIC_ALERT_EMAIL,
+          subject: subject,
+          body: body,
+          importance: 'High',
+          priority: 'high',
+        }),
+      });
+      if (res.ok || res.status === 202) {
+        emailResult = { ok: true, status: res.status };
+        logRow.emailStatus = 'sent';
+      } else {
+        emailResult = { ok: false, status: res.status, error: 'HTTP ' + res.status };
+        logRow.emailStatus = 'failed';
+        logRow.emailError = 'HTTP ' + res.status;
+      }
+    } catch (e) {
+      emailResult = { ok: false, error: e.message || String(e) };
+      logRow.emailStatus = 'failed';
+      logRow.emailError = e.message || String(e);
+    }
+  }
+  writePanicLog(logRow).catch(() => {});
+  return emailResult;
 }
 
 // Convenience: take the results from a notify round (participantResult
