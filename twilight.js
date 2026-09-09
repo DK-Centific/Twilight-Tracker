@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826aq';
-const APP_UPDATED_AT = '09/09/2026 01:20';
+const APP_VERSION = '1.3.090826ar';
+const APP_UPDATED_AT = '09/09/2026 04:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -412,6 +412,9 @@ function defaultState() {
     // uses it as the admin review link.
     recordLakituUrl: '',
     stationCompletedAt: {},
+    _progressScore: 0,
+    _progressAt: '',
+    _progressBy: '',
   };
   // Initialize equipment as unpacked
   EQUIPMENT_LIST.forEach(it => { s.equipment[it.id] = false; });
@@ -724,6 +727,9 @@ function migrateState(loaded) {
   if (!loaded.stationCompletedAt || typeof loaded.stationCompletedAt !== 'object') {
     loaded.stationCompletedAt = {};
   }
+  if (typeof loaded._progressScore !== 'number') loaded._progressScore = 0;
+  if (typeof loaded._progressAt !== 'string') loaded._progressAt = '';
+  if (typeof loaded._progressBy !== 'string') loaded._progressBy = '';
 
   return loaded;
 }
@@ -6492,7 +6498,7 @@ function getLakituUrlForAssignment(asgnId) {
     if (rExact === targetExact) return true;
     const rLoose = rExact.trim().toLowerCase();
     return rLoose === targetLoose;
-  }).sort((a, b) => String(b.lastActive || '').localeCompare(String(a.lastActive || '')));
+  }).sort((a, b) => parseLastActiveMs(b.lastActive) - parseLastActiveMs(a.lastActive));
 
   // LAKITU GATE MATCHING (1.3.061526):
   // Select the participantId from stateJson using the SAME gate the
@@ -19095,28 +19101,37 @@ function getTeamRosterLiveState(team) {
   const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
     ? adminState.perfSessionStateRows
     : [];
-  const memberIds = new Set(
-    [...((team && team.primaryIds) || []),
-     ...((team && typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : [])]
-      .map(id => String(id || '').toLowerCase())
-      .filter(Boolean)
-  );
+  const asgnTeamMap = (typeof buildAssignmentTeamMap === 'function') ? buildAssignmentTeamMap() : new Map();
+  const teamId = team && team.id != null ? String(team.id) : '';
   let latestMs = 0;
   let who = '';
+  let bestProgress = null;
   for (const r of rows) {
-    const orbit = String((r && r.orbitLoginId) || '').toLowerCase();
-    const rowTeam = (r && r.teamId != null && String(r.teamId).trim() !== '')
-      ? String(r.teamId)
-      : '';
-    const matchTeam = !!(team && rowTeam && String(rowTeam) === String(team.id));
-    const matchMember = !!(orbit && memberIds.has(orbit));
-    if (!matchTeam && !matchMember) continue;
+    if (!r) continue;
+    const parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : {};
+    if (parsed && parsed.type === 'appSetting') continue;
+    const rowTeam = (typeof sessionStateRowTeamId === 'function')
+      ? sessionStateRowTeamId(r, asgnTeamMap)
+      : String(r.teamId || '');
+    // Only this team's SessionState log — never a member's work on another team.
+    if (!teamId || String(rowTeam) !== teamId) continue;
     const ms = parseLastActiveMs(r && r.lastActive);
-    if (ms > latestMs) {
-      latestMs = ms;
-      who = (r && r.orbitLoginId) || '';
+    if (ms > latestMs) latestMs = ms;
+    const score = (typeof sessionStateProgressScore === 'function')
+      ? sessionStateProgressScore(parsed)
+      : 0;
+    const progressAt = parseLastActiveMs(parsed && parsed.progressAt) || ms;
+    if (!bestProgress
+        || score > bestProgress.score
+        || (score === bestProgress.score && progressAt > bestProgress.at)) {
+      bestProgress = {
+        score: score,
+        at: progressAt,
+        who: (parsed && parsed.progressBy) || r.orbitLoginId || '',
+      };
     }
   }
+  if (bestProgress && bestProgress.who) who = bestProgress.who;
   const windowMs = (typeof TEAM_LIVE_WINDOW_MS === 'number') ? TEAM_LIVE_WINDOW_MS : 60 * 60 * 1000;
   const live = latestMs > 0 && (Date.now() - latestMs) <= windowMs;
   return { live, lastActiveMs: latestMs, orbitLoginId: who };
@@ -27122,16 +27137,218 @@ function extractSyncableState(s) {
     // shallow-overlay applies · first-write wins per device).
     calGuideAck:        s.calGuideAck        || null,
     recordLakituUrl:    s.recordLakituUrl    || '',
+    progressScore:      s._progressScore     || 0,
+    progressAt:         s._progressAt        || '',
+    progressBy:         s._progressBy        || '',
   };
 }
 
-// Stable Excel row key for one assignment address. Reused on every
-// write so stateJson / lastActive overwrite the same row until the
-// session completes. A later booking at a different address has a
-// new assignmentId → a new row.
-function sessionStateStableId(asgn) {
+function sessionStateOrbitSafe(id) {
+  return String(id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// One Excel row per teammate on an assignment. Heartbeats update that
+// person's row only, so they cannot overwrite a partner's station work.
+// Legacy rows used `ss_{assignmentId}` with no orbit suffix.
+function sessionStateStableId(asgn, orbitLoginId) {
   if (!asgn || asgn.id == null || asgn.id === '') return '';
-  return 'ss_' + String(asgn.id);
+  const orbit = orbitLoginId
+    || (state && state.modProfile && state.modProfile.orbitLoginId)
+    || '';
+  const safe = sessionStateOrbitSafe(orbit);
+  return safe ? ('ss_' + String(asgn.id) + '_' + safe) : ('ss_' + String(asgn.id));
+}
+
+function assignmentIdsMatch(a, b) {
+  const ae = String(a == null ? '' : a);
+  const be = String(b == null ? '' : b);
+  if (!ae || !be) return false;
+  if (ae === be) return true;
+  return ae.trim().toLowerCase() === be.trim().toLowerCase();
+}
+
+function buildAssignmentTeamMap() {
+  const map = new Map();
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  for (const a of list) {
+    if (!a || a.id == null) continue;
+    const tid = String(a.teamId || '');
+    map.set(String(a.id), tid);
+    map.set(String(a.id).trim().toLowerCase(), tid);
+  }
+  return map;
+}
+
+function sessionStateRowTeamId(r, asgnTeamMap) {
+  const direct = String((r && (r.teamId || r.TeamId || r.team_id)) || '').trim();
+  if (direct) return direct;
+  const map = asgnTeamMap || buildAssignmentTeamMap();
+  const id = String((r && r.assignmentId) || '');
+  return map.get(id) || map.get(id.trim().toLowerCase()) || '';
+}
+
+function parseSessionStateJson(r) {
+  if (!r) return {};
+  try {
+    const parsed = (typeof r.stateJson === 'string') ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) { return {}; }
+}
+
+// How far a SessionState snapshot has gone on stations / scenarios.
+// Used to pick the teammate who actually advanced the work, not the
+// one whose heartbeat wrote lastActive most recently.
+function sessionStateProgressScore(syncable) {
+  if (!syncable || typeof syncable !== 'object') return 0;
+  if (syncable.type === 'appSetting') return 0;
+  let score = 0;
+  if (syncable.sessionCompletedAt) score += 100000;
+  const stations = syncable.stations || {};
+  const doneFn = (typeof isScenarioDoneForStation === 'function')
+    ? isScenarioDoneForStation
+    : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+  const list = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+    ? STATIONS
+    : Object.keys(stations).map(k => ({ key: k }));
+  for (const st of list) {
+    const data = stations[st.key] || {};
+    const vals = Object.values(data.scenarios || {});
+    let done = 0;
+    for (const sc of vals) {
+      if (doneFn && doneFn(sc)) { score += 100; done++; }
+      else if (sc && sc.status === 'Uploaded') { score += 100; done++; }
+      else if (sc && (sc.status === 'All Recorded' || sc.status === 'Calibrated')) score += 40;
+      else if (sc && sc.status === 'Skipped' && (sc.notes || '').trim()) { score += 80; done++; }
+      else if (sc && sc.status === 'Partially Recorded') score += 20;
+      else if (sc && (sc.iterations || 0) > 0) score += 8;
+      else if (sc && (sc.notes || '').trim()) score += 3;
+    }
+    if (vals.length && done === vals.length) score += 1000;
+    const stamp = syncable.stationCompletedAt || {};
+    if (stamp[st.key] || stamp['Station' + String(st.key).replace(/^station/i, '')]) score += 50;
+  }
+  if (syncable.arrivedAt) score += 20;
+  if (syncable.recordLakituUrl || (syncable.participantId && String(syncable.participantId).trim())) score += 1;
+  return score;
+}
+
+function scenarioProgressRank(sc) {
+  if (!sc) return 0;
+  if (typeof isScenarioDoneForStation === 'function' && isScenarioDoneForStation(sc)) return 40;
+  if (typeof isScenarioComplete === 'function' && isScenarioComplete(sc)) return 35;
+  if (sc.status === 'Uploaded') return 40;
+  if (sc.status === 'Skipped' && (sc.notes || '').trim()) return 30;
+  if (sc.status === 'All Recorded' || sc.status === 'Calibrated') return 28;
+  if (sc.status === 'Partially Recorded') return 18;
+  if ((sc.iterations || 0) > 0) return 10;
+  if ((sc.notes || '').trim()) return 5;
+  return 0;
+}
+
+function pickBetterScenario(local, cloud) {
+  const l = local && typeof local === 'object' ? local : { status: 'Not Started', notes: '', iterations: 0 };
+  const c = cloud && typeof cloud === 'object' ? cloud : { status: 'Not Started', notes: '', iterations: 0 };
+  const lr = scenarioProgressRank(l);
+  const cr = scenarioProgressRank(c);
+  if (cr > lr) return Object.assign({}, c);
+  if (lr > cr) return Object.assign({}, l);
+  const out = Object.assign({}, l);
+  if ((c.iterations || 0) > (l.iterations || 0)) out.iterations = c.iterations;
+  if ((String(c.notes || '').trim().length) > (String(l.notes || '').trim().length)) out.notes = c.notes;
+  return out;
+}
+
+function furthestStationLabelFromState(syncable) {
+  if (!syncable) return 'preparing';
+  if (syncable.sessionCompletedAt) return 'session complete';
+  const stations = syncable.stations || {};
+  const list = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+    ? STATIONS.slice() : Object.keys(stations).map(k => ({ key: k, label: k }));
+  const doneFn = (typeof isScenarioDoneForStation === 'function')
+    ? isScenarioDoneForStation
+    : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+  let furthest = '';
+  for (const st of list) {
+    const data = stations[st.key];
+    if (!data || !data.scenarios) continue;
+    const vals = Object.values(data.scenarios);
+    if (!vals.length) continue;
+    const done = doneFn ? vals.filter(s => doneFn(s)).length : 0;
+    const any = vals.some(s => s && ((s.status && s.status !== 'Not Started') || (s.iterations || 0) > 0));
+    if (done === vals.length) furthest = st.label || st.key;
+    else if (any && !furthest) furthest = (st.label || st.key) + ' (in progress)';
+    else if (any) furthest = st.label || st.key;
+  }
+  if (furthest) return furthest;
+  const sca = syncable.stationCompletedAt || {};
+  if (sca.station4 || sca.Station4) return 'Station 4';
+  if (sca.station3 || sca.Station3) return 'Station 3';
+  if (sca.station2 || sca.Station2) return 'Station 2';
+  if (sca.station1 || sca.Station1) return 'Station 1';
+  if (syncable.arrivedAt) return 'arrived';
+  return 'preparing';
+}
+
+function stampLocalProgressIfAdvanced(syncable, orbitLoginId) {
+  const score = sessionStateProgressScore(syncable);
+  const prev = Number((state && state._progressScore) || 0);
+  const now = new Date().toISOString();
+  const orbit = String(orbitLoginId || (state && state.modProfile && state.modProfile.orbitLoginId) || '');
+  if (state && score > prev) {
+    state._progressScore = score;
+    state._progressAt = now;
+    state._progressBy = orbit;
+  }
+  syncable.progressScore = score;
+  syncable.progressAt = (state && state._progressAt) || now;
+  syncable.progressBy = (state && state._progressBy) || orbit;
+  return score;
+}
+
+// Among SessionState rows for one team (and optional assignment), pick
+// the snapshot with the most station / scenario work. Heartbeat
+// lastActive is only a tie-break.
+function pickLatestTeamProgress(rows, opts) {
+  opts = opts || {};
+  const teamId = opts.teamId != null && String(opts.teamId).trim() !== '' ? String(opts.teamId) : '';
+  const assignmentId = opts.assignmentId != null && String(opts.assignmentId).trim() !== ''
+    ? String(opts.assignmentId) : '';
+  const exclude = String(opts.excludeOrbitId || '').toLowerCase();
+  const asgnTeamMap = opts.asgnTeamMap || buildAssignmentTeamMap();
+  const candidates = [];
+  for (const r of (rows || [])) {
+    if (!r) continue;
+    const orbit = String(r.orbitLoginId || '').toLowerCase();
+    if (!orbit || orbit === '_app_setting') continue;
+    if (exclude && orbit === exclude) continue;
+    const parsed = parseSessionStateJson(r);
+    if (parsed.type === 'appSetting') continue;
+    if (assignmentId && !assignmentIdsMatch(r.assignmentId, assignmentId)) continue;
+    if (teamId) {
+      const rowTeam = sessionStateRowTeamId(r, asgnTeamMap);
+      if (rowTeam && String(rowTeam) !== String(teamId)) continue;
+      if (!rowTeam && !assignmentId) continue;
+    }
+    const computed = sessionStateProgressScore(parsed);
+    const stored = Number(parsed.progressScore);
+    const score = Number.isFinite(stored) ? Math.max(stored, computed) : computed;
+    candidates.push({
+      row: r,
+      syncableState: parsed,
+      score: score,
+      progressAtMs: parseLastActiveMs(parsed.progressAt || ''),
+      lastActiveMs: parseLastActiveMs(r.lastActive),
+      progressBy: parsed.progressBy || r.orbitLoginId || '',
+    });
+  }
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+    if ((b.progressAtMs || 0) !== (a.progressAtMs || 0)) return (b.progressAtMs || 0) - (a.progressAtMs || 0);
+    return (b.lastActiveMs || 0) - (a.lastActiveMs || 0);
+  });
+  return candidates[0];
 }
 
 function assignmentLocationSnapshot(asgn) {
@@ -27194,8 +27411,10 @@ function buildSessionStateCloudPayload(asgn, reason) {
     syncable.officeLng = GEO_HQ_CENTER.lng;
   }
   const teamId = resolveMappedTeamId(asgn);
+  const orbit = String(state.modProfile && state.modProfile.orbitLoginId || '');
+  stampLocalProgressIfAdvanced(syncable, orbit);
   return {
-    sessionStateId: sessionStateStableId(asgn),
+    sessionStateId: sessionStateStableId(asgn, orbit),
     assignmentId:   String(asgn.id),
     teamId:         String(teamId),
     orbitLoginId:   String(state.modProfile && state.modProfile.orbitLoginId || ''),
@@ -27564,7 +27783,9 @@ function newestSessionStatePerUser(rows) {
     if (!r || !r.orbitLoginId || !r.assignmentId) continue;
     const key = `${String(r.orbitLoginId).toLowerCase()}|${String(r.assignmentId)}`;
     const prev = newest.get(key);
-    if (!prev || (r.lastActive || '') > (prev.lastActive || '')) {
+    const prevMs = prev ? parseLastActiveMs(prev.lastActive) : 0;
+    const nextMs = parseLastActiveMs(r.lastActive);
+    if (!prev || nextMs >= prevMs) {
       newest.set(key, r);
     }
   }
@@ -27582,164 +27803,108 @@ async function findTeammateSessionState(prefetchedRows) {
     return null;
   }
 
-  // Reuse rows passed in by the poller (so a single poll tick fetches
-  // SessionState once and feeds both the self-sync and teammate checks).
-  // Falls back to fetching when called standalone (login, diag helper).
   const rows = Array.isArray(prefetchedRows) ? prefetchedRows : await fetchSessionStateRows();
   if (!rows) {
     if (DIAG) console.warn('[Twilight][TeammateDiag] fetchSessionStateRows returned null (fetch failure or no read URL)');
     return null;
   }
-  if (DIAG) {
-    console.group('[Twilight][TeammateDiag] findTeammateSessionState');
-    console.info('Rows fetched:', rows.length);
-    if (rows.length > 0) {
-      console.info('First row keys:', Object.keys(rows[0]));
-      console.info('First row sample:', {
-        orbitLoginId: rows[0].orbitLoginId,
-        assignmentId: rows[0].assignmentId,
-        lastActive: rows[0].lastActive,
-        stateJson_truncated: String(rows[0].stateJson || '').slice(0, 120),
-      });
-    }
-  }
 
   const myIdLower = String(state.modProfile.orbitLoginId).toLowerCase();
   const newestByUser = newestSessionStatePerUser(rows);
+  const myAsgn = (typeof getAssignedOpenSession === 'function')
+    ? getAssignedOpenSession()
+    : ((typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  const team = (typeof getSessionDisplayTeam === 'function')
+    ? getSessionDisplayTeam()
+    : ((typeof teamForAssignment === 'function') ? teamForAssignment(myAsgn) : null);
+  const teamId = (myAsgn && myAsgn.teamId != null && String(myAsgn.teamId).trim() !== '')
+    ? String(myAsgn.teamId)
+    : (team && team.id != null ? String(team.id) : '');
+  const asgnTeamMap = buildAssignmentTeamMap();
+
   if (DIAG) {
-    console.info('After newestSessionStatePerUser:', newestByUser.length, 'unique (user,asgn) rows');
-    if (newestByUser.length < rows.length) {
-      console.info('Filtered out', rows.length - newestByUser.length, 'rows (missing orbitLoginId or assignmentId or stale per-user).');
+    console.group('[Twilight][TeammateDiag] findTeammateSessionState');
+    console.info('Rows fetched:', rows.length, '· unique per user/asgn:', newestByUser.length);
+    console.info('My orbit login id:', myIdLower, '· teamId:', teamId, '· assignment:', myAsgn && myAsgn.id);
+    const byTeam = {};
+    for (const r of newestByUser) {
+      const tid = sessionStateRowTeamId(r, asgnTeamMap) || '(none)';
+      byTeam[tid] = (byTeam[tid] || 0) + 1;
     }
-    console.info('My orbit login id (lowercased):', myIdLower);
+    console.info('SessionState rows by teamId:', byTeam);
   }
 
-  // PRIMARY PATH: assignment-based lookup. If we have an assignment
-  // where I'm in modSnapshots, find teammate rows for that exact
-  // assignmentId. This is the common case · both teammates were
-  // properly snapshotted on the assignment write.
-  const myAsgn = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
-  if (DIAG) console.info('My assignment:', myAsgn ? { id: myAsgn.id, teamId: myAsgn.teamId, status: myAsgn.status } : null);
+  // PRIMARY: same assignment, same team. Winner is the teammate with
+  // the most station / scenario progress — not the latest heartbeat.
   if (myAsgn && myAsgn.id) {
-    const matching = newestByUser.filter(r =>
-      String(r.assignmentId) === String(myAsgn.id) &&
-      String(r.orbitLoginId || '').toLowerCase() !== myIdLower
-    );
-    if (DIAG) console.info('PRIMARY path matches (same asgnId, not me):', matching.length);
-    if (matching.length > 0) {
-      // Pick the most-recently-touched teammate row (in case multiple
-      // teammates have written · rare but possible for 3+ person teams).
-      matching.sort((a, b) => (b.lastActive || '').localeCompare(a.lastActive || ''));
-      const winner = matching[0];
-      let parsedState = null;
-      try { parsedState = JSON.parse(winner.stateJson || '{}'); }
-      catch (e) {
-        if (DIAG) console.warn('[Twilight][TeammateDiag] PRIMARY winner stateJson failed to parse:', e && e.message);
-        console.warn('[Twilight] Failed to parse teammate stateJson:', e && e.message);
-        if (DIAG) console.groupEnd();
-        return null;
-      }
+    const winner = pickLatestTeamProgress(newestByUser, {
+      teamId: teamId,
+      assignmentId: myAsgn.id,
+      excludeOrbitId: myIdLower,
+      asgnTeamMap: asgnTeamMap,
+    });
+    if (winner) {
       if (DIAG) {
-        console.info('PRIMARY winner:', { orbitLoginId: winner.orbitLoginId, lastActive: winner.lastActive });
-        console.info('Parsed state keys:', Object.keys(parsedState));
+        console.info('PRIMARY progress winner:', {
+          orbitLoginId: winner.row.orbitLoginId,
+          progressBy: winner.progressBy,
+          score: winner.score,
+          progressAt: winner.syncableState.progressAt,
+          lastActive: winner.row.lastActive,
+        });
         console.groupEnd();
       }
-      return { row: winner, syncableState: parsedState };
+      return winner;
     }
   }
 
-  // FALLBACK PATH (1.2.052822): team-based lookup. Triggered when the
-  // primary path fails · most commonly because user B's modSnapshots
-  // entry is missing from the assignment row (assignment was created
-  // BEFORE B was added to the team, or the write only emitted one
-  // primary's row, or any of several other production data-shape
-  // issues). Without this fallback, B logs in mid-session and sees
-  // "no session today" while A is actively running it.
-  //
-  // Algorithm: find all of my team IDs. For each non-me SessionState
-  // row, check whether its writer is also on one of my teams. If yes
-  // and that row has meaningful work, it's a valid teammate session.
-  //
-  // We resolve from adminState.teams (already loaded via the initial
-  // assignment fetch). Newer-style teams carry primaryIds + backupIds;
-  // both count as "on my team" since a backup picking up a primary's
-  // shift is exactly the scenario this fallback exists for.
+  // FALLBACK: any live row on a team I belong to (missing assignment
+  // snapshot). Still scoped by the session's teamId, never by "writer
+  // shares some other team with me".
+  let myTeamIds = new Set();
+  if (teamId) myTeamIds.add(String(teamId));
   if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams)) {
-    const myTeamIds = new Set();
     for (const t of adminState.teams) {
       if (!t) continue;
-      const allMemberIds = [...(t.primaryIds || []), ...(t.backupIds || [])]
+      const allMemberIds = [...(t.primaryIds || []), ...((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : [])]
         .map(s => String(s || '').toLowerCase());
-      if (allMemberIds.includes(myIdLower)) {
-        myTeamIds.add(String(t.id));
-      }
+      if (allMemberIds.includes(myIdLower)) myTeamIds.add(String(t.id));
     }
-    if (DIAG) console.info('FALLBACK path: my team IDs:', [...myTeamIds], '/ total teams:', adminState.teams.length);
-    if (myTeamIds.size > 0) {
-      // Resolve each candidate row's TEAM (the team whose session that row
-      // represents) and match ONLY rows for a team I'm actually on · primary
-      // OR backup. This is the cross-team mixup fix: the previous version
-      // matched any row whose WRITER merely shared some team with me, so if
-      // my team-1 partner was also on team 2 and running team 2's session, I
-      // wrongly received team 2's progress sync even though I'm not on team 2.
-      // Keying on the SESSION's team is correct and also satisfies the backup
-      // case automatically (myTeamIds already includes teams where I'm a
-      // backup, built from primaryIds + backupIds above).
-      const asgnTeam = new Map();   // assignmentId → teamId, from loaded assignments
-      if (Array.isArray(adminState.assignments)) {
-        for (const a of adminState.assignments) {
-          if (a && a.id != null) asgnTeam.set(String(a.id), String(a.teamId || ''));
-        }
-      }
-      const rowTeamId = (r) => {
-        const direct = String(r.teamId || r.TeamId || r.team_id || '');
-        if (direct) return direct;                          // teamId on the SessionState row
-        return asgnTeam.get(String(r.assignmentId)) || '';  // else derive from the assignment
-      };
-      const fallbackMatches = newestByUser.filter(r => {
-        const writerId = String(r.orbitLoginId || '').toLowerCase();
-        if (!writerId || writerId === myIdLower) return false;
-        const tid = rowTeamId(r);
-        return !!tid && myTeamIds.has(tid);   // the session's team must be MINE
-      });
-      if (DIAG) console.info('FALLBACK matches:', fallbackMatches.length);
+  }
+  if (DIAG) console.info('FALLBACK my team IDs:', [...myTeamIds]);
 
-      if (fallbackMatches.length > 0) {
-        fallbackMatches.sort((a, b) => (b.lastActive || '').localeCompare(a.lastActive || ''));
-        const winner = fallbackMatches[0];
-        let parsedState = null;
-        try { parsedState = JSON.parse(winner.stateJson || '{}'); }
-        catch (e) {
-          if (DIAG) console.warn('[Twilight][TeammateDiag] FALLBACK winner stateJson failed to parse:', e && e.message);
-          console.warn('[Twilight] Failed to parse teammate stateJson (fallback path):', e && e.message);
-          if (DIAG) console.groupEnd();
-          return null;
-        }
-        // Diagnostic so admin can confirm in DevTools that the
-        // fallback fired (i.e., the primary path's modSnapshots
-        // match didn't work · useful for diagnosing why).
-        console.info(
-          '[Twilight] Teammate sync: fallback team-based match fired. '
-          + 'Teammate=' + JSON.stringify(winner.orbitLoginId)
-          + ' on assignment=' + JSON.stringify(winner.assignmentId)
-          + '. Primary modSnapshots-based lookup missed.'
-        );
-        if (DIAG) {
-          console.info('FALLBACK winner:', { orbitLoginId: winner.orbitLoginId, lastActive: winner.lastActive });
-          console.info('Parsed state keys:', Object.keys(parsedState));
-          console.groupEnd();
-        }
-        return { row: winner, syncableState: parsedState };
-      }
-    } else {
-      if (DIAG) console.warn('FALLBACK: I am not on any team in adminState.teams. Cannot find teammates.');
+  let best = null;
+  for (const tid of myTeamIds) {
+    const hit = pickLatestTeamProgress(newestByUser, {
+      teamId: tid,
+      assignmentId: '',
+      excludeOrbitId: myIdLower,
+      asgnTeamMap: asgnTeamMap,
+    });
+    if (!hit) continue;
+    if (!best
+        || hit.score > best.score
+        || (hit.score === best.score && hit.progressAtMs > best.progressAtMs)) {
+      best = hit;
     }
-  } else {
-    if (DIAG) console.warn('FALLBACK: adminState.teams not populated yet.');
+  }
+  if (best) {
+    if (DIAG) {
+      console.info('FALLBACK progress winner:', {
+        orbitLoginId: best.row.orbitLoginId,
+        progressBy: best.progressBy,
+        score: best.score,
+        assignmentId: best.row.assignmentId,
+      });
+      console.groupEnd();
+    }
+    return best;
   }
 
   if (DIAG) {
-    console.warn('No teammate match found via PRIMARY or FALLBACK paths.');
+    console.warn('No teammate progress found for this team.');
     console.groupEnd();
   }
   return null;
@@ -27802,16 +27967,38 @@ function mergeTeammateState(syncableState) {
   if (syncableState.recordLakituUrl)    state.recordLakituUrl    = String(syncableState.recordLakituUrl);
   if (syncableState.equipment)          state.equipment          = { ...state.equipment, ...syncableState.equipment };
   if (syncableState.stations) {
-    // Deep merge stations · for each station, overlay scenarios + cameras.
+    // Keep the more-complete scenario on each row so a teammate who
+    // uploaded Station 2 does not wipe local Uploaded work on Station 1.
     state.stations = state.stations || {};
-    for (const k of Object.keys(syncableState.stations)) {
-      const cloudStation = syncableState.stations[k];
+    const keys = new Set([
+      ...Object.keys(state.stations),
+      ...Object.keys(syncableState.stations),
+    ]);
+    keys.forEach(k => {
+      const cloudStation = syncableState.stations[k] || { cameras: {}, scenarios: {} };
       const localStation = state.stations[k] || { cameras: {}, scenarios: {} };
+      const mergedSc = {};
+      const scKeys = new Set([
+        ...Object.keys(localStation.scenarios || {}),
+        ...Object.keys(cloudStation.scenarios || {}),
+      ]);
+      scKeys.forEach(num => {
+        mergedSc[num] = (typeof pickBetterScenario === 'function')
+          ? pickBetterScenario((localStation.scenarios || {})[num], (cloudStation.scenarios || {})[num])
+          : Object.assign({}, (localStation.scenarios || {})[num] || {}, (cloudStation.scenarios || {})[num] || {});
+      });
       state.stations[k] = {
         cameras:   { ...(localStation.cameras   || {}), ...(cloudStation.cameras   || {}) },
-        scenarios: { ...(localStation.scenarios || {}), ...(cloudStation.scenarios || {}) },
+        scenarios: mergedSc,
       };
-    }
+    });
+  }
+  const cloudScore = (typeof sessionStateProgressScore === 'function')
+    ? sessionStateProgressScore(syncableState) : 0;
+  if (cloudScore > Number(state._progressScore || 0)) {
+    state._progressScore = cloudScore;
+    state._progressAt = syncableState.progressAt || new Date().toISOString();
+    state._progressBy = syncableState.progressBy || state._progressBy || '';
   }
   saveState();
   // Immediate cloud-flush so the teammate's view picks this up on
@@ -27831,17 +28018,24 @@ function mergeTeammateState(syncableState) {
 // between this and the teammate check.
 async function findSelfSessionStateUpdate(prefetchedRows) {
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return null;
-  const asgn = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
+  const asgn = (typeof getAssignedOpenSession === 'function')
+    ? getAssignedOpenSession()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
   if (!asgn || !asgn.id) return null;
   const rows = Array.isArray(prefetchedRows) ? prefetchedRows : await fetchSessionStateRows();
   if (!rows) return null;
   const myIdLower = String(state.modProfile.orbitLoginId).toLowerCase();
-  let winner = null;  // newest self-row for this assignment
+  let winner = null;
+  let winnerMs = 0;
   for (const r of rows) {
     if (!r || !r.orbitLoginId || !r.assignmentId) continue;
     if (String(r.orbitLoginId).toLowerCase() !== myIdLower) continue;
-    if (String(r.assignmentId) !== String(asgn.id)) continue;
-    if (!winner || (r.lastActive || '') > (winner.lastActive || '')) winner = r;
+    if (!assignmentIdsMatch(r.assignmentId, asgn.id)) continue;
+    const ms = parseLastActiveMs(r.lastActive);
+    if (!winner || ms >= winnerMs) {
+      winner = r;
+      winnerMs = ms;
+    }
   }
   if (!winner) return null;
   let parsed = null;
@@ -27874,6 +28068,9 @@ function applySelfSyncReplace(s) {
   state.lastGeo            = s.lastGeo            || null;
   state.calGuideAck        = s.calGuideAck         || null;
   state.recordLakituUrl    = s.recordLakituUrl     || '';
+  state._progressScore     = Number(s.progressScore || s._progressScore || 0);
+  state._progressAt        = s.progressAt || s._progressAt || '';
+  state._progressBy        = s.progressBy || s._progressBy || '';
   // Personal per-device reminder tracking is re-derived from the
   // adopted arrival anchor (same rationale as mergeTeammateState).
   state.remindersShown = [];
@@ -32815,9 +33012,10 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
   // sessionDate. 6 hours is generous enough to cover real-world
   // multi-hour sessions while excluding stale prior-day data.
   const teammateAt = result.row.lastActive || '';
+  const teammateAtMs = parseLastActiveMs(teammateAt);
   const STALENESS_MS = 6 * 60 * 60 * 1000;  // 6 hours
-  if (teammateAt) {
-    const age = Date.now() - new Date(teammateAt).getTime();
+  if (teammateAtMs) {
+    const age = Date.now() - teammateAtMs;
     if (age > STALENESS_MS) {
       if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
       // Stale teammate → drop polling back to idle cadence.
@@ -32868,7 +33066,15 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     //   - One-shot per teammate-state: stamps _lastSyncMergeAt so
     //     subsequent polls of the same teammate state don't re-sync.
     const localAtForAutoSync = state._lastSyncMergeAt || '';
-    const teammateNewer = !localAtForAutoSync || teammateAt > localAtForAutoSync;
+    const localAtMs = parseLastActiveMs(localAtForAutoSync);
+    const teammateScore = (result.score != null)
+      ? result.score
+      : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
+    const myScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+      ? sessionStateProgressScore(extractSyncableState(state))
+      : 0;
+    const alreadyAdopted = !!(localAtMs && teammateAtMs && teammateAtMs <= localAtMs);
+    const teammateNewer = teammateScore > myScore && !alreadyAdopted;
     const bHasOwnWork = (() => {
       // Inline check (can't reuse _hasActiveSessionWork because that
       // now also returns true when a teammate is active · which is
@@ -32932,7 +33138,8 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     // showOrUpdateTeammateLiveBanner. The modal continues to respect
     // `_lastSyncMergeAt` (its own "already prompted" marker).
     if (typeof showOrUpdateTeammateLiveBanner === 'function') {
-      showOrUpdateTeammateLiveBanner(result);
+      if (teammateNewer) showOrUpdateTeammateLiveBanner(result);
+      else if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
     }
   }
 
@@ -32941,7 +33148,16 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
   // modal is a one-shot prompt · re-modalizing on every poll would
   // be obnoxious.
   const localAt = state._lastSyncMergeAt || '';
-  const isOlderThanLocal = teammateAt && localAt && teammateAt <= localAt;
+  const localAtMs = parseLastActiveMs(localAt);
+  const teammateScoreForModal = (result.score != null)
+    ? result.score
+    : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
+  const myScoreForModal = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+    ? sessionStateProgressScore(extractSyncableState(state))
+    : 0;
+  // Only prompt when the teammate is actually ahead on stations / scenarios.
+  if (teammateScoreForModal <= myScoreForModal) return;
+  const isOlderThanLocal = teammateAtMs && localAtMs && teammateAtMs <= localAtMs;
   if (isOlderThanLocal) return;
 
   showTeammateSyncModal(result);
@@ -32995,10 +33211,12 @@ function showOrUpdateTeammateLiveBanner(result) {
   // teammate hasn't written anything newer since, stay hidden.
   const dismissAt = state._lastBannerDismissAt || '';
   const teammateAt = result.row.lastActive || '';
-  if (dismissAt && teammateAt && teammateAt <= dismissAt) return;
+  const dismissMs = parseLastActiveMs(dismissAt);
+  const teammateMs = parseLastActiveMs(teammateAt);
+  if (dismissMs && teammateMs && teammateMs <= dismissMs) return;
 
   const cloud = result.syncableState;
-  const writerId = result.row.orbitLoginId || '';
+  const writerId = result.progressBy || (cloud && cloud.progressBy) || result.row.orbitLoginId || '';
 
   // Derive teammate's display name. Try a few sources in priority:
   //   1. moderator list (adminState.moderators) · has firstName/lastName
@@ -33021,24 +33239,15 @@ function showOrUpdateTeammateLiveBanner(result) {
   // any non-default scenario work, OR rely on stationCompletedAt
   // (newer station = more progress). Returns a human label like
   // "Station 1" or "Setup (Station 0a)".
-  const stationLabel = (() => {
-    if (cloud.sessionCompletedAt) return 'session complete';
-    const sca = cloud.stationCompletedAt || {};
-    // Priority order matches the deriver in admin-side
-    // deriveLatestStatusFromSessionState · most-progressed first.
-    if (sca.Station4)        return 'Station 4';
-    if (sca.Station3)        return 'Station 3';
-    if (sca.Station2)        return 'Station 2';
-    if (sca.Station1)        return 'Station 1';
-    if (cloud.arrivedAt)     return 'arrived';
-    return 'preparing';
-  })();
+  const stationLabel = (typeof furthestStationLabelFromState === 'function')
+    ? furthestStationLabelFromState(cloud)
+    : (cloud.sessionCompletedAt ? 'session complete' : 'in session');
 
   // Compose the "how long ago" suffix from the row's lastActive
   // timestamp. Refreshes on each poll tick so the banner stays live.
   let agoLabel = '';
-  if (teammateAt) {
-    const ms = Date.now() - new Date(teammateAt).getTime();
+  if (teammateMs) {
+    const ms = Date.now() - teammateMs;
     if (ms < 60000) agoLabel = 'just now';
     else if (ms < 3600000) agoLabel = Math.floor(ms / 60000) + ' min ago';
     else agoLabel = Math.floor(ms / 3600000) + ' hr ago';
@@ -33234,7 +33443,7 @@ function showTeammateSyncModal(result) {
   if (document.getElementById('teammateSyncOverlay')) return;
 
   const cloud = result.syncableState;
-  const teammateId = result.row.orbitLoginId;
+  const teammateId = result.progressBy || (cloud && cloud.progressBy) || result.row.orbitLoginId;
   const teammateName = (typeof getModeratorDisplayName === 'function')
     ? getModeratorDisplayName(teammateId)
     : teammateId;
