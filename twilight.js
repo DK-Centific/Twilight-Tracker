@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ao';
-const APP_UPDATED_AT = '09/09/2026 00:15';
+const APP_VERSION = '1.3.090826ap';
+const APP_UPDATED_AT = '09/09/2026 00:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -9832,6 +9832,8 @@ function selectApproval(id) {
   if (a && a.status === 'Pending') {
     a.status = 'InReview';  // optimistic
     if (APPROVAL_PA_WRITE_URL) adminDecideApproval(id, 'inreview').then(() => {
+      const live = ((adminState.approvals) || []).find(x => String(x.approval_id) === String(id));
+      if (live && (live.status === 'Approved' || live.status === 'Rejected' || live.status === 'AutoApproved')) return;
       if (adminState.tab === 'approval') { renderApprovalListInto(); renderApprovalPanelInto(); refreshTopApprCount(); }
     });
   }
@@ -9842,21 +9844,83 @@ function selectApproval(id) {
 function decideSelectedApproval(decision, note) {
   const id = adminState._apprSelected;
   if (!id) return;
+  adminState._apprBusyIds = adminState._apprBusyIds || new Set();
+  if (adminState._apprBusyIds.has(String(id))) return;
+  const cur = ((adminState.approvals) || []).find(x => String(x.approval_id) === String(id));
+  if (!cur) return;
+  if (cur.status === 'Approved' || cur.status === 'Rejected' || cur.status === 'AutoApproved') return;
+
   const approveBtn = document.getElementById('apprApproveBtn');
   const rejectBtn  = document.getElementById('apprRejectBtn');
-  if (approveBtn) approveBtn.disabled = true;
-  if (rejectBtn)  rejectBtn.disabled = true;
+  if (approveBtn) {
+    approveBtn.disabled = true;
+    approveBtn.classList.add('is-busy');
+  }
+  if (rejectBtn) {
+    rejectBtn.disabled = true;
+    rejectBtn.classList.add('is-busy');
+  }
+
+  const who = (typeof currentAdminIdentity === 'function') ? currentAdminIdentity() : { id: '', name: 'Admin' };
+  const nowIso = new Date().toISOString();
+  const status = decision === 'approve' ? 'Approved' : 'Rejected';
+  const prev = {
+    status: cur.status,
+    decided_at: cur.decided_at,
+    decided_by: cur.decided_by,
+    decided_by_id: cur.decided_by_id,
+    feedback_note: cur.feedback_note,
+    last_modified: cur.last_modified,
+    event_type: cur.event_type,
+    _epoch: cur._epoch,
+  };
+  cur.status = status;
+  cur.event_type = decision === 'approve' ? 'approved' : 'rejected';
+  cur.decided_at = nowIso;
+  cur.decided_by = who.name;
+  cur.decided_by_id = who.id;
+  cur.feedback_note = String(note || '');
+  cur.last_modified = nowIso;
+  cur._epoch = Date.parse(nowIso) || Date.now();
+  adminState._apprOverrides = adminState._apprOverrides || {};
+  adminState._apprOverrides[id] = { row: { ...cur }, at: Date.now() };
+  adminState._apprBusyIds.add(String(id));
+
+  renderApprovalListInto();
+  renderApprovalPanelInto();
+  refreshTopApprCount();
+  if (typeof showToast === 'function') {
+    showToast(decision === 'approve' ? 'Approved' : 'Rejected', 'success', 1800);
+  }
+
   if (!APPROVAL_PA_WRITE_URL) {
-    if (typeof showToast === 'function') showToast('Approval backend not connected yet (no write URL).', 'warn', 3500);
-    if (approveBtn) approveBtn.disabled = false;
-    if (rejectBtn)  rejectBtn.disabled = false;
+    adminState._apprBusyIds.delete(String(id));
+    if (typeof showToast === 'function') {
+      showToast('Shown here, but the save flow is not connected yet.', 'warn', 3500);
+    }
     return;
   }
-  adminDecideApproval(id, decision, note).then(ok => {
+
+  adminDecideApproval(id, decision, note, { skipLocalApply: true }).then(ok => {
+    adminState._apprBusyIds.delete(String(id));
     if (ok) {
-      if (typeof showToast === 'function') showToast(decision === 'approve' ? 'Approved' : 'Rejected', 'success', 2500);
-    } else if (typeof showToast === 'function') showToast('Could not save decision · try again.', 'error', 3500);
-    if (adminState.tab === 'approval') { renderApprovalListInto(); renderApprovalPanelInto(); refreshTopApprCount(); }
+      ensureApprovalData({ force: true }).then(() => {
+        if (adminState.tab === 'approval') {
+          renderApprovalListInto();
+          renderApprovalPanelInto();
+          refreshTopApprCount();
+        }
+      }).catch(() => {});
+      return;
+    }
+    Object.assign(cur, prev);
+    if (adminState._apprOverrides) delete adminState._apprOverrides[id];
+    if (adminState.tab === 'approval') {
+      renderApprovalListInto();
+      renderApprovalPanelInto();
+      refreshTopApprCount();
+    }
+    if (typeof showToast === 'function') showToast('Could not save decision · try again.', 'error', 3500);
   });
 }
 
@@ -26889,9 +26953,13 @@ async function createApprovalRequest(p) {
   return ok ? id : null;
 }
 // Admin decision: decision = 'approve' | 'reject' | 'inreview'.
-async function adminDecideApproval(approvalId, decision, note) {
+async function adminDecideApproval(approvalId, decision, note, opts) {
+  opts = opts || {};
   const cur = (adminState.approvals || []).find(a => String(a.approval_id) === String(approvalId));
   if (!cur) return false;
+  if (decision === 'inreview' && (cur.status === 'Approved' || cur.status === 'Rejected' || cur.status === 'AutoApproved')) {
+    return true;
+  }
   const who = currentAdminIdentity();
   const nowIso = new Date().toISOString();
   const status = decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : 'InReview';
@@ -26906,15 +26974,17 @@ async function adminDecideApproval(approvalId, decision, note) {
   row.last_modified = nowIso;
   row.app_version = APP_VERSION;
   const ok = await writeApprovalEvent(row);
-  if (ok) {
-    // Hold this decision as a local override so it shows instantly and
-    // survives a truncated (256-capped) read until the cloud read returns it.
-    adminState._apprOverrides = adminState._apprOverrides || {};
-    adminState._apprOverrides[approvalId] = {
-      row: { ...row, _epoch: Date.parse(nowIso) || Date.now() },
-      at: Date.now(),
-    };
-    await ensureApprovalData({ force: true });
+  if (ok && !opts.skipLocalApply) {
+    const existing = adminState._apprOverrides && adminState._apprOverrides[approvalId];
+    const existingStatus = existing && existing.row && existing.row.status;
+    const clobber = existingStatus === 'Approved' || existingStatus === 'Rejected';
+    if (!(clobber && status === 'InReview')) {
+      adminState._apprOverrides = adminState._apprOverrides || {};
+      adminState._apprOverrides[approvalId] = {
+        row: { ...row, _epoch: Date.parse(nowIso) || Date.now() },
+        at: Date.now(),
+      };
+    }
   }
   return ok;
 }
