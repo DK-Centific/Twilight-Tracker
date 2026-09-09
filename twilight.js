@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bh';
-const APP_UPDATED_AT = '09/09/2026 12:00';
+const APP_VERSION = '1.3.090826bi';
+const APP_UPDATED_AT = '09/09/2026 12:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6103,9 +6103,21 @@ function armScrollPreserve() {
 function resetScrollPreserveToTop() { _scrollPreserveY = 0; }
 
 function playAdminTabEnter() {
-  // Mirror Moderator `.content.view-enter`: play once on intentional
-  // Admin tab navigation / first paint. `admin-enter` gates the tile
-  // stagger so poll-driven re-renders do not replay it.
+  // Full-body enter. Main Admin tabs no longer use this — switching
+  // Overview / Hub / Performance / Approval was jumping the page.
+  // Keep the helper for any caller that still wants the old motion.
+  replayPageEnter(document.getElementById('adminTabBody'), 'admin-enter');
+}
+
+function playAdminSubtabEnter() {
+  // Subtabs only: fade the content under the subtab row so the row
+  // itself stays put (Moderators/Participants, All/By Team/Activities,
+  // Sessions/Incident Report).
+  const inner = document.getElementById('subtabBody');
+  if (inner) {
+    replayPageEnter(inner);
+    return;
+  }
   replayPageEnter(document.getElementById('adminTabBody'), 'admin-enter');
 }
 
@@ -6224,12 +6236,13 @@ function selectAdminTab(tab, opts) {
       b.classList.toggle('active', b.dataset.tab === adminState.tab);
     });
   }
-  const viewChanged = prevTab !== adminState.tab
-    || prevSubtab !== adminState.subtab
+  const tabChanged = prevTab !== adminState.tab;
+  const innerChanged = prevSubtab !== adminState.subtab
     || prevView !== adminState.modView
     || prevSection !== adminState.perfSection;
-  if (viewChanged) {
-    renderAdminTabBody({ animate: true });
+  if (tabChanged || innerChanged) {
+    // Main tabs swap in place. Subtabs keep the fade-up.
+    renderAdminTabBody({ animate: !tabChanged && innerChanged ? 'subtab' : false });
     resetScrollPreserveToTop();
   }
   syncAdminModviewPill();
@@ -6289,7 +6302,7 @@ function renderAdmin() {
   });
   bindAdminModviewPill(c);
   bindAdminIncidentPill(c);
-  renderAdminTabBody({ animate: true });
+  renderAdminTabBody({ animate: false });
   // App-wide incoming-approval poll powers the "new requests" banner on
   // any admin tab. Idempotent + inert until APPROVAL_PA_READ_URL is set.
   if (typeof startApprovalPoll === 'function') startApprovalPoll();
@@ -7479,6 +7492,7 @@ function renderIncidentReport(body) {
 
   body.innerHTML = `
     ${renderPerfSectionTabsHTML()}
+    <div id="subtabBody">
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by incident type">
       ${renderStatusTile('all', counts.all, 'All')}
       ${panicIncidentKinds().map((k) => renderStatusTile(k.key, counts[k.key] || 0, k.label, k.icon)).join('')}
@@ -7521,6 +7535,7 @@ function renderIncidentReport(body) {
       </div>
     ` : ''}
     <div id="perfTileGrid" class="perf-tile-grid">${renderIncidentTilesHTML()}</div>
+    </div>
   `;
 
   wirePerfSectionTabs(body);
@@ -7773,6 +7788,7 @@ function renderPerformance(body) {
 
   body.innerHTML = `
     ${renderPerfSectionTabsHTML()}
+    <div id="subtabBody">
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by status">
       ${renderStatusTile('all',        statusCounts.all,        'All')}
       ${renderStatusTile('completed',  statusCounts.completed,  'Done')}
@@ -7822,6 +7838,7 @@ function renderPerformance(body) {
       </div>
     ` : ''}
     <div id="perfTileGrid" class="perf-tile-grid">${renderPerfTilesHTML(view, search)}</div>
+    </div>
   `;
 
   wirePerfSectionTabs(body);
@@ -10509,7 +10526,6 @@ function refreshApprovalTabFromCloud(opts) {
     if (typeof renderApprovalListInto === 'function') renderApprovalListInto();
     if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
     refreshTopApprCount();
-    if (typeof playAdminTabEnter === 'function') playAdminTabEnter();
     if (opts.notify !== false && typeof toast === 'function') toast('Approvals refreshed');
   };
   const fetchP = (typeof ensureApprovalData === 'function')
@@ -10621,13 +10637,13 @@ function renderAdminTabBody(opts) {
   }
   if (adminState.tab === 'overview') {
     renderOverview(body);
-    if (opts.animate) playAdminTabEnter();
+    if (opts.animate === 'subtab') playAdminSubtabEnter();
     return;
   }
   if (typeof stopOverviewHeliosClock === 'function') stopOverviewHeliosClock();
   if (adminState.tab === 'performance') {
     renderPerformance(body);
-    if (opts.animate) playAdminTabEnter();
+    if (opts.animate === 'subtab') playAdminSubtabEnter();
     return;
   }
   if (adminState.tab === 'approval') {
@@ -10636,7 +10652,7 @@ function renderAdminTabBody(opts) {
       return;
     }
     renderApprovalTab(body);
-    if (opts.animate) playAdminTabEnter();
+    if (opts.animate === 'subtab') playAdminSubtabEnter();
     return;
   }
   // Assignment as a top-level tab. Previously lived under Moderator Hub as
@@ -10650,7 +10666,7 @@ function renderAdminTabBody(opts) {
     } else {
       body.innerHTML = `<div id="subtabBody"></div>`;
       renderAssignment();
-      if (opts.animate) playAdminTabEnter();
+      if (opts.animate === 'subtab') playAdminSubtabEnter();
       return;
     }
   }
@@ -10751,7 +10767,7 @@ function renderAdminTabBody(opts) {
     setModviewSlideOpen(false);
     renderParticipants();
   }
-  if (opts.animate) playAdminTabEnter();
+  if (opts.animate === 'subtab') playAdminSubtabEnter();
 }
 
 /* ----------- Moderators ----------- */
@@ -17334,7 +17350,7 @@ function wirePerfSectionTabs(body) {
       adminState.perfSection = next;
       if (next === 'incidents') adminState.incidentScope = adminState.incidentScope || 'all';
       renderPerformance(body);
-      playAdminTabEnter();
+      playAdminSubtabEnter();
     });
   });
 }

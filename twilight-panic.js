@@ -120,7 +120,7 @@
     if (kind === 'contact_police') {
       openModal('Emergency • Contact Police',
         '<div class="panic-form">' +
-          '<p>If someone is in danger, call 911 now.</p>' +
+          '<p>If you or someone is in danger, call 911 now.</p>' +
           '<div class="panic-form-actions">' +
             '<button type="button" class="panic-form-back" data-panic-back>Back</button>' +
             '<button type="button" class="panic-form-send" data-panic-call911>Call 911</button>' +
