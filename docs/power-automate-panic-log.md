@@ -1,6 +1,6 @@
 # Panic report log · Excel table + write flow
 
-Use this after the panic escalate buttons are live. The app already tries to save every report. It will start writing to Excel as soon as you paste the write-flow URL into `PANICLOG_PA_WRITE_URL` in `twilight.js`.
+Use this after the panic escalate buttons are live. The write-flow URL is already pasted into `PANICLOG_PA_WRITE_URL`. The Incident Report page also needs a **read** flow so every admin can see reports from Excel.
 
 Keep every Excel column as **Text**.
 
@@ -88,7 +88,29 @@ Keep every Excel column as **Text**.
 21. Copy the **HTTP POST URL**.
 22. Send that URL back here so it can be pasted into `PANICLOG_PA_WRITE_URL`.
 
-## C. High-priority email (existing send flow)
+## C. Create the read flow (needed for the admin Incident Report page)
+
+1. Open **https://make.powerautomate.com**
+2. Click **My flows**.
+3. Click **+ New flow** → **Instant cloud flow**.
+4. Name it **Twilight PanicLog Read**.
+5. Choose **When an HTTP request is received**.
+6. Click **Create**.
+7. Click **New step**.
+8. Search for **List rows present in a table**.
+9. Pick the same Excel file and the **PanicLog** table.
+10. Click **New step**.
+11. Search for **Response**.
+12. Set **Status Code** to `200`.
+13. Set **Body** to the **value** list from **List rows present in a table** (or `{ "value": <value> }`).
+14. Click **Save**.
+15. Open the HTTP trigger.
+16. Copy the **HTTP POST URL**.
+17. Send that URL back so it can be pasted into `PANICLOG_PA_READ_URL`.
+
+Until that URL is pasted, the Incident Report page still shows reports sent from the same computer.
+
+## D. High-priority email (existing send flow)
 
 The panic button reuses the current email send flow and also sends:
 

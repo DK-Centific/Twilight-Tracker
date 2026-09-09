@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bb';
-const APP_UPDATED_AT = '09/09/2026 07:35';
+const APP_VERSION = '1.3.090826bc';
+const APP_UPDATED_AT = '09/09/2026 08:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5508,6 +5508,12 @@ const adminState = {
     catch (_) { return true; }
   })(),
   // ---- Performance tab state ----
+  // perfSection: 'sessions' | 'incidents' · Sessions vs Incident Report
+  perfSection: 'sessions',
+  incidentScope: 'all',
+  panicLogRows: [],
+  _panicLogFetchedAt: 0,
+  _panicLogFetching: false,
   // perfView: 'teams' | 'mods' · which tile collection is shown
   // perfSearch: text filter applied to tile titles + subs
   // perfExpanded: Set of tile IDs that are currently expanded
@@ -6151,9 +6157,11 @@ function selectAdminTab(tab, opts) {
   const prevTab = adminState.tab;
   const prevSubtab = adminState.subtab;
   const prevView = adminState.modView;
+  const prevSection = adminState.perfSection;
   if (opts.subtab) adminState.subtab = opts.subtab;
   if (opts.modView) adminState.modView = opts.modView;
-  if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo) return;
+  if (opts.perfSection) adminState.perfSection = opts.perfSection;
+  if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo && !opts.perfSection) return;
   adminState.tab = tab;
   if (prevTab !== tab) {
     // Clear the Assignment calendar's team filter AND the side-panel
@@ -6173,7 +6181,8 @@ function selectAdminTab(tab, opts) {
   }
   const viewChanged = prevTab !== adminState.tab
     || prevSubtab !== adminState.subtab
-    || prevView !== adminState.modView;
+    || prevView !== adminState.modView
+    || prevSection !== adminState.perfSection;
   if (viewChanged) {
     renderAdminTabBody({ animate: true });
     resetScrollPreserveToTop();
@@ -6218,7 +6227,10 @@ function renderAdmin() {
           <span class="admin-tab-count" id="topApprCount">${pendingApprovalCount() || ''}</span>
         </button>
       </div>
-      ${adminModviewPillHTML()}
+      <div class="admin-header-pills">
+        ${adminModviewPillHTML()}
+        ${adminIncidentPillHTML()}
+      </div>
     </div>`;
   c.innerHTML = `
     ${hero}
@@ -6231,6 +6243,7 @@ function renderAdmin() {
     });
   });
   bindAdminModviewPill(c);
+  bindAdminIncidentPill(c);
   renderAdminTabBody({ animate: true });
   // App-wide incoming-approval poll powers the "new requests" banner on
   // any admin tab. Idempotent + inert until APPROVAL_PA_READ_URL is set.
@@ -7323,6 +7336,17 @@ async function refreshPerfLiveData() {
   // Re-render the tile grid in place · preserves expanded tiles, search,
   // date-range, and scroll position (same path renderPerformance uses).
   const grid = document.getElementById('perfTileGrid');
+  if (grid && adminState.perfSection === 'incidents') {
+    if (typeof ensurePanicLogRows === 'function') {
+      adminState._panicLogFetchedAt = 0;
+      await ensurePanicLogRows(true);
+    }
+    if (typeof renderIncidentTilesHTML === 'function') {
+      grid.innerHTML = renderIncidentTilesHTML();
+      if (typeof wireIncidentTileGrid === 'function') wireIncidentTileGrid(grid);
+    }
+    return;
+  }
   if (grid && typeof renderPerfTilesHTML === 'function') {
     const view = adminState.perfView || 'teams';
     const search = (adminState.perfSearch || '').trim().toLowerCase();
@@ -7358,7 +7382,281 @@ function stopPerfLivePoll() {
   }
 }
 
+function renderIncidentReport(body) {
+  if (!adminState.moderators) loadModerators(false);
+  ensurePanicLogRows().then(() => {
+    if (adminState.tab !== 'performance' || adminState.perfSection !== 'incidents') return;
+    const grid = document.getElementById('perfTileGrid');
+    if (grid) {
+      grid.innerHTML = renderIncidentTilesHTML();
+      wireIncidentTileGrid(grid);
+    }
+    body.querySelectorAll('[data-perf-status-scope]').forEach((btn) => {
+      const key = btn.dataset.perfStatusScope;
+      const counts = incidentStatusCounts();
+      const num = btn.querySelector('.perf-status-tile-num');
+      if (num && counts[key] != null) num.textContent = counts[key];
+      const count = counts[key] || 0;
+      const isActive = (adminState.incidentScope || 'all') === key;
+      btn.classList.toggle('active', isActive);
+      btn.classList.toggle('disabled', key !== 'all' && count === 0 && !isActive);
+      btn.disabled = key !== 'all' && count === 0 && !isActive;
+      btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+    const countEl = body.querySelector('[data-perf-section="incidents"] .subtab-count');
+    if (countEl) countEl.textContent = (adminState.panicLogRows || []).length || '';
+  });
+  if (typeof startPerfLivePoll === 'function') startPerfLivePoll();
+
+  const search = adminState.perfSearch || '';
+  const dateRange = adminState.perfDateRange || 'all';
+  const dateOptions = perfDateRangeOptions();
+  const scope = adminState.incidentScope || 'all';
+  const counts = incidentStatusCounts();
+
+  const renderStatusTile = (key, count, label, icon) => {
+    const isActive = scope === key;
+    const isDisabled = key !== 'all' && count === 0 && !isActive;
+    const ico = icon
+      ? `<img class="perf-status-tile-ico" src="${icon}" alt="" width="18" height="18">`
+      : '';
+    return `
+      <button type="button"
+              class="perf-status-tile ${key} ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}"
+              data-perf-status-scope="${key}"
+              aria-pressed="${isActive ? 'true' : 'false'}"
+              ${isDisabled ? 'disabled' : ''}>
+        <div class="perf-status-tile-num">${count}</div>
+        <div class="perf-status-tile-label">${ico}${escapeHTML(label)}</div>
+      </button>
+    `;
+  };
+
+  body.innerHTML = `
+    ${renderPerfSectionTabsHTML()}
+    <div class="perf-status-tiles" role="tablist" aria-label="Filter by incident type">
+      ${renderStatusTile('all', counts.all, 'All')}
+      ${panicIncidentKinds().map((k) => renderStatusTile(k.key, counts[k.key] || 0, k.label, k.icon)).join('')}
+    </div>
+    <div class="perf-toolbar">
+      <div class="perf-search">
+        <svg class="perf-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input type="search" class="perf-search-input" id="perfSearchInput"
+               placeholder="Search incidents, reporters, or comments…"
+               value="${escapeHTML(search)}">
+      </div>
+      <div class="perf-date-range" role="tablist" aria-label="Date range filter">
+        ${dateOptions.map(opt => `
+          <button type="button" class="perf-date-range-btn ${dateRange === opt.key ? 'active' : ''}"
+                  data-perf-range="${opt.key}"
+                  title="${opt.sub ? `${opt.label} · ${opt.sub}` : opt.label}">
+            ${escapeHTML(opt.label)}${opt.sub ? `<span class="perf-date-range-btn-sub">${escapeHTML(opt.sub)}</span>` : ''}
+          </button>
+        `).join('')}
+      </div>
+      <button type="button" class="perf-export-btn" id="perfExportBtn"
+              title="Export the current incident results to Excel">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 2v7m0 0L5.3 6.3M8 9l2.7-2.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M3 11v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Export Excel
+      </button>
+    </div>
+    ${dateRange === 'custom' ? `
+      <div class="perf-custom-range">
+        <span class="perf-custom-range-label">Custom range</span>
+        <label for="perfCustomStart">From</label>
+        <input type="date" id="perfCustomStart" value="${escapeHTML(adminState.perfCustomStart || '')}" aria-label="Custom range start date">
+        <label for="perfCustomEnd">To</label>
+        <input type="date" id="perfCustomEnd" value="${escapeHTML(adminState.perfCustomEnd || '')}" aria-label="Custom range end date">
+      </div>
+    ` : ''}
+    <div id="perfTileGrid" class="perf-tile-grid">${renderIncidentTilesHTML()}</div>
+  `;
+
+  wirePerfSectionTabs(body);
+  body.querySelectorAll('[data-perf-status-scope]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.perfStatusScope;
+      if (next === adminState.incidentScope) return;
+      adminState.incidentScope = next;
+      renderIncidentReport(body);
+    });
+  });
+  body.querySelectorAll('[data-perf-range]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.perfRange;
+      if (next === adminState.perfDateRange) return;
+      adminState.perfDateRange = next;
+      renderIncidentReport(body);
+    });
+  });
+  const searchInput = body.querySelector('#perfSearchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      adminState.perfSearch = e.target.value;
+      const grid = document.getElementById('perfTileGrid');
+      if (grid) {
+        grid.innerHTML = renderIncidentTilesHTML();
+        wireIncidentTileGrid(grid);
+      }
+    });
+  }
+  const cStart = body.querySelector('#perfCustomStart');
+  const cEnd = body.querySelector('#perfCustomEnd');
+  if (cStart) {
+    cStart.addEventListener('change', (e) => {
+      adminState.perfCustomStart = e.target.value || '';
+      renderIncidentReport(body);
+    });
+  }
+  if (cEnd) {
+    cEnd.addEventListener('change', (e) => {
+      adminState.perfCustomEnd = e.target.value || '';
+      renderIncidentReport(body);
+    });
+  }
+  const exportBtn = body.querySelector('#perfExportBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener('click', () => exportIncidentXLSX());
+  }
+  wireIncidentTileGrid(document.getElementById('perfTileGrid'));
+}
+
+function renderIncidentTilesHTML() {
+  const rows = filteredPanicIncidents();
+  if (!rows.length) {
+    const waitingRead = !PANICLOG_PA_READ_URL;
+    return `<div class="perf-empty" style="grid-column: 1 / -1;">${
+      (adminState.perfSearch || '').trim()
+        ? `No incidents match “${escapeHTML(adminState.perfSearch)}”.`
+        : (waitingRead
+          ? 'No incident reports on this device yet. New panic sends will show here. Share the PanicLog read-flow URL to load reports from Excel.'
+          : 'No incident reports in this range.')
+    }</div>`;
+  }
+  return rows.map((row) => {
+    const meta = panicKindMeta(row.reportType);
+    const who = row.reporterName || row.reportedBy || 'Unknown';
+    const team = row.teamName || (row.teamId ? ('Team ' + row.teamId) : '');
+    const when = formatIncidentWhen(row);
+    const open = adminState.perfExpanded && adminState.perfExpanded.has(row.panicLogId);
+    return `
+      <details class="perf-tile incident-tile" data-panic-id="${escapeHTML(row.panicLogId)}" ${open ? 'open' : ''}>
+        <summary class="perf-tile-head">
+          <div class="perf-tile-avatar incident-avatar ${row.reportType}">
+            <img src="${meta.icon}" alt="" width="28" height="28">
+          </div>
+          <div class="perf-tile-title-block">
+            <div class="perf-tile-title">${escapeHTML(row.reportLabel || meta.label)}</div>
+            <div class="perf-tile-sub">${escapeHTML([who, team, when].filter(Boolean).join(' · '))}</div>
+          </div>
+          <button type="button" class="mod-status-pill is-deactivated incident-open-pill" data-open-incident="${escapeHTML(row.panicLogId)}">Incident Report</button>
+          <svg class="perf-tile-chevron" width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="perf-tile-body incident-tile-body">
+          ${renderIncidentDetailHTML(row)}
+        </div>
+      </details>`;
+  }).join('');
+}
+
+function renderIncidentDetailHTML(row) {
+  const meta = panicKindMeta(row.reportType);
+  const rows = [
+    ['Type', row.reportLabel || meta.label],
+    ['Detail', row.reportSubtype || '—'],
+    ['Reported by', [row.reporterName, row.reportedBy].filter(Boolean).join(' · ') || '—'],
+    ['Team', row.teamName || row.teamId || '—'],
+    ['Session', row.sessionDate || '—'],
+    ['Reported at', formatIncidentWhen(row)],
+    ['Assignment', row.assignmentId || '—'],
+    ['Email', [row.emailTo, row.emailStatus].filter(Boolean).join(' · ') || '—'],
+  ];
+  return `
+    <div class="incident-detail">
+      <div class="incident-detail-grid">
+        ${rows.map(([k, v]) => `
+          <div class="incident-detail-row">
+            <div class="incident-detail-k">${escapeHTML(k)}</div>
+            <div class="incident-detail-v">${escapeHTML(v)}</div>
+          </div>`).join('')}
+      </div>
+      <div class="incident-comment-block">
+        <div class="incident-detail-k">Comment</div>
+        <p class="incident-comment">${escapeHTML(row.comment || 'No comment entered.')}</p>
+      </div>
+      ${row.followUpNote ? `<p class="incident-followup">${escapeHTML(row.followUpNote)}</p>` : ''}
+    </div>`;
+}
+
+function wireIncidentTileGrid(grid) {
+  if (!grid) return;
+  grid.querySelectorAll('details.incident-tile').forEach((tile) => {
+    tile.addEventListener('toggle', () => {
+      const id = tile.dataset.panicId;
+      if (!id) return;
+      if (!adminState.perfExpanded) adminState.perfExpanded = new Set();
+      if (tile.open) adminState.perfExpanded.add(id);
+      else adminState.perfExpanded.delete(id);
+    });
+  });
+  grid.querySelectorAll('[data-open-incident]').forEach((pill) => {
+    pill.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = pill.getAttribute('data-open-incident');
+      const tile = grid.querySelector(`details.incident-tile[data-panic-id="${CSS.escape(id)}"]`);
+      if (tile) {
+        tile.open = true;
+        if (!adminState.perfExpanded) adminState.perfExpanded = new Set();
+        adminState.perfExpanded.add(id);
+        tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  });
+}
+
+function exportIncidentXLSX() {
+  if (typeof XLSX === 'undefined') { toast('Excel library not loaded · try refreshing'); return; }
+  const rows = filteredPanicIncidents();
+  const header = ['Type', 'Detail', 'Reported by', 'Orbit ID', 'Team', 'Session', 'Reported at', 'Comment', 'Follow up', 'Email status', 'Assignment'];
+  const data = [header].concat(rows.map((r) => [
+    r.reportLabel || r.reportType,
+    r.reportSubtype || '',
+    r.reporterName || '',
+    r.reportedBy || '',
+    r.teamName || '',
+    r.sessionDate || '',
+    formatIncidentWhen(r),
+    r.comment || '',
+    r.followUpNote || '',
+    r.emailStatus || '',
+    r.assignmentId || '',
+  ]));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = header.map(() => ({ wch: 22 }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Incidents');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+  const fname = `Twilight_Incidents_${stamp}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast('Exported ' + fname);
+}
+
 function renderPerformance(body) {
+  if ((adminState.perfSection || 'sessions') === 'incidents') {
+    renderIncidentReport(body);
+    return;
+  }
+  ensurePanicLogRows().then(() => {
+    const el = document.querySelector('[data-perf-section="incidents"] .subtab-count');
+    if (el) el.textContent = ((adminState.panicLogRows || []).length) || '';
+  });
   // Auto-load adjacent data the tab needs. Most likely already loaded
   // (admin lands here via the top-tab; assignments/teams come from
   // the assignment tab's loader). But cover the cold-load case.
@@ -7429,6 +7727,7 @@ function renderPerformance(body) {
   };
 
   body.innerHTML = `
+    ${renderPerfSectionTabsHTML()}
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by status">
       ${renderStatusTile('all',        statusCounts.all,        'All')}
       ${renderStatusTile('completed',  statusCounts.completed,  'Done')}
@@ -7479,6 +7778,8 @@ function renderPerformance(body) {
     ` : ''}
     <div id="perfTileGrid" class="perf-tile-grid">${renderPerfTilesHTML(view, search)}</div>
   `;
+
+  wirePerfSectionTabs(body);
 
   // Wire toolbar · status tile strip
   body.querySelectorAll('[data-perf-status-scope]').forEach(btn => {
@@ -15017,7 +15318,9 @@ const EMAIL_PA_SEND_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.envi
 const PANIC_ALERT_EMAIL = 'ben_prod_twilight@centific.com';
 const PANIC_TEAMS_FOLLOW_UP = 'Also, please notify the managers in the Teams chat immediately.';
 // Empty until the PanicLog write flow URL is pasted here.
-const PANICLOG_PA_WRITE_URL = '';
+const PANICLOG_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/25/workflows/c6ce5448f600450bbd947871da0bc0f6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rFHMxswsjCYL-1I5uZxrRMqXnLvst0t-5Qwr3qwmUqI';
+// Empty until the PanicLog read flow URL is pasted here.
+const PANICLOG_PA_READ_URL = '';
 
 // =====================================================================
 // EMAIL LOG · audit trail for every confirmation email sent
@@ -16722,6 +17025,14 @@ function saveLocalPanicLog(row) {
 
 async function writePanicLog(row) {
   saveLocalPanicLog(row);
+  if (typeof adminState !== 'undefined' && adminState) {
+    const next = normalizePanicLogRow(row);
+    const list = Array.isArray(adminState.panicLogRows) ? adminState.panicLogRows.slice() : [];
+    const idx = list.findIndex((r) => r.panicLogId && r.panicLogId === next.panicLogId);
+    if (idx >= 0) list[idx] = next;
+    else list.unshift(next);
+    adminState.panicLogRows = list;
+  }
   if (!PANICLOG_PA_WRITE_URL) {
     console.log('[Twilight] PanicLog (no flow):', row);
     return { ok: false, skipped: true };
@@ -16741,6 +17052,234 @@ async function writePanicLog(row) {
     console.warn('[Twilight] PanicLog write threw:', e && e.message);
     return { ok: false, error: e.message || String(e) };
   }
+}
+
+function panicIncidentKinds() {
+  return [
+    { key: 'contact_police', label: 'Police Report', icon: 'icons/panic-contact-police.svg' },
+    { key: 'data_loss', label: 'Data Loss', icon: 'icons/panic-data-loss.svg' },
+    { key: 'nda_consent', label: 'Questions', icon: 'icons/panic-nda-consent.svg' },
+    { key: 'misconduct', label: 'Misconduct', icon: 'icons/panic-misconduct.svg' },
+  ];
+}
+
+function panicKindMeta(key) {
+  return panicIncidentKinds().find((k) => k.key === key) || {
+    key: key || 'unknown',
+    label: 'Incident',
+    icon: 'icons/panic-misconduct.svg',
+  };
+}
+
+function pickPanicField(row, keys) {
+  if (!row) return '';
+  for (const k of keys) {
+    if (row[k] != null && String(row[k]).trim() !== '') return String(row[k]);
+  }
+  const lower = {};
+  Object.keys(row).forEach((k) => { lower[String(k).toLowerCase()] = row[k]; });
+  for (const k of keys) {
+    const v = lower[String(k).toLowerCase()];
+    if (v != null && String(v).trim() !== '') return String(v);
+  }
+  return '';
+}
+
+function normalizePanicReportType(raw, label) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (s === 'contact_police' || s === 'police' || s === 'police report' || s.indexOf('police') >= 0) return 'contact_police';
+  if (s === 'data_loss' || s === 'data loss' || s.indexOf('data') >= 0) return 'data_loss';
+  if (s === 'nda_consent' || s === 'questions' || s.indexOf('nda') >= 0 || s.indexOf('consent') >= 0) return 'nda_consent';
+  if (s === 'misconduct' || s.indexOf('misconduct') >= 0) return 'misconduct';
+  const lbl = String(label || '').toLowerCase();
+  if (lbl.indexOf('police') >= 0) return 'contact_police';
+  if (lbl.indexOf('data') >= 0) return 'data_loss';
+  if (lbl.indexOf('nda') >= 0 || lbl.indexOf('consent') >= 0 || lbl.indexOf('question') >= 0) return 'nda_consent';
+  if (lbl.indexOf('misconduct') >= 0) return 'misconduct';
+  return s || 'unknown';
+}
+
+function normalizePanicLogRow(row) {
+  const r = row || {};
+  const reportLabel = pickPanicField(r, ['reportLabel', 'report_label', 'alertTitle']);
+  const reportType = normalizePanicReportType(pickPanicField(r, ['reportType', 'report_type', 'reportKey']), reportLabel);
+  const meta = panicKindMeta(reportType);
+  const reportedAt = pickPanicField(r, ['reportedAt', 'reported_at']);
+  const sessionDate = pickPanicField(r, ['sessionDate', 'session_date']);
+  let date = sessionDate;
+  if (!date && reportedAt) {
+    const d = new Date(reportedAt);
+    if (!isNaN(d.getTime())) date = d.toISOString().slice(0, 10);
+    else date = String(reportedAt).slice(0, 10);
+  }
+  return {
+    panicLogId: pickPanicField(r, ['panicLogId', 'panic_log_id']) || ('pl_' + Date.now()),
+    reportedAt: reportedAt,
+    reportedBy: pickPanicField(r, ['reportedBy', 'reported_by', 'reporterOrbitId']),
+    reporterName: pickPanicField(r, ['reporterName', 'reporter_name']) || pickPanicField(r, ['reportedBy', 'reported_by']),
+    teamId: pickPanicField(r, ['teamId', 'team_id']),
+    teamName: pickPanicField(r, ['teamName', 'team_name']),
+    assignmentId: pickPanicField(r, ['assignmentId', 'assignment_id']),
+    sessionDate: sessionDate,
+    date: date,
+    reportType: reportType,
+    reportLabel: reportLabel || meta.label,
+    reportSubtype: pickPanicField(r, ['reportSubtype', 'report_subtype']),
+    comment: pickPanicField(r, ['comment']),
+    followUpNote: pickPanicField(r, ['followUpNote', 'follow_up_note']),
+    emailTo: pickPanicField(r, ['emailTo', 'email_to']),
+    emailStatus: pickPanicField(r, ['emailStatus', 'email_status']),
+    emailError: pickPanicField(r, ['emailError', 'email_error']),
+    appVersion: pickPanicField(r, ['appVersion', 'app_version']),
+    localTimestamp: pickPanicField(r, ['localTimestamp', 'local_timestamp']),
+    location: pickPanicField(r, ['location']),
+  };
+}
+
+function readLocalPanicLogRows() {
+  try {
+    const list = JSON.parse(localStorage.getItem('twilight_panic_log_v1') || '[]');
+    return Array.isArray(list) ? list.map(normalizePanicLogRow) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function mergePanicLogRows(remote, local) {
+  const map = new Map();
+  (remote || []).concat(local || []).forEach((row) => {
+    const n = normalizePanicLogRow(row);
+    if (!n.panicLogId) return;
+    if (!map.has(n.panicLogId)) map.set(n.panicLogId, n);
+  });
+  return Array.from(map.values()).sort((a, b) => String(b.reportedAt || b.date || '').localeCompare(String(a.reportedAt || a.date || '')));
+}
+
+async function fetchPanicLogRows() {
+  let remote = [];
+  if (PANICLOG_PA_READ_URL) {
+    try {
+      const res = await fetch(PANICLOG_PA_READ_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (res.ok || res.status === 202) {
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); } catch (_) { data = []; }
+        const rows = (typeof extractArray === 'function') ? extractArray(data)
+          : (Array.isArray(data) ? data : (Array.isArray(data && data.value) ? data.value : []));
+        remote = (rows || []).map(normalizePanicLogRow);
+      } else {
+        console.warn('[Twilight] PanicLog read HTTP', res.status);
+      }
+    } catch (e) {
+      console.warn('[Twilight] PanicLog read threw:', e && e.message);
+    }
+  }
+  return mergePanicLogRows(remote, readLocalPanicLogRows());
+}
+
+async function ensurePanicLogRows(force) {
+  if (typeof adminState === 'undefined' || !adminState) return [];
+  const fresh = !force && adminState._panicLogFetchedAt && (Date.now() - adminState._panicLogFetchedAt) < 20000;
+  if (fresh && Array.isArray(adminState.panicLogRows) && adminState.panicLogRows.length) {
+    return adminState.panicLogRows;
+  }
+  if (adminState._panicLogFetching) return adminState.panicLogRows || [];
+  adminState._panicLogFetching = true;
+  try {
+    adminState.panicLogRows = await fetchPanicLogRows();
+    adminState._panicLogFetchedAt = Date.now();
+  } finally {
+    adminState._panicLogFetching = false;
+  }
+  return adminState.panicLogRows || [];
+}
+
+function incidentDateInRange(row, range) {
+  return perfDateInRange({ date: (row && (row.date || row.sessionDate)) || '' }, range);
+}
+
+function filteredPanicIncidents() {
+  const rows = (adminState && adminState.panicLogRows) || [];
+  const scope = (adminState && adminState.incidentScope) || 'all';
+  const dateRange = (adminState && adminState.perfDateRange) || 'all';
+  const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
+  return rows.filter((row) => {
+    if (scope !== 'all' && row.reportType !== scope) return false;
+    if (!incidentDateInRange(row, dateRange)) return false;
+    if (!search) return true;
+    const hay = [
+      row.reportLabel, row.reportType, row.reportSubtype, row.comment,
+      row.reporterName, row.reportedBy, row.teamName, row.followUpNote,
+      row.sessionDate, row.assignmentId,
+    ].join(' ').toLowerCase();
+    return hay.indexOf(search) >= 0;
+  });
+}
+
+function incidentStatusCounts() {
+  const dateRange = (adminState && adminState.perfDateRange) || 'all';
+  const rows = ((adminState && adminState.panicLogRows) || []).filter((row) => incidentDateInRange(row, dateRange));
+  const counts = { all: rows.length, contact_police: 0, data_loss: 0, nda_consent: 0, misconduct: 0 };
+  rows.forEach((row) => {
+    if (counts[row.reportType] != null) counts[row.reportType] += 1;
+  });
+  return counts;
+}
+
+function formatIncidentWhen(row) {
+  if (row && row.reportedAt) {
+    const d = new Date(row.reportedAt);
+    if (!isNaN(d.getTime())) return d.toLocaleString();
+    return row.reportedAt;
+  }
+  return (row && (row.localTimestamp || row.sessionDate)) || '—';
+}
+
+function renderPerfSectionTabsHTML() {
+  const section = (adminState && adminState.perfSection) || 'sessions';
+  const n = Array.isArray(adminState.panicLogRows) ? adminState.panicLogRows.length : 0;
+  return `
+    <div class="subtab-row">
+      <div class="subtab-cluster">
+        <div class="subtab-toggle" role="tablist" aria-label="Performance views">
+          <button type="button" class="subtab-btn ${section === 'sessions' ? 'active' : ''}" data-perf-section="sessions" role="tab">Sessions</button>
+          <button type="button" class="subtab-btn ${section === 'incidents' ? 'active' : ''}" data-perf-section="incidents" role="tab">
+            Incident Report
+            <span class="subtab-count">${n || ''}</span>
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function wirePerfSectionTabs(body) {
+  if (!body) return;
+  body.querySelectorAll('[data-perf-section]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.perfSection;
+      if (!next || next === adminState.perfSection) return;
+      adminState.perfSection = next;
+      if (next === 'incidents') adminState.incidentScope = adminState.incidentScope || 'all';
+      renderPerformance(body);
+    });
+  });
+}
+
+function adminIncidentPillHTML() {
+  return `<button type="button" class="admin-incident-pill mod-status-pill is-deactivated" id="adminIncidentPill" title="Open Incident Report" aria-label="Open Incident Report"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.6 2.2 12.4h11.6L8 1.6z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.2M8 11.2h.01" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="admin-incident-pill-label">Incident Report</span></button>`;
+}
+
+function bindAdminIncidentPill(root) {
+  const host = root || document;
+  const pill = host.querySelector ? host.querySelector('#adminIncidentPill') : document.getElementById('adminIncidentPill');
+  if (!pill) return;
+  pill.addEventListener('click', () => {
+    selectAdminTab('performance', { perfSection: 'incidents' });
+  });
 }
 
 async function sendPanicEscalationAlert(report) {
