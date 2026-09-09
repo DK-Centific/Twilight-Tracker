@@ -628,8 +628,6 @@ a.icon-btn:focus-visible {
   .acc-item.open .acc-inner:has(.sc-flow) {
     overflow-x: clip;
     overflow-y: visible;
-    padding-left: 8px;
-    padding-right: 62px;
     min-width: 0;
   }
   .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
@@ -699,6 +697,7 @@ a.icon-btn:focus-visible {
   }
   .sc-flow-viewport {
     position: relative;
+    container-type: inline-size;
     width: 100%;
     max-width: 100%;
     height: min(72dvh, 680px);
@@ -709,8 +708,8 @@ a.icon-btn:focus-visible {
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     scrollbar-width: none;
-    border-radius: 22px;
-    padding: 8px 2px 36px;
+    border-radius: var(--rl);
+    padding: 4px 0 28px;
   }
   .sc-flow-viewport::-webkit-scrollbar { display: none; }
   .sc-flow-stage {
@@ -725,7 +724,7 @@ a.icon-btn:focus-visible {
     overflow-x: auto;
     overflow-y: hidden;
     scroll-snap-type: x mandatory;
-    padding: 18px 20px 28px;
+    padding: 12px 0 20px;
   }
   .sc-flow.is-x .sc-flow-stage {
     display: flex;
@@ -735,7 +734,7 @@ a.icon-btn:focus-visible {
   }
   .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
   .sc-flow.is-y .sc-flow-spacer { height: 72px; }
-  .sc-flow.is-x .sc-flow-spacer { width: 12vw; min-width: 36px; }
+  .sc-flow.is-x .sc-flow-spacer { width: 8px; min-width: 8px; }
   .sc-flow-nav {
     width: 52px;
     height: 52px;
@@ -760,10 +759,11 @@ a.icon-btn:focus-visible {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    box-sizing: border-box;
     width: 100%;
-    margin: 14px auto;
-    padding: 22px 18px 20px;
-    border-radius: 28px;
+    margin: 12px 0;
+    padding: 20px 16px 18px;
+    border-radius: var(--rl);
     border: 0.5px solid var(--border);
     background: var(--card-bg, var(--bg2));
     color: var(--text);
@@ -776,9 +776,9 @@ a.icon-btn:focus-visible {
     transition: box-shadow 0.4s var(--sc-flow-ease), border-color 0.28s ease;
   }
   .sc-flow.is-x .sc-flow-tile {
-    width: min(260px, 70vw);
-    margin: 0 10px;
-    flex: 0 0 auto;
+    width: calc(100cqw - 16px);
+    margin: 0 8px;
+    flex: 0 0 calc(100cqw - 16px);
   }
   .sc-flow-tile.is-current {
     border-color: var(--brand-line, var(--accent));
