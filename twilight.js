@@ -2509,10 +2509,16 @@ function scenarioFlowHTML(station, data) {
 
 function scenarioFlowHeliosReserve() {
   const bar = document.querySelector('.helios-bottombar');
-  if (!bar) return 76;
-  const r = bar.getBoundingClientRect();
-  if (!r.height) return 76;
-  return Math.max(64, Math.round(window.innerHeight - r.top));
+  let reserve = 76;
+  if (bar) {
+    const r = bar.getBoundingClientRect();
+    if (r.height) reserve = Math.max(64, Math.round(window.innerHeight - r.top));
+  }
+  const actions = document.querySelector('#content .actions-bar');
+  if (actions && getComputedStyle(actions).display !== 'none') {
+    reserve += Math.round(actions.getBoundingClientRect().height) + 6;
+  }
+  return reserve;
 }
 
 function layoutScenarioFlowViewport() {
@@ -2555,13 +2561,10 @@ function layoutScenarioFlowViewport() {
     const top = vp.getBoundingClientRect().top;
     const avail = Math.max(220, Math.round(window.innerHeight - top - reserve));
     tiles.forEach(el => {
-      if (el.offsetHeight > avail) {
-        el.style.height = avail + 'px';
-        el.classList.add('is-fit');
-      }
+      el.style.height = avail + 'px';
+      el.classList.add('is-fit');
     });
-    const tileH = Math.max(...tiles.map(el => el.offsetHeight));
-    if (tileH) vp.style.height = Math.min(avail, tileH) + 'px';
+    vp.style.height = avail + 'px';
     return;
   }
 
@@ -2570,12 +2573,10 @@ function layoutScenarioFlowViewport() {
   const avail = Math.max(240, Math.round(window.innerHeight - top - reserve));
   const maxTile = Math.max(200, avail - peek * 2);
   tiles.forEach(el => {
-    if (el.offsetHeight > maxTile) {
-      el.style.height = maxTile + 'px';
-      el.classList.add('is-fit');
-    }
+    el.style.height = maxTile + 'px';
+    el.classList.add('is-fit');
   });
-  const tileH = Math.max(...tiles.map(el => el.offsetHeight));
+  const tileH = maxTile;
   const vpH = Math.min(avail, tileH + peek * 2);
   vp.style.height = vpH + 'px';
   const spacer = Math.max(0, Math.round((vpH - tileH) / 2));
