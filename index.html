@@ -606,10 +606,10 @@ a.icon-btn:focus-visible {
   .st-flow-label { font-size: 16px; }
 }
 
-/* Mobile scenario cover-flow · phones only. Desktop keeps the table.
+/* Scenario cover-flow · tablet chrome on every screen (including desktop).
    One focused scenario card stays truly centered; neighbors peek and blur. */
 .sc-flow { display: none; }
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .sc-flow {
     display: flex;
     flex-direction: column;
@@ -1004,7 +1004,7 @@ a.icon-btn:focus-visible {
   .sc-flow-tile .appr-slidedown-title { font-size: 13px; margin-bottom: 2px; }
   .sc-flow-tile .appr-slidedown-sub { font-size: 12px; margin-bottom: 6px; line-height: 1.35; }
 }
-@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+@media (max-width: 10000px) and (prefers-reduced-motion: reduce) {
   .sc-flow-viewport { scroll-behavior: auto; }
   .sc-flow-axis-btn, .sc-flow-nav, .sc-flow-tile, .sc-flow-face { transition: none; }
 }
@@ -1102,7 +1102,7 @@ a.icon-btn:focus-visible {
 .welcome {
   padding: 40px 0 24px;
 }
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .welcome { display: none; }
 }
 .welcome-eyebrow {
@@ -1780,7 +1780,7 @@ a.icon-btn:focus-visible {
    station <h2> in the full-content (non-accordion) view. Hidden at the mobile
    breakpoint because the accordion header already carries the pill there. */
 .station-motion-row { margin-top: 9px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-@media (max-width: 760px) { .station-motion-row { display: none; } }
+@media (max-width: 10000px) { .station-motion-row { display: none; } }
 /* Clickable "≥90s" recording-length pill · sits next to the motion badge on
    the camera stations. Accent-colored + hover fill to signal it's tappable
    (opens the length reminder). */
@@ -2963,7 +2963,7 @@ button, a, label, input, select, textarea,
 .iter-stepper.iter-met .iter-value { color: var(--accent-ink); }
 .iter-stepper.iter-met .iter-target { color: var(--accent-ink); opacity: 0.65; }
 
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .iter-stepper { height: 34px; width: 100%; max-width: 200px; }
   .iter-btn { width: 38px; }
   .iter-btn svg { width: 12px; height: 12px; }
@@ -3968,7 +3968,7 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
    open at a time; the body slides via grid-template-rows 0fr->1fr so it
    animates to the content's natural height with no hardcoded pixel
    values (stations have differing scenario counts). The markup only
-   exists on mobile, so these rules are inert on desktop. */
+   exists whenever tablet chrome is on (every screen). */
 .station-accordion { display: flex; flex-direction: column; gap: 10px; }
 .acc-item {
   border: 0.5px solid var(--border);
@@ -4064,7 +4064,7 @@ body:has(#panicFab.open) .acc-stepper {
 .acc-step-btn:not(:disabled):active { background: var(--accent-soft); color: var(--accent-ink); transform: scale(0.94); }
 .acc-step-btn:disabled { opacity: 0.3; cursor: default; }
 .acc-step-label { font-family: var(--font-num); font-size: 11px; color: var(--text3); line-height: 1; cursor: pointer; padding: 4px 0; }
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .station-accordion { gap: 12px; }
   .acc-head { padding: 16px 14px; }
   .acc-item { scroll-margin-top: 72px; }
@@ -4301,7 +4301,7 @@ input#ent_lakitu.lakitu-invalid {
   word-break: break-all;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .chip-chevron { display: inline-block; }
   .user-chip { cursor: pointer; }
 }
@@ -4332,10 +4332,10 @@ input#ent_lakitu.lakitu-invalid {
      the whole point of the new layout. */
 }
 
-@media (max-width: 760px) {
-  /* Inset-aware horizontal padding so content clears the rounded screen
-     corners / sensor housing in landscape; keep the safe-area top inset
-     from the base rule so the bar still sits below the status bar. */
+@media (max-width: 10000px) {
+  /* Tablet chrome on every screen, including desktop. Phone-only
+     tightening (smaller nav buttons, hidden brand) still lives here so
+     the computer view matches the tablet station layout. */
   nav {
     padding-top: env(safe-area-inset-top);
     padding-bottom: 0;
@@ -4503,6 +4503,17 @@ input#ent_lakitu.lakitu-invalid {
     margin-top: 8px;
     padding-top: 6px;
     padding-bottom: 8px;
+  }
+}
+
+/* On a computer, keep the tablet station column centered so the cards
+   do not stretch across a wide monitor. */
+@media (min-width: 900px) {
+  #app .content {
+    width: 100%;
+    max-width: 780px;
+    margin-left: auto;
+    margin-right: auto;
   }
 }
 
@@ -15207,7 +15218,7 @@ h1, h2, h3,
 
 /* ---- Mobile accordion tiles + stepper (Helios neu) ---- */
 .acc-item { box-shadow:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light); }
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .station-accordion.in-station .acc-item.open {
     box-shadow: none !important;
     background: transparent !important;
@@ -15302,7 +15313,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 /* Desktop: inset the whole app from the right so neither the nav's
    right cluster nor the main content sits under the fixed rail. The fixed
    rail (and the body-level panic FAB) ignore this padding. */
-@media (min-width:761px) {
+@media (min-width:10001px) {
   #app, #adminApp { padding-right:88px; }
 }
 
@@ -15314,7 +15325,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
    narrow screens. */
 .helios-bottombar { display:none; }
 
-@media (max-width:760px) {
+@media (max-width:10000px) {
   html {
     --helios-bar-icon: 40px;
     --helios-bar-pad-top: 6px;
@@ -15679,7 +15690,7 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 #adminApp.active ~ #appBuildStamp {
   display: none;
 }
-@media (max-width: 760px) {
+@media (max-width: 10000px) {
   .app-build-stamp {
     right: 16px;
     bottom: calc(var(--helios-bar-body, 56px) + 8px + env(safe-area-inset-bottom));
@@ -15916,11 +15927,11 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 .panic-form-send { background:#D9534F; color:#fff; }
 .panic-form-send:disabled { opacity:0.6; cursor:not-allowed; }
 .panic-form-status { margin:10px 0 0; font-size:13px; color:var(--text2, #666); }
-@media (max-width:760px) {
+@media (max-width:10000px) {
   .panic-escalate-grid { display:none !important; }
   .panic-more-pill { white-space:normal; text-align:center; }
 }
-@media (min-width:761px) {
+@media (min-width:10001px) {
   .panic-esc-pop { display:none !important; }
   .panic-overlay.esc-pop-open .panic-modal {
     opacity:1;
@@ -15957,7 +15968,7 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 .panic-fab.is-docked.open .panic-menu {
   z-index: 260;
 }
-@media (max-width:760px) {
+@media (max-width:10000px) {
   .panic-fab:not(.is-docked) { right:16px; bottom:calc(var(--helios-bar-body, 56px) + 8px + env(safe-area-inset-bottom, 0px)); }
   .panic-btn { width:54px; height:54px; }
   .panic-fab.is-docked .panic-btn { width:var(--helios-bar-icon, 40px); height:var(--helios-bar-icon, 40px); }
@@ -15965,6 +15976,6 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826cp" defer></script>
+<script src="twilight-panic.js?v=1.3.090826cq" defer></script>
 </body>
 </html>

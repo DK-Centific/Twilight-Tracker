@@ -108,7 +108,7 @@
     modalBody.scrollTop = 0;
   }
   function isPanicMobile() {
-    return window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+    return true;
   }
   function fillEscPop() {
     if (!escPopGrid || escPopGrid.childElementCount) return;

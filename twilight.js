@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cp';
-const APP_UPDATED_AT = '09/10/2026 10:52';
+const APP_VERSION = '1.3.090826cq';
+const APP_UPDATED_AT = '09/10/2026 11:00';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -960,6 +960,11 @@ function renderApp() {
       removeAccordionStepper();
       renderStation(currentStationKey);
     }
+  } else if (isStationAccordionMode()) {
+    _accordionCollapsed = true;
+    removeAccordionStepper();
+    renderStationsAccordion();
+    syncNavScenarioAxes();
   } else {
     _accordionCollapsed = false;
     removeAccordionStepper();
@@ -3759,12 +3764,10 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
 
 let _accordionCollapsed = false;
 
-// TRUE when the viewport is in mobile-accordion territory (matches the
-// 760px breakpoint where the sidebar becomes an off-canvas drawer).
+// Tablet chrome on every screen: accordion + scenario cards + bottom bar.
+// Desktop no longer uses the old sidebar + table layout.
 function isStationAccordionMode() {
-  return typeof window !== 'undefined'
-    && window.matchMedia
-    && window.matchMedia('(max-width: 760px)').matches;
+  return true;
 }
 
 // Body-level up/down station stepper. Must live on document.body — never
@@ -28806,7 +28809,7 @@ function startAdminAppAfterLogin() {
     }).catch(() => {});
   }
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(false);
 }
 
 function bindAdminMenu() {
@@ -33369,7 +33372,7 @@ function logoutAndClearOperatorState() {
     setTimeout(() => loginInput.focus(), 100);
   }
   syncLoginPasswordFieldForUsername();
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(false);
 }
 
 
@@ -35123,7 +35126,7 @@ function startAppAfterLogin() {
   // variant to show. Stored on window so it's reachable from the
   // setTimeout callback in doLogin without changing function signatures.
   window._orbitInitialAsgnRefresh = _initialAsgnRefresh;
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(false);
 }
 
 // Look for teammate SessionState on the current assignment. If found
@@ -37214,7 +37217,7 @@ function setupNavRails() {
   if (typeof wireApprovalGuideSlide === 'function') wireApprovalGuideSlide();
 
   const apply = () => {
-    const desktop = window.innerWidth > 760;
+    const desktop = false;
     configs.forEach(cfg => {
       const rail = document.getElementById(cfg.rail);
       const bar  = document.getElementById(cfg.bottomBar);
@@ -37480,7 +37483,7 @@ function init() {
     clearLoginPasswordInputs();
     syncLoginPasswordFieldForUsername();
     document.getElementById('loginUsername').focus();
-    if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+    if (typeof dockPanicFab === 'function') dockPanicFab(false);
   });
 
   // Sidebar mobile
