@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ce';
-const APP_UPDATED_AT = '09/10/2026 02:32';
+const APP_VERSION = '1.3.090826cf';
+const APP_UPDATED_AT = '09/10/2026 03:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1458,36 +1458,7 @@ function entryBarHTML() {
             </div>
           </span>
         </span>
-        <div class="entry-session-links">
-        ${assignedLakituHref ? `
-        <a id="ent_lakitu" class="entry-lakitu-btn" href="${escapeHTML(assignedLakituHref)}" target="_blank" rel="noopener noreferrer" title="Open the TeamLog Lakitu project" data-lakitu-url="${escapeHTML(assignedLakituHref)}">
-          <svg class="entry-lakitu-btn-logo" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="7.25" fill="#000"/>
-            <path d="M8 4 L11.6 11.5 L4.4 11.5 Z" fill="#fff" stroke="#fff" stroke-width="0.6" stroke-linejoin="round"/>
-          </svg>
-          <span>Open Lakitu</span>
-          <svg class="entry-lakitu-btn-ext" width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M5 9l4-4M5 5h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </a>
-        ` : `
-        <div id="ent_lakitu" class="entry-lakitu-none" aria-disabled="true">No Lakitu</div>
-        `}
-        ${assignedRingHref ? `
-        <a id="ent_ring" class="entry-lakitu-btn entry-ring-btn" href="${escapeHTML(assignedRingHref)}" target="_blank" rel="noopener noreferrer" title="Open the TeamLog Ring dashboard" data-ring-url="${escapeHTML(assignedRingHref)}">
-          <svg class="entry-lakitu-btn-logo" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="7.25" fill="#1A1A1A"/>
-            <circle cx="8" cy="8" r="4.35" fill="none" stroke="#fff" stroke-width="1.85"/>
-          </svg>
-          <span>Open Ring</span>
-          <svg class="entry-lakitu-btn-ext" width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-            <path d="M5 9l4-4M5 5h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </a>
-        ` : `
-        <div id="ent_ring" class="entry-lakitu-none" aria-disabled="true">No Ring</div>
-        `}
-        </div>
+        ${entrySessionLinksHTML({ lakituId: 'ent_lakitu', ringId: 'ent_ring', lakituHref: assignedLakituHref, ringHref: assignedRingHref })}
       </div>
       <div class="entry-divider"></div>
       <div class="entry-field entry-field-wide">
@@ -1560,20 +1531,79 @@ function mySessionDrawerHTML() {
 // Read-only Lakitu reference shown inside each accordion station body
 // (request: "only leave the Lakitu Session in each acc-inner"). Editing
 // happens in the drawer; this just surfaces the current value per station.
-function lakituReadonlyHTML() {
+function resolveLakituSessionHref() {
+  const assigned = (typeof getAssignedLakituUrl === 'function') ? getAssignedLakituUrl() : '';
+  if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
   const v = (state && state.participantId) ? String(state.participantId).trim() : '';
-  let shown;
-  if (!v) {
-    shown = `<span class="lakitu-ro-empty">No session assigned</span>`;
-  } else if (!isValidLakituUrl(v) && !isLakituProjectUrl(v)) {
-    shown = `<span class="lakitu-ro-invalid">⚠ Invalid Lakitu session URL</span>`;
-  } else {
-    shown = `<a class="lakitu-ro-link" href="${escapeHTML(v)}" target="_blank" rel="noopener noreferrer">${escapeHTML(v)}</a>`;
-  }
+  if (!v) return '';
+  const ok = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(v))
+    || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(v));
+  if (ok && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(v)) return v;
+  return '';
+}
+
+function resolveRingSessionHref() {
+  const assigned = (typeof getAssignedRingUrl === 'function') ? getAssignedRingUrl() : '';
+  if (assigned && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(assigned)) return assigned;
+  return '';
+}
+
+function entryLakituOpenPillHTML(href, id, title) {
+  const idAttr = id ? ` id="${escapeHTML(id)}"` : '';
+  return `<a${idAttr} class="entry-lakitu-btn" href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHTML(title || 'Open Lakitu')}" data-lakitu-url="${escapeHTML(href)}">
+          <svg class="entry-lakitu-btn-logo" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="7.25" fill="#000"/>
+            <path d="M8 4 L11.6 11.5 L4.4 11.5 Z" fill="#fff" stroke="#fff" stroke-width="0.6" stroke-linejoin="round"/>
+          </svg>
+          <span>Open Lakitu</span>
+          <svg class="entry-lakitu-btn-ext" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M5 9l4-4M5 5h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>`;
+}
+
+function entryRingOpenPillHTML(href, id) {
+  const idAttr = id ? ` id="${escapeHTML(id)}"` : '';
+  return `<a${idAttr} class="entry-lakitu-btn entry-ring-btn" href="${escapeHTML(href)}" target="_blank" rel="noopener noreferrer" title="Open the TeamLog Ring dashboard" data-ring-url="${escapeHTML(href)}">
+          <svg class="entry-lakitu-btn-logo" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="7.25" fill="#1A1A1A"/>
+            <circle cx="8" cy="8" r="4.35" fill="none" stroke="#fff" stroke-width="1.85"/>
+          </svg>
+          <span>Open Ring</span>
+          <svg class="entry-lakitu-btn-ext" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path d="M5 9l4-4M5 5h4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>`;
+}
+
+function entrySessionLinksHTML(opts) {
+  const o = opts || {};
+  const lakituHref = o.lakituHref != null ? o.lakituHref : resolveLakituSessionHref();
+  const ringHref = o.ringHref != null ? o.ringHref : resolveRingSessionHref();
+  const emptyLakitu = o.emptyLakitu || 'No Lakitu';
+  const pasted = (state && state.participantId) ? String(state.participantId).trim() : '';
+  const invalid = !lakituHref && pasted && typeof isValidLakituUrl === 'function'
+    && !isValidLakituUrl(pasted) && typeof isLakituProjectUrl === 'function' && !isLakituProjectUrl(pasted);
+  const lakitu = lakituHref
+    ? entryLakituOpenPillHTML(lakituHref, o.lakituId, o.lakituTitle || 'Open the TeamLog Lakitu project')
+    : invalid
+      ? `<div${o.lakituId ? ` id="${escapeHTML(o.lakituId)}"` : ''} class="entry-lakitu-none lakitu-ro-invalid" aria-disabled="true">⚠ Invalid Lakitu session URL</div>`
+      : `<div${o.lakituId ? ` id="${escapeHTML(o.lakituId)}"` : ''} class="entry-lakitu-none" aria-disabled="true">${escapeHTML(emptyLakitu)}</div>`;
+  const ring = ringHref
+    ? entryRingOpenPillHTML(ringHref, o.ringId)
+    : `<div${o.ringId ? ` id="${escapeHTML(o.ringId)}"` : ''} class="entry-lakitu-none" aria-disabled="true">No Ring</div>`;
+  return `<div class="entry-session-links">${lakitu}${ring}</div>`;
+}
+
+function lakituReadonlyHTML() {
   return `
     <div class="lakitu-ro entry-field">
       <label>Lakitu session</label>
-      <div class="lakitu-ro-val">${shown}</div>
+      <div class="lakitu-ro-val">${entrySessionLinksHTML({
+        lakituId: 'lakitu_ro_link',
+        ringId: 'lakitu_ro_ring',
+        emptyLakitu: 'No session assigned',
+      })}</div>
     </div>`;
 }
 
