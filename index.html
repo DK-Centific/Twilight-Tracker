@@ -4315,6 +4315,43 @@ input#ent_lakitu.lakitu-invalid {
 
   .actions-bar { flex-direction: column; align-items: stretch; }
   .actions-bar .left, .actions-bar .right { width: 100%; justify-content: space-between; }
+  .acc-head .status-pill,
+  .station-accordion .status-pill,
+  .actions-bar .status-pill,
+  .actions-bar .station-summary,
+  .actions-bar .left {
+    display: none !important;
+  }
+  .content > .actions-bar,
+  .acc-inner .actions-bar {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 10px 0 0;
+    padding: 4px 8px 8px;
+    box-sizing: border-box;
+  }
+  .content > .actions-bar .right,
+  .acc-inner .actions-bar .right {
+    width: auto;
+    max-width: 100%;
+    justify-content: center;
+    gap: 12px;
+  }
+  .content > .actions-bar .right .btn,
+  .acc-inner .actions-bar .right .btn {
+    flex: 0 1 auto;
+    min-width: 132px;
+    min-height: 44px;
+    justify-content: center;
+  }
+  .content:has(.station-accordion.in-station) {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 @media (max-width: 480px) {
@@ -4325,6 +4362,10 @@ input#ent_lakitu.lakitu-invalid {
      positions remain readable. The items shrink to fit instead. */
   .login-card { padding: 32px 24px; }
   .actions-bar .right .btn { flex: 1; justify-content: center; }
+  .content > .actions-bar .right .btn,
+  .acc-inner .actions-bar .right .btn {
+    flex: 0 1 auto;
+  }
 }
 
 /* Subtle scrollbar */
