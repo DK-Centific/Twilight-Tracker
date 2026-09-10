@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826dd';
-const APP_UPDATED_AT = '09/10/2026 19:05';
+const APP_VERSION = '1.3.090826de';
+const APP_UPDATED_AT = '09/10/2026 19:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3204,7 +3204,7 @@ function renderStation(key, opts) {
   let html = `
     ${titleHTML}
     ${opts.omitTitle ? lakituReadonlyHTML() : entryBarHTML()}
-    ${showStationMotion && typeof calGuideInlineHTML === 'function' ? calGuideInlineHTML() : ''}
+    ${typeof calGuideInlineHTML === 'function' ? calGuideInlineHTML() : ''}
   `;
 
   // Camera confirmation card (only for capture stations)
@@ -32667,12 +32667,13 @@ function closeCalGuideModal() {
   }
   overlay.classList.remove('open');
   modal.classList.remove('open');
-  modal.classList.add('is-exiting');
+  modal.classList.remove('is-exiting');
+  // Unmount the sheet immediately so exit is a single overlay fade,
+  // not a doubled ghost of the guide sitting over the station page.
+  modal.hidden = true;
   const finish = () => {
     if (overlay.classList.contains('open')) return;
     overlay.hidden = true;
-    modal.hidden = true;
-    modal.classList.remove('is-exiting');
     overlay.removeEventListener('transitionend', finish);
   };
   overlay.addEventListener('transitionend', finish);
