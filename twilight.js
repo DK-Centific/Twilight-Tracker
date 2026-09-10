@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826de';
-const APP_UPDATED_AT = '09/10/2026 19:20';
+const APP_VERSION = '1.3.090826df';
+const APP_UPDATED_AT = '09/10/2026 19:35';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4005,6 +4005,11 @@ function placeMobileStationActions(container) {
   const accordion = host && host.querySelector('.station-accordion');
   if (!bar || !accordion) return;
   accordion.after(bar);
+  // Keep a single sticky bar. A leftover copy can appear after scroll
+  // re-renders if an earlier bar was not moved out of the station body.
+  host.querySelectorAll('.actions-bar').forEach((el, i, all) => {
+    if (el !== bar && all.length > 1) el.remove();
+  });
 }
 
 function stationActionsHTML(station, data) {

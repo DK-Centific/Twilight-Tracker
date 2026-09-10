@@ -1724,9 +1724,10 @@ a.icon-btn:focus-visible {
 }
 
 .cal-guide-body {
-  padding: 8px 24px 20px;
+  padding: 8px 24px 28px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: 24px;
   /* Disable scroll chaining so swipes inside the modal don't pull-to-
      refresh on Android Chrome or scroll the underlying page on iOS. */
   overscroll-behavior: contain;
@@ -1785,8 +1786,8 @@ a.icon-btn:focus-visible {
 /* Compact, persistent reminder pill next to the camera-station labels
    (0a / 1 / 2 / 3). The label + sub may ellipsis/hide on a tight mobile
    header, but this pill stays (flex-shrink:0) so the rule is always visible. */
-.acc-label-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.acc-label-row .acc-label { flex: 0 1 auto; }
+.acc-label-row { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.acc-label-row .acc-label { flex: 1 1 auto; min-width: 0; }
 .acc-motion-badge {
   flex-shrink: 0;
   display: inline-flex; align-items: center; gap: 4px;
@@ -2071,6 +2072,8 @@ a.icon-btn:focus-visible {
 .cal-guide-inline.is-acked strong { color: #3D8B5F; }
 @media (max-width: 760px) {
   .cal-guide-inline { flex-wrap: wrap; }
+  .acc-motion-badge,
+  .acc-length-badge { font-size: 8px; padding: 2px 6px; }
 }
 
 .cal-guide-footer {
@@ -2859,8 +2862,11 @@ body.booking-open #panicFab,
   .cal-guide-header {
     padding: calc(16px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right)) 12px calc(18px + env(safe-area-inset-left));
   }
-  .cal-guide-body   { padding: 6px 18px 16px; }
-  .cal-guide-footer { padding: 12px 18px; }
+  .cal-guide-body   { padding: 6px 18px 36px; scroll-padding-bottom: 28px; }
+  .cal-guide-footer {
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--card-bg);
+  }
 }
 
 
@@ -4692,7 +4698,7 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
 .acc-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .acc-label {
   font-size: 15px; font-weight: 600; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  white-space: normal; overflow: visible; line-height: 1.25;
 }
 .acc-sub {
   font-size: 12px; color: var(--text3);
@@ -4742,7 +4748,11 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
   transition: opacity 0.18s ease, visibility 0.18s ease;
 }
 html.panic-menu-open .acc-stepper,
-body:has(#panicFab.open) .acc-stepper {
+body:has(#panicFab.open) .acc-stepper,
+html.panic-menu-open .content > .actions-bar,
+html.panic-menu-open .acc-inner .actions-bar,
+body:has(#panicFab.open) .content > .actions-bar,
+body:has(#panicFab.open) .acc-inner .actions-bar {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -16806,6 +16816,15 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 @media (max-width:760px) {
   .panic-escalate-grid { display:none !important; }
   .panic-more-pill { white-space:normal; text-align:center; }
+  .panic-modal {
+    max-height: min(88dvh, calc(100dvh - 16px));
+    width: min(680px, calc(100% - 8px));
+  }
+  .panic-modal-head { padding: 14px 16px; align-items: flex-start; }
+  .panic-modal-title { font-size: 18px; line-height: 1.25; }
+  .panic-modal-body { padding: 16px 16px 32px; }
+  .panic-tier { margin: 8px 0; }
+  .panic-tier.tier-escalate { margin-bottom: 4px; }
 }
 @media (min-width:761px) {
   .panic-esc-pop { display:none !important; }
@@ -16828,15 +16847,22 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
   pointer-events: auto;
 }
 .panic-fab.is-docked .panic-btn {
-  width: var(--helios-bar-icon, 40px);
-  height: var(--helios-bar-icon, 40px);
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   box-shadow: 4px 4px 9px rgba(0,0,0,0.22), 0 0 16px rgba(217,83,79,0.35);
 }
-.panic-fab.is-docked .panic-btn-ico { width: 20px; height: 20px; }
+.panic-fab.is-docked .panic-btn-ico { width: 22px; height: 22px; }
 .panic-fab.is-docked .panic-menu {
   position: absolute;
-  bottom: calc(100% + 12px);
+  bottom: calc(100% + 18px);
   right: 0;
+  gap: 16px;
+}
+.panic-fab.is-docked .panic-opt {
+  min-height: 52px;
+  padding: 14px 20px 14px 14px;
 }
 .panic-fab.is-docked.open {
   z-index: 250;
@@ -16847,11 +16873,11 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 @media (max-width:760px) {
   .panic-fab:not(.is-docked) { right:16px; bottom:calc(var(--helios-bar-body, 56px) + 8px + env(safe-area-inset-bottom, 0px)); }
   .panic-btn { width:54px; height:54px; }
-  .panic-fab.is-docked .panic-btn { width:var(--helios-bar-icon, 40px); height:var(--helios-bar-icon, 40px); }
-  .panic-modal-title { font-size:21px; }
+  .panic-fab.is-docked .panic-btn { width:44px; height:44px; min-width:44px; min-height:44px; }
+  .panic-modal-title { font-size:18px; }
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826de" defer></script>
+<script src="twilight-panic.js?v=1.3.090826df" defer></script>
 </body>
 </html>
