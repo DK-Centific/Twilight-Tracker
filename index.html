@@ -4039,7 +4039,7 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
    tiles and below the Helios bottom bar (180). */
 .acc-stepper {
   position: fixed; right: 10px; top: auto; transform: none;
-  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--helios-bar-body, 56px) + env(safe-area-inset-bottom, 0px));
   z-index: 70; display: flex; flex-direction: column; align-items: center; gap: 4px;
   padding: 5px; border-radius: 999px;
   background: var(--card-bg); border: 0.5px solid var(--border);
@@ -4477,7 +4477,7 @@ input#ent_lakitu.lakitu-invalid {
     justify-content: center;
   }
   .content:has(.station-accordion.in-station) {
-    padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--helios-bar-body, 56px) + 16px + env(safe-area-inset-bottom, 0px));
   }
   .layout:has(.sc-flow.is-x),
   #app:has(.sc-flow.is-x) {
@@ -4497,7 +4497,7 @@ input#ent_lakitu.lakitu-invalid {
   }
   .content:has(.station-accordion.in-station):has(.sc-flow.is-x) > .actions-bar {
     position: sticky;
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(var(--helios-bar-body, 56px) + env(safe-area-inset-bottom, 0px));
     z-index: 8;
     background: var(--bg);
     margin-top: 8px;
@@ -15315,34 +15315,41 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 .helios-bottombar { display:none; }
 
 @media (max-width:760px) {
+  html {
+    --helios-bar-icon: 40px;
+    --helios-bar-pad-top: 6px;
+    --helios-bar-body: calc(var(--helios-bar-pad-top) + var(--helios-bar-icon) + 8px);
+  }
   .helios-rail { display:none !important; }
 
   .helios-bottombar {
     position:fixed; left:0; right:0; bottom:0;
     z-index:180;
     display:flex; align-items:center; justify-content:space-around;
-    gap:8px;
-    padding:12px 18px calc(12px + env(safe-area-inset-bottom));
+    gap:4px;
+    padding: var(--helios-bar-pad-top) 12px max(6px, env(safe-area-inset-bottom, 0px));
     background:var(--bg);
-    border-top-left-radius:28px; border-top-right-radius:28px;
-    box-shadow:0 -7px 22px var(--neu-dark), 0 -1px 0 var(--neu-light);
+    border-top-left-radius:20px; border-top-right-radius:20px;
+    box-shadow:0 -5px 16px var(--neu-dark), 0 -1px 0 var(--neu-light);
     overflow: visible;
   }
   /* Circular icon buttons inside the bar (override the nav's square shape). */
   .helios-bottombar .icon-btn {
-    width:46px; height:46px; border-radius:50% !important;
+    width:var(--helios-bar-icon); height:var(--helios-bar-icon); border-radius:50% !important;
     background:var(--bg) !important;
-    box-shadow:4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light) !important;
+    box-shadow:3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light) !important;
     flex:0 0 auto;
   }
   .helios-bottombar .icon-btn:active {
-    box-shadow:inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light) !important;
+    box-shadow:inset 2px 2px 5px var(--neu-dark), inset -2px -2px 5px var(--neu-light) !important;
   }
   .helios-bottombar .rail-theme-btn { color:var(--accent-ink); }
-  .helios-bottombar .nav-lakitu-icon { width:24px; height:24px; }
+  .helios-bottombar .nav-lakitu-icon { width:20px; height:20px; }
 
   /* Reserve space so the fixed bottom bar never covers page content. */
-  #app .content, #adminApp .content, #adminContent { padding-bottom:100px; }
+  #app .content, #adminApp .content, #adminContent {
+    padding-bottom: calc(var(--helios-bar-body) + 12px + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* ============================================================
@@ -15675,7 +15682,7 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 @media (max-width: 760px) {
   .app-build-stamp {
     right: 16px;
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    bottom: calc(var(--helios-bar-body, 56px) + 8px + env(safe-area-inset-bottom));
   }
 }
 </style>
@@ -15934,11 +15941,11 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
   pointer-events: auto;
 }
 .panic-fab.is-docked .panic-btn {
-  width: 46px;
-  height: 46px;
+  width: var(--helios-bar-icon, 40px);
+  height: var(--helios-bar-icon, 40px);
   box-shadow: 4px 4px 9px rgba(0,0,0,0.22), 0 0 16px rgba(217,83,79,0.35);
 }
-.panic-fab.is-docked .panic-btn-ico { width: 22px; height: 22px; }
+.panic-fab.is-docked .panic-btn-ico { width: 20px; height: 20px; }
 .panic-fab.is-docked .panic-menu {
   position: absolute;
   bottom: calc(100% + 12px);
@@ -15951,13 +15958,13 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
   z-index: 260;
 }
 @media (max-width:760px) {
-  .panic-fab:not(.is-docked) { right:16px; bottom:92px; }
+  .panic-fab:not(.is-docked) { right:16px; bottom:calc(var(--helios-bar-body, 56px) + 8px + env(safe-area-inset-bottom, 0px)); }
   .panic-btn { width:54px; height:54px; }
-  .panic-fab.is-docked .panic-btn { width:46px; height:46px; }
+  .panic-fab.is-docked .panic-btn { width:var(--helios-bar-icon, 40px); height:var(--helios-bar-icon, 40px); }
   .panic-modal-title { font-size:21px; }
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826co" defer></script>
+<script src="twilight-panic.js?v=1.3.090826cp" defer></script>
 </body>
 </html>

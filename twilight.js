@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826co';
-const APP_UPDATED_AT = '09/10/2026 10:28';
+const APP_VERSION = '1.3.090826cp';
+const APP_UPDATED_AT = '09/10/2026 10:52';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2546,7 +2546,7 @@ function scenarioFlowHTML(station, data) {
 
 function scenarioFlowHeliosReserve() {
   const bar = document.querySelector('.helios-bottombar');
-  let reserve = 76;
+  let reserve = 56;
   if (bar) {
     const r = bar.getBoundingClientRect();
     if (r.height) reserve = Math.max(64, Math.round(window.innerHeight - r.top));
