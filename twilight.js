@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cr';
-const APP_UPDATED_AT = '09/10/2026 11:12';
+const APP_VERSION = '1.3.090826ct';
+const APP_UPDATED_AT = '09/10/2026 12:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6503,7 +6503,15 @@ const adminState = {
     timeScope: 'all',        // 'day' | 'week' | 'month' | 'all'
     teamId: 'all',           // 'all' | <teamId number>
     moderatorId: 'all',      // 'all' | <orbitLoginId>
+    filterOpen: (() => {
+      try { return localStorage.getItem('orbit_ov_filter_open') === '1'; }
+      catch (_) { return false; }
+    })(),
   },
+  teamWorkspaceLayout: (() => {
+    try { return localStorage.getItem('orbit_team_workspace_layout') === 'list' ? 'list' : 'workspace'; }
+    catch (_) { return 'workspace'; }
+  })(),
   // Availability hub state
   availability: null,        // loaded array of submission rows, or null = not loaded
   _availWeekStart: null,     // YYYY-MM-DD Monday · focused week in the hub
@@ -10258,31 +10266,43 @@ function renderOverview(body) {
     }
   }
 
+  const filterOpen = !!f.filterOpen;
   body.innerHTML = `
     <div class="ov-root">
-      <!-- Filter bar -->
-      <div class="ov-filterbar">
-        <div class="ov-filter-group" role="group" aria-label="Time scope">
-          ${['all','day','week','month'].map(scope => `
-            <button class="ov-pill ${f.timeScope === scope ? 'active' : ''}" data-ov-scope="${scope}">
-              ${scope === 'all' ? 'All time' : scope === 'day' ? 'Today' : scope === 'week' ? 'This week' : 'This month'}
-            </button>
-          `).join('')}
-        </div>
-        <div class="ov-filter-spacer"></div>
-        <div class="ov-select-group">
-          <label class="ov-select-label">Team</label>
-          <select id="ovTeamSelect" class="ov-select">
-            <option value="all" ${f.teamId === 'all' ? 'selected' : ''}>All teams</option>
-            ${teams.map(t => `<option value="${escapeHTML(String(t.id))}" ${String(f.teamId) === String(t.id) ? 'selected' : ''}>${escapeHTML(t.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div class="ov-select-group">
-          <label class="ov-select-label">Moderator</label>
-          <select id="ovModSelect" class="ov-select">
-            <option value="all" ${f.moderatorId === 'all' ? 'selected' : ''}>All moderators</option>
-            ${modListForFilter.map(mod => `<option value="${escapeHTML(mod.orbitLoginId || '')}" ${String(f.moderatorId).toLowerCase() === String(mod.orbitLoginId || '').toLowerCase() ? 'selected' : ''}>${escapeHTML([mod.firstName, mod.lastName].filter(Boolean).join(' ') || mod.orbitLoginId)}</option>`).join('')}
-          </select>
+      <!-- Filter bar · closed by default -->
+      <div class="ov-filterbar ${filterOpen ? '' : 'is-collapsed'}" id="ovFilterbar">
+        <button type="button" class="ov-filterbar-toggle" id="ovFilterToggle"
+                aria-expanded="${filterOpen ? 'true' : 'false'}" aria-controls="ovFilterBody">
+          <span>Filters</span>
+          <svg class="ov-filterbar-chev" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6.5L8 10.5L12 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="ov-filterbar-body" id="ovFilterBody">
+          <div class="ov-filterbar-inner">
+            <div class="ov-filter-group" role="group" aria-label="Time scope">
+              ${['all','day','week','month'].map(scope => `
+                <button class="ov-pill ${f.timeScope === scope ? 'active' : ''}" data-ov-scope="${scope}">
+                  ${scope === 'all' ? 'All time' : scope === 'day' ? 'Today' : scope === 'week' ? 'This week' : 'This month'}
+                </button>
+              `).join('')}
+            </div>
+            <div class="ov-filter-spacer"></div>
+            <div class="ov-select-group">
+              <label class="ov-select-label">Team</label>
+              <select id="ovTeamSelect" class="ov-select">
+                <option value="all" ${f.teamId === 'all' ? 'selected' : ''}>All teams</option>
+                ${teams.map(t => `<option value="${escapeHTML(String(t.id))}" ${String(f.teamId) === String(t.id) ? 'selected' : ''}>${escapeHTML(t.name)}</option>`).join('')}
+              </select>
+            </div>
+            <div class="ov-select-group">
+              <label class="ov-select-label">Moderator</label>
+              <select id="ovModSelect" class="ov-select">
+                <option value="all" ${f.moderatorId === 'all' ? 'selected' : ''}>All moderators</option>
+                ${modListForFilter.map(mod => `<option value="${escapeHTML(mod.orbitLoginId || '')}" ${String(f.moderatorId).toLowerCase() === String(mod.orbitLoginId || '').toLowerCase() ? 'selected' : ''}>${escapeHTML([mod.firstName, mod.lastName].filter(Boolean).join(' ') || mod.orbitLoginId)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -10317,6 +10337,21 @@ function renderOverview(body) {
   `;
 
   // ----- Bindings
+  const filterToggle = body.querySelector('#ovFilterToggle');
+  if (filterToggle) {
+    filterToggle.addEventListener('click', () => {
+      const bar = body.querySelector('#ovFilterbar');
+      if (!bar) return;
+      const nowOpen = bar.classList.contains('is-collapsed');
+      bar.classList.toggle('is-collapsed', !nowOpen);
+      adminState.overview.filterOpen = nowOpen;
+      filterToggle.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+      try {
+        if (nowOpen) localStorage.setItem('orbit_ov_filter_open', '1');
+        else localStorage.removeItem('orbit_ov_filter_open');
+      } catch (_) {}
+    });
+  }
   body.querySelectorAll('[data-ov-scope]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (adminState.overview.timeScope === btn.dataset.ovScope) return;
@@ -15440,8 +15475,9 @@ function renderModTeamView() {
   // edit, delete, search, sort, roster). The panel's modal flows use the
   // shared asgn-modal infrastructure, so we render the modal shell here
   // too · otherwise openTeamModal()/showAsgnModal() would have no target.
+  const listLayout = adminState.teamWorkspaceLayout === 'list';
   wrap.innerHTML = `
-    <div class="mod-team-workspace">
+    <div class="mod-team-workspace ${listLayout ? 'is-list' : ''}">
       <div class="asgn-shell asgn-shell-teams-only">
         ${renderTeamsPanelHTML()}
       </div>
@@ -21093,6 +21129,16 @@ function renderTeamsPanelHTML() {
         <div class="teams-head-meta">
           <span class="teams-head-title" style="font-size: 11px; color: var(--text3);">${adminState.moderators ? adminState.moderators.length + ' mods loaded' : 'loading mods…'}</span>
           ${isModeratorHubTeamView ? `
+            <div class="teams-layout-toggle" role="group" aria-label="Team layout">
+              <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout !== 'list' ? 'active' : ''}" data-team-layout="workspace" title="Side-by-side workspace">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
+                Grid
+              </button>
+              <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout === 'list' ? 'active' : ''}" data-team-layout="list" title="Full-width list">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                List
+              </button>
+            </div>
             <button class="btn btn-primary teams-head-new" id="newTeamBtn">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                 <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
@@ -21173,8 +21219,27 @@ function rerenderTeamsPanelInPlace() {
 // Subset of bindAssignmentEvents that wires only the teams-panel
 // controls. Extracted so rerenderTeamsPanelInPlace can call it without
 // triggering double-binding on the calendar side.
+function setTeamWorkspaceLayout(next) {
+  const layout = next === 'list' ? 'list' : 'workspace';
+  if (adminState.teamWorkspaceLayout === layout) return;
+  adminState.teamWorkspaceLayout = layout;
+  try { localStorage.setItem('orbit_team_workspace_layout', layout); } catch (_) {}
+  const ws = document.querySelector('.mod-team-workspace');
+  if (ws) ws.classList.toggle('is-list', layout === 'list');
+  document.querySelectorAll('[data-team-layout]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-team-layout') === layout);
+  });
+}
+
 function bindTeamsPanelEvents() {
   const isModeratorHubTeamView = adminState.tab === 'moderators' && adminState.modView === 'team';
+  document.querySelectorAll('[data-team-layout]').forEach(btn => {
+    if (btn._wired) return;
+    btn._wired = true;
+    btn.addEventListener('click', () => {
+      setTeamWorkspaceLayout(btn.getAttribute('data-team-layout'));
+    });
+  });
   // New team
   const newTeamBtn = document.getElementById('newTeamBtn');
   if (newTeamBtn && !newTeamBtn._wired) {
