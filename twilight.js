@@ -21902,7 +21902,6 @@ function renderBookingDashboardHTML() {
   const weekStart = startOfWeek(selected);
   const dateWeekday = selected.toLocaleDateString(undefined, { weekday: 'long' });
   const dateMonth = selected.toLocaleDateString(undefined, { month: 'long' });
-  const dateTitle = `${dateWeekday}, ${selected.getDate()} ${dateMonth}`;
   const startMin = adminState.bookingStartMin;
   const endMin = adminState.bookingEndMin;
   const teamRows = bookingListedTeams(selectedStr);
