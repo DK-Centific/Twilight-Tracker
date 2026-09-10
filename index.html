@@ -624,7 +624,7 @@ a.icon-btn:focus-visible {
   }
   .acc-item.open .acc-inner:has(.sc-flow) {
     overflow-x: clip;
-    overflow-y: visible;
+    overflow-y: clip;
     min-width: 0;
   }
   .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
@@ -708,7 +708,7 @@ a.icon-btn:focus-visible {
     scroll-snap-type: y mandatory;
     scroll-behavior: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: none;
+    overscroll-behavior: contain;
     scrollbar-width: none;
     border-radius: var(--rl);
     padding: 0;
@@ -780,7 +780,7 @@ a.icon-btn:focus-visible {
     background: var(--card-bg, var(--bg2));
     color: var(--text);
     scroll-snap-align: center;
-    scroll-snap-stop: always;
+    scroll-snap-stop: normal;
     overflow: visible;
     transform: none;
     box-shadow: 0 14px 36px rgba(0,0,0,0.12);

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ch';
-const APP_UPDATED_AT = '09/10/2026 04:32';
+const APP_VERSION = '1.3.090826ci';
+const APP_UPDATED_AT = '09/10/2026 06:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2613,18 +2613,23 @@ function layoutScenarioFlowViewport() {
   const reserve = scenarioFlowHeliosReserve() + 8;
   const top = vp.getBoundingClientRect().top;
   const avail = Math.max(240, Math.round(window.innerHeight - top - reserve));
-  const focusTile = tiles.find(el => (el.getAttribute('data-num') || '') === _scenarioFlowFocusNum) || tiles[0];
-  const tileH = Math.max(1, focusTile.offsetHeight);
-  let vpH = Math.max(tileH + peek * 2, Math.round(tileH / SCENARIO_FLOW_FACE_SHARE));
-  if (tileH <= avail) vpH = Math.min(vpH, avail);
-  else vpH = tileH + peek * 2;
+  tiles.forEach(el => {
+    if (el.offsetHeight > avail) {
+      el.style.height = avail + 'px';
+      el.classList.add('is-fit');
+    }
+  });
+  const firstH = Math.max(1, tiles[0].offsetHeight);
+  const lastH = Math.max(1, tiles[tiles.length - 1].offsetHeight);
+  const vpH = avail;
   vp.style.height = vpH + 'px';
   vp.style.maxHeight = vpH + 'px';
-  const spacer = Math.max(0, Math.round((vpH - tileH) / 2));
-  start.style.height = spacer + 'px';
-  end.style.height = spacer + 'px';
-  start.style.flex = '0 0 ' + spacer + 'px';
-  end.style.flex = '0 0 ' + spacer + 'px';
+  const startPad = Math.max(0, Math.round((vpH - firstH) / 2));
+  const endPad = Math.max(0, Math.round((vpH - lastH) / 2));
+  start.style.height = startPad + 'px';
+  end.style.height = endPad + 'px';
+  start.style.flex = '0 0 ' + startPad + 'px';
+  end.style.flex = '0 0 ' + endPad + 'px';
 }
 
 function bindScenarioFlowLayoutWatch() {
@@ -2775,32 +2780,20 @@ function snapScenarioFlowToFocus(behavior) {
   const vp = document.getElementById('scenarioFlowViewport');
   if (!vp) return;
   const num = _scenarioFlowFocusNum;
-  if (!vp.querySelector(num ? '.sc-flow-tile[data-num="' + num + '"]' : '.sc-flow-tile')) return;
+  const tile = num ? vp.querySelector('.sc-flow-tile[data-num="' + num + '"]') : vp.querySelector('.sc-flow-tile');
+  if (!tile) return;
   _scenarioFlowSnapping = true;
   const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
   const smooth = behavior === 'smooth';
-  const prevSnap = vp.style.scrollSnapType;
-  vp.style.scrollSnapType = 'none';
-  if (axis === 'y') layoutScenarioFlowViewport();
-  const applyScroll = () => {
-    const tile = num ? vp.querySelector('.sc-flow-tile[data-num="' + num + '"]') : vp.querySelector('.sc-flow-tile');
-    if (!tile) return;
-    if (axis === 'x') {
-      const left = tile.offsetLeft - (vp.clientWidth - tile.offsetWidth) / 2;
-      vp.scrollTo({ left: Math.max(0, left), top: 0, behavior: smooth ? 'smooth' : 'auto' });
-    } else {
-      const top = tile.offsetTop - (vp.clientHeight - tile.offsetHeight) / 2;
-      vp.scrollTo({ left: 0, top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
-    }
-  };
-  applyScroll();
+  if (axis === 'x') {
+    const left = tile.offsetLeft - (vp.clientWidth - tile.offsetWidth) / 2;
+    vp.scrollTo({ left: Math.max(0, left), top: 0, behavior: smooth ? 'smooth' : 'auto' });
+  } else {
+    const top = tile.offsetTop - (vp.clientHeight - tile.offsetHeight) / 2;
+    vp.scrollTo({ left: 0, top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+  }
   paintScenarioFlow();
-  window.setTimeout(() => {
-    applyScroll();
-    paintScenarioFlow();
-    vp.style.scrollSnapType = prevSnap || '';
-    _scenarioFlowSnapping = false;
-  }, smooth ? 280 : 70);
+  window.setTimeout(() => { _scenarioFlowSnapping = false; }, smooth ? 280 : 70);
 }
 
 function stepScenarioFlow(dir) {
@@ -2819,17 +2812,14 @@ function stepScenarioFlow(dir) {
 
 function onScenarioFlowScroll() {
   const root = document.getElementById('scenarioFlow');
-  if (_scenarioFlowSnapping) {
-    requestAnimationFrame(paintScenarioFlow);
-    return;
-  }
-  if (root) root.classList.add('is-scrolling');
+  if (root && !_scenarioFlowSnapping) root.classList.add('is-scrolling');
   if (_scenarioFlowTicking) return;
   _scenarioFlowTicking = true;
   requestAnimationFrame(() => {
     _scenarioFlowTicking = false;
     paintScenarioFlow();
   });
+  if (_scenarioFlowSnapping) return;
   if (_scenarioFlowScrollTimer) clearTimeout(_scenarioFlowScrollTimer);
   _scenarioFlowScrollTimer = setTimeout(() => {
     const num = nearestScenarioFlowNum();
@@ -2838,9 +2828,8 @@ function onScenarioFlowScroll() {
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
     }
     if (root) root.classList.remove('is-scrolling');
-    snapScenarioFlowToFocus('smooth');
     paintScenarioFlow();
-  }, 90);
+  }, 160);
 }
 
 function bindScenarioFlow() {
