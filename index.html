@@ -2197,9 +2197,23 @@ a.icon-btn:focus-visible {
 .booking-page[hidden] { display: none !important; }
 
 .booking-page {
+  --bk-orange: #E88D56;
+  --bk-green: #34C759;
+  --bk-sage: #F0F2F0;
+  --bk-ink: #1A1C1A;
+  --text: #1A1C1A;
+  --text2: #3D3F3D;
+  --text3: #909490;
+  --bg: #FFFFFF;
+  --bg2: #F0F2F0;
+  --bg3: #F0F2F0;
+  --neu-dark: #D1D9D1;
+  --neu-light: #FFFFFF;
+  --accent-soft: rgba(232, 141, 86, 0.18);
   position: fixed; inset: 0; z-index: 431;
   display: flex; flex-direction: column;
-  background: var(--bg2);
+  background: var(--bk-sage);
+  color: var(--bk-ink);
   transform: translateX(100%);
   transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1);
   padding-top: env(safe-area-inset-top);
@@ -2228,9 +2242,9 @@ a.icon-btn:focus-visible {
 .booking-page-back {
   width: 40px; height: 40px; border-radius: 50%;
   border: none; cursor: pointer;
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 5px 5px 10px var(--neu-dark), -5px -5px 10px var(--neu-light);
+  background: #fff;
+  color: var(--bk-ink);
+  box-shadow: 4px 4px 12px rgba(0,0,0,0.06);
   display: inline-flex; align-items: center; justify-content: center;
 }
 .booking-page-back:active {
@@ -2248,7 +2262,7 @@ a.icon-btn:focus-visible {
   --bk-green: #34C759;
   width: min(100%, 920px);
   margin: 0 auto;
-  padding-bottom: 96px;
+  padding-bottom: 120px;
 }
 .bk-dash-top {
   display: flex; align-items: center; justify-content: space-between;
@@ -2315,20 +2329,27 @@ a.icon-btn:focus-visible {
 }
 .bk-current-date {
   font-family: 'Playfair Display', Georgia, serif;
-  font-size: 32px; font-weight: 600;
-  line-height: 1.1;
+  font-size: clamp(24px, 7vw, 36px); font-weight: 600;
+  line-height: 1.15;
   color: var(--text);
-  margin: 0;
-  flex: 1;
+  margin: 0 0 20px;
+  white-space: nowrap;
 }
-.bk-date-row {
+.bk-week-nav,
+.bk-month-nav {
   display: flex; align-items: center; gap: 8px;
-  margin: 0 0 16px;
+}
+.bk-week-nav .bk-day-row { flex: 1; min-width: 0; }
+.bk-month-nav {
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px; font-weight: 700;
+  color: var(--text2);
 }
 .bk-date-nav {
-  width: 36px; height: 36px; flex-shrink: 0;
-  border: none; border-radius: 12px;
-  background: var(--bg3);
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: none; border-radius: 10px;
+  background: transparent;
   color: var(--text);
   font-size: 22px; line-height: 1;
   cursor: pointer;
@@ -2544,16 +2565,20 @@ a.icon-btn:focus-visible {
   box-shadow: 3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light);
 }
 .bk-dock {
-  position: sticky;
-  bottom: 12px;
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(calc(100% - 36px), 920px);
+  z-index: 8;
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   min-height: 68px;
   padding: 10px 12px 10px 22px;
   border-radius: 34px;
-  background: var(--text);
-  color: var(--bg);
-  box-shadow: 0 15px 40px rgba(0,0,0,0.28);
+  background: #1A1C1A;
+  color: #fff;
+  box-shadow: 0 15px 40px rgba(0,0,0,0.15);
 }
 .bk-dock-text { font-size: 14px; font-weight: 500; }
 .bk-book-btn {
@@ -2588,7 +2613,7 @@ a.icon-btn:focus-visible {
     border-radius: 0;
   }
   .booking-page-head h3 { font-size: 24px; }
-  .booking-page-body { padding: 6px 12px 88px; }
+  .booking-page-body { padding: 6px 12px 108px; }
 }
 
 /* On narrow phones, drop modal max-width and let it stretch closer to

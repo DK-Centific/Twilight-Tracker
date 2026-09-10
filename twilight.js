@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cw';
-const APP_UPDATED_AT = '09/10/2026 14:10';
+const APP_VERSION = '1.3.090826cx';
+const APP_UPDATED_AT = '09/10/2026 14:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -21816,7 +21816,7 @@ function renderBookingDashboardHTML() {
   const selectedStr = ymd(selected);
   const todayStr = ymd(new Date());
   const weekStart = startOfWeek(selected);
-  const dateTitle = selected.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+  const dateTitle = `${selected.toLocaleDateString(undefined, { weekday: 'long' })}, ${selected.getDate()} ${selected.toLocaleDateString(undefined, { month: 'short' })}`;
   const startLabel = fmtBookingClock(adminState.bookingStartMin);
   const endLabel = fmtBookingClock(adminState.bookingEndMin);
   const windowLabel = bookingTimeWindowLabel();
@@ -21899,13 +21899,22 @@ function renderBookingDashboardHTML() {
       <div class="bk-dash-grid">
         <section class="bk-hero">
           <span class="bk-date-label">Selected Booking</span>
-          <div class="bk-date-row">
-            <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous">${view === 'month' ? '‹' : '‹'}</button>
-            <h1 class="bk-current-date">${escapeHTML(dateTitle)}</h1>
-            <button type="button" class="bk-date-nav" id="calNext" aria-label="Next">›</button>
-          </div>
+          <h1 class="bk-current-date">${escapeHTML(dateTitle)}</h1>
           ${selectedStr !== todayStr ? '<button type="button" class="bk-today" id="calToday">Today</button>' : ''}
-          ${view === 'month' ? renderBookingMonthGridHTML(selected) : `<div class="bk-day-row">${dayPills}</div>`}
+          ${view === 'month' ? `
+            <div class="bk-month-nav">
+              <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous month">‹</button>
+              <span>${escapeHTML(selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</span>
+              <button type="button" class="bk-date-nav" id="calNext" aria-label="Next month">›</button>
+            </div>
+            ${renderBookingMonthGridHTML(selected)}
+          ` : `
+            <div class="bk-week-nav">
+              <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous week">‹</button>
+              <div class="bk-day-row">${dayPills}</div>
+              <button type="button" class="bk-date-nav" id="calNext" aria-label="Next week">›</button>
+            </div>
+          `}
         </section>
         <div>
           <div class="bk-section">
