@@ -621,6 +621,11 @@ a.icon-btn:focus-visible {
     padding: 0;
     background: transparent;
     border: 0;
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    flex: 0 0 auto;
   }
   .acc-item.open .acc-inner:has(.sc-flow) {
     overflow-x: clip;
@@ -628,7 +633,11 @@ a.icon-btn:focus-visible {
     min-width: 0;
   }
   .acc-item.open .acc-inner:has(.sc-flow.is-x) {
+    overflow-x: clip;
     overflow-y: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
   }
   .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
   .sc-flow-head {
@@ -725,6 +734,12 @@ a.icon-btn:focus-visible {
     align-items: stretch;
     perspective: 1200px;
     perspective-origin: 50% 50%;
+  }
+  .sc-flow.is-x {
+    flex: 0 0 auto;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
   }
   .sc-flow.is-x .sc-flow-viewport {
     width: 100%;
@@ -4027,10 +4042,32 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
     height: auto;
     min-height: 0;
   }
+  .station-accordion.in-station .acc-item.open:has(.sc-flow.is-x),
+  .station-accordion.in-station .acc-item.open .acc-body:has(.sc-flow.is-x) {
+    display: block;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
+    grid-template-rows: none;
+    transition: none;
+  }
   .station-accordion.in-station .acc-item.open .acc-inner:has(.sc-flow.is-x) {
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
+  }
+  .station-accordion.in-station .acc-item.open .acc-inner:has(.sc-flow.is-x) .scenario-table-wrap.has-sc-flow {
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    flex: 0 0 auto;
+    align-self: stretch;
   }
   .nav-sc-axes:not([hidden]) {
     display: inline-flex;
@@ -4395,6 +4432,18 @@ input#ent_lakitu.lakitu-invalid {
   }
   .content:has(.station-accordion.in-station) {
     padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+  .layout:has(.sc-flow.is-x),
+  #app:has(.sc-flow.is-x) {
+    height: auto;
+    align-items: start;
+    grid-template-rows: auto;
+  }
+  .content:has(.sc-flow.is-x) {
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
   }
   .content:has(.station-accordion.in-station) > .actions-bar {
     padding-right: 58px;
