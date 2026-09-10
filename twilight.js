@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826bx';
-const APP_UPDATED_AT = '09/10/2026 00:50';
+const APP_VERSION = '1.3.090826by';
+const APP_UPDATED_AT = '09/10/2026 00:58';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2360,7 +2360,7 @@ function iterStepperHTML(stationKey, scenarioNum, iters, stateClass, target) {
 }
 
 const SCENARIO_FLOW_AXIS_KEY = 'centific_orbit_scenario_flow_axis';
-const SCENARIO_FLOW_PEEK = 26;
+const SCENARIO_FLOW_PEEK = 32;
 let _scenarioFlowAxis = '';
 let _scenarioFlowFocusNum = '';
 let _scenarioFlowStationKey = '';
@@ -2560,23 +2560,31 @@ function layoutScenarioFlowViewport() {
     end.style.width = spacer + 'px';
     start.style.height = '1px';
     end.style.height = '1px';
-    const tileH = tiles[0].offsetHeight;
-    if (tileH) vp.style.height = tileH + 'px';
+    const reserve = scenarioFlowHeliosReserve() + 8;
+    const top = vp.getBoundingClientRect().top;
+    const avail = Math.max(220, Math.round(window.innerHeight - top - reserve));
+    tiles.forEach(el => {
+      if (el.offsetHeight > avail) {
+        el.style.height = avail + 'px';
+        el.classList.add('is-fit');
+      }
+    });
+    const tileH = Math.max(...tiles.map(el => el.offsetHeight));
+    if (tileH) vp.style.height = Math.min(avail, tileH) + 'px';
     return;
   }
 
   const reserve = scenarioFlowHeliosReserve() + 8;
   const top = vp.getBoundingClientRect().top;
   const avail = Math.max(240, Math.round(window.innerHeight - top - reserve));
-  let tileH = tiles[0].offsetHeight;
   const maxTile = Math.max(200, avail - peek * 2);
-  if (tileH > maxTile) {
-    tiles.forEach(el => {
+  tiles.forEach(el => {
+    if (el.offsetHeight > maxTile) {
       el.style.height = maxTile + 'px';
       el.classList.add('is-fit');
-    });
-    tileH = maxTile;
-  }
+    }
+  });
+  const tileH = Math.max(...tiles.map(el => el.offsetHeight));
   const vpH = Math.min(avail, tileH + peek * 2);
   vp.style.height = vpH + 'px';
   const spacer = Math.max(0, Math.round((vpH - tileH) / 2));
@@ -2800,6 +2808,7 @@ function bindScenarioFlow() {
   requestAnimationFrame(() => {
     afterLayout('auto');
     requestAnimationFrame(() => afterLayout('auto'));
+    setTimeout(() => afterLayout('auto'), 180);
   });
 }
 

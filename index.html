@@ -737,8 +737,8 @@ a.icon-btn:focus-visible {
     width: max-content;
   }
   .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
-  .sc-flow.is-y .sc-flow-spacer { height: 26px; width: 1px; }
-  .sc-flow.is-x .sc-flow-spacer { width: 26px; min-width: 26px; height: 1px; }
+  .sc-flow.is-y .sc-flow-spacer { height: 32px; width: 1px; }
+  .sc-flow.is-x .sc-flow-spacer { width: 32px; min-width: 32px; height: 1px; }
   .sc-flow-nav {
     width: 44px;
     height: 44px;
@@ -794,9 +794,9 @@ a.icon-btn:focus-visible {
     overscroll-behavior: contain;
   }
   .sc-flow.is-x .sc-flow-tile {
-    width: calc(100cqw - 52px);
-    margin: 0 8px;
-    flex: 0 0 calc(100cqw - 52px);
+    width: calc(100cqw - 64px);
+    margin: 0 6px;
+    flex: 0 0 calc(100cqw - 64px);
   }
   .sc-flow-tile.is-current {
     border-color: var(--brand-line, var(--accent));
@@ -938,7 +938,10 @@ a.icon-btn:focus-visible {
     font-size: 14px;
     white-space: normal;
   }
-  .sc-flow-tile .appr-slidedown { margin-top: 4px; }
+  .sc-flow-tile .appr-slidedown { margin-top: 2px; }
+  .sc-flow-tile .appr-slidedown-inner { padding: 8px 10px; }
+  .sc-flow-tile .appr-slidedown-title { font-size: 13px; margin-bottom: 2px; }
+  .sc-flow-tile .appr-slidedown-sub { font-size: 12px; margin-bottom: 6px; line-height: 1.35; }
 }
 @media (max-width: 760px) and (prefers-reduced-motion: reduce) {
   .sc-flow-viewport { scroll-behavior: auto; }
