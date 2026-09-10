@@ -720,6 +720,8 @@ a.icon-btn:focus-visible {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    perspective: 1200px;
+    perspective-origin: 50% 50%;
   }
   .sc-flow.is-x .sc-flow-viewport {
     width: 100%;
@@ -736,9 +738,10 @@ a.icon-btn:focus-visible {
   .sc-flow.is-x .sc-flow-stage {
     display: flex;
     flex-direction: row;
-    align-items: stretch;
+    align-items: center;
     min-height: 100%;
     width: max-content;
+    perspective: 1200px;
   }
   .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
   .sc-flow.is-y .sc-flow-spacer { height: 32px; width: 1px; }
@@ -776,7 +779,7 @@ a.icon-btn:focus-visible {
     color: var(--text);
     scroll-snap-align: center;
     scroll-snap-stop: always;
-    overflow: hidden;
+    overflow: visible;
     transform: none;
     box-shadow: 0 14px 36px rgba(0,0,0,0.12);
     transition: box-shadow 0.4s var(--sc-flow-ease), border-color 0.28s ease;
@@ -786,13 +789,20 @@ a.icon-btn:focus-visible {
     flex-direction: column;
     gap: 10px;
     box-sizing: border-box;
-    height: 100%;
+    height: auto;
     min-height: 0;
     padding: 12px 12px 10px;
     transform-origin: center center;
-    transition: filter 0.24s ease, opacity 0.24s ease, transform 0.24s ease;
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    transition: filter 0.22s ease, opacity 0.22s ease, transform 0.22s ease;
+  }
+  .sc-flow-tile.is-fit {
+    overflow: hidden;
   }
   .sc-flow-tile.is-fit .sc-flow-face {
+    height: 100%;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;

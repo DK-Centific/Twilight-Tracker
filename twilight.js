@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ca';
-const APP_UPDATED_AT = '09/10/2026 01:55';
+const APP_VERSION = '1.3.090826cb';
+const APP_UPDATED_AT = '09/10/2026 02:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2362,6 +2362,7 @@ function iterStepperHTML(stationKey, scenarioNum, iters, stateClass, target) {
 
 const SCENARIO_FLOW_AXIS_KEY = 'centific_orbit_scenario_flow_axis';
 const SCENARIO_FLOW_PEEK = 32;
+const SCENARIO_FLOW_FACE_SHARE = 0.70;
 let _scenarioFlowAxis = '';
 let _scenarioFlowFocusNum = '';
 let _scenarioFlowStationKey = '';
@@ -2560,24 +2561,32 @@ function layoutScenarioFlowViewport() {
     const reserve = scenarioFlowHeliosReserve() + 8;
     const top = vp.getBoundingClientRect().top;
     const avail = Math.max(220, Math.round(window.innerHeight - top - reserve));
+    const naturalH = Math.max(...tiles.map(el => el.offsetHeight));
+    const cap = Math.max(200, Math.round(avail * SCENARIO_FLOW_FACE_SHARE));
+    const tileH = Math.min(naturalH, cap);
     tiles.forEach(el => {
-      el.style.height = avail + 'px';
-      el.classList.add('is-fit');
+      if (naturalH > cap) {
+        el.style.height = cap + 'px';
+        el.classList.add('is-fit');
+      }
     });
-    vp.style.height = avail + 'px';
+    vp.style.height = (tileH || naturalH) + 'px';
     return;
   }
 
   const reserve = scenarioFlowHeliosReserve() + 8;
   const top = vp.getBoundingClientRect().top;
   const avail = Math.max(240, Math.round(window.innerHeight - top - reserve));
-  const maxTile = Math.max(200, avail - peek * 2);
+  const maxTile = Math.max(200, Math.round(avail * SCENARIO_FLOW_FACE_SHARE));
   tiles.forEach(el => {
-    el.style.height = maxTile + 'px';
-    el.classList.add('is-fit');
+    if (el.offsetHeight > maxTile) {
+      el.style.height = maxTile + 'px';
+      el.classList.add('is-fit');
+    }
   });
-  const tileH = maxTile;
-  const vpH = Math.min(avail, tileH + peek * 2);
+  const focusTile = tiles.find(el => (el.getAttribute('data-num') || '') === _scenarioFlowFocusNum) || tiles[0];
+  const tileH = Math.min(maxTile, focusTile.offsetHeight);
+  const vpH = Math.min(avail, Math.max(tileH + peek * 2, Math.round(tileH / SCENARIO_FLOW_FACE_SHARE)));
   vp.style.height = vpH + 'px';
   const spacer = Math.max(0, Math.round((vpH - tileH) / 2));
   start.style.height = spacer + 'px';
@@ -2660,7 +2669,8 @@ function paintScenarioFlow() {
   let anyCurrent = false;
   vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
     const span = Math.max(1, axis === 'x' ? tile.offsetWidth : tile.offsetHeight);
-    const abs = Math.min(1.2, Math.abs(scenarioFlowTileCenter(tile, axis) - mid) / span);
+    const offset = (scenarioFlowTileCenter(tile, axis) - mid) / span;
+    const abs = Math.min(1.15, Math.abs(offset));
     const focused = abs < 0.38;
     const face = tile.querySelector('.sc-flow-face');
     tile.style.opacity = '';
@@ -2671,15 +2681,20 @@ function paintScenarioFlow() {
     if (face) {
       if (reduce) {
         face.style.filter = '';
-        face.style.opacity = focused ? '1' : '0.55';
+        face.style.opacity = focused ? '1' : '0.5';
         face.style.transform = '';
       } else {
-        const blur = Math.min(8, abs * 8.4).toFixed(2);
-        const opac = Math.max(0.42, 1 - abs * 0.5).toFixed(3);
-        const scale = Math.max(0.94, 1 - abs * 0.05).toFixed(3);
-        face.style.filter = 'blur(' + blur + 'px)';
+        const blur = Math.min(6, abs * 6.2).toFixed(2);
+        const opac = focused ? '1' : Math.max(0.38, 1 - abs * 0.55).toFixed(3);
+        const scale = focused ? '1' : Math.max(0.88, 1 - abs * 0.1).toFixed(3);
+        let twist = '';
+        if (abs >= 0.12) {
+          const deg = Math.max(-14, Math.min(14, offset * 12));
+          twist = axis === 'x' ? 'rotateY(' + (-deg).toFixed(2) + 'deg) ' : 'rotateX(' + deg.toFixed(2) + 'deg) ';
+        }
+        face.style.filter = focused ? 'blur(0px)' : 'blur(' + blur + 'px)';
         face.style.opacity = opac;
-        face.style.transform = 'scale(' + scale + ')';
+        face.style.transform = twist + 'scale(' + scale + ')';
       }
     }
     if (focused) anyCurrent = true;
