@@ -82,8 +82,21 @@
       '</div>' +
     '</div>';
 
-  function openMenu() { fab.classList.add('open'); btn.setAttribute('aria-expanded', 'true'); menu.setAttribute('aria-hidden', 'false'); }
-  function closeMenu() { fab.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); menu.setAttribute('aria-hidden', 'true'); }
+  function syncPanicMenuChrome(open) {
+    document.documentElement.classList.toggle('panic-menu-open', !!open);
+  }
+  function openMenu() {
+    fab.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+    menu.setAttribute('aria-hidden', 'false');
+    syncPanicMenuChrome(true);
+  }
+  function closeMenu() {
+    fab.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+    menu.setAttribute('aria-hidden', 'true');
+    syncPanicMenuChrome(false);
+  }
   function openModal(title, html) {
     closeEscalatePop();
     modalTitle.textContent = title;
