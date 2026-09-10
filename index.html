@@ -2183,22 +2183,22 @@ a.icon-btn:focus-visible {
   }
 }
 
-/* ---- Booking page · Apple-style slide from the right ---- */
+/* ---- Booking page · Helios sidebar slide (same motion as Approval tutorial) ---- */
 .booking-overlay {
   position: fixed; inset: 0; z-index: 430;
-  background: rgba(0, 0, 0, 0.38);
-  backdrop-filter: saturate(160%) blur(18px);
-  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
   opacity: 0; pointer-events: none;
-  transition: opacity 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity 0.3s ease;
 }
 .booking-overlay.open { opacity: 1; pointer-events: all; }
 .booking-overlay[hidden],
 .booking-page[hidden] { display: none !important; }
 
 .booking-page {
-  --bk-orange: #E88D56;
-  --bk-green: #34C759;
+  --bk-accent: var(--accent);
+  --bk-green: #4C9A6A;
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 431;
   width: min(760px, 96vw);
   display: flex; flex-direction: column;
@@ -2207,64 +2207,38 @@ a.icon-btn:focus-visible {
   border-left: 0.5px solid var(--border);
   box-shadow: -8px 0 48px rgba(0,0,0,0.30);
   transform: translateX(100%);
-  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-right: env(safe-area-inset-right);
 }
 .booking-page.open { transform: translateX(0); }
-#adminApp.booking-open nav,
-#adminApp.booking-open .admin-content-shell {
-  transform: translateX(-12%) scale(0.96);
-  opacity: 0.55;
-  pointer-events: none;
-  transform-origin: center left;
-  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.42s ease;
-}
-#adminApp nav,
-#adminApp .admin-content-shell {
-  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.42s ease;
-}
 .booking-page-head {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 18px 0;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 0.5px solid var(--border);
   flex-shrink: 0;
 }
-.booking-page-back {
-  width: 40px; height: 40px; border-radius: 50%;
-  border: none; cursor: pointer;
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 4px 4px 12px rgba(0,0,0,0.18);
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.booking-page-back:active {
-  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+.booking-page-head h3 {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 17px; font-weight: 600;
+  letter-spacing: -0.025em;
 }
 .booking-page-body {
   flex: 1; min-height: 0;
   overflow: auto;
-  padding: 4px 18px 28px;
+  padding: 16px 18px 188px;
 }
 
-/* Booking dashboard · mapped from Booking Mobile layout.html */
+/* Booking dashboard · Helios surfaces on the Booking Mobile layout */
 .bk-dash {
-  --bk-orange: #E88D56;
-  --bk-green: #34C759;
+  --bk-accent: var(--accent);
+  --bk-green: #4C9A6A;
   width: 100%;
   margin: 0 auto;
   padding-bottom: 168px;
-}
-.bk-dash-top {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-.bk-brand {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 28px; font-weight: 600;
-  letter-spacing: -0.03em;
-  color: var(--text);
 }
 .bk-hero-top {
   display: flex; align-items: flex-start; justify-content: space-between;
@@ -2276,8 +2250,9 @@ a.icon-btn:focus-visible {
   display: flex; gap: 2px;
   padding: 4px;
   border-radius: 14px;
-  background: var(--bg);
-  border: 0.5px solid var(--border);
+  background: var(--well-bg, var(--bg3));
+  border: none;
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
   flex-shrink: 0;
 }
 .bk-view-btn {
@@ -2290,39 +2265,44 @@ a.icon-btn:focus-visible {
   text-transform: uppercase;
   background: transparent;
   color: var(--text3);
+  transition: color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 .bk-view-btn.active {
-  background: var(--bg3);
-  color: var(--text);
-  box-shadow: inset 2px 2px 4px var(--neu-dark);
+  background: var(--bg);
+  color: var(--accent-ink);
+  box-shadow: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
 }
 .bk-search-wrap { position: relative; margin-bottom: 18px; }
 .bk-search {
   width: 100%;
   padding: 16px 20px;
-  border: 0.5px solid var(--border);
+  border: none;
   border-radius: 20px;
-  background: var(--bg);
+  background: var(--well-bg, var(--bg3));
   color: var(--text);
   font-family: var(--font);
   font-size: 14px;
   outline: none;
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
 }
-.bk-search:focus { box-shadow: 0 0 0 3px var(--accent-soft); }
+.bk-search:focus {
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light),
+              0 0 0 2px var(--accent-soft);
+}
 .bk-search-picked {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--bk-orange);
+  color: var(--accent);
 }
 .bk-suggest {
   position: absolute;
   left: 0; right: 0; top: calc(100% + 6px);
   z-index: 12;
-  background: var(--card-bg);
-  border: 0.5px solid var(--border);
-  border-radius: 16px;
+  background: var(--bg);
+  border: none;
+  border-radius: 18px;
   overflow: hidden;
-  box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
 }
 .bk-suggest-item {
   display: flex; flex-direction: column; gap: 2px;
@@ -2338,13 +2318,13 @@ a.icon-btn:focus-visible {
 .bk-suggest-item:hover { background: var(--bg3); }
 .bk-suggest-item strong { font-size: 14px; font-weight: 600; }
 .bk-suggest-item span { font-size: 12px; color: var(--text3); }
-.bk-suggest-item.is-new strong { color: var(--bk-orange); }
+.bk-suggest-item.is-new strong { color: var(--accent); }
 .bk-hero {
   background: var(--bg);
-  border-radius: 32px;
+  border-radius: 26px;
   padding: 22px;
   margin-bottom: 20px;
-  border: 0.5px solid var(--border);
+  box-shadow: 8px 8px 16px var(--neu-dark), -8px -8px 16px var(--neu-light);
 }
 .bk-date-label {
   display: block;
@@ -2355,8 +2335,8 @@ a.icon-btn:focus-visible {
   margin-bottom: 8px;
 }
 .bk-current-date {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(22px, 4.6vw, 34px); font-weight: 600;
+  font-family: 'Crimson Pro', Georgia, serif !important;
+  font-size: clamp(22px, 4.6vw, 34px); font-weight: 400;
   line-height: 1.15;
   color: var(--text);
   margin: 0 0 20px;
@@ -2376,14 +2356,18 @@ a.icon-btn:focus-visible {
 .bk-date-nav {
   width: 32px; height: 32px; flex-shrink: 0;
   border: none; border-radius: 10px;
-  background: transparent;
+  background: var(--bg);
   color: var(--text);
   font-size: 22px; line-height: 1;
   cursor: pointer;
+  box-shadow: 4px 4px 8px var(--neu-dark), -4px -4px 8px var(--neu-light);
+}
+.bk-date-nav:active {
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
 }
 .bk-today {
   border: none; background: transparent;
-  color: var(--bk-orange);
+  color: var(--accent);
   font-size: 11px; font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2412,18 +2396,18 @@ a.icon-btn:focus-visible {
   cursor: pointer;
 }
 .bk-month-cell.other { opacity: 0.35; }
-.bk-month-cell.today { color: var(--bk-orange); }
+.bk-month-cell.today { color: var(--accent); }
 .bk-month-cell.active {
-  background: var(--bg3);
-  color: var(--bk-orange);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  background: var(--bg);
+  color: var(--accent);
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
 }
 .bk-month-cell.has-dot::after {
   content: '';
   display: block;
   width: 4px; height: 4px;
   border-radius: 50%;
-  background: var(--bk-orange);
+  background: var(--accent);
   margin: 3px auto 0;
 }
 .bk-empty {
@@ -2437,16 +2421,17 @@ a.icon-btn:focus-visible {
   display: flex; align-items: center; gap: 14px;
   width: 100%;
   padding: 12px 16px;
-  border: 0.5px solid var(--border);
+  border: none;
   border-radius: 18px;
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
   text-align: left;
+  box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
 }
 .bk-session-time {
   font-size: 12px; font-weight: 700;
-  color: var(--bk-orange);
+  color: var(--accent);
   min-width: 92px;
 }
 .bk-session-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -2457,9 +2442,10 @@ a.icon-btn:focus-visible {
   justify-content: space-between;
   align-items: center;
   gap: 4px;
-  background: var(--bg3);
+  background: var(--well-bg, var(--bg3));
   padding: 6px;
   border-radius: 18px;
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
 }
 .bk-day-pill {
   flex: 1;
@@ -2477,12 +2463,12 @@ a.icon-btn:focus-visible {
 }
 .bk-day-pill .num { font-size: 15px; font-weight: 600; }
 .bk-day-pill.today .num,
-.bk-day-pill.today .name { color: var(--bk-orange); }
+.bk-day-pill.today .name { color: var(--accent); }
 .bk-day-pill.active {
   background: var(--bg);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+  box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
 }
-.bk-day-pill.active .name { color: var(--bk-orange); }
+.bk-day-pill.active .name { color: var(--accent); }
 .bk-section {
   display: flex; align-items: center; justify-content: space-between;
   margin: 8px 0 14px;
@@ -2499,12 +2485,12 @@ a.icon-btn:focus-visible {
 }
 .bk-time-card {
   background: var(--bg);
-  border: 0.5px solid var(--border);
   border-radius: 20px;
   padding: 16px;
   text-align: left;
   color: inherit;
   display: block;
+  box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
 }
 .bk-time-input {
   display: block;
@@ -2513,37 +2499,40 @@ a.icon-btn:focus-visible {
   border: none;
   background: transparent;
   color: var(--text);
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: 20px; font-weight: 600;
+  font-family: 'Crimson Pro', Georgia, serif !important;
+  font-size: 22px; font-weight: 400;
   outline: none;
 }
-.bk-time-input::-webkit-calendar-picker-indicator { filter: invert(0.85); cursor: pointer; }
+.bk-time-input::-webkit-calendar-picker-indicator { opacity: 0.7; cursor: pointer; }
 .bk-new-team {
   border: none;
-  background: var(--bk-orange);
-  color: #fff;
+  background: var(--accent);
+  color: var(--pill-fg);
   font-size: 11px; font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
   padding: 7px 14px;
   border-radius: 99px;
+  box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
 }
 .bk-team-list { display: flex; flex-direction: column; gap: 12px; }
 .bk-team-card {
   display: flex; align-items: center; gap: 14px;
   padding: 14px 18px;
-  border: 0.5px solid var(--border);
+  border: none;
   border-radius: 20px;
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
   text-align: left;
   width: 100%;
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
+.bk-team-card:active { transform: scale(0.985); }
 .bk-team-card.selected {
-  border-color: rgba(232,141,86,0.45);
-  background: color-mix(in srgb, var(--bk-orange) 12%, var(--bg));
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
 }
 .bk-team-status {
   font-size: 10px; font-weight: 700;
@@ -2570,8 +2559,8 @@ a.icon-btn:focus-visible {
   flex-shrink: 0;
 }
 .bk-team-card.selected .bk-team-avatar {
-  background: var(--bk-orange);
-  color: #fff;
+  background: var(--accent);
+  color: var(--pill-fg);
 }
 .bk-team-info { min-width: 0; flex: 1; }
 .bk-team-info h4 {
@@ -2585,28 +2574,33 @@ a.icon-btn:focus-visible {
 }
 .bk-check {
   width: 20px; height: 20px; border-radius: 50%;
-  background: var(--bk-orange);
+  background: var(--accent);
+  color: var(--pill-fg);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
 .bk-footer {
-  position: fixed;
+  position: absolute;
   left: 18px; right: 18px;
   bottom: calc(16px + env(safe-area-inset-bottom));
   z-index: 8;
   display: flex; flex-direction: column; gap: 10px;
+  pointer-events: none;
 }
+.bk-footer .bk-tools,
+.bk-footer .bk-dock { pointer-events: auto; }
 .bk-tools {
   display: flex; flex-wrap: wrap; gap: 8px;
   margin: 0;
 }
 .bk-tool {
-  border: 0.5px solid var(--border); cursor: pointer;
+  border: none; cursor: pointer;
   background: var(--bg);
   color: var(--text2);
   font-size: 12px; font-weight: 600;
   padding: 8px 12px;
   border-radius: 99px;
+  box-shadow: 3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light);
 }
 .bk-dock {
   display: flex; align-items: center; justify-content: space-between;
@@ -2614,18 +2608,22 @@ a.icon-btn:focus-visible {
   min-height: 68px;
   padding: 10px 12px 10px 22px;
   border-radius: 34px;
-  background: #111;
-  color: #fff;
-  box-shadow: 0 15px 40px rgba(0,0,0,0.28);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
 }
 .bk-dock-text { font-size: 14px; font-weight: 500; }
 .bk-book-btn {
   border: none; cursor: pointer;
-  background: var(--bk-orange);
-  color: #fff;
+  background: var(--accent);
+  color: var(--pill-fg);
   padding: 12px 22px;
   border-radius: 24px;
   font-size: 14px; font-weight: 700;
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+}
+.bk-book-btn:active {
+  box-shadow: inset 3px 3px 6px rgba(0,0,0,0.18), inset -2px -2px 6px rgba(255,255,255,0.12);
 }
 @media (min-width: 900px) {
   .bk-dash-grid {
@@ -2645,19 +2643,24 @@ a.icon-btn:focus-visible {
   .booking-page {
     width: 100vw;
     border-left: 0;
-    transform: translateY(100%);
-    border-radius: 22px 22px 0 0;
   }
-  .booking-page.open {
-    transform: translateY(0);
-    border-radius: 0;
-  }
-  .booking-page-head h3 { font-size: 24px; }
-  .booking-page-body { padding: 6px 12px 168px; }
+  .booking-page-body { padding: 14px 12px 188px; }
+  .bk-footer { left: 12px; right: 12px; }
 }
 body.booking-open #panicFab,
 #panicFab.is-booking-hidden {
   display: none !important;
+}
+#bookingPage .asgn-modal {
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: var(--rl) !important;
+  box-shadow: 18px 18px 44px var(--neu-dark), -18px -18px 44px var(--neu-light) !important;
+}
+#bookingPage .asgn-modal-overlay {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: saturate(160%) blur(22px);
+  -webkit-backdrop-filter: saturate(160%) blur(22px);
 }
 
 /* On narrow phones, drop modal max-width and let it stretch closer to
@@ -15053,12 +15056,15 @@ button.perf-stat-chip.scheduled.active {
 
 <div class="booking-overlay" id="bookingOverlay" hidden></div>
 <div class="booking-page" id="bookingPage" hidden role="dialog" aria-modal="true" aria-labelledby="bookingPageTitle">
-  <div class="booking-page-head">
-    <button type="button" class="booking-page-back" id="bookingPageClose" aria-label="Close Booking">
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
+  <div class="booking-page-head appr-guide-head">
+    <h3 id="bookingPageTitle">Booking</h3>
+    <div class="appr-guide-head-actions">
+      <button type="button" class="icon-btn" id="bookingPageClose" aria-label="Close Booking">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
   </div>
   <div class="booking-page-body" id="bookingSubtabBody"></div>
 </div>
@@ -16194,6 +16200,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 
 /* Modals · same heavy neu lift as Moderator drawers */
 #adminApp .asgn-modal,
+#bookingPage .asgn-modal,
 #adminApp .mod-user-modal,
 #adminApp .avail-detail-modal,
 #adminApp .cal-drill-modal,

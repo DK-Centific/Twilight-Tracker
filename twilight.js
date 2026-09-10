@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cz';
-const APP_UPDATED_AT = '09/10/2026 17:25';
+const APP_VERSION = '1.3.090826da';
+const APP_UPDATED_AT = '09/10/2026 17:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -21753,10 +21753,23 @@ function bookingMatchesQuery(hay, q) {
   return String(hay || '').toLowerCase().includes(q);
 }
 
+function bookingLooksLikeAddress(value) {
+  const q = String(value || '').trim();
+  return !!(q && /\d/.test(q));
+}
+
+function bookingCurrentAddress() {
+  const part = adminState && adminState.bookingSelectedParticipant;
+  if (part && String(part.address || '').trim()) return String(part.address).trim();
+  const explicit = String((adminState && adminState.bookingAddress) || '').trim();
+  if (explicit) return explicit;
+  const q = String((adminState && adminState.bookingSearch) || '').trim();
+  if (bookingLooksLikeAddress(q)) return q;
+  return '';
+}
+
 function bookingHasAddress() {
-  return !!(String(adminState.bookingAddress || '').trim()
-    || adminState.bookingSelectedParticipant
-    || String(adminState.bookingSearch || '').trim());
+  return !!bookingCurrentAddress();
 }
 
 function bookingParticipantId(p) {
@@ -21930,7 +21943,7 @@ function renderBookingDashboardHTML() {
             <span class="bk-team-status ${row.status === 'Booked' ? 'is-booked' : 'is-open'}">${row.status}</span>
             ${selectedCard ? `<div class="bk-check" aria-hidden="true">
               <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </div>` : ''}
           </button>`;
@@ -21961,9 +21974,6 @@ function renderBookingDashboardHTML() {
 
   return `
     <div class="bk-dash">
-      <div class="bk-dash-top">
-        <div class="bk-brand" id="bookingPageTitle">Booking</div>
-      </div>
       <div class="bk-search-wrap">
         <input type="search" class="bk-search" id="bookingSearch" placeholder="Type a name or address..." value="${searchVal}" autocomplete="off">
         ${selectedPartLabel && !String(adminState.bookingSearch || '').trim() ? `<div class="bk-search-picked">${escapeHTML(selectedPartLabel)}</div>` : ''}
@@ -22110,7 +22120,8 @@ function bindBookingDashboardEvents() {
         const first = document.querySelector('#bookingSuggest .bk-suggest-item');
         if (first) first.click();
         else {
-          adminState.bookingAddress = String(adminState.bookingSearch || '').trim();
+          const typed = String(adminState.bookingSearch || '').trim();
+          adminState.bookingAddress = bookingLooksLikeAddress(typed) ? typed : '';
           renderAssignment();
         }
       }
@@ -22120,8 +22131,9 @@ function bindBookingDashboardEvents() {
         const box = document.getElementById('bookingSuggest');
         if (box) box.remove();
         if (String(adminState.bookingSearch || '').trim() && !adminState.bookingSelectedParticipant && !adminState.bookingAddress) {
-          adminState.bookingAddress = String(adminState.bookingSearch || '').trim();
-          renderAssignment();
+          const typed = String(adminState.bookingSearch || '').trim();
+          adminState.bookingAddress = bookingLooksLikeAddress(typed) ? typed : '';
+          if (adminState.bookingAddress) renderAssignment();
         }
       }, 180);
     });
@@ -24423,7 +24435,13 @@ function openTeamModal(teamId) {
     // Admin-assigned Ring dashboard (see RING_DASHBOARDS).
     ringDashboardKey: team ? (team.ringDashboardKey || '') : '',
     // Office address used for moderator office check-in / check-out geofence.
-    teamAddress: team ? (team.teamAddress || '') : '',
+    // Creating a team from Booking copies the current search address when one
+    // is entered or selected. Edit mode always keeps the team's saved address.
+    teamAddress: team
+      ? (team.teamAddress || '')
+      : ((typeof isBookingOpen === 'function' && isBookingOpen() && typeof bookingCurrentAddress === 'function')
+          ? bookingCurrentAddress()
+          : ''),
     _availWeekAnchor: ymdLocal(monday),
     _overlapOpen: false,
     _backupOpen: false,
