@@ -748,18 +748,17 @@ a.icon-btn:focus-visible {
     min-height: 0;
     max-height: none;
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: hidden;
     scroll-snap-type: x mandatory;
     padding: 0;
     touch-action: pan-x;
     overscroll-behavior: contain;
-    transition: height 0.22s ease;
   }
   .sc-flow.is-x .sc-flow-stage {
     display: flex;
     flex-direction: row;
-    align-items: flex-start;
-    min-height: 0;
+    align-items: stretch;
+    min-height: 100%;
     width: max-content;
     perspective: 1200px;
   }
@@ -838,6 +837,12 @@ a.icon-btn:focus-visible {
     width: calc(100cqw - 64px);
     margin: 0 6px;
     flex: 0 0 calc(100cqw - 64px);
+    height: 100%;
+    align-self: stretch;
+  }
+  .sc-flow.is-x .sc-flow-face {
+    flex: 1 1 auto;
+    min-height: 100%;
   }
   .sc-flow-tile.is-current {
     border-color: var(--brand-line, var(--accent));
@@ -4489,6 +4494,15 @@ input#ent_lakitu.lakitu-invalid {
   .content:has(.station-accordion.in-station) > .actions-bar {
     padding-right: 58px;
     padding-left: 16px;
+  }
+  .content:has(.station-accordion.in-station):has(.sc-flow.is-x) > .actions-bar {
+    position: sticky;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 8;
+    background: var(--bg);
+    margin-top: 8px;
+    padding-top: 6px;
+    padding-bottom: 8px;
   }
 }
 
@@ -15944,6 +15958,6 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826cn" defer></script>
+<script src="twilight-panic.js?v=1.3.090826co" defer></script>
 </body>
 </html>
