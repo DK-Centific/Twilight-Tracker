@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ci';
-const APP_UPDATED_AT = '09/10/2026 06:20';
+const APP_VERSION = '1.3.090826cj';
+const APP_UPDATED_AT = '09/10/2026 06:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2592,17 +2592,15 @@ function layoutScenarioFlowViewport() {
     const reserve = scenarioFlowHeliosReserve() + 8;
     const top = vp.getBoundingClientRect().top;
     const avail = Math.max(220, Math.round(window.innerHeight - top - reserve));
-    const naturalH = Math.max(...tiles.map(el => el.offsetHeight));
-    const cap = Math.max(200, Math.round(avail * SCENARIO_FLOW_FACE_SHARE));
-    const tileH = Math.min(naturalH, cap);
-    tiles.forEach(el => {
-      if (el.offsetHeight > cap) {
-        el.style.height = cap + 'px';
-        el.classList.add('is-fit');
-      }
-    });
-    vp.style.height = (tileH || naturalH) + 'px';
-    vp.style.maxHeight = (tileH || naturalH) + 'px';
+    const focusTile = tiles.find(el => (el.getAttribute('data-num') || '') === _scenarioFlowFocusNum) || tiles[0];
+    const naturalH = Math.max(1, focusTile.offsetHeight);
+    const tileH = Math.min(naturalH, avail);
+    if (naturalH > avail) {
+      focusTile.style.height = avail + 'px';
+      focusTile.classList.add('is-fit');
+    }
+    vp.style.height = tileH + 'px';
+    vp.style.maxHeight = tileH + 'px';
     return;
   }
 
@@ -2793,6 +2791,10 @@ function snapScenarioFlowToFocus(behavior) {
     vp.scrollTo({ left: 0, top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
   }
   paintScenarioFlow();
+  if (axis === 'x') {
+    layoutScenarioFlowViewport();
+    paintScenarioFlow();
+  }
   window.setTimeout(() => { _scenarioFlowSnapping = false; }, smooth ? 280 : 70);
 }
 
@@ -2828,6 +2830,7 @@ function onScenarioFlowScroll() {
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
     }
     if (root) root.classList.remove('is-scrolling');
+    if (root && root.dataset.axis === 'x') layoutScenarioFlowViewport();
     paintScenarioFlow();
   }, 160);
 }

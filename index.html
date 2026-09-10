@@ -735,12 +735,13 @@ a.icon-btn:focus-visible {
     padding: 0;
     touch-action: pan-x;
     overscroll-behavior: contain;
+    transition: height 0.22s ease;
   }
   .sc-flow.is-x .sc-flow-stage {
     display: flex;
     flex-direction: row;
-    align-items: center;
-    min-height: 100%;
+    align-items: flex-start;
+    min-height: 0;
     width: max-content;
     perspective: 1200px;
   }
@@ -4014,9 +4015,19 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
     overflow: visible;
   }
   .station-accordion.in-station .acc-item.open .acc-head { display: none; }
+  .station-accordion.in-station .acc-item.open .acc-body {
+    grid-template-rows: max-content;
+  }
   .station-accordion.in-station .acc-item.open .acc-inner {
     padding: 0 4px 8px;
     overflow: visible;
+    height: auto;
+    min-height: 0;
+  }
+  .station-accordion.in-station .acc-item.open .acc-inner:has(.sc-flow.is-x) {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
   }
   .nav-sc-axes:not([hidden]) {
     display: inline-flex;
