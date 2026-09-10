@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cc';
-const APP_UPDATED_AT = '09/10/2026 02:20';
+const APP_VERSION = '1.3.090826cd';
+const APP_UPDATED_AT = '09/10/2026 02:28';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2696,11 +2696,11 @@ function paintScenarioFlow() {
         face.style.opacity = focused ? '1' : '0.5';
         face.style.transform = '';
       } else {
-        const blur = focused ? '0' : Math.min(3.2, abs * 3.6).toFixed(2);
-        const opac = focused ? '1' : Math.max(0.55, 1 - abs * 0.38).toFixed(3);
-        const scale = focused ? '1' : Math.max(0.86, 1 - abs * 0.12).toFixed(3);
-        const deg = focused ? 0 : Math.max(-18, Math.min(18, offset * 16));
-        const depth = focused ? 0 : -Math.min(52, abs * 46);
+        const blur = focused ? '0' : Math.min(2.1, abs * 2.4).toFixed(2);
+        const opac = focused ? '1' : Math.max(0.58, 1 - abs * 0.36).toFixed(3);
+        const scale = focused ? '1' : Math.max(0.84, 1 - abs * 0.14).toFixed(3);
+        const deg = focused ? 0 : Math.max(-22, Math.min(22, offset * 20));
+        const depth = focused ? 0 : -Math.min(64, abs * 56);
         const twist = axis === 'x'
           ? 'translateZ(' + depth.toFixed(1) + 'px) rotateY(' + (-deg).toFixed(2) + 'deg) '
           : 'translateZ(' + depth.toFixed(1) + 'px) rotateX(' + deg.toFixed(2) + 'deg) ';
@@ -2758,6 +2758,7 @@ function snapScenarioFlowToFocus(behavior) {
   const tile = num ? vp.querySelector('.sc-flow-tile[data-num="' + num + '"]') : vp.querySelector('.sc-flow-tile');
   if (!tile) return;
   _scenarioFlowSnapping = true;
+  layoutScenarioFlowViewport();
   const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
   const smooth = behavior === 'smooth';
   if (axis === 'x') {
