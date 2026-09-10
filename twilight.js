@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826dc';
-const APP_UPDATED_AT = '09/10/2026 18:35';
+const APP_VERSION = '1.3.090826dd';
+const APP_UPDATED_AT = '09/10/2026 19:05';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -3204,6 +3204,7 @@ function renderStation(key, opts) {
   let html = `
     ${titleHTML}
     ${opts.omitTitle ? lakituReadonlyHTML() : entryBarHTML()}
+    ${showStationMotion && typeof calGuideInlineHTML === 'function' ? calGuideInlineHTML() : ''}
   `;
 
   // Camera confirmation card (only for capture stations)
@@ -4036,8 +4037,21 @@ function stationActionsHTML(station, data) {
   const submitDisabled = locked || unresolved > 0 || !calGuideOk;
 
   const idx = STATIONS.findIndex(s => s.key === station.key);
+  const isFirst = idx === 0;
   const isLast = idx === STATIONS.length - 1;
   const submitLabel = isLast ? 'Session Complete' : 'Submit';
+  const submitReason = locked
+    ? 'Session locked'
+    : (!calGuideOk
+      ? 'Acknowledge the calibration guide first'
+      : (partialMissingNotes > 0 || skipMissingNotes > 0
+        ? 'Add notes to Partial and Skipped scenarios first'
+        : (unresolved > 0 ? 'Resolve all scenarios first' : '')));
+  const submitVisible = submitDisabled
+    ? (unresolved > 0
+      ? 'Resolve scenarios first'
+      : (!calGuideOk ? 'Acknowledge guide first' : (locked ? 'Locked' : submitLabel)))
+    : submitLabel;
 
   // Carousel-aware "current assignment" · same source of truth as the lock check
   const activeAsgn = (typeof getActiveOperatorAssignment === 'function')
@@ -4066,19 +4080,19 @@ function stationActionsHTML(station, data) {
         ${locked ? `<span class="status-pill" style="background: var(--bg4); color: var(--text3);">🔒 Session locked</span>` : ''}
       </div>
       <div class="right">
-        <button class="btn btn-ghost" onclick="goToStation(-1)">
+        <button class="btn btn-ghost${isFirst ? ' is-disabled' : ''}" onclick="goToStation(-1)" ${isFirst ? 'disabled title="This is the first station"' : 'title="Previous station"'}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          Previous
+          ${isFirst ? 'First station' : 'Previous'}
         </button>
         ${locked
-          ? `<button class="btn btn-ghost" disabled style="opacity: 0.6; cursor: not-allowed;">Locked</button>`
+          ? `<button class="btn btn-ghost is-disabled" disabled title="Session locked">Locked</button>`
           : (stationAlreadySubmitted && !isLast
-            ? `<button class="btn btn-ghost" disabled style="opacity: 0.6; cursor: not-allowed;">Submitted</button>`
-            : `<button class="btn ${submitDisabled ? 'btn-ghost' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? 'disabled' : ''} title="${submitDisabled ? (locked ? 'Session locked' : (!calGuideOk ? 'Acknowledge the calibration guide (DOs and DON’Ts) first' : (partialMissingNotes > 0 || skipMissingNotes > 0 ? 'Add notes to all Partial and Skipped scenarios first' : 'Resolve all scenarios first (mark complete, skip+note, or partial+note)'))) : ''}">
-              ${submitLabel}
-              ${!isLast ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
+            ? `<button class="btn btn-ghost is-disabled" disabled title="Already submitted">Submitted</button>`
+            : `<button class="btn ${submitDisabled ? 'btn-ghost is-disabled' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? 'disabled' : ''} title="${submitDisabled ? submitReason : ''}">
+              ${submitVisible}
+              ${!submitDisabled && !isLast ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
             </button>`)}
       </div>
     </div>
@@ -4797,6 +4811,20 @@ function isCalGuideAcknowledged() {
   return !!(state && state.calGuideAck);
 }
 
+function calGuideInlineHTML() {
+  const acked = isCalGuideAcknowledged();
+  return `
+    <div class="cal-guide-inline${acked ? ' is-acked' : ''}">
+      <div class="cal-guide-inline-copy">
+        <strong>${acked ? 'Guide acknowledged this session' : 'Before you record'}</strong>
+        <span>Motion Detection OFF · recordings at least 90 seconds · follow the calibration guide.</span>
+      </div>
+      <button type="button" class="cal-guide-inline-btn" onclick="openCalGuideForAck()">
+        ${acked ? 'View guide' : 'Review & acknowledge'}
+      </button>
+    </div>`;
+}
+
 // Opens the cal guide modal so the moderator can acknowledge. Used as
 // the recovery action when the "Acknowledge cal guide" pill is
 // clicked or a blocked submit is attempted. Mirrors focusLakituInput
@@ -4913,10 +4941,30 @@ window.submitStation = submitStation;
 
 function goToStation(delta) {
   const idx = STATIONS.findIndex(s => s.key === currentStationKey);
+  if (idx < 0) return;
   const next = Math.max(0, Math.min(STATIONS.length - 1, idx + delta));
-  currentStationKey = STATIONS[next].key;
-  renderApp();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (next === idx) return;
+  const apply = () => {
+    currentStationKey = STATIONS[next].key;
+    renderApp();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const content = document.getElementById('content');
+    if (content) {
+      content.classList.add('station-enter');
+      setTimeout(() => content.classList.remove('station-enter'), 520);
+    }
+  };
+  const content = document.getElementById('content');
+  const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (content && !reduce) {
+    content.classList.add('station-leave');
+    setTimeout(() => {
+      content.classList.remove('station-leave');
+      apply();
+    }, 200);
+    return;
+  }
+  apply();
 }
 
 function showWelcome() {
@@ -32575,6 +32623,9 @@ function openCalGuideModal() {
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
   if (!overlay || !modal) return;
+  overlay.hidden = false;
+  modal.hidden = false;
+  modal.classList.remove('is-exiting');
 
   // Reset scroll to top each time so re-opens always land on the
   // ⚠️ banner / General Requirements (not where they left off scrolled).
@@ -32611,11 +32662,21 @@ function closeCalGuideModal() {
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
   if (!overlay || !modal) return;
-  overlay.classList.remove('open');
-  modal.classList.remove('open');
   if (modal._escHandler) {
     document.removeEventListener('keydown', modal._escHandler);
   }
+  overlay.classList.remove('open');
+  modal.classList.remove('open');
+  modal.classList.add('is-exiting');
+  const finish = () => {
+    if (overlay.classList.contains('open')) return;
+    overlay.hidden = true;
+    modal.hidden = true;
+    modal.classList.remove('is-exiting');
+    overlay.removeEventListener('transitionend', finish);
+  };
+  overlay.addEventListener('transitionend', finish);
+  setTimeout(finish, 560);
 }
 
 /* ---------------------------------------------------------------------
@@ -32705,10 +32766,12 @@ function maybeAutoShowCalGuide(stationKey) {
     _lastCalGuideStationKey = stationKey;
     return;
   }
-  // Re-pop on every station CHANGE until acknowledged. Same-station re-renders
-  // (refresh ticks, accordion body rebuilds) are ignored.
+  // One auto-open per login. Later stations show the compact inline strip
+  // instead of popping the full guide again.
   if (stationKey === _lastCalGuideStationKey) return;
   _lastCalGuideStationKey = stationKey;
+  if (calGuideHasBeenSeen(state.username)) return;
+  markCalGuideSeen(state.username);
   // Don't stack a second copy if it's already open.
   const existing = document.getElementById('calGuideOverlay');
   if (existing && existing.classList.contains('open')) return;

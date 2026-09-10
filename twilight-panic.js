@@ -266,6 +266,11 @@
       return;
     }
     if (grid) grid.hidden = !open;
+    if (open && grid && typeof grid.scrollIntoView === 'function') {
+      setTimeout(function () {
+        grid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 40);
+    }
   }
 
   btn.addEventListener('click', function (e) { e.stopPropagation(); fab.classList.contains('open') ? closeMenu() : openMenu(); });
