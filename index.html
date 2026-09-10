@@ -927,12 +927,30 @@ a.icon-btn:focus-visible {
     background: var(--input-bg);
     border-color: var(--border-strong);
   }
-  .sc-flow-tile .cal-ref-videos { gap: 6px; margin-bottom: 0; }
+  .sc-flow-tile .cal-ref-videos {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    margin: 0;
+    width: 100%;
+  }
+  .sc-flow-tile .cal-ref-label {
+    font-size: 13px;
+  }
+  .sc-flow-tile .cal-ref-ico { font-size: 15px; }
+  .sc-flow-tile .cal-ref-links {
+    gap: 8px;
+  }
+  .sc-flow-tile .cal-ref-sep { font-size: 13px; }
   .sc-flow-tile .cal-ref-btn {
-    min-height: 40px;
-    padding: 8px 12px;
+    min-height: 0;
+    padding: 0;
     font-size: 14px;
-    border-radius: 12px;
+    border-radius: 0;
+    background: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
   }
   .sc-flow-tile .record-flow {
     display: flex;
@@ -2738,16 +2756,16 @@ a.icon-btn:focus-visible {
 .scenario-table thead th.col-id,
 .scenario-table td.col-id { width: 12%; }
 .scenario-table thead th.col-iter,
-.scenario-table td.col-iter { width: 12%; }
+.scenario-table td.col-iter { width: 11%; }
 .scenario-table thead th.col-status,
-.scenario-table td.col-status { width: 16%; }
+.scenario-table td.col-status { width: 24%; }
 .scenario-table thead th.col-name,
 .scenario-table td.col-name { width: 22%; }
 /* NOTES is a share of the table width in web view, so it grows and
    shrinks when the window is resized. Below 960px the table hides. */
 .scenario-table thead th.col-notes,
 .scenario-table td.col-notes {
-  width: 32%;
+  width: 25%;
   min-width: 0;
 }
 
@@ -2762,6 +2780,22 @@ a.icon-btn:focus-visible {
   font-size: 14px;
   vertical-align: middle;
   letter-spacing: -0.005em;
+}
+.scenario-table td.col-status {
+  min-width: 0;
+  overflow: visible;
+}
+.scenario-table td.col-status .cal-ref-videos {
+  margin-bottom: 6px;
+}
+.scenario-table td.col-status .scenario-status-group,
+.scenario-table td.col-status .record-flow {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.scenario-table .record-ready-btn,
+.scenario-table .scenario-status-btn {
+  white-space: nowrap;
 }
 .scenario-table td.col-num {
   font-family: var(--font-num);
@@ -10779,35 +10813,71 @@ button.perf-stat-chip.scheduled.active {
   gap: 4px;
   align-items: center;
 }
-/* Calibration reference-video buttons (CAL_EXT / CAL_GND scenarios) */
+/* Calibration reference-video links (CAL_EXT / CAL_GND scenarios) */
 .cal-ref-videos {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 7px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 .cal-ref-label {
-  font-family: var(--font-mono, var(--font));
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  opacity: 0.72;
+  color: var(--text3);
+  white-space: nowrap;
 }
-.cal-ref-btn {
-  font-family: var(--font);
+.cal-ref-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.cal-ref-links {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.cal-ref-sep {
+  color: var(--text3);
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: -0.005em;
-  padding: 5px 11px;
-  border-radius: 6px;
-  border: 0.5px solid var(--accent, #22d3ee);
-  background: color-mix(in srgb, var(--accent, #22d3ee) 12%, transparent);
-  color: var(--accent, #22d3ee);
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease;
+  opacity: 0.55;
+  line-height: 1;
 }
-.cal-ref-btn:hover { background: color-mix(in srgb, var(--accent, #22d3ee) 22%, transparent); }
+.cal-ref-btn {
+  appearance: none;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--accent-ink, var(--accent, #E07A2B));
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 0.5px;
+  line-height: 1.3;
+  transition: opacity 0.15s ease, transform 0.05s ease;
+}
+.cal-ref-btn:hover { opacity: 0.78; }
 .cal-ref-btn:active { transform: scale(0.97); }
 /* In-app video modal */
 .calref-overlay {
@@ -15010,7 +15080,7 @@ h1, h2, h3,
 }
 
 /* ---- Raised buttons ---- */
-.btn, .icon-btn, .acc-step-btn, .cal-ref-btn, .nav-calguide-btn, .nav-lakitu-btn {
+.btn, .icon-btn, .acc-step-btn, .nav-calguide-btn, .nav-lakitu-btn {
   background:var(--bg) !important; border:none !important;
   box-shadow:5px 5px 10px var(--neu-dark), -5px -5px 10px var(--neu-light);
 }
