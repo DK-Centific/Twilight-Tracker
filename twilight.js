@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cv';
-const APP_UPDATED_AT = '09/10/2026 13:30';
+const APP_VERSION = '1.3.090826cw';
+const APP_UPDATED_AT = '09/10/2026 14:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6498,6 +6498,9 @@ const adminState = {
   // landing on the Assignment tab always starts unfiltered.
   calTeamFilter: null,
   bookingOpen: false,        // dedicated Booking slide page (Assignment calendar)
+  bookingSearch: '',
+  bookingStartMin: 9 * 60,
+  bookingEndMin: 17 * 60,
   modal: null,               // { kind: 'createTeam' | 'editTeam' | 'createAssignment' | 'viewAssignment', ...payload }
   // Overview dashboard state
   overview: {
@@ -7200,6 +7203,11 @@ function restoreHubAssignmentModal() {
 function openBookingPage() {
   if (typeof adminState === 'undefined' || !adminState) return;
   adminState.bookingOpen = true;
+  if (adminState.calView === 'day' || adminState.calView === 'list') {
+    adminState.calView = 'week';
+  }
+  if (adminState.bookingStartMin == null) adminState.bookingStartMin = 9 * 60;
+  if (adminState.bookingEndMin == null) adminState.bookingEndMin = 17 * 60;
   parkHubAssignmentModal();
   const page = document.getElementById('bookingPage');
   const overlay = document.getElementById('bookingOverlay');
@@ -18953,6 +18961,7 @@ function assignmentStatusFingerprint() {
 function shouldDeferAssignmentPaint() {
   if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) return true;
   if (typeof isEditingWithin === 'function' && isEditingWithin(document.getElementById('adminApp'))) return true;
+  if (typeof isEditingWithin === 'function' && isEditingWithin(document.getElementById('bookingPage'))) return true;
   if (document.querySelector('.month-day-popover.open')) return true;
   return false;
 }
@@ -20273,7 +20282,12 @@ function renderAssignment(opts) {
   // different browsers" · incognito is the most common trigger because it
   // starts with empty localStorage. Surface this directly so the admin
   // knows to wire up the Power Automate read flow.
-  const showSyncBanner = !ASSIGNMENT_PA_READ_URL;
+  const showSyncBanner = !ASSIGNMENT_PA_READ_URL && !(typeof isBookingOpen === 'function' && isBookingOpen());
+  const bookingSearchEl = document.getElementById('bookingSearch');
+  const restoreBookingSearch = !!(bookingSearchEl && document.activeElement === bookingSearchEl);
+  const bookingSearchCaret = restoreBookingSearch
+    ? [bookingSearchEl.selectionStart, bookingSearchEl.selectionEnd]
+    : null;
 
   body.innerHTML = `
     ${showSyncBanner ? `
@@ -20299,7 +20313,9 @@ function renderAssignment(opts) {
       </div>
     ` : ''}
     <div class="asgn-shell">
-      ${renderCalendarPanelHTML()}
+      ${(typeof isBookingOpen === 'function' && isBookingOpen())
+        ? renderBookingDashboardHTML()
+        : renderCalendarPanelHTML()}
     </div>
     <div class="asgn-modal-overlay" id="asgnModalOverlay"></div>
     <div class="asgn-modal" id="asgnModal" role="dialog" aria-modal="true">
@@ -20320,6 +20336,16 @@ function renderAssignment(opts) {
   }
 
   bindAssignmentEvents();
+  if (typeof bindBookingDashboardEvents === 'function') bindBookingDashboardEvents();
+  if (restoreBookingSearch) {
+    const nextSearch = document.getElementById('bookingSearch');
+    if (nextSearch) {
+      nextSearch.focus();
+      if (bookingSearchCaret) {
+        try { nextSearch.setSelectionRange(bookingSearchCaret[0], bookingSearchCaret[1]); } catch (_) {}
+      }
+    }
+  }
 }
 
 /* ----------- Availability Hub ----------- */
@@ -21518,6 +21544,7 @@ function teamLivePillHTML(team) {
 function shouldPollTeamLivePresence() {
   if (!adminState) return false;
   if (adminState.tab === 'assignment') return true;
+  if (typeof isBookingOpen === 'function' && isBookingOpen()) return true;
   return adminState.tab === 'moderators' && adminState.modView === 'team';
 }
 
@@ -21666,6 +21693,339 @@ function renderCalendarToolbarHTML(view, periodLabel) {
           </button>
         </div>
       </div>`;
+}
+
+/* ----------- Booking dashboard (Booking Mobile layout.html) ----------- */
+const BOOKING_TIME_PRESETS = [
+  { startMin: 9 * 60,  endMin: 17 * 60, label: 'Morning' },
+  { startMin: 13 * 60, endMin: 21 * 60, label: 'Evening' },
+  { startMin: 9 * 60,  endMin: 21 * 60, label: 'Either' },
+];
+
+function fmtBookingClock(min) {
+  const wrapped = ((min % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function bookingTeamInitials(team) {
+  const name = String((team && team.name) || 'Team').trim();
+  const words = name.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase() || 'T';
+}
+
+function bookingSelectedDate() {
+  ensureCalAnchor();
+  return parseYMD(adminState.calAnchor) || new Date();
+}
+
+function bookingMatchesQuery(hay, q) {
+  if (!q) return true;
+  return String(hay || '').toLowerCase().includes(q);
+}
+
+function bookingFilteredTeams() {
+  const q = String(adminState.bookingSearch || '').trim().toLowerCase();
+  const teams = adminState.teams || [];
+  if (!q) return teams;
+  return teams.filter(team => {
+    if (bookingMatchesQuery(team.name, q)) return true;
+    const ids = [...(team.primaryIds || []), ...((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : [])];
+    return ids.some(id => {
+      const name = (typeof getModeratorDisplayName === 'function') ? getModeratorDisplayName(id) : id;
+      return bookingMatchesQuery(id, q) || bookingMatchesQuery(name, q);
+    });
+  });
+}
+
+function bookingSessionHaystack(asgn) {
+  const team = (adminState.teams || []).find(t => String(t.id) === String(asgn.teamId));
+  const p = asgn.participantData || {};
+  const name = [p.firstName, p.lastName].filter(Boolean).join(' ');
+  return [asgn.date, asgn.status, team && team.name, name, p.email, p.address].filter(Boolean).join(' ');
+}
+
+function bookingVisibleSessions(selectedDateStr) {
+  const q = String(adminState.bookingSearch || '').trim().toLowerCase();
+  return (adminState.assignments || []).filter(a => {
+    if (!a || a.status === 'Unassigned') return false;
+    if (q) return bookingMatchesQuery(bookingSessionHaystack(a), q);
+    return a.date === selectedDateStr;
+  }).sort((a, b) => String(a.date).localeCompare(String(b.date)) || (a.startMin || 0) - (b.startMin || 0));
+}
+
+function bookingTimeWindowLabel() {
+  const start = adminState.bookingStartMin != null ? adminState.bookingStartMin : 9 * 60;
+  const end = adminState.bookingEndMin != null ? adminState.bookingEndMin : 17 * 60;
+  const match = BOOKING_TIME_PRESETS.find(p => p.startMin === start && p.endMin === end);
+  return match ? match.label : 'Custom';
+}
+
+function cycleBookingTimePreset() {
+  const start = adminState.bookingStartMin != null ? adminState.bookingStartMin : 9 * 60;
+  const end = adminState.bookingEndMin != null ? adminState.bookingEndMin : 17 * 60;
+  const idx = BOOKING_TIME_PRESETS.findIndex(p => p.startMin === start && p.endMin === end);
+  const next = BOOKING_TIME_PRESETS[(idx + 1) % BOOKING_TIME_PRESETS.length];
+  adminState.bookingStartMin = next.startMin;
+  adminState.bookingEndMin = next.endMin;
+}
+
+function renderBookingMonthGridHTML(anchor) {
+  const todayStr = ymd(new Date());
+  const selectedStr = ymd(anchor);
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const lastOfMonth = new Date(year, month + 1, 0);
+  const startDow = (firstOfMonth.getDay() + 6) % 7; // Monday-first, matching week pills
+  const gridStart = new Date(year, month, 1 - startDow);
+  const totalCells = Math.ceil((startDow + lastOfMonth.getDate()) / 7) * 7;
+  const byDate = new Set();
+  for (const a of (adminState.assignments || [])) {
+    if (!a || !a.date || a.status === 'Unassigned') continue;
+    byDate.add(a.date);
+  }
+  const dows = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+  const heads = dows.map(d => `<span class="bk-month-dow">${d}</span>`).join('');
+  let cells = '';
+  for (let i = 0; i < totalCells; i++) {
+    const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    const ds = ymd(d);
+    const cls = [
+      'bk-month-cell',
+      d.getMonth() !== month ? 'other' : '',
+      ds === selectedStr ? 'active' : '',
+      ds === todayStr ? 'today' : '',
+      byDate.has(ds) ? 'has-dot' : '',
+    ].filter(Boolean).join(' ');
+    cells += `<button type="button" class="${cls}" data-date="${ds}">${d.getDate()}</button>`;
+  }
+  return `<div class="bk-month">${heads}${cells}</div>`;
+}
+
+function renderBookingDashboardHTML() {
+  ensureCalAnchor();
+  if (adminState.bookingStartMin == null) adminState.bookingStartMin = 9 * 60;
+  if (adminState.bookingEndMin == null) adminState.bookingEndMin = 17 * 60;
+  const view = (adminState.calView === 'month') ? 'month' : 'week';
+  const selected = bookingSelectedDate();
+  const selectedStr = ymd(selected);
+  const todayStr = ymd(new Date());
+  const weekStart = startOfWeek(selected);
+  const dateTitle = selected.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' });
+  const startLabel = fmtBookingClock(adminState.bookingStartMin);
+  const endLabel = fmtBookingClock(adminState.bookingEndMin);
+  const windowLabel = bookingTimeWindowLabel();
+  const teams = bookingFilteredTeams();
+  const sessions = bookingVisibleSessions(selectedStr);
+  const selectedTeam = (adminState.teams || []).find(t => String(t.id) === String(adminState._selectedTeam));
+  const searchVal = escapeHTML(adminState.bookingSearch || '');
+  const dayPills = Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(weekStart, i);
+    const ds = ymd(d);
+    const active = ds === selectedStr;
+    return `
+      <button type="button" class="bk-day-pill${active ? ' active' : ''}" data-date="${ds}">
+        <span class="name">${d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</span>
+        <span class="num">${d.getDate()}</span>
+      </button>`;
+  }).join('');
+  const teamCards = teams.length === 0
+    ? `<div class="bk-empty">${adminState.bookingSearch ? 'No teams match that search.' : 'No teams yet. Tap New Team to add one.'}</div>`
+    : teams.map(team => {
+        const selectedCard = String(adminState._selectedTeam) === String(team.id);
+        const memberCount = (team.primaryIds || []).length
+          + ((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team).length : 0);
+        const live = (typeof getTeamRosterLiveState === 'function') ? getTeamRosterLiveState(team) : null;
+        const sub = [
+          team._pending ? 'Draft' : '',
+          memberCount === 1 ? '1 member' : `${memberCount} members`,
+          live && live.live ? 'Live' : '',
+        ].filter(Boolean).join(' · ');
+        return `
+          <button type="button" class="bk-team-card${selectedCard ? ' selected' : ''}" data-team-id="${team.id}">
+            <div class="bk-team-avatar">${escapeHTML(bookingTeamInitials(team))}</div>
+            <div class="bk-team-info">
+              <h4>${escapeHTML(team.name || 'Untitled team')}</h4>
+              <p>${escapeHTML(sub)}</p>
+            </div>
+            ${selectedCard ? `<div class="bk-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>` : ''}
+          </button>`;
+      }).join('');
+  const sessionCards = sessions.length === 0
+    ? ''
+    : `
+      <div class="bk-section">${adminState.bookingSearch ? 'Matching sessions' : 'Sessions this day'}</div>
+      <div class="bk-session-list">
+        ${sessions.slice(0, 8).map(a => {
+          const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
+          const p = a.participantData || {};
+          const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
+          const when = a.date !== selectedStr
+            ? `${a.date} · ${fmtBookingClock(a.startMin || 0)}`
+            : `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
+          return `
+            <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}">
+              <div class="bk-session-time">${escapeHTML(when)}</div>
+              <div class="bk-session-info">
+                <strong>${escapeHTML(name)}</strong>
+                <span>${escapeHTML((team && team.name) || a.teamName || a.status || '')}</span>
+              </div>
+            </button>`;
+        }).join('')}
+      </div>`;
+  const dockText = selectedTeam
+    ? `${selectedTeam.name} · ${selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : (sessions.length ? `${sessions.length} session${sessions.length === 1 ? '' : 's'} this day` : 'Pick a team to book');
+
+  return `
+    <div class="bk-dash">
+      <div class="bk-dash-top">
+        <div class="bk-brand" id="bookingPageTitle">Booking</div>
+        <div class="bk-view-pill">
+          <button type="button" class="bk-view-btn${view === 'week' ? ' active' : ''}" data-view="week">Week</button>
+          <button type="button" class="bk-view-btn${view === 'month' ? ' active' : ''}" data-view="month">Month</button>
+        </div>
+      </div>
+      <input type="search" class="bk-search" id="bookingSearch" placeholder="Search sessions or teams..." value="${searchVal}" autocomplete="off">
+      <div class="bk-dash-grid">
+        <section class="bk-hero">
+          <span class="bk-date-label">Selected Booking</span>
+          <div class="bk-date-row">
+            <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous">${view === 'month' ? '‹' : '‹'}</button>
+            <h1 class="bk-current-date">${escapeHTML(dateTitle)}</h1>
+            <button type="button" class="bk-date-nav" id="calNext" aria-label="Next">›</button>
+          </div>
+          ${selectedStr !== todayStr ? '<button type="button" class="bk-today" id="calToday">Today</button>' : ''}
+          ${view === 'month' ? renderBookingMonthGridHTML(selected) : `<div class="bk-day-row">${dayPills}</div>`}
+        </section>
+        <div>
+          <div class="bk-section">
+            Select Timeslot
+            <span class="bk-status"><i></i>${escapeHTML(windowLabel === 'Custom' ? 'Custom window' : windowLabel + ' window')}</span>
+          </div>
+          <div class="bk-time-grid">
+            <button type="button" class="bk-time-card" data-time="start">
+              <span class="bk-date-label" style="margin-bottom:0">Start Time</span>
+              <span class="time">${escapeHTML(startLabel)}</span>
+            </button>
+            <button type="button" class="bk-time-card" data-time="end">
+              <span class="bk-date-label" style="margin-bottom:0">End Time</span>
+              <span class="time">${escapeHTML(endLabel)}</span>
+            </button>
+          </div>
+          <div class="bk-section">
+            Assign a Team
+            <button type="button" class="bk-new-team" id="newTeamBtn">New Team</button>
+          </div>
+          <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
+        </div>
+      </div>
+      ${sessionCards}
+      <div class="bk-tools">
+        <button type="button" class="bk-tool" id="scheduleByModBtn">Schedule by mod</button>
+        <button type="button" class="bk-tool" id="bulkResendBtn">Bulk resend</button>
+        <button type="button" class="bk-tool" id="exportAsgnBtn">Export</button>
+      </div>
+      <div class="bk-dock">
+        <div class="bk-dock-text">${escapeHTML(dockText)}</div>
+        <button type="button" class="bk-book-btn" id="bookingBookBtn">Book Session</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindBookingDashboardEvents() {
+  const body = document.getElementById('bookingSubtabBody');
+  if (!body || typeof isBookingOpen !== 'function' || !isBookingOpen()) return;
+
+  body.querySelectorAll('.bk-view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      adminState.calView = btn.dataset.view === 'month' ? 'month' : 'week';
+      renderAssignment();
+    });
+  });
+
+  body.querySelectorAll('.bk-day-pill, .bk-month-cell').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (!btn.dataset.date) return;
+      adminState.calAnchor = btn.dataset.date;
+      if (btn.classList.contains('bk-month-cell')) adminState.calView = 'week';
+      renderAssignment();
+    });
+  });
+
+  const search = document.getElementById('bookingSearch');
+  if (search && !search._bookingWired) {
+    search._bookingWired = true;
+    search.addEventListener('input', (e) => {
+      adminState.bookingSearch = e.target.value;
+      renderAssignment();
+      const next = document.getElementById('bookingSearch');
+      if (next) {
+        next.focus();
+        const len = next.value.length;
+        try { next.setSelectionRange(len, len); } catch (_) {}
+      }
+    });
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && adminState.bookingSearch) {
+        e.stopPropagation();
+        adminState.bookingSearch = '';
+        renderAssignment();
+        const next = document.getElementById('bookingSearch');
+        if (next) next.focus();
+      }
+    });
+  }
+
+  body.querySelectorAll('.bk-time-card').forEach(card => {
+    card.addEventListener('click', () => {
+      cycleBookingTimePreset();
+      renderAssignment();
+    });
+  });
+
+  body.querySelectorAll('.bk-team-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const teamId = parseInt(card.dataset.teamId, 10);
+      const wasSelected = String(adminState._selectedTeam) === String(teamId);
+      adminState._selectedTeam = wasSelected ? null : teamId;
+      adminState.calTeamFilter = wasSelected ? null : teamId;
+      renderAssignment();
+    });
+  });
+
+  body.querySelectorAll('.bk-session-card').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.dataset.asgnId && typeof openViewAssignmentModal === 'function') {
+        openViewAssignmentModal(card.dataset.asgnId);
+      }
+    });
+  });
+
+  const bookBtn = document.getElementById('bookingBookBtn');
+  if (bookBtn) {
+    bookBtn.addEventListener('click', () => {
+      ensureCalAnchor();
+      const dateStr = adminState.calAnchor;
+      const startMin = adminState.bookingStartMin != null ? adminState.bookingStartMin : 9 * 60;
+      const endMin = adminState.bookingEndMin != null ? adminState.bookingEndMin : 17 * 60;
+      openAssignmentModal(dateStr, startMin, {
+        teamId: adminState._selectedTeam || undefined,
+        startMin,
+        endMin,
+      });
+    });
+  }
 }
 
 /* ----------- Calendar Panel ----------- */

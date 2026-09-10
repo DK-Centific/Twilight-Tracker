@@ -15,7 +15,7 @@
 <link rel="manifest" href="manifest.json">
 <title>Centific Data Collection · Project Twilight</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* =========================================================
    CENTIFIC KILO DESIGN · Project Twilight (electric blue)
@@ -2222,7 +2222,7 @@ a.icon-btn:focus-visible {
 }
 .booking-page-head {
   display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px 10px;
+  padding: 10px 18px 0;
   flex-shrink: 0;
 }
 .booking-page-back {
@@ -2236,28 +2236,342 @@ a.icon-btn:focus-visible {
 .booking-page-back:active {
   box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
 }
-.booking-page-titles { min-width: 0; }
-.booking-page-kicker {
-  font-size: 11px; font-weight: 650;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--text3);
+.booking-page-body {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 4px 18px 28px;
 }
-.booking-page-head h3 {
-  margin: 0;
+
+/* Booking dashboard · mapped from Booking Mobile layout.html */
+.bk-dash {
+  --bk-orange: #E88D56;
+  --bk-green: #34C759;
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding-bottom: 96px;
+}
+.bk-dash-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.bk-brand {
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 28px; font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--text);
 }
-.booking-page-body {
-  flex: 1; min-height: 0;
-  overflow: auto;
-  padding: 8px 18px 28px;
+.bk-view-pill {
+  display: flex; gap: 2px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
 }
-.booking-page-body .asgn-shell,
-.booking-page-body .cal-panel {
+.bk-view-btn {
+  padding: 6px 12px;
+  border: none; cursor: pointer;
+  border-radius: 10px;
+  font-family: var(--font);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--text3);
+}
+.bk-view-btn.active {
+  background: var(--bg3);
+  color: var(--text);
+  box-shadow: inset 2px 2px 4px var(--neu-dark);
+}
+.bk-search {
   width: 100%;
-  max-width: 1180px;
-  margin: 0 auto;
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  border: none;
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  outline: none;
+}
+.bk-search:focus { box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light), 0 0 0 3px var(--accent-soft); }
+.bk-hero {
+  background: var(--bg);
+  border-radius: 32px;
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
+}
+.bk-date-label {
+  display: block;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 8px;
+}
+.bk-current-date {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 32px; font-weight: 600;
+  line-height: 1.1;
+  color: var(--text);
+  margin: 0;
+  flex: 1;
+}
+.bk-date-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 16px;
+}
+.bk-date-nav {
+  width: 36px; height: 36px; flex-shrink: 0;
+  border: none; border-radius: 12px;
+  background: var(--bg3);
+  color: var(--text);
+  font-size: 22px; line-height: 1;
+  cursor: pointer;
+}
+.bk-today {
+  border: none; background: transparent;
+  color: var(--bk-orange);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  margin: -8px 0 12px;
+}
+.bk-month {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+.bk-month-dow {
+  text-align: center;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text3);
+  padding: 4px 0 6px;
+}
+.bk-month-cell {
+  aspect-ratio: 1;
+  border: none; border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.bk-month-cell.other { opacity: 0.35; }
+.bk-month-cell.today { box-shadow: inset 0 0 0 1px var(--bk-orange); }
+.bk-month-cell.active {
+  background: var(--bg);
+  color: var(--bk-orange);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.bk-month-cell.has-dot::after {
+  content: '';
+  display: block;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--bk-orange);
+  margin: 3px auto 0;
+}
+.bk-empty {
+  text-align: center;
+  color: var(--text3);
+  font-size: 13px;
+  padding: 18px 8px;
+}
+.bk-session-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.bk-session-card {
+  display: flex; align-items: center; gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none; border-radius: 18px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
+  cursor: pointer;
+  text-align: left;
+}
+.bk-session-time {
+  font-size: 12px; font-weight: 700;
+  color: var(--bk-orange);
+  min-width: 92px;
+}
+.bk-session-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bk-session-info strong { font-size: 14px; font-weight: 600; }
+.bk-session-info span { font-size: 12px; color: var(--text3); }
+.bk-day-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg3);
+  padding: 6px;
+  border-radius: 18px;
+}
+.bk-day-pill {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 0;
+  border: none; cursor: pointer;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+}
+.bk-day-pill .name {
+  font-size: 10px; font-weight: 700;
+  color: var(--text3);
+  margin-bottom: 4px;
+}
+.bk-day-pill .num { font-size: 15px; font-weight: 600; }
+.bk-day-pill.active {
+  background: var(--bg);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+}
+.bk-day-pill.active .name { color: var(--bk-orange); }
+.bk-section {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 8px 0 14px;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.bk-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700;
+  color: var(--bk-green);
+  background: rgba(52, 199, 89, 0.10);
+  padding: 4px 10px;
+  border-radius: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.bk-status i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--bk-green);
+}
+.bk-time-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.bk-time-card {
+  background: var(--bg);
+  border: none;
+  border-radius: 20px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light);
+  color: inherit;
+}
+.bk-time-card .time {
+  display: block;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 20px; font-weight: 600;
+  margin-top: 4px;
+  color: var(--text);
+}
+.bk-new-team {
+  border: none; background: transparent;
+  color: var(--bk-orange);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.bk-team-list { display: flex; flex-direction: column; gap: 12px; }
+.bk-team-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  border: none;
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.bk-team-card.selected {
+  box-shadow: 5px 5px 12px var(--neu-dark), -5px -5px 12px var(--neu-light), inset 0 0 0 1px rgba(232,141,86,0.35);
+  background: color-mix(in srgb, var(--bk-orange) 8%, var(--bg));
+}
+.bk-team-avatar {
+  width: 38px; height: 38px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 12px; font-weight: 700;
+  flex-shrink: 0;
+}
+.bk-team-card.selected .bk-team-avatar {
+  background: var(--bk-orange);
+  color: #fff;
+}
+.bk-team-info { min-width: 0; flex: 1; }
+.bk-team-info h4 {
+  margin: 0;
+  font-size: 15px; font-weight: 600;
+}
+.bk-team-info p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text3);
+}
+.bk-check {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--bk-orange);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.bk-tools {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  margin: 18px 0 8px;
+}
+.bk-tool {
+  border: none; cursor: pointer;
+  background: var(--bg);
+  color: var(--text2);
+  font-size: 12px; font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 99px;
+  box-shadow: 3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light);
+}
+.bk-dock {
+  position: sticky;
+  bottom: 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  min-height: 68px;
+  padding: 10px 12px 10px 22px;
+  border-radius: 34px;
+  background: var(--text);
+  color: var(--bg);
+  box-shadow: 0 15px 40px rgba(0,0,0,0.28);
+}
+.bk-dock-text { font-size: 14px; font-weight: 500; }
+.bk-book-btn {
+  border: none; cursor: pointer;
+  background: var(--bk-orange);
+  color: #fff;
+  padding: 12px 22px;
+  border-radius: 24px;
+  font-size: 14px; font-weight: 700;
+}
+@media (min-width: 900px) {
+  .bk-dash-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+    align-items: start;
+  }
+  .bk-dash-grid .bk-hero { margin-bottom: 0; }
 }
 .helios-rail .rail-booking-btn[aria-expanded="true"],
 .helios-bottombar .rail-booking-btn[aria-expanded="true"] {
@@ -14676,10 +14990,6 @@ button.perf-stat-chip.scheduled.active {
         <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
-    <div class="booking-page-titles">
-      <div class="booking-page-kicker">Schedule</div>
-      <h3 id="bookingPageTitle">Booking</h3>
-    </div>
   </div>
   <div class="booking-page-body" id="bookingSubtabBody"></div>
 </div>
