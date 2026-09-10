@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cu';
-const APP_UPDATED_AT = '09/10/2026 12:28';
+const APP_VERSION = '1.3.090826cv';
+const APP_UPDATED_AT = '09/10/2026 13:30';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6497,6 +6497,7 @@ const adminState = {
   // they have a filter active. Cleared on tab switch as well, so
   // landing on the Assignment tab always starts unfiltered.
   calTeamFilter: null,
+  bookingOpen: false,        // dedicated Booking slide page (Assignment calendar)
   modal: null,               // { kind: 'createTeam' | 'editTeam' | 'createAssignment' | 'viewAssignment', ...payload }
   // Overview dashboard state
   overview: {
@@ -7161,6 +7162,124 @@ function scrollAdminTarget(id) {
 
 function hideAssignmentAdminTab() {
   return true;
+}
+
+function isBookingOpen() {
+  return !!(typeof adminState !== 'undefined' && adminState && adminState.bookingOpen);
+}
+
+function isAssignmentSurfaceActive() {
+  return !!(typeof adminState !== 'undefined' && adminState
+    && (adminState.tab === 'assignment' || adminState.bookingOpen));
+}
+
+function assignmentRenderHost() {
+  if (isBookingOpen()) {
+    const bookingHost = document.getElementById('bookingSubtabBody');
+    if (bookingHost) return bookingHost;
+  }
+  return document.getElementById('subtabBody');
+}
+
+function parkHubAssignmentModal() {
+  ['asgnModal', 'asgnModalOverlay', 'asgnModalContent'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.closest('#bookingPage')) return;
+    el.id = id + 'Parked';
+  });
+}
+
+function restoreHubAssignmentModal() {
+  ['asgnModal', 'asgnModalOverlay', 'asgnModalContent'].forEach(id => {
+    if (document.getElementById(id)) return;
+    const parked = document.getElementById(id + 'Parked');
+    if (parked) parked.id = id;
+  });
+}
+
+function openBookingPage() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState.bookingOpen = true;
+  parkHubAssignmentModal();
+  const page = document.getElementById('bookingPage');
+  const overlay = document.getElementById('bookingOverlay');
+  const adminApp = document.getElementById('adminApp');
+  const btn = document.getElementById('adminBookingBtn');
+  if (page) {
+    page.hidden = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => page.classList.add('open'));
+    });
+  }
+  if (overlay) {
+    overlay.hidden = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => overlay.classList.add('open'));
+    });
+  }
+  if (adminApp) adminApp.classList.add('booking-open');
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+  if (typeof renderAssignment === 'function') renderAssignment();
+}
+
+function closeBookingPage() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState.bookingOpen = false;
+  const page = document.getElementById('bookingPage');
+  const overlay = document.getElementById('bookingOverlay');
+  const adminApp = document.getElementById('adminApp');
+  const btn = document.getElementById('adminBookingBtn');
+  if (page) page.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+  if (adminApp) adminApp.classList.remove('booking-open');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+  setTimeout(() => {
+    if (isBookingOpen()) return;
+    if (page) page.hidden = true;
+    if (overlay) overlay.hidden = true;
+    const host = document.getElementById('bookingSubtabBody');
+    if (host) host.innerHTML = '';
+    restoreHubAssignmentModal();
+  }, 520);
+  if (adminState.tab !== 'assignment' && adminState._asgnPollTimer) {
+    clearInterval(adminState._asgnPollTimer);
+    adminState._asgnPollTimer = null;
+  }
+}
+
+function toggleBookingPage() {
+  if (isBookingOpen()) closeBookingPage();
+  else openBookingPage();
+}
+
+function wireBookingPage() {
+  const btn = document.getElementById('adminBookingBtn');
+  if (btn && !btn._bookingWired) {
+    btn._bookingWired = true;
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      toggleBookingPage();
+    });
+  }
+  const overlay = document.getElementById('bookingOverlay');
+  if (overlay && !overlay._bookingWired) {
+    overlay._bookingWired = true;
+    overlay.addEventListener('click', () => closeBookingPage());
+  }
+  const closeBtn = document.getElementById('bookingPageClose');
+  if (closeBtn && !closeBtn._bookingWired) {
+    closeBtn._bookingWired = true;
+    closeBtn.addEventListener('click', () => closeBookingPage());
+  }
+  if (!document._bookingEscWired) {
+    document._bookingEscWired = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isBookingOpen()) {
+        if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) return;
+        closeBookingPage();
+      }
+    });
+  }
 }
 
 function redirectHiddenAssignmentTab() {
@@ -10401,7 +10520,8 @@ function renderOverview(body) {
       } else if (kind === 'participants') {
         selectAdminTab('moderators', { subtab: 'participants' });
       } else if (kind === 'bookings') {
-        selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
+        if (typeof openBookingPage === 'function') openBookingPage();
+        else selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
       }
     };
     tile.addEventListener('click', go);
@@ -10483,7 +10603,7 @@ function statTileShellHTML(kind, label) {
     moderators: 'Open Moderators',
     teams: 'Open By Team',
     participants: 'Open Participants',
-    bookings: 'Open Assignment',
+    bookings: 'Open Booking',
   };
   const title = titles[kind] || label;
   return `
@@ -11613,7 +11733,7 @@ function renderAdminTabBody(opts) {
   // Resetting to null also ensures the timer is RECREATED next time
   // admin returns to the Assignment tab, rather than reusing a stale
   // closure from a previous mount.
-  if (adminState.tab !== 'assignment' && adminState._asgnPollTimer) {
+  if ((typeof isAssignmentSurfaceActive === 'function' ? !isAssignmentSurfaceActive() : adminState.tab !== 'assignment') && adminState._asgnPollTimer) {
     clearInterval(adminState._asgnPollTimer);
     adminState._asgnPollTimer = null;
   }
@@ -18840,7 +18960,7 @@ function shouldDeferAssignmentPaint() {
 function refreshAssignmentViewQuietly() {
   const badge = document.getElementById('topAsgnCount');
   if (badge) badge.textContent = (typeof activeAssignmentCount === 'function') ? (activeAssignmentCount() || '') : '';
-  if (typeof adminState === 'undefined' || adminState.tab !== 'assignment') return;
+  if (typeof adminState === 'undefined' || (typeof isAssignmentSurfaceActive === 'function' ? !isAssignmentSurfaceActive() : adminState.tab !== 'assignment')) return;
   if (shouldDeferAssignmentPaint()) {
     adminState._pendingPostFetchRender = true;
     return;
@@ -20031,7 +20151,9 @@ function renderAssignment(opts) {
   const topCountEl = document.getElementById('topAsgnCount');
   if (topCountEl) topCountEl.textContent = activeAssignmentCount() || '';
 
-  const body = document.getElementById('subtabBody');
+  const body = (typeof assignmentRenderHost === 'function')
+    ? assignmentRenderHost()
+    : document.getElementById('subtabBody');
   if (!body) return;
 
   // Lazy-load: assignments need both moderators + participants for full functionality.
@@ -20080,7 +20202,7 @@ function renderAssignment(opts) {
   // doesn't get suppressed.
   if (!adminState._asgnPollTimer) {
     adminState._asgnPollTimer = setInterval(() => {
-      if (adminState.tab !== 'assignment') return;
+      if (typeof isAssignmentSurfaceActive === 'function' ? !isAssignmentSurfaceActive() : adminState.tab !== 'assignment') return;
       if (typeof fetchAssignmentsFromPA !== 'function') return;
       // Skip the poll while any modal is open. Polling during a modal
       // results in a deferred render anyway (see fetchAssignmentsFromPA),
@@ -20122,7 +20244,7 @@ function renderAssignment(opts) {
     ensurePerfSessionStateRows().then(() => {
       // Only re-render if admin is still on the Assignment tab · they
       // may have navigated away while the fetch was in flight.
-      if (adminState.tab !== 'assignment') return;
+      if (typeof isAssignmentSurfaceActive === 'function' ? !isAssignmentSurfaceActive() : adminState.tab !== 'assignment') return;
       // Skip the re-render during open modals · same reasoning as the
       // poll timer above. The next tick after modal close will catch up.
       if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) return;
@@ -23275,7 +23397,10 @@ function findActiveBookingsForParticipant(participant, excludeAsgnId) {
 
 /* ----------- Event binding ----------- */
 function bindAssignmentEvents() {
-  const body = document.getElementById('subtabBody');
+  const body = (typeof assignmentRenderHost === 'function')
+    ? assignmentRenderHost()
+    : document.getElementById('subtabBody');
+  if (!body) return;
 
   // Team list · select / edit / delete
   body.querySelectorAll('.team-card').forEach(card => {
@@ -28809,6 +28934,7 @@ function startAdminApp() {
 }
 function startAdminAppAfterLogin() {
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
+  if (typeof wireBookingPage === 'function') wireBookingPage();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
   if (typeof startWorklogPolling === 'function') startWorklogPolling();
   document.getElementById('app').style.display = 'none';
@@ -37256,6 +37382,7 @@ function setupNavRails() {
       ] },
     { rail:'adminRail', bottomBar:'adminBottomBar', themeBtn:'navThemeBtnAdmin',
       items:[
+        { id:'adminBookingBtn', desktop:'adminRailBooking' },
         { id:'adminApprovalGuideBtn', desktop:'adminRailActions' },
         { id:'adminNavRefreshBtn', desktop:'adminRailActions' },
         { id:'adminNavSwitchAppBtn', desktop:'adminRailActions' },
@@ -37279,6 +37406,7 @@ function setupNavRails() {
     }
   });
   if (typeof wireApprovalGuideSlide === 'function') wireApprovalGuideSlide();
+  if (typeof wireBookingPage === 'function') wireBookingPage();
 
   const apply = () => {
     const desktop = window.innerWidth > 760;

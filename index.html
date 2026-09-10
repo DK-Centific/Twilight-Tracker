@@ -2183,6 +2183,100 @@ a.icon-btn:focus-visible {
   }
 }
 
+/* ---- Booking page · Apple-style slide from the right ---- */
+.booking-overlay {
+  position: fixed; inset: 0; z-index: 430;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.booking-overlay.open { opacity: 1; pointer-events: all; }
+.booking-overlay[hidden],
+.booking-page[hidden] { display: none !important; }
+
+.booking-page {
+  position: fixed; inset: 0; z-index: 431;
+  display: flex; flex-direction: column;
+  background: var(--bg2);
+  transform: translateX(100%);
+  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.booking-page.open { transform: translateX(0); }
+#adminApp.booking-open nav,
+#adminApp.booking-open .admin-content-shell {
+  transform: translateX(-12%) scale(0.96);
+  opacity: 0.55;
+  pointer-events: none;
+  transform-origin: center left;
+  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.42s ease;
+}
+#adminApp nav,
+#adminApp .admin-content-shell {
+  transition: transform 0.52s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.42s ease;
+}
+.booking-page-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px 10px;
+  flex-shrink: 0;
+}
+.booking-page-back {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: none; cursor: pointer;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 5px 5px 10px var(--neu-dark), -5px -5px 10px var(--neu-light);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.booking-page-back:active {
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light);
+}
+.booking-page-titles { min-width: 0; }
+.booking-page-kicker {
+  font-size: 11px; font-weight: 650;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text3);
+}
+.booking-page-head h3 {
+  margin: 0;
+  font-size: 28px; font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+.booking-page-body {
+  flex: 1; min-height: 0;
+  overflow: auto;
+  padding: 8px 18px 28px;
+}
+.booking-page-body .asgn-shell,
+.booking-page-body .cal-panel {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.helios-rail .rail-booking-btn[aria-expanded="true"],
+.helios-bottombar .rail-booking-btn[aria-expanded="true"] {
+  color: var(--accent-ink);
+  box-shadow: inset 3px 3px 6px var(--neu-dark), inset -3px -3px 6px var(--neu-light) !important;
+}
+@media (max-width: 760px) {
+  .booking-page {
+    transform: translateY(100%);
+    border-radius: 22px 22px 0 0;
+  }
+  .booking-page.open {
+    transform: translateY(0);
+    border-radius: 0;
+  }
+  .booking-page-head h3 { font-size: 24px; }
+  .booking-page-body { padding: 6px 12px 88px; }
+}
+
 /* On narrow phones, drop modal max-width and let it stretch closer to
    the viewport edges. Saves precious horizontal space for the DO/DON'T
    pair on screens around 360-400px wide. */
@@ -14530,6 +14624,14 @@ button.perf-stat-chip.scheduled.active {
     <button class="rail-brand" id="railBrandAdmin" type="button" title="Centific" aria-label="Centific">
       <span class="brand-mark" role="img" aria-label="Centific"><img class="brand-mark-master-gif" src="assets/master-admin-brand.gif?v=af" alt="" hidden></span>
     </button>
+    <div class="rail-group" id="adminRailBooking">
+      <button class="icon-btn rail-booking-btn" id="adminBookingBtn" type="button" title="Booking" aria-label="Open Booking" aria-expanded="false" aria-controls="bookingPage">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M2 6.5h12M5.5 1.75v2.5M10.5 1.75v2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
     <div class="rail-group" id="adminRailActions"><!-- Approval guide + refresh relocate here on desktop --></div>
     <div class="rail-group rail-group-bottom" id="adminRailBottom">
       <button class="icon-btn rail-theme-btn" id="navThemeBtnAdmin" type="button" aria-label="Toggle light/dark theme" title="Toggle light / dark theme">
@@ -14564,6 +14666,22 @@ button.perf-stat-chip.scheduled.active {
     </div>
     <button class="orientation-overlay-btn" id="orientationOverlayDismiss">Disable lock instead</button>
   </div>
+</div>
+
+<div class="booking-overlay" id="bookingOverlay" hidden></div>
+<div class="booking-page" id="bookingPage" hidden role="dialog" aria-modal="true" aria-labelledby="bookingPageTitle">
+  <div class="booking-page-head">
+    <button type="button" class="booking-page-back" id="bookingPageClose" aria-label="Close Booking">
+      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <div class="booking-page-titles">
+      <div class="booking-page-kicker">Schedule</div>
+      <h3 id="bookingPageTitle">Booking</h3>
+    </div>
+  </div>
+  <div class="booking-page-body" id="bookingSubtabBody"></div>
 </div>
 
 <div class="appr-guide-overlay" id="apprGuideOverlay" hidden></div>
