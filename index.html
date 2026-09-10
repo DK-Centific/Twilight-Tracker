@@ -2270,6 +2270,9 @@ a.icon-btn:focus-visible {
 .booking-page[hidden] { display: none !important; }
 
 .booking-page {
+  --bk-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --bk-ms: 0.5s;
+  /* Light Helios Booking · sage/off-white + coral */
   --bk-canvas: #F4F6F4;
   --bk-bg: #F7F7F2;
   --bk-well: #F0F0E8;
@@ -2283,24 +2286,26 @@ a.icon-btn:focus-visible {
   --bk-green: #3D8B5F;
   --bk-neu-light: #FFFFFF;
   --bk-neu-dark: #DEDECF;
-  --bk-ease: cubic-bezier(0.23, 1, 0.32, 1);
-  --bk-ms: 0.5s;
-  --bg: #F7F7F2;
-  --bg2: #F4F6F4;
-  --bg3: #F0F0E8;
-  --text: #3C3C3B;
-  --text2: rgba(60, 60, 59, 0.62);
-  --text3: #94948C;
-  --accent: #E57E5D;
-  --accent-soft: rgba(229, 126, 93, 0.16);
+  --bk-edge: rgba(60, 60, 59, 0.06);
+  --bk-sheet-shadow: -16px 0 48px rgba(60, 60, 59, 0.12);
+  --bk-hero-glow: radial-gradient(circle, rgba(229, 126, 93, 0.22) 0%, rgba(247, 247, 242, 0) 70%);
+  --bk-press-inset: inset 3px 3px 6px rgba(60, 60, 59, 0.18), inset -2px -2px 6px rgba(255, 255, 255, 0.2);
+  --bg: var(--bk-bg);
+  --bg2: var(--bk-canvas);
+  --bg3: var(--bk-well);
+  --text: var(--bk-text);
+  --text2: var(--bk-text2);
+  --text3: var(--bk-text3);
+  --accent: var(--bk-accent);
+  --accent-soft: var(--bk-accent-soft);
   --accent-ink: #C45A38;
-  --pill-fg: #FFFFFF;
-  --neu-light: #FFFFFF;
-  --neu-dark: #DEDECF;
-  --well-bg: #F0F0E8;
-  --input-bg: #F0F0E8;
-  --card-bg: #F7F7F2;
-  --border: rgba(60, 60, 59, 0.06);
+  --pill-fg: var(--bk-pill-fg);
+  --neu-light: var(--bk-neu-light);
+  --neu-dark: var(--bk-neu-dark);
+  --well-bg: var(--bk-well);
+  --input-bg: var(--bk-well);
+  --card-bg: var(--bk-bg);
+  --border: var(--bk-edge);
   --border-strong: rgba(60, 60, 59, 0.12);
   color-scheme: light;
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 431;
@@ -2308,20 +2313,47 @@ a.icon-btn:focus-visible {
   display: flex; flex-direction: column;
   background: var(--bk-canvas);
   color: var(--bk-text);
-  border-left: 0.5px solid rgba(60, 60, 59, 0.06);
-  box-shadow: -16px 0 48px rgba(60, 60, 59, 0.12);
+  border-left: 0.5px solid var(--bk-edge);
+  box-shadow: var(--bk-sheet-shadow);
   transform: translateX(100%);
-  transition: transform var(--bk-ms) var(--bk-ease);
+  transition: transform var(--bk-ms) var(--bk-ease),
+              background-color var(--bk-ms) var(--bk-ease),
+              color var(--bk-ms) var(--bk-ease),
+              border-color var(--bk-ms) var(--bk-ease),
+              box-shadow var(--bk-ms) var(--bk-ease);
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-right: env(safe-area-inset-right);
+}
+/* Dark Helios Booking · charcoal + gold, follows html[data-theme] */
+[data-theme="dark"] .booking-page {
+  --bk-canvas: #1A1C1E;
+  --bk-bg: #1A1C1E;
+  --bk-well: #151719;
+  --bk-text: #E2E2E2;
+  --bk-text2: rgba(226, 226, 226, 0.60);
+  --bk-text3: #70757A;
+  --bk-accent: #C5A059;
+  --bk-accent-deep: #C5A059;
+  --bk-accent-soft: rgba(197, 160, 89, 0.16);
+  --bk-pill-fg: #1A1C1E;
+  --bk-green: #5AA97A;
+  --bk-neu-light: #25282B;
+  --bk-neu-dark: #0F1012;
+  --bk-edge: rgba(255, 255, 255, 0.06);
+  --bk-sheet-shadow: -16px 0 48px rgba(0, 0, 0, 0.45);
+  --bk-hero-glow: radial-gradient(circle, rgba(197, 160, 89, 0.15) 0%, rgba(26, 28, 30, 0) 70%);
+  --bk-press-inset: inset 3px 3px 6px rgba(0, 0, 0, 0.35), inset -2px -2px 6px rgba(37, 40, 43, 0.4);
+  --accent-ink: #E8D2A6;
+  --border-strong: rgba(255, 255, 255, 0.12);
+  color-scheme: dark;
 }
 .booking-page.open { transform: translateX(0); }
 .booking-page-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
   padding: 16px 18px;
-  border-bottom: 0.5px solid rgba(60, 60, 59, 0.06);
+  border-bottom: 0.5px solid var(--bk-edge);
   background: transparent;
   flex-shrink: 0;
 }
@@ -2401,6 +2433,12 @@ a.icon-btn:focus-visible {
   box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light),
               0 0 0 2px var(--accent-soft);
 }
+.bk-search::placeholder { color: var(--bk-text3); }
+#bookingPage input,
+#bookingPage textarea,
+#bookingPage select {
+  color-scheme: inherit;
+}
 .bk-search-picked {
   margin-top: 8px;
   font-size: 12px;
@@ -2447,7 +2485,7 @@ a.icon-btn:focus-visible {
   right: -18%;
   width: 72%;
   height: 72%;
-  background: radial-gradient(circle, rgba(229, 126, 93, 0.22) 0%, rgba(247, 247, 242, 0) 70%);
+  background: var(--bk-hero-glow);
   pointer-events: none;
 }
 .bk-hero > * { position: relative; z-index: 1; }
@@ -2673,7 +2711,7 @@ a.icon-btn:focus-visible {
   transition: var(--bk-ms) var(--bk-ease);
 }
 .bk-new-team:active {
-  box-shadow: inset 3px 3px 6px rgba(60, 60, 59, 0.18), inset -2px -2px 6px rgba(255, 255, 255, 0.2);
+  box-shadow: var(--bk-press-inset);
 }
 .bk-team-list {
   display: flex; flex-direction: column; gap: 10px;
@@ -2793,7 +2831,7 @@ a.icon-btn:focus-visible {
   transition: var(--bk-ms) var(--bk-ease);
 }
 .bk-book-btn:active {
-  box-shadow: inset 3px 3px 6px rgba(60, 60, 59, 0.22), inset -2px -2px 6px rgba(255, 255, 255, 0.18);
+  box-shadow: var(--bk-press-inset);
 }
 @media (min-width: 900px) {
   .bk-dash-grid {
