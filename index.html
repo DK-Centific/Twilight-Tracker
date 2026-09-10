@@ -701,7 +701,7 @@ a.icon-btn:focus-visible {
     container-type: inline-size;
     width: 100%;
     max-width: 100%;
-    height: calc(100dvh - 14.5rem);
+    height: auto;
     max-height: calc(100dvh - 14.5rem);
     overflow-y: auto;
     overflow-x: hidden;
@@ -771,7 +771,9 @@ a.icon-btn:focus-visible {
     flex-direction: column;
     box-sizing: border-box;
     width: 100%;
-    margin: 8px 0;
+    height: fit-content;
+    flex: 0 0 auto;
+    margin: 6px 0;
     padding: 0;
     border-radius: var(--rl);
     border: 0.5px solid var(--border);
@@ -787,16 +789,21 @@ a.icon-btn:focus-visible {
   .sc-flow-face {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     box-sizing: border-box;
-    height: auto;
+    height: fit-content;
     min-height: 0;
-    padding: 12px 12px 10px;
+    flex: 0 0 auto;
+    padding: 10px 10px 8px;
     transform-origin: center center;
     transform-style: preserve-3d;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
     transition: filter 0.22s ease, opacity 0.22s ease, transform 0.22s ease;
+    will-change: transform, filter, opacity;
+  }
+  .sc-flow.is-scrolling .sc-flow-face {
+    transition-duration: 0.05s;
   }
   .sc-flow-tile.is-fit {
     overflow: hidden;
