@@ -621,11 +621,23 @@ a.icon-btn:focus-visible {
     padding: 0;
     background: transparent;
     border: 0;
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    flex: 0 0 auto;
   }
   .acc-item.open .acc-inner:has(.sc-flow) {
     overflow-x: clip;
     overflow-y: clip;
     min-width: 0;
+  }
+  .acc-item.open .acc-inner:has(.sc-flow.is-x) {
+    overflow-x: clip;
+    overflow-y: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
   }
   .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
   .sc-flow-head {
@@ -723,6 +735,12 @@ a.icon-btn:focus-visible {
     perspective: 1200px;
     perspective-origin: 50% 50%;
   }
+  .sc-flow.is-x {
+    flex: 0 0 auto;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+  }
   .sc-flow.is-x .sc-flow-viewport {
     width: 100%;
     max-width: 100%;
@@ -730,7 +748,7 @@ a.icon-btn:focus-visible {
     min-height: 0;
     max-height: none;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     scroll-snap-type: x mandatory;
     padding: 0;
     touch-action: pan-x;
@@ -931,7 +949,7 @@ a.icon-btn:focus-visible {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 6px;
     margin: 0;
     width: 100%;
   }
@@ -944,13 +962,10 @@ a.icon-btn:focus-visible {
   }
   .sc-flow-tile .cal-ref-sep { font-size: 13px; }
   .sc-flow-tile .cal-ref-btn {
-    min-height: 0;
-    padding: 0;
-    font-size: 14px;
-    border-radius: 0;
-    background: none !important;
-    box-shadow: none !important;
-    border: 0 !important;
+    min-height: 32px;
+    padding: 6px 14px;
+    font-size: 13px;
+    border-radius: 999px;
   }
   .sc-flow-tile .record-flow {
     display: flex;
@@ -4068,10 +4083,32 @@ body:has(#panicFab.open) .acc-stepper {
     height: auto;
     min-height: 0;
   }
+  .station-accordion.in-station .acc-item.open:has(.sc-flow.is-x),
+  .station-accordion.in-station .acc-item.open .acc-body:has(.sc-flow.is-x) {
+    display: block;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
+    grid-template-rows: none;
+    transition: none;
+  }
   .station-accordion.in-station .acc-item.open .acc-inner:has(.sc-flow.is-x) {
     display: flex;
     flex-direction: column;
     flex: 0 0 auto;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
+  }
+  .station-accordion.in-station .acc-item.open .acc-inner:has(.sc-flow.is-x) .scenario-table-wrap.has-sc-flow {
+    overflow: visible;
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    flex: 0 0 auto;
+    align-self: stretch;
   }
   .nav-sc-axes:not([hidden]) {
     display: inline-flex;
@@ -4436,6 +4473,18 @@ input#ent_lakitu.lakitu-invalid {
   }
   .content:has(.station-accordion.in-station) {
     padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+  }
+  .layout:has(.sc-flow.is-x),
+  #app:has(.sc-flow.is-x) {
+    height: auto;
+    align-items: start;
+    grid-template-rows: auto;
+  }
+  .content:has(.sc-flow.is-x) {
+    height: auto;
+    max-height: none;
+    min-height: min-content;
+    overflow: visible;
   }
   .content:has(.station-accordion.in-station) > .actions-bar {
     padding-right: 58px;
@@ -10847,17 +10896,16 @@ button.perf-stat-chip.scheduled.active {
 }
 .cal-ref-links {
   display: inline-flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 6px 8px;
   min-width: 0;
-  white-space: nowrap;
 }
 .cal-ref-sep {
   color: var(--text3);
   font-size: 12px;
   font-weight: 600;
-  opacity: 0.55;
+  opacity: 0.45;
   line-height: 1;
 }
 .cal-ref-btn {
@@ -10866,22 +10914,24 @@ button.perf-stat-chip.scheduled.active {
   font-size: 12px;
   font-weight: 650;
   letter-spacing: -0.01em;
-  padding: 0;
+  padding: 5px 12px;
   margin: 0;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-  color: var(--accent-ink, var(--accent, #E07A2B));
+  border: none;
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--accent-ink, var(--text));
+  box-shadow: 4px 4px 8px var(--neu-dark, rgba(0,0,0,0.18)), -4px -4px 8px var(--neu-light, rgba(255,255,255,0.08));
   cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  text-decoration-thickness: 0.5px;
-  line-height: 1.3;
-  transition: opacity 0.15s ease, transform 0.05s ease;
+  text-decoration: none;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: transform 0.05s ease, box-shadow 0.15s ease;
 }
-.cal-ref-btn:hover { opacity: 0.78; }
-.cal-ref-btn:active { transform: scale(0.97); }
+.cal-ref-btn:hover { transform: translateY(-1px); }
+.cal-ref-btn:active {
+  transform: scale(0.97);
+  box-shadow: inset 3px 3px 6px var(--neu-dark, rgba(0,0,0,0.22)), inset -3px -3px 6px var(--neu-light, rgba(255,255,255,0.08));
+}
 /* In-app video modal */
 .calref-overlay {
   position: fixed;
@@ -15681,9 +15731,19 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 .panic-menu {
   display:flex; flex-direction:column; gap:10px; align-items:flex-end;
   opacity:0; transform:translateY(10px) scale(0.96); pointer-events:none;
-  transition:all .28s cubic-bezier(.23,1,.32,1);
+  transition:opacity .28s cubic-bezier(.23,1,.32,1), transform .28s cubic-bezier(.23,1,.32,1);
 }
 .panic-fab.open .panic-menu { opacity:1; transform:none; pointer-events:auto; }
+@keyframes panicOptPop {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+.panic-fab.open .panic-opt {
+  animation: panicOptPop 0.34s cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+.panic-fab.open .panic-opt:nth-child(1) { animation-delay: 0.03s; }
+.panic-fab.open .panic-opt:nth-child(2) { animation-delay: 0.09s; }
+.panic-fab.open .panic-opt:nth-child(3) { animation-delay: 0.15s; }
 .panic-opt {
   display:inline-flex; align-items:center; gap:10px; white-space:nowrap;
   padding:9px 18px 9px 9px; border-radius:999px; border:none; cursor:pointer;
@@ -15791,6 +15851,7 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
   to { opacity:1; transform:none; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .panic-fab.open .panic-opt,
   .panic-overlay.esc-pop-open .panic-modal,
   .panic-overlay.esc-pop-open .panic-esc-pop-card,
   .panic-overlay.esc-pop-open .panic-esc-pop .panic-esc-opt {
@@ -15872,20 +15933,17 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 .panic-fab.is-docked.open {
   z-index: 250;
 }
+.panic-fab.is-docked.open .panic-menu {
+  z-index: 260;
+}
 @media (max-width:760px) {
   .panic-fab:not(.is-docked) { right:16px; bottom:92px; }
   .panic-btn { width:54px; height:54px; }
   .panic-fab.is-docked .panic-btn { width:46px; height:46px; }
-  .panic-fab.is-docked.open .panic-menu {
-    position: fixed;
-    right: 16px;
-    bottom: calc(76px + env(safe-area-inset-bottom, 0px) + 12px);
-    z-index: 260;
-  }
   .panic-modal-title { font-size:21px; }
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826ck" defer></script>
+<script src="twilight-panic.js?v=1.3.090826cn" defer></script>
 </body>
 </html>

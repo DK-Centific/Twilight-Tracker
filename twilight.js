@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cl';
-const APP_UPDATED_AT = '09/10/2026 09:48';
+const APP_VERSION = '1.3.090826cn';
+const APP_UPDATED_AT = '09/10/2026 10:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2593,18 +2593,15 @@ function layoutScenarioFlowViewport() {
     end.style.width = spacer + 'px';
     start.style.height = '1px';
     end.style.height = '1px';
-    const reserve = scenarioFlowHeliosReserve() + 8;
-    const top = vp.getBoundingClientRect().top;
-    const avail = Math.max(220, Math.round(window.innerHeight - top - reserve));
     const focusTile = tiles.find(el => (el.getAttribute('data-num') || '') === _scenarioFlowFocusNum) || tiles[0];
-    const naturalH = Math.max(1, focusTile.offsetHeight);
-    const tileH = Math.min(naturalH, avail);
-    if (naturalH > avail) {
-      focusTile.style.height = avail + 'px';
-      focusTile.classList.add('is-fit');
-    }
-    vp.style.height = tileH + 'px';
-    vp.style.maxHeight = tileH + 'px';
+    const face = focusTile.querySelector('.sc-flow-face');
+    const naturalH = Math.max(
+      1,
+      focusTile.offsetHeight,
+      face ? face.scrollHeight : 0
+    );
+    vp.style.height = naturalH + 'px';
+    vp.style.maxHeight = 'none';
     return;
   }
 
