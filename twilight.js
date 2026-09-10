@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826dh';
-const APP_UPDATED_AT = '09/10/2026 20:50';
+const APP_VERSION = '1.3.091026';
+const APP_UPDATED_AT = '09/10/2026 23:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6554,7 +6554,7 @@ const adminState = {
   activitiesModeratorId: '', // selected moderator on the Activities map (scoped to the selected team)
   // Assignment state
   teams: [],                 // [{ id, name, primaryIds: [orbitLoginId,...], backupIds: [orbitLoginId,...] }]
-  assignments: [],           // [{ id, teamId, date (YYYY-MM-DD), startMin, endMin, participantOrbitId, participantData, modSnapshots, savedAt }]
+  assignments: [],           // [{ id, teamId, date (YYYY-MM-DD), startMin, endMin, participantOrbitId, participantData, modSnapshots, savedAt, odScheduleId, bookingGroupId, odStatus }]
   calView: 'week',           // 'day' | 'week'
   calAnchor: null,           // YYYY-MM-DD anchor date (week start = this day - dow)
   // Calendar team filter · when set to a team ID, the entire Assignment
@@ -18980,6 +18980,52 @@ function saveAssignmentData() {
   } catch (e) {}
 }
 
+// OneData sync columns on the live Assignment Excel table. Power Automate
+// upserts hourly using odScheduleId + orbitLoginId; bookingGroupId is the
+// group correlation key; odStatus is OD's status snapshot. Twilight does
+// not call OD — it only round-trips these camelCase fields so an admin
+// save does not wipe PA-written keys. Empty string is the missing value.
+const ASSIGNMENT_OD_EXCEL_FIELDS = ['odScheduleId', 'bookingGroupId', 'odStatus'];
+
+function odFieldsFromExcelRow(row) {
+  const empty = { odScheduleId: '', bookingGroupId: '', odStatus: '' };
+  if (!row || typeof row !== 'object') return empty;
+  const read = (camel, snake, pascal) => {
+    if (typeof pickField === 'function') {
+      const v = pickField(row, camel, snake, pascal);
+      return (v == null) ? '' : String(v);
+    }
+    const raw = row[camel] != null ? row[camel] : (row[snake] != null ? row[snake] : row[pascal]);
+    return (raw == null) ? '' : String(raw);
+  };
+  return {
+    odScheduleId:   read('odScheduleId',   'od_schedule_id',   'OdScheduleId'),
+    bookingGroupId: read('bookingGroupId', 'booking_group_id', 'BookingGroupId'),
+    odStatus:       read('odStatus',       'od_status',        'OdStatus'),
+  };
+}
+
+function applyOdFieldsFromExcelRow(target, row) {
+  // Prefer the first non-empty value seen for each field. Caller processes
+  // newest-first, so the latest non-empty Excel value wins; an older row
+  // can still fill a gap if the newest write left the column blank.
+  const incoming = odFieldsFromExcelRow(row);
+  const dest = target || {};
+  for (const key of ASSIGNMENT_OD_EXCEL_FIELDS) {
+    const cur = dest[key];
+    if (cur == null || String(cur).trim() === '') dest[key] = incoming[key] || '';
+  }
+  return dest;
+}
+
+function odFieldsForAssignmentExcel(a) {
+  return {
+    odScheduleId:   (a && a.odScheduleId)   || '',
+    bookingGroupId: (a && a.bookingGroupId) || '',
+    odStatus:       (a && a.odStatus)       || '',
+  };
+}
+
 // Parse the "assignedDate" string the writer produces.
 // Format: "YYYY-MM-DD H[:MM] AM/PM – H[:MM] AM/PM"  (en-dash, not hyphen)
 // Returns { date, startMin, endMin } or null if unparseable.
@@ -19236,6 +19282,11 @@ async function fetchAssignmentsFromPA() {
         // accumulate, which then inflates Performance/Overview counts
         // because the booking gets attributed to every historical mod.
         _latestActive: r.lastActive || '',
+        // OneData sync keys · stored on the assignment (shared by every
+        // per-mod Excel row for this booking). Empty string when PA has
+        // not written them yet. Subsequent rows in this group can fill
+        // a blank via applyOdFieldsFromExcelRow below.
+        ...odFieldsFromExcelRow(r),
       };
       grouped.set(groupKey, g);
     } else {
@@ -19308,6 +19359,9 @@ async function fetchAssignmentsFromPA() {
           g.completedBy = [r.firstName, r.lastName].filter(Boolean).join(' ');
         }
       }
+      // OD keys are assignment-level. If this group's newest row left a
+      // column blank, keep a non-empty value from any sibling mod row.
+      applyOdFieldsFromExcelRow(g, r);
     }
     // Append this mod to the assignment, but ONLY if this row is from
     // the same write (same lastActive) as the assignment's latest row.
@@ -19563,6 +19617,9 @@ async function fetchAssignmentsFromPA() {
     if (missing(r.teamName)          && !missing(l.teamName))          patches.teamName = l.teamName;
     if (missing(r.source)            && !missing(l.source))            patches.source = l.source;
     if (missing(r.participantOrbitId) && !missing(l.participantOrbitId)) patches.participantOrbitId = l.participantOrbitId;
+    if (missing(r.odScheduleId)       && !missing(l.odScheduleId))       patches.odScheduleId = l.odScheduleId;
+    if (missing(r.bookingGroupId)     && !missing(l.bookingGroupId))     patches.bookingGroupId = l.bookingGroupId;
+    if (missing(r.odStatus)           && !missing(l.odStatus))           patches.odStatus = l.odStatus;
     // modSnapshots: empty array on remote (no mods could be reconstructed
     // because of missing orbit_login_id or empty marker rows), local
     // likely has the snapshot from when the booking was saved.
@@ -26945,6 +27002,9 @@ async function saveAssignment() {
       status: 'Booked',
       comment: '',
       savedAt: new Date().toISOString(),
+      odScheduleId: '',
+      bookingGroupId: '',
+      odStatus: '',
     };
     adminState.assignments.push(newAsgn);
   }
@@ -29424,7 +29484,8 @@ function buildAssignmentExcelRow(a) {
   // Headers per spec:
   // assignmentId, orbitLoginId, firstName, lastName, phoneNumber, centificEmail,
   // personalEmail, lastActive, team, assignedDate, assignedTo, participantOrbitId,
-  // address, phonenumber, teamId, status, comment
+  // address, phonenumber, teamId, status, comment,
+  // odScheduleId, bookingGroupId, odStatus
   //
   // For each primary moderator on the team we emit one row. The two NEW columns
   // (assignmentId + participantOrbitId) are what make read-back across admins
@@ -29433,6 +29494,11 @@ function buildAssignmentExcelRow(a) {
   // fragile "match by display name" fallback. If those columns don't exist in
   // Excel yet, the write succeeds anyway (PA just drops the unknown fields)
   // and the reader has graceful degradation paths.
+  //
+  // odScheduleId / bookingGroupId / odStatus are OneData sync keys written
+  // by an hourly PA upsert (key = odScheduleId + orbitLoginId). Twilight
+  // never invents them — it writes back whatever is on the assignment so
+  // an admin save does not wipe PA's keys. Empty string when unknown.
   const team = adminState.teams.find(t => t.id === a.teamId);
   const partName = a.participantData ? [a.participantData.firstName, a.participantData.lastName].filter(Boolean).join(' ') : '';
   // For Unassigned rows, the previous team's name is more meaningful than
@@ -29497,6 +29563,7 @@ function buildAssignmentExcelRow(a) {
       teamId:             a.teamId,
       status:             a.status          || 'Booked',
       comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+      ...odFieldsForAssignmentExcel(a),
     }];
   }
   return mods.map(mod => ({
@@ -29525,6 +29592,7 @@ function buildAssignmentExcelRow(a) {
     teamId:             a.teamId,
     status:             a.status          || 'Booked',
     comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+    ...odFieldsForAssignmentExcel(a),
   }));
 }
 
@@ -29534,7 +29602,7 @@ function exportAssignments() {
     return;
   }
   const rows = adminState.assignments.flatMap(buildAssignmentExcelRow);
-  const headers = ['assignmentId','orbitLoginId','firstName','lastName','phoneNumber','centificEmail','personalEmail','lastActive','team','assignedDate','assignedTo','participantOrbitId','address','phonenumber','teamId','status','comment'];
+  const headers = ['assignmentId','orbitLoginId','firstName','lastName','phoneNumber','centificEmail','personalEmail','lastActive','team','assignedDate','assignedTo','participantOrbitId','address','phonenumber','teamId','status','comment','odScheduleId','bookingGroupId','odStatus'];
   const aoa = [headers, ...rows.map(r => headers.map(h => r[h]))];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(aoa);
