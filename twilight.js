@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826by';
-const APP_UPDATED_AT = '09/10/2026 00:58';
+const APP_VERSION = '1.3.090826bz';
+const APP_UPDATED_AT = '09/10/2026 01:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -964,6 +964,7 @@ function renderApp() {
     _accordionCollapsed = false;
     removeAccordionStepper();
     renderWelcome();
+    syncNavScenarioAxes();
   }
   if (typeof isStationAccordionMode === 'function') _lastAccordionMode = isStationAccordionMode();
 
@@ -2396,7 +2397,7 @@ function setScenarioFlowAxis(axis) {
   root.dataset.axis = next;
   root.classList.toggle('is-x', next === 'x');
   root.classList.toggle('is-y', next === 'y');
-  root.querySelectorAll('[data-flow-axis]').forEach(btn => {
+  document.querySelectorAll('[data-flow-axis]').forEach(btn => {
     const on = btn.getAttribute('data-flow-axis') === next;
     btn.classList.toggle('active', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -2487,25 +2488,15 @@ function scenarioFlowHTML(station, data) {
   const tiles = station.scenarios.map(sc => scenarioFlowTileHTML(station, data, sc)).join('');
   return `
     <div class="sc-flow ${axis === 'x' ? 'is-x' : 'is-y'}" id="scenarioFlow" data-axis="${axis}" data-station="${escapeHTML(station.key)}">
-      <div class="sc-flow-head">
-        <div>
-          <div class="sc-flow-kicker">Scenarios</div>
-          <div class="sc-flow-count" id="scenarioFlowCount"></div>
-        </div>
-        <div class="sc-flow-axes" role="group" aria-label="Scenario scroll direction">
-          <button type="button" class="sc-flow-axis-btn ${axis === 'y' ? 'active' : ''}" data-flow-axis="y" aria-pressed="${axis === 'y' ? 'true' : 'false'}">Vertical</button>
-          <button type="button" class="sc-flow-axis-btn ${axis === 'x' ? 'active' : ''}" data-flow-axis="x" aria-pressed="${axis === 'x' ? 'true' : 'false'}">Horizontal</button>
-        </div>
-      </div>
       <div class="sc-flow-nav-row">
         <button type="button" class="sc-flow-nav sc-flow-nav-prev" aria-label="Previous scenario">
           <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 10L8 6L12 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
+        <div class="sc-flow-count" id="scenarioFlowCount"></div>
         <button type="button" class="sc-flow-nav sc-flow-nav-next" aria-label="Next scenario">
           <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
       </div>
-      <div class="sc-flow-hint">Swipe the cards or tap the arrows. The middle card stays in focus.</div>
       <div class="sc-flow-viewport" id="scenarioFlowViewport">
         <div class="sc-flow-stage">
           <div class="sc-flow-spacer" id="scenarioFlowStart" aria-hidden="true"></div>
@@ -2606,6 +2597,34 @@ function bindScenarioFlowLayoutWatch() {
       snapScenarioFlowToFocus('auto');
       paintScenarioFlow();
     }, 120);
+  });
+}
+
+function syncNavScenarioAxes() {
+  const host = document.getElementById('navScenarioAxes');
+  const progress = document.getElementById('navProgress');
+  if (!host) return;
+  const show = !!(isScenarioFlowMode()
+    && !_accordionCollapsed
+    && currentStationKey
+    && document.getElementById('scenarioFlow'));
+  host.hidden = !show;
+  host.setAttribute('aria-hidden', show ? 'false' : 'true');
+  if (progress) progress.classList.toggle('is-flow-hidden', show);
+  const axis = getScenarioFlowAxis();
+  host.querySelectorAll('[data-flow-axis]').forEach(btn => {
+    const on = btn.getAttribute('data-flow-axis') === axis;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
+function bindNavScenarioAxes() {
+  const host = document.getElementById('navScenarioAxes');
+  if (!host || host.dataset.wired === '1') return;
+  host.dataset.wired = '1';
+  host.querySelectorAll('[data-flow-axis]').forEach(btn => {
+    btn.addEventListener('click', () => setScenarioFlowAxis(btn.getAttribute('data-flow-axis')));
   });
 }
 
@@ -2762,12 +2781,11 @@ function bindScenarioFlow() {
   if (!root || !vp) return;
   bindScenarioFlowPinchLock();
   bindScenarioFlowLayoutWatch();
+  bindNavScenarioAxes();
+  syncNavScenarioAxes();
   if (!root._wired) {
     root._wired = true;
     vp.addEventListener('scroll', onScenarioFlowScroll, { passive: true });
-    root.querySelectorAll('[data-flow-axis]').forEach(btn => {
-      btn.addEventListener('click', () => setScenarioFlowAxis(btn.getAttribute('data-flow-axis')));
-    });
     const prevBtn = root.querySelector('.sc-flow-nav-prev');
     const nextBtn = root.querySelector('.sc-flow-nav-next');
     if (prevBtn) prevBtn.addEventListener('click', e => { e.stopPropagation(); stepScenarioFlow(-1); });
@@ -3689,6 +3707,15 @@ function mountAccordionStepper(openKey) {
           <svg width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>`;
   document.body.appendChild(stepper);
+  const label = stepper.querySelector('.acc-step-label');
+  if (label) {
+    label.setAttribute('role', 'button');
+    label.setAttribute('tabindex', '0');
+    label.setAttribute('title', 'Back to stations');
+    label.addEventListener('click', () => {
+      if (currentStationKey) onAccordionHeadTap(currentStationKey);
+    });
+  }
   stepper.querySelectorAll('.acc-step-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
@@ -3710,7 +3737,7 @@ function renderStationsAccordion() {
   // The up/down stepper is mounted on document.body (not here) so
   // position:fixed stays viewport-relative. Accordion uses full width;
   // the stepper hovers over the tiles.
-  let html = mySessionDrawerHTML() + `<div class="station-accordion">`;
+  let html = mySessionDrawerHTML() + `<div class="station-accordion${openKey ? ' in-station' : ''}">`;
   STATIONS.forEach((st, i) => {
     const status = getStationStatus(st.key);
     const num = stationTag(st.key);
@@ -3768,6 +3795,7 @@ function renderStationsAccordion() {
   c.querySelectorAll('.acc-head').forEach(head => {
     head.addEventListener('click', () => onAccordionHeadTap(head.dataset.key));
   });
+  syncNavScenarioAxes();
 }
 
 // Jump the mobile accordion to another station (used by the right-side
@@ -3816,8 +3844,11 @@ function onAccordionHeadTap(key) {
   // Tapping the open station collapses it back to the bare list.
   if (alreadyOpen) {
     _accordionCollapsed = true;
+    const accordion = c.querySelector('.station-accordion');
+    if (accordion) accordion.classList.remove('in-station');
     _closeAccItem(tapped);
     removeAccordionStepper();
+    syncNavScenarioAxes();
     _lastRenderedView = currentStationKey || '__welcome__';
     renderSidebar(); // keep desktop sidebar active-state coherent on resize
     return;
@@ -3837,8 +3868,11 @@ function onAccordionHeadTap(key) {
   mountAccordionStepper(key);
   requestAnimationFrame(() => {
     tapped.classList.add('open');
+    const accordion = c.querySelector('.station-accordion');
+    if (accordion) accordion.classList.add('in-station');
     const head = tapped.querySelector('.acc-head');
     if (head) head.setAttribute('aria-expanded', 'true');
+    syncNavScenarioAxes();
   });
 
   // Prevent a subsequent background renderApp() from treating this as a
@@ -3847,9 +3881,8 @@ function onAccordionHeadTap(key) {
   _lastRenderedView = key;
   renderSidebar();
 
-  // Ease the opened header to the top once the slide has begun.
-  const head = tapped.querySelector('.acc-head');
-  if (head) setTimeout(() => head.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  const scrollEl = tapped.querySelector('.acc-inner') || tapped;
+  setTimeout(() => scrollEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
 }
 
 // Re-dispatch the moderator view when the viewport crosses the 760px
@@ -37362,6 +37395,8 @@ function init() {
   // handlers are bound; it only MOVES the same DOM nodes, so their bound
   // click handlers (by id) keep working regardless of position.
   setupNavRails();
+  bindNavScenarioAxes();
+  syncNavScenarioAxes();
 
   // Focus login on load
   setTimeout(() => {

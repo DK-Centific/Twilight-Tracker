@@ -642,6 +642,8 @@ a.icon-btn:focus-visible {
     align-items: center;
     justify-content: center;
     gap: 14px;
+    position: relative;
+    z-index: 3;
   }
   .sc-flow-kicker {
     font-family: var(--font-num);
@@ -652,8 +654,10 @@ a.icon-btn:focus-visible {
     color: var(--text3);
   }
   .sc-flow-count {
-    margin-top: 2px;
-    font-size: 15px;
+    margin: 0;
+    min-width: 4.5em;
+    text-align: center;
+    font-size: 14px;
     font-weight: 700;
     letter-spacing: -0.02em;
     color: var(--text);
@@ -3976,11 +3980,39 @@ a.menu-row:focus-visible, a.menu-row-link:focus-visible {
 }
 .acc-step-btn:not(:disabled):active { background: var(--accent-soft); color: var(--accent-ink); transform: scale(0.94); }
 .acc-step-btn:disabled { opacity: 0.3; cursor: default; }
-.acc-step-label { font-family: var(--font-num); font-size: 11px; color: var(--text3); line-height: 1; }
+.acc-step-label { font-family: var(--font-num); font-size: 11px; color: var(--text3); line-height: 1; cursor: pointer; padding: 4px 0; }
 @media (max-width: 760px) {
   .station-accordion { gap: 12px; }
   .acc-head { padding: 16px 14px; }
   .acc-item { scroll-margin-top: 72px; }
+  .station-accordion.in-station { gap: 0; }
+  .content:has(.station-accordion.in-station) .ms-drawer { display: none; }
+  .station-accordion.in-station .acc-item:not(.open) { display: none; }
+  .station-accordion.in-station .acc-item.open {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+  .station-accordion.in-station .acc-item.open .acc-head { display: none; }
+  .station-accordion.in-station .acc-item.open .acc-inner {
+    padding: 0 4px 8px;
+    overflow: visible;
+  }
+  .nav-sc-axes:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    gap: 2px;
+    flex: 0 0 auto;
+  }
+  .nav-sc-axes .sc-flow-axis-btn {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  #navProgress.is-flow-hidden { display: none; }
 }
 
 /* === MOBILE "MY SESSION" DRAWER (v1.2.061226) =========================
@@ -4213,6 +4245,7 @@ input#ent_lakitu.lakitu-invalid {
   .user-chip .who { display: none; }
   .user-chip { padding: 4px; }
   .progress-pill .label-full { display: none; }
+  .nav-sc-axes[hidden] { display: none !important; }
 
   .layout {
     grid-template-columns: 1fr;
@@ -13943,6 +13976,10 @@ button.perf-stat-chip.scheduled.active {
         <span class="dot"></span>
         <span><span class="label-full">Stations </span><span id="progressText">0 / 7</span></span>
       </span>
+      <div id="navScenarioAxes" class="sc-flow-axes nav-sc-axes" hidden role="group" aria-label="Scenario scroll direction">
+        <button type="button" class="sc-flow-axis-btn" data-flow-axis="y" aria-pressed="true">Vertical</button>
+        <button type="button" class="sc-flow-axis-btn" data-flow-axis="x" aria-pressed="false">Horizontal</button>
+      </div>
       <div class="user-chip" id="modUserChip" role="button" tabindex="0"
            aria-controls="mySessionDrawer" aria-expanded="false"
            title="My Session details">
@@ -14940,6 +14977,12 @@ h1, h2, h3,
 
 /* ---- Mobile accordion tiles + stepper (Helios neu) ---- */
 .acc-item { box-shadow:6px 6px 14px var(--neu-dark), -6px -6px 14px var(--neu-light); }
+@media (max-width: 760px) {
+  .station-accordion.in-station .acc-item.open {
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+}
 .acc-stepper { background:var(--bg) !important; border:none !important;
   box-shadow:8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light); }
 .acc-step-btn { background:var(--well-bg) !important;
