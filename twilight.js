@@ -21900,7 +21900,9 @@ function renderBookingDashboardHTML() {
   const selectedStr = ymd(selected);
   const todayStr = ymd(new Date());
   const weekStart = startOfWeek(selected);
-  const dateTitle = `${selected.toLocaleDateString(undefined, { weekday: 'long' })}, ${selected.getDate()} ${selected.toLocaleDateString(undefined, { month: 'long' })}`;
+  const dateWeekday = selected.toLocaleDateString(undefined, { weekday: 'long' });
+  const dateMonth = selected.toLocaleDateString(undefined, { month: 'long' });
+  const dateTitle = `${dateWeekday}, ${selected.getDate()} ${dateMonth}`;
   const startMin = adminState.bookingStartMin;
   const endMin = adminState.bookingEndMin;
   const teamRows = bookingListedTeams(selectedStr);
@@ -21988,7 +21990,10 @@ function renderBookingDashboardHTML() {
               <button type="button" class="bk-view-btn${view === 'month' ? ' active' : ''}" data-view="month">Month</button>
             </div>
           </div>
-          <h1 class="bk-current-date">${escapeHTML(dateTitle)}</h1>
+          <h1 class="bk-current-date">
+            <span class="bk-date-day">${escapeHTML(dateWeekday)}, ${selected.getDate()}</span>
+            <span class="bk-date-month">${escapeHTML(dateMonth)}</span>
+          </h1>
           <button type="button" class="bk-today${selectedStr === todayStr ? ' is-current' : ''}" id="calToday">Today</button>
           ${view === 'month' ? `
             <div class="bk-month-nav">
