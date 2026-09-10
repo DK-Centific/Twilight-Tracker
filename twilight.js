@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826db';
-const APP_UPDATED_AT = '09/10/2026 17:55';
+const APP_VERSION = '1.3.090826dc';
+const APP_UPDATED_AT = '09/10/2026 18:35';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -7257,7 +7257,7 @@ function closeBookingPage() {
     const host = document.getElementById('bookingSubtabBody');
     if (host) host.innerHTML = '';
     restoreHubAssignmentModal();
-  }, 520);
+  }, 560);
   if (adminState.tab !== 'assignment' && adminState._asgnPollTimer) {
     clearInterval(adminState._asgnPollTimer);
     adminState._asgnPollTimer = null;
@@ -21900,7 +21900,7 @@ function renderBookingDashboardHTML() {
   const selectedStr = ymd(selected);
   const todayStr = ymd(new Date());
   const weekStart = startOfWeek(selected);
-  const dateTitle = `${selected.toLocaleDateString(undefined, { weekday: 'long' })}, ${selected.getDate()} ${selected.toLocaleDateString(undefined, { month: 'short' })}`;
+  const dateTitle = `${selected.toLocaleDateString(undefined, { weekday: 'long' })}, ${selected.getDate()} ${selected.toLocaleDateString(undefined, { month: 'long' })}`;
   const startMin = adminState.bookingStartMin;
   const endMin = adminState.bookingEndMin;
   const teamRows = bookingListedTeams(selectedStr);
@@ -21923,7 +21923,7 @@ function renderBookingDashboardHTML() {
       </button>`;
   }).join('');
   const teamCards = teamRows.length === 0
-    ? `<div class="bk-empty">${bookingHasAddress() ? 'No available teams for this date and time.' : 'No teams yet. Tap New Team to add one.'}</div>`
+    ? `<div class="bk-empty">${bookingHasAddress() ? 'No available teams for this date and time.' : 'No teams yet. Tap Create a team to add one.'}</div>`
     : teamRows.map(row => {
         const team = row.team;
         const selectedCard = String(adminState._selectedTeam) === String(team.id);
@@ -21975,7 +21975,7 @@ function renderBookingDashboardHTML() {
   return `
     <div class="bk-dash">
       <div class="bk-search-wrap">
-        <input type="search" class="bk-search" id="bookingSearch" placeholder="Type a name or address..." value="${searchVal}" autocomplete="off">
+        <input type="search" class="bk-search" id="bookingSearch" placeholder="Search participants..." value="${searchVal}" autocomplete="off">
         ${selectedPartLabel && !String(adminState.bookingSearch || '').trim() ? `<div class="bk-search-picked">${escapeHTML(selectedPartLabel)}</div>` : ''}
         ${renderBookingSuggestHTML(adminState.bookingSearch)}
       </div>
@@ -22006,7 +22006,13 @@ function renderBookingDashboardHTML() {
           `}
         </section>
         <div>
-          <div class="bk-section">Select Timeslot</div>
+          <div class="bk-section">
+            <span>Choose timeslot</span>
+            <span class="bk-optimal" title="Shown as a design cue · not live weather">
+              <span class="bk-optimal-dot" aria-hidden="true"></span>
+              Optimal Conditions
+            </span>
+          </div>
           <div class="bk-time-grid">
             <label class="bk-time-card">
               <span class="bk-date-label" style="margin-bottom:0">Start Time</span>
@@ -22018,8 +22024,8 @@ function renderBookingDashboardHTML() {
             </label>
           </div>
           <div class="bk-section">
-            Assign a Team
-            <button type="button" class="bk-new-team" id="newTeamBtn">New Team</button>
+            Assign a team
+            <button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>
           </div>
           <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
         </div>
@@ -22033,7 +22039,7 @@ function renderBookingDashboardHTML() {
         </div>
         <div class="bk-dock">
           <div class="bk-dock-text">${escapeHTML(dockText)}</div>
-          <button type="button" class="bk-book-btn" id="bookingBookBtn">Book Session</button>
+          <button type="button" class="bk-book-btn" id="bookingBookBtn">Book a session</button>
         </div>
       </div>
     </div>
