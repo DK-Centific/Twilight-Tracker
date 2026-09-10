@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ck';
-const APP_UPDATED_AT = '09/10/2026 09:36';
+const APP_VERSION = '1.3.090826cl';
+const APP_UPDATED_AT = '09/10/2026 09:48';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2109,10 +2109,14 @@ function scenarioStatusButtonsHTML(station, sd, scenarioNum, scenarioId) {
       </button>`;
   const calRefHTML = isCal ? `
     <div class="cal-ref-videos">
-      <span class="cal-ref-label">\uD83C\uDFA5 Reference videos:</span>
-      <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(1)">Video 1</button>
-      <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(2)">Video 2</button>
-      <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(3)">Video 3</button>
+      <span class="cal-ref-label"><span class="cal-ref-ico" aria-hidden="true">\uD83C\uDFA5</span> Reference videos:</span>
+      <span class="cal-ref-links">
+        <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(1)">Video 1</button>
+        <span class="cal-ref-sep" aria-hidden="true">|</span>
+        <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(2)">Video 2</button>
+        <span class="cal-ref-sep" aria-hidden="true">|</span>
+        <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(3)">Video 3</button>
+      </span>
     </div>` : '';
 
   return `
