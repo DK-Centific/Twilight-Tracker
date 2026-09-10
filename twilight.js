@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826cn';
-const APP_UPDATED_AT = '09/10/2026 10:20';
+const APP_VERSION = '1.3.090826co';
+const APP_UPDATED_AT = '09/10/2026 10:28';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2405,6 +2405,7 @@ let _scenarioFlowScrollTimer = null;
 let _scenarioFlowTicking = false;
 let _scenarioFlowSnapping = false;
 let _scenarioFlowLayoutBound = false;
+let _scenarioFlowXLockH = 0;
 
 function isScenarioFlowMode() {
   return typeof isStationAccordionMode === 'function' && isStationAccordionMode();
@@ -2426,6 +2427,7 @@ function getScenarioFlowAxis() {
 function setScenarioFlowAxis(axis) {
   const next = axis === 'x' ? 'x' : 'y';
   _scenarioFlowAxis = next;
+  _scenarioFlowXLockH = 0;
   try { localStorage.setItem(SCENARIO_FLOW_AXIS_KEY, next); } catch (_) {}
   const root = document.getElementById('scenarioFlow');
   if (!root) return;
@@ -2556,6 +2558,26 @@ function scenarioFlowHeliosReserve() {
   return reserve;
 }
 
+function scenarioFlowTileNaturalHeight(tile) {
+  if (!tile) return 1;
+  const face = tile.querySelector('.sc-flow-face');
+  const slide = tile.querySelector('.appr-slidedown');
+  const inner = tile.querySelector('.appr-slidedown-inner');
+  const prevH = tile.style.height;
+  const prevFaceH = face ? face.style.height : '';
+  tile.style.height = '';
+  if (face) face.style.height = '';
+  let h = Math.max(tile.offsetHeight, face ? face.scrollHeight : 0);
+  if (slide && inner) {
+    const shown = slide.offsetHeight;
+    const full = inner.scrollHeight;
+    if (full > shown) h += (full - shown);
+  }
+  tile.style.height = prevH;
+  if (face) face.style.height = prevFaceH;
+  return Math.max(1, h);
+}
+
 function layoutScenarioFlowViewport() {
   const root = document.getElementById('scenarioFlow');
   const vp = document.getElementById('scenarioFlowViewport');
@@ -2569,13 +2591,15 @@ function layoutScenarioFlowViewport() {
 
   tiles.forEach(el => {
     el.style.width = '';
-    el.style.height = '';
     el.style.flexBasis = '';
     el.style.flex = '';
     el.classList.remove('is-fit');
+    if (axis !== 'x') el.style.height = '';
   });
-  vp.style.height = '';
-  vp.style.maxHeight = 'none';
+  if (axis !== 'x') {
+    vp.style.height = '';
+    vp.style.maxHeight = 'none';
+  }
   start.style.cssText = '';
   end.style.cssText = '';
 
@@ -2593,14 +2617,18 @@ function layoutScenarioFlowViewport() {
     end.style.width = spacer + 'px';
     start.style.height = '1px';
     end.style.height = '1px';
-    const focusTile = tiles.find(el => (el.getAttribute('data-num') || '') === _scenarioFlowFocusNum) || tiles[0];
-    const face = focusTile.querySelector('.sc-flow-face');
-    const naturalH = Math.max(
-      1,
-      focusTile.offsetHeight,
-      face ? face.scrollHeight : 0
-    );
-    vp.style.height = naturalH + 'px';
+    let maxH = 1;
+    tiles.forEach(el => {
+      maxH = Math.max(maxH, scenarioFlowTileNaturalHeight(el));
+    });
+    const slideTile = vp.querySelector('.sc-flow-tile:has(.appr-slidedown-inner)');
+    if (slideTile) maxH = Math.max(maxH, scenarioFlowTileNaturalHeight(slideTile));
+    if (maxH > _scenarioFlowXLockH) _scenarioFlowXLockH = maxH;
+    const lockH = Math.max(_scenarioFlowXLockH, maxH);
+    tiles.forEach(el => {
+      el.style.height = lockH + 'px';
+    });
+    vp.style.height = lockH + 'px';
     vp.style.maxHeight = 'none';
     return;
   }
@@ -2793,7 +2821,6 @@ function snapScenarioFlowToFocus(behavior) {
   }
   paintScenarioFlow();
   if (axis === 'x') {
-    layoutScenarioFlowViewport();
     paintScenarioFlow();
   }
   window.setTimeout(() => { _scenarioFlowSnapping = false; }, smooth ? 280 : 70);
@@ -2831,7 +2858,6 @@ function onScenarioFlowScroll() {
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
     }
     if (root) root.classList.remove('is-scrolling');
-    if (root && root.dataset.axis === 'x') layoutScenarioFlowViewport();
     paintScenarioFlow();
   }, 160);
 }
@@ -2880,6 +2906,7 @@ function bindScenarioFlow() {
     && vp.querySelector('.sc-flow-tile[data-num="' + _scenarioFlowFocusNum + '"]');
   if (_scenarioFlowStationKey !== stationKey || !focusStillHere) {
     _scenarioFlowStationKey = stationKey;
+    _scenarioFlowXLockH = 0;
     const st = STATIONS.find(s => s.key === stationKey);
     const data = st && state.stations ? state.stations[st.key] : null;
     _scenarioFlowFocusNum = firstOpenScenarioNum(st, data);
@@ -2888,6 +2915,7 @@ function bindScenarioFlow() {
     afterLayout('auto');
     requestAnimationFrame(() => afterLayout('auto'));
     setTimeout(() => afterLayout('auto'), 180);
+    setTimeout(() => afterLayout('auto'), 420);
   });
 }
 
