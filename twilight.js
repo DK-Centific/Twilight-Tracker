@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826da';
-const APP_UPDATED_AT = '09/10/2026 17:40';
+const APP_VERSION = '1.3.090826db';
+const APP_UPDATED_AT = '09/10/2026 17:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -22133,7 +22133,12 @@ function bindBookingDashboardEvents() {
         if (String(adminState.bookingSearch || '').trim() && !adminState.bookingSelectedParticipant && !adminState.bookingAddress) {
           const typed = String(adminState.bookingSearch || '').trim();
           adminState.bookingAddress = bookingLooksLikeAddress(typed) ? typed : '';
-          if (adminState.bookingAddress) renderAssignment();
+          // Keep the current drawer if a team/assignment popup is open.
+          // Those popups live in this same host — a full re-render would
+          // close New Team right after the address is copied in.
+          const modal = document.getElementById('asgnModal');
+          const modalOpen = !!(adminState.modal || (modal && modal.classList.contains('open')));
+          if (adminState.bookingAddress && !modalOpen) renderAssignment();
         }
       }, 180);
     });
