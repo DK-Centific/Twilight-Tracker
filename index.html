@@ -627,6 +627,9 @@ a.icon-btn:focus-visible {
     overflow-y: clip;
     min-width: 0;
   }
+  .acc-item.open .acc-inner:has(.sc-flow.is-x) {
+    overflow-y: visible;
+  }
   .sc-flow, .sc-flow-viewport { min-width: 0; max-width: 100%; }
   .sc-flow-head {
     display: flex;
@@ -730,7 +733,7 @@ a.icon-btn:focus-visible {
     min-height: 0;
     max-height: none;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     scroll-snap-type: x mandatory;
     padding: 0;
     touch-action: pan-x;
