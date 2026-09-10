@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826ct';
-const APP_UPDATED_AT = '09/10/2026 12:20';
+const APP_VERSION = '1.3.090826cu';
+const APP_UPDATED_AT = '09/10/2026 12:28';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -21129,16 +21129,6 @@ function renderTeamsPanelHTML() {
         <div class="teams-head-meta">
           <span class="teams-head-title" style="font-size: 11px; color: var(--text3);">${adminState.moderators ? adminState.moderators.length + ' mods loaded' : 'loading mods…'}</span>
           ${isModeratorHubTeamView ? `
-            <div class="teams-layout-toggle" role="group" aria-label="Team layout">
-              <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout !== 'list' ? 'active' : ''}" data-team-layout="workspace" title="Side-by-side workspace">
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
-                Grid
-              </button>
-              <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout === 'list' ? 'active' : ''}" data-team-layout="list" title="Full-width list">
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-                List
-              </button>
-            </div>
             <button class="btn btn-primary teams-head-new" id="newTeamBtn">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
                 <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
@@ -21149,6 +21139,18 @@ function renderTeamsPanelHTML() {
         </div>
       </div>
       <div class="teams-controls">
+        ${isModeratorHubTeamView ? `
+          <div class="teams-layout-toggle" role="group" aria-label="Team layout">
+            <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout !== 'list' ? 'active' : ''}" data-team-layout="workspace" title="Side-by-side workspace">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
+              Grid
+            </button>
+            <button type="button" class="mod-layout-btn ${adminState.teamWorkspaceLayout === 'list' ? 'active' : ''}" data-team-layout="list" title="Full-width list">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              List
+            </button>
+          </div>
+        ` : ''}
         <div class="teams-search-wrap">
           <svg class="teams-search-icon" width="13" height="13" viewBox="0 0 16 16" fill="none">
             <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/>
