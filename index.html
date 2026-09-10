@@ -5198,6 +5198,11 @@ input#ent_lakitu.lakitu-invalid {
     padding-top: 8px;
     padding-bottom: 8px;
     margin-top: 8px;
+    pointer-events: none;
+  }
+  .content:has(.station-accordion.in-station) > .actions-bar .right,
+  .content:has(.station-accordion.in-station) > .actions-bar .btn {
+    pointer-events: auto;
   }
   .content:has(.station-accordion.in-station):has(.sc-flow.is-x) > .actions-bar {
     position: sticky;
@@ -5207,6 +5212,11 @@ input#ent_lakitu.lakitu-invalid {
     margin-top: 8px;
     padding-top: 6px;
     padding-bottom: 8px;
+    pointer-events: none;
+  }
+  .content:has(.station-accordion.in-station):has(.sc-flow.is-x) > .actions-bar .right,
+  .content:has(.station-accordion.in-station):has(.sc-flow.is-x) > .actions-bar .btn {
+    pointer-events: auto;
   }
 }
 
@@ -16216,6 +16226,10 @@ body.is-master-admin .master-admin-only { display:flex !important; }
     box-shadow:0 -5px 16px var(--neu-dark), 0 -1px 0 var(--neu-light);
     overflow: visible;
   }
+  .helios-bottombar:has(#panicFab.open) {
+    overflow: visible !important;
+    z-index: 220;
+  }
   /* Circular icon buttons inside the bar (override the nav's square shape). */
   .helios-bottombar .icon-btn {
     width:var(--helios-bar-icon); height:var(--helios-bar-icon); border-radius:50% !important;
@@ -16840,18 +16854,35 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
   position: relative;
   right: auto;
   bottom: auto;
-  z-index: 2;
+  z-index: 20;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   pointer-events: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.panic-fab.is-docked::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  z-index: 0;
 }
 .panic-fab.is-docked .panic-btn {
+  position: relative;
+  z-index: 1;
   width: 44px;
   height: 44px;
   min-width: 44px;
   min-height: 44px;
   box-shadow: 4px 4px 9px rgba(0,0,0,0.22), 0 0 16px rgba(217,83,79,0.35);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .panic-fab.is-docked .panic-btn-ico { width: 22px; height: 22px; }
 .panic-fab.is-docked .panic-menu {
@@ -16878,6 +16909,6 @@ body:has(#loginScreen:not([style*="display: none"])) #panicFab,
 }
 </style>
 
-<script src="twilight-panic.js?v=1.3.090826df" defer></script>
+<script src="twilight-panic.js?v=1.3.090826dg" defer></script>
 </body>
 </html>

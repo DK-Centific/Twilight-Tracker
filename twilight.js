@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826df';
-const APP_UPDATED_AT = '09/10/2026 19:35';
+const APP_VERSION = '1.3.090826dg';
+const APP_UPDATED_AT = '09/10/2026 19:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6083,7 +6083,21 @@ function getOpenDrawer() {
 // Left edge → sidebar (operator app only · admin doesn't have a
 // sidebar). Right edge → menu drawer (both apps). Returns null when
 // the touchstart is outside any edge zone.
-function getOpenableDrawerForTouch(touchX) {
+function pointHitsPanicControl(x, y) {
+  const pad = 10;
+  const ids = ['panicBtn', 'panicFab'];
+  for (let i = 0; i < ids.length; i++) {
+    const el = document.getElementById(ids[i]);
+    if (!el) continue;
+    const r = el.getBoundingClientRect();
+    if (x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getOpenableDrawerForTouch(touchX, touchY) {
   const w = window.innerWidth;
   if (touchX <= EDGE_THRESHOLD_PX) {
     // Left edge · only valid if the operator app is visible (admin
@@ -6094,6 +6108,10 @@ function getOpenableDrawerForTouch(touchX) {
     return null;
   }
   if (touchX >= w - EDGE_THRESHOLD_PX) {
+    // Panic sits on the right of the mobile bar. A tap on that control
+    // must not start a Settings-drawer swipe or the opening click is
+    // stolen and the panic menu never stays open.
+    if (pointHitsPanicControl(touchX, touchY)) return null;
     return 'menu';
   }
   return null;
@@ -6133,7 +6151,7 @@ document.addEventListener('touchstart', (e) => {
   }
 
   // No drawer open · check for an edge-swipe to open one
-  const openable = getOpenableDrawerForTouch(startX);
+  const openable = getOpenableDrawerForTouch(startX, startY);
   if (!openable) return;
   _swipeState.active = true;
   _swipeState.target = openable;

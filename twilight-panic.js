@@ -273,7 +273,61 @@
     }
   }
 
-  btn.addEventListener('click', function (e) { e.stopPropagation(); fab.classList.contains('open') ? closeMenu() : openMenu(); });
+  var openGuardUntil = 0;
+  var handledByPointer = false;
+  function eventOnFab(e) {
+    if (fab.contains(e.target)) return true;
+    if (!e.composedPath) return false;
+    var path = e.composedPath();
+    for (var i = 0; i < path.length; i++) {
+      if (path[i] === fab || path[i] === btn) return true;
+    }
+    return false;
+  }
+  function eventOnMenuOption(e) {
+    var t = e.target;
+    if (!t || !t.closest) return false;
+    return !!(t.closest('.panic-opt') || t.closest('.panic-menu'));
+  }
+  function toggleFromControl(e) {
+    if (e) {
+      if (e.preventDefault) e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    }
+    var now = Date.now();
+    if (fab.classList.contains('open')) {
+      if (now < openGuardUntil) return;
+      closeMenu();
+      return;
+    }
+    openMenu();
+    openGuardUntil = now + 450;
+  }
+  function onControlPointerUp(e) {
+    if (e.pointerType === 'mouse' && typeof e.button === 'number' && e.button !== 0) return;
+    if (eventOnMenuOption(e)) return;
+    handledByPointer = true;
+    toggleFromControl(e);
+    setTimeout(function () { handledByPointer = false; }, 400);
+  }
+  function onControlClick(e) {
+    if (eventOnMenuOption(e)) return;
+    if (handledByPointer) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    toggleFromControl(e);
+  }
+  // Bind on the wrapper (capture) so circular-button corner taps, SVG
+  // icon taps, and Playwright/native coordinate clicks all open the menu.
+  fab.addEventListener('pointerup', onControlPointerUp, true);
+  fab.addEventListener('click', onControlClick, true);
+  if (btn && btn !== fab) {
+    btn.addEventListener('pointerup', onControlPointerUp);
+    btn.addEventListener('click', onControlClick);
+  }
   menu.addEventListener('click', function (e) {
     var opt = e.target.closest ? e.target.closest('.panic-opt') : null;
     if (!opt) return;
@@ -283,7 +337,12 @@
     else if (kind === 'troubleshooting') { openModal('Troubleshooting Tips', TROUBLESHOOTING_HTML); }
     else if (kind === 'emergency') { openModal('Emergency • Escalation Tiers', EMERGENCY_HTML); }
   });
-  document.addEventListener('click', function (e) { if (fab.classList.contains('open') && !fab.contains(e.target)) closeMenu(); });
+  document.addEventListener('click', function (e) {
+    if (!fab.classList.contains('open')) return;
+    if (Date.now() < openGuardUntil) return;
+    if (eventOnFab(e)) return;
+    closeMenu();
+  });
   if (modalClose) modalClose.addEventListener('click', closeModal);
   if (overlay) overlay.addEventListener('click', function (e) { if (e.target === overlay) closeModal(); });
   document.addEventListener('keydown', function (e) {
