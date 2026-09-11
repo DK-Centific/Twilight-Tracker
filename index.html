@@ -12435,10 +12435,11 @@ button.perf-stat-chip.scheduled.active {
 .ov-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* ---- Helios hero · compact 2×2 tiles left, viz stage right ----
-   Side-by-side (≥1101px): leftover-viewport row height, both columns
-   stretch to the same height. Metrics width is fluid (not a sticky 420px)
-   so ov-viz-stage keeps a usable stage as the window shrinks toward the
-   stack breakpoint. Stacked (≤1100px): height is auto. */
+   Side-by-side (≥761px, including tablet / mid-width): leftover-viewport
+   row height, both columns stretch to the same height. Metrics width is
+   fluid (not a sticky 420px) so ov-viz-stage stays usable as the window
+   narrows. Stacked only at the Helios mobile chrome breakpoint (≤760px):
+   height is auto — do not force equal-height pairing. */
 .ov-helios-row {
   --ov-helios-chrome: calc(
     52px
@@ -13028,9 +13029,10 @@ button.perf-stat-chip.scheduled.active {
     transition: none !important;
   }
 }
-/* Mid-width side-by-side · keep equal heights but cap the hero so a
-   narrowing viz card does not become an over-tall column. */
-@media (min-width: 1101px) and (max-width: 1280px) {
+/* Tablet + mid-width side-by-side · keep equal heights but cap the hero
+   so a narrowing viz card does not become an over-tall column. Continues
+   below 1100px down to the Helios mobile chrome breakpoint. */
+@media (min-width: 761px) and (max-width: 1280px) {
   .ov-helios-row {
     height: clamp(240px, calc(100vh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 8px), 440px);
     height: clamp(240px, calc(100dvh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 8px), 440px);
@@ -13039,23 +13041,32 @@ button.perf-stat-chip.scheduled.active {
   .ov-helios-row .ov-stat-value,
   #adminApp .ov-helios-row .ov-stat-value { font-size: clamp(22px, 2.8vh, 32px); }
 }
-@media (max-width: 1100px) {
+@media (min-width: 761px) and (max-width: 1100px) {
+  .ov-helios-row {
+    grid-template-columns: minmax(196px, min(320px, 40%)) minmax(0, 1fr);
+  }
+}
+/* Phone only · stack metrics over viz. Matches Helios bottom-bar /
+   rail hide at 760px. Keep compact 2×2 squares (PR #83). */
+@media (max-width: 760px) {
+  .ov-root { gap: 14px; }
   .ov-helios-row {
     grid-template-columns: 1fr;
     align-items: start;
     height: auto;
     min-height: 0;
     container-type: normal;
+    gap: 12px;
   }
   .ov-helios-row .ov-solar-orb {
-    width: clamp(72px, 16vh, 148px);
-    height: clamp(72px, 16vh, 148px);
+    width: clamp(48px, 10vh, 88px);
+    height: clamp(48px, 10vh, 88px);
   }
   .ov-helios-row .ov-solar-orb.is-moon.wx-clear,
   .ov-helios-row .ov-solar-orb.is-moon.wx-cloudy,
   .ov-helios-row .ov-solar-orb.is-moon.wx-rain {
-    width: clamp(52px, 12vh, 108px);
-    height: clamp(52px, 12vh, 108px);
+    width: clamp(40px, 8vh, 72px);
+    height: clamp(40px, 8vh, 72px);
   }
   .ov-helios-row .ov-viz-value { font-size: clamp(40px, 7vh, 80px); }
   .ov-helios-row .ov-viz-label { margin-bottom: 12px; }
@@ -13063,11 +13074,11 @@ button.perf-stat-chip.scheduled.active {
   .ov-metrics-pane.ov-stats {
     height: auto;
     min-height: 0;
-    max-width: 420px;
+    max-width: 100%;
     width: 100%;
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
-    gap: 10px;
+    gap: 8px;
     align-content: start;
     align-items: stretch;
     justify-items: stretch;
@@ -13077,40 +13088,14 @@ button.perf-stat-chip.scheduled.active {
     height: auto;
     min-height: 0 !important;
     aspect-ratio: 1 / 1;
-    padding: 12px 12px 10px;
+    padding: 10px 10px 8px;
     gap: 8px;
+    border-radius: 20px !important;
   }
   .ov-helios-row .ov-stat-body { gap: 8px; }
   .ov-helios-row .ov-stat-value,
   #adminApp .ov-helios-row .ov-stat-value {
     font-size: clamp(22px, 5.2vw, 30px);
-  }
-  .ov-viz-stage {
-    height: auto;
-    width: 100%;
-    padding: 18px;
-    overflow: hidden;
-    container-type: normal;
-    min-height: min(280px, 38vh);
-    min-height: min(280px, 38dvh);
-  }
-  .ov-viz-well {
-    min-height: min(256px, 34vh);
-    min-height: min(256px, 34dvh);
-    padding: 28px 24px 22px;
-  }
-}
-@media (max-width: 760px) {
-  .ov-root { gap: 14px; }
-  .ov-helios-row { gap: 12px; }
-  .ov-metrics-pane.ov-stats {
-    max-width: 100%;
-    gap: 8px;
-  }
-  .ov-helios-row .ov-stat-tile,
-  #adminApp .ov-helios-row .ov-stat-tile {
-    padding: 10px 10px 8px;
-    border-radius: 20px !important;
   }
   .ov-helios-row .ov-stat-icon,
   #adminApp .ov-helios-row .ov-stat-icon {
@@ -13131,16 +13116,16 @@ button.perf-stat-chip.scheduled.active {
     overflow: hidden;
   }
   .ov-viz-stage {
-    min-height: clamp(168px, 26dvh, 220px);
+    height: auto;
+    width: 100%;
     padding: 12px;
+    overflow: hidden;
+    container-type: normal;
+    min-height: clamp(168px, 26dvh, 220px);
   }
   .ov-viz-well {
     min-height: clamp(148px, 22dvh, 200px);
     padding: 16px 14px 12px;
-  }
-  .ov-helios-row .ov-solar-orb {
-    width: clamp(48px, 10vh, 88px);
-    height: clamp(48px, 10vh, 88px);
   }
 }
 @media (max-width: 540px) {
@@ -16116,7 +16101,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091126o" defer></script>
+<script src="twilight.js?v=twilight-1.3.091126p" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -16945,16 +16930,11 @@ body.is-master-admin .master-admin-only { display:flex !important; }
   padding: clamp(10px, 1.5vh, 16px) 16px clamp(8px, 1.2vh, 14px);
   border-radius: 22px !important;
 }
-@media (max-width: 1100px) {
+@media (max-width: 760px) {
   #adminApp .ov-helios-row .ov-stat-tile {
     height: auto;
     min-height: 0 !important;
     aspect-ratio: 1 / 1;
-    padding: 12px 12px 10px;
-  }
-}
-@media (max-width: 760px) {
-  #adminApp .ov-helios-row .ov-stat-tile {
     padding: 10px 10px 8px;
     border-radius: 20px !important;
   }
@@ -16993,7 +16973,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 #adminApp .ov-helios-row .ov-stat-value {
   font-size: clamp(24px, 3.2vh, 36px);
 }
-@media (max-width: 1100px) {
+@media (max-width: 760px) {
   #adminApp .ov-helios-row .ov-stat-value {
     font-size: clamp(22px, 5.2vw, 30px);
   }
