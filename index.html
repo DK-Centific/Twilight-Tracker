@@ -13064,34 +13064,93 @@ button.perf-stat-chip.scheduled.active {
     height: auto;
     min-height: 0;
     max-width: 420px;
+    width: 100%;
+    grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
+    gap: 10px;
     align-content: start;
-    align-items: start;
+    align-items: stretch;
+    justify-items: stretch;
   }
   .ov-helios-row .ov-stat-tile,
-  #adminApp .ov-helios-row .ov-stat-tile { height: auto; }
+  #adminApp .ov-helios-row .ov-stat-tile {
+    height: auto;
+    min-height: 0 !important;
+    aspect-ratio: 1 / 1;
+    padding: 12px 12px 10px;
+    gap: 8px;
+  }
+  .ov-helios-row .ov-stat-body { gap: 8px; }
+  .ov-helios-row .ov-stat-value,
+  #adminApp .ov-helios-row .ov-stat-value {
+    font-size: clamp(22px, 5.2vw, 30px);
+  }
   .ov-viz-stage {
     height: auto;
     width: 100%;
     padding: 18px;
     overflow: hidden;
     container-type: normal;
-    min-height: min(360px, 50vh);
-    min-height: min(360px, 50dvh);
+    min-height: min(280px, 38vh);
+    min-height: min(280px, 38dvh);
   }
   .ov-viz-well {
-    min-height: min(336px, 50vh);
-    min-height: min(336px, 50dvh);
+    min-height: min(256px, 34vh);
+    min-height: min(256px, 34dvh);
     padding: 28px 24px 22px;
   }
 }
+@media (max-width: 760px) {
+  .ov-root { gap: 14px; }
+  .ov-helios-row { gap: 12px; }
+  .ov-metrics-pane.ov-stats {
+    max-width: 100%;
+    gap: 8px;
+  }
+  .ov-helios-row .ov-stat-tile,
+  #adminApp .ov-helios-row .ov-stat-tile {
+    padding: 10px 10px 8px;
+    border-radius: 20px !important;
+  }
+  .ov-helios-row .ov-stat-icon,
+  #adminApp .ov-helios-row .ov-stat-icon {
+    width: 26px;
+    height: 26px;
+  }
+  .ov-helios-row .ov-stat-label,
+  #adminApp .ov-helios-row .ov-stat-label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    padding-top: 0;
+  }
+  .ov-helios-row .ov-stat-foot {
+    font-size: 9px;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ov-viz-stage {
+    min-height: clamp(168px, 26dvh, 220px);
+    padding: 12px;
+  }
+  .ov-viz-well {
+    min-height: clamp(148px, 22dvh, 200px);
+    padding: 16px 14px 12px;
+  }
+  .ov-helios-row .ov-solar-orb {
+    width: clamp(48px, 10vh, 88px);
+    height: clamp(48px, 10vh, 88px);
+  }
+}
 @media (max-width: 540px) {
-  .ov-metrics-pane.ov-stats,
-  .ov-stats { grid-template-columns: 1fr; }
-  .ov-stat-value { font-size: 42px; }
+  .ov-metrics-pane.ov-stats {
+    grid-template-columns: 1fr 1fr;
+  }
   .ov-filter-spacer { display: none; }
   .ov-select { min-width: 130px; }
-  .ov-viz-value { font-size: 56px; }
+  .ov-helios-row .ov-viz-value,
+  .ov-viz-value { font-size: clamp(32px, 8vw, 48px); }
 }
 
 /* ---- Charts ---- */
@@ -16043,7 +16102,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091126n" defer></script>
+<script src="twilight.js?v=twilight-1.3.091126o" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -16872,6 +16931,20 @@ body.is-master-admin .master-admin-only { display:flex !important; }
   padding: clamp(10px, 1.5vh, 16px) 16px clamp(8px, 1.2vh, 14px);
   border-radius: 22px !important;
 }
+@media (max-width: 1100px) {
+  #adminApp .ov-helios-row .ov-stat-tile {
+    height: auto;
+    min-height: 0 !important;
+    aspect-ratio: 1 / 1;
+    padding: 12px 12px 10px;
+  }
+}
+@media (max-width: 760px) {
+  #adminApp .ov-helios-row .ov-stat-tile {
+    padding: 10px 10px 8px;
+    border-radius: 20px !important;
+  }
+}
 #adminApp .ov-stat-tile::before,
 #adminApp .perf-status-tile::before { display: none !important; }
 #adminApp .ov-stat-tile:hover,
@@ -16905,6 +16978,17 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 }
 #adminApp .ov-helios-row .ov-stat-value {
   font-size: clamp(24px, 3.2vh, 36px);
+}
+@media (max-width: 1100px) {
+  #adminApp .ov-helios-row .ov-stat-value {
+    font-size: clamp(22px, 5.2vw, 30px);
+  }
+}
+@media (max-width: 760px) {
+  #adminApp .ov-helios-row .ov-stat-label {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
 }
 #adminApp .perf-tile-avatar { width: 36px; height: 36px; color: var(--accent); }
 #adminApp .perf-tile-avatar.mod { background: var(--well-bg) !important; color: var(--accent); }
