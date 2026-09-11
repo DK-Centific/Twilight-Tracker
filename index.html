@@ -7019,9 +7019,27 @@ input#ent_lakitu.lakitu-invalid {
   border-radius: 99px;
   position: relative; top: -1px;
 }
+.team-origin-pill {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  vertical-align: middle;
+  padding: 1px 7px;
+  border-radius: 99px;
+  position: relative; top: -1px;
+}
+.team-origin-pill.is-od {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg3));
+  color: var(--accent-ink);
+}
 [data-theme="dark"] .team-card-draft-badge {
   background: rgba(245, 158, 11, 0.16);
   color: #fbbf24;
+}
+[data-theme="dark"] .team-origin-pill.is-od {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg3));
+  color: var(--accent);
 }
 .team-card-actions {
   display: flex; gap: 4px;
@@ -15831,7 +15849,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091126h" defer></script>
+<script src="twilight.js?v=twilight-1.3.091126i" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
