@@ -2611,7 +2611,16 @@ a.icon-btn:focus-visible {
   font-size: 13px;
   padding: 18px 8px;
 }
-.bk-session-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+.bk-sessions-tools {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: 8px;
+}
+.bk-session-list {
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px;
+  max-height: min(52vh, 540px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
 .bk-session-card {
   display: flex; align-items: center; gap: 14px;
   width: 100%;
@@ -2771,6 +2780,14 @@ a.icon-btn:focus-visible {
   margin-bottom: 4px;
 }
 .bk-day-pill .num { font-size: 15px; font-weight: 600; }
+.bk-day-pill.has-dot::after {
+  content: '';
+  display: block;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--bk-accent);
+  margin: 3px auto 0;
+}
 .bk-day-pill.today .num,
 .bk-day-pill.today .name { color: var(--bk-accent); }
 .bk-day-pill.active {
@@ -3022,13 +3039,13 @@ a.icon-btn:focus-visible {
 .bk-motion-on .bk-sessions {
   transition: margin-top var(--bk-ms) var(--bk-ease);
 }
-.bk-motion-on .bk-session-card {
+.bk-motion-on .bk-session-list.is-live-filter .bk-session-card {
   animation: bk-rise 0.45s var(--bk-ease) both;
 }
-.bk-motion-on .bk-session-card:nth-child(2) { animation-delay: 0.04s; }
-.bk-motion-on .bk-session-card:nth-child(3) { animation-delay: 0.08s; }
-.bk-motion-on .bk-session-card:nth-child(4) { animation-delay: 0.12s; }
-.bk-motion-on .bk-session-card:nth-child(n+5) { animation-delay: 0.16s; }
+.bk-motion-on .bk-session-list.is-live-filter .bk-session-card:nth-child(2) { animation-delay: 0.04s; }
+.bk-motion-on .bk-session-list.is-live-filter .bk-session-card:nth-child(3) { animation-delay: 0.08s; }
+.bk-motion-on .bk-session-list.is-live-filter .bk-session-card:nth-child(4) { animation-delay: 0.12s; }
+.bk-motion-on .bk-session-list.is-live-filter .bk-session-card:nth-child(n+5) { animation-delay: 0.16s; }
 .helios-rail .rail-booking-btn[aria-expanded="true"],
 .helios-bottombar .rail-booking-btn[aria-expanded="true"] {
   color: var(--accent-ink);
@@ -3041,6 +3058,11 @@ a.icon-btn:focus-visible {
   }
   .booking-page-body { padding: 14px 12px 188px; }
   .bk-footer { left: 12px; right: 12px; }
+  .bk-sessions .bk-section {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .bk-sessions-tools { justify-content: flex-start; }
 }
 body.booking-open #panicFab,
 #panicFab.is-booking-hidden {
@@ -3060,6 +3082,7 @@ body.booking-open #panicFab,
   .bk-today,
   .bk-assign-chevron,
   .bk-origin-btn,
+  .bk-sessions-tools,
   .bk-date-pane,
   .bk-date-pane-inner > *,
   .bk-assign-panel,

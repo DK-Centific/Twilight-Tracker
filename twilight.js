@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126d';
-const APP_UPDATED_AT = '09/11/2026 16:50';
+const APP_VERSION = '1.3.091126e';
+const APP_UPDATED_AT = '09/11/2026 17:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6692,7 +6692,8 @@ const adminState = {
   bookingStartMin: 17 * 60,
   bookingEndMin: 25 * 60,
   bookingAssignOpen: false,  // Week-only Assign a team disclosure · closed by default
-  bookingSessionFilter: 'all', // Sessions this day · 'all' | 'od' | 'twilight'
+  bookingSessionFilter: 'all', // Sessions list · 'all' | 'od' | 'twilight'
+  bookingSessionScope: 'week', // Sessions list · 'day' | 'week' (week is the default load)
   modal: null,               // { kind: 'createTeam' | 'editTeam' | 'createAssignment' | 'viewAssignment', ...payload }
   // Overview dashboard state
   overview: {
@@ -7402,6 +7403,7 @@ function openBookingPage() {
   adminState.bookingEndMin = 25 * 60;
   adminState.bookingAssignOpen = false;
   adminState.bookingSessionFilter = 'all';
+  adminState.bookingSessionScope = 'week';
   parkHubAssignmentModal();
   document.body.classList.add('booking-open');
   const panicFab = document.getElementById('panicFab');
@@ -19140,6 +19142,8 @@ function assignmentSyncFingerprint(assignments, teams) {
     x.id, x.teamId, x.date, x.startMin, x.endMin, x.status,
     x.savedAt, x.participantOrbitId,
     (x.modSnapshots || []).map(s => s.orbitLoginId).join(','),
+    x.odScheduleId || '', x.bookingGroupId || '', x.odStatus || '',
+    x.comment || '', x.source || '',
   ].join('|')).sort().join('~');
   const t = tms.map(x => [
     x.id, x.name,
@@ -19173,6 +19177,13 @@ function refreshAssignmentViewQuietly() {
   if (typeof adminState === 'undefined' || (typeof isAssignmentSurfaceActive === 'function' ? !isAssignmentSurfaceActive() : adminState.tab !== 'assignment')) return;
   if (shouldDeferAssignmentPaint()) {
     adminState._pendingPostFetchRender = true;
+    return;
+  }
+  // Booking is already painted. Sync patches the session list / dots in
+  // place so a background Excel fetch does not remount Sessions this day.
+  if (typeof isBookingOpen === 'function' && isBookingOpen()
+      && typeof syncBookingDashboardFromState === 'function'
+      && syncBookingDashboardFromState({ animate: false })) {
     return;
   }
   if (typeof renderAssignment === 'function') renderAssignment({ fromSync: true });
@@ -19279,17 +19290,23 @@ async function fetchAssignmentsFromPA() {
   });
 
   // Group rows back into assignments. Prefer the explicit assignmentId column
-  // when present (the new schema). Fall back to a synthetic key built from
-  // (date, startMin, teamId, assignedTo) when assignmentId is empty · this
-  // handles legacy rows written before the schema upgrade.
+  // when present (the new schema). OneData hourly-sync rows often have no
+  // assignmentId and an empty teamId/assignedTo — use odScheduleId so two
+  // OD bookings on the same night do not collapse into one Twilight card.
+  // Last fallback: (date, startMin, teamId, assignedTo) for legacy Twilight.
   const grouped = new Map();
   for (const r of rows) {
     const dateInfo = parseAssignedDate(r.assignedDate);
-    if (!dateInfo && !r.assignmentId) continue;
+    const odKeys = (typeof bookingOdFieldsFromRecord === 'function')
+      ? bookingOdFieldsFromRecord(r)
+      : { odScheduleId: '', bookingGroupId: '', odStatus: '' };
+    if (!dateInfo && !r.assignmentId && !odKeys.odScheduleId) continue;
     const fallbackDate = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
     const groupKey = r.assignmentId
       ? String(r.assignmentId)
-      : `legacy|${dateInfo.date}|${dateInfo.startMin}|${r.teamId || ''}|${r.assignedTo || ''}`;
+      : (odKeys.odScheduleId
+          ? `od|${odKeys.odScheduleId}`
+          : `legacy|${dateInfo.date}|${dateInfo.startMin}|${r.teamId || ''}|${r.assignedTo || ''}`);
 
     let g = grouped.get(groupKey);
     if (!g) {
@@ -19338,7 +19355,9 @@ async function fetchAssignmentsFromPA() {
         status: r.status || 'Booked',
         comment: r.comment || '',
         savedAt: r.lastActive || new Date().toISOString(),
-        source: (r.comment === 'team-session' || (!r.assignedTo && r.teamId)) ? 'team-session' : undefined,
+        source: (r.comment === 'od-sync' || odKeys.odScheduleId || odKeys.bookingGroupId || odKeys.odStatus)
+          ? 'od-sync'
+          : ((r.comment === 'team-session' || (!r.assignedTo && r.teamId)) ? 'team-session' : undefined),
         // Tag this assignment as having come from a remote fetch. Used by
         // the local-only merge below to distinguish "pending write" from
         // "previously synced but now deleted from Excel". Without this
@@ -19360,9 +19379,9 @@ async function fetchAssignmentsFromPA() {
         // Display-only OD origin keys for Booking pills. Copied from the
         // Excel row when present; empty when the booking was created in
         // Twilight. Does not change the Assignment write payload.
-        ...((typeof bookingOdFieldsFromRecord === 'function')
-          ? bookingOdFieldsFromRecord(r)
-          : { odScheduleId: '', bookingGroupId: '' }),
+        odScheduleId: odKeys.odScheduleId || '',
+        bookingGroupId: odKeys.bookingGroupId || '',
+        odStatus: odKeys.odStatus || '',
       };
       grouped.set(groupKey, g);
     } else {
@@ -19693,6 +19712,9 @@ async function fetchAssignmentsFromPA() {
     if (missing(r.teamName)          && !missing(l.teamName))          patches.teamName = l.teamName;
     if (missing(r.source)            && !missing(l.source))            patches.source = l.source;
     if (missing(r.participantOrbitId) && !missing(l.participantOrbitId)) patches.participantOrbitId = l.participantOrbitId;
+    if (missing(r.odScheduleId)      && !missing(l.odScheduleId))      patches.odScheduleId = l.odScheduleId;
+    if (missing(r.bookingGroupId)    && !missing(l.bookingGroupId))    patches.bookingGroupId = l.bookingGroupId;
+    if (missing(r.odStatus)          && !missing(l.odStatus))          patches.odStatus = l.odStatus;
     // modSnapshots: empty array on remote (no mods could be reconstructed
     // because of missing orbit_login_id or empty marker rows), local
     // likely has the snapshot from when the booking was saved.
@@ -19942,6 +19964,9 @@ async function fetchAssignmentsFromPA() {
   } else if (document.getElementById('adminApp')?.classList.contains('active')) {
     if (prevSyncFp !== nextSyncFp) {
       refreshAssignmentViewQuietly();
+    } else if (typeof isBookingOpen === 'function' && isBookingOpen()
+        && typeof syncBookingDashboardFromState === 'function') {
+      syncBookingDashboardFromState({ animate: false });
     } else {
       const badge = document.getElementById('topAsgnCount');
       if (badge) badge.textContent = activeAssignmentCount() || '';
@@ -20477,6 +20502,9 @@ function renderAssignment(opts) {
       if (adminState._asgnLastRenderedSSRef === currentRows && adminState._asgnLastStatusFp === statusFp) return;
       adminState._asgnLastRenderedSSRef = currentRows;
       adminState._asgnLastStatusFp = statusFp;
+      // Session-state pills are for the hub calendar, not Booking cards.
+      // Skip the remount so Sessions this day does not blink a second time.
+      if (typeof isBookingOpen === 'function' && isBookingOpen()) return;
       refreshAssignmentViewQuietly();
     }).catch(() => {
       // Silent · calendar still renders with the pre-fix
@@ -22031,49 +22059,118 @@ function bookingSessionHaystack(asgn) {
   return [asgn.date, asgn.status, team && team.name, name, p.email, p.address].filter(Boolean).join(' ');
 }
 
-// OneData origin for Booking session cards. A non-empty schedule or
-// booking-group key means the row came from the OD sync. Twilight-created
-// bookings leave those keys blank. Display-only — does not write Excel/PA.
+// OneData origin for Booking session cards.
+// Rule (display-only — does not write Excel / PA / OD sync):
+//   OD        = hourly OneData → Excel upsert. A real token on
+//               odScheduleId, bookingGroupId, or odStatus, or the
+//               PA comment/source "od-sync".
+//   Twilight  = created in Twilight (those columns blank / missing).
+// Empty string, whitespace, "null", "undefined", "n/a", "0", "false",
+// "-", and Excel error tokens are NOT a real token. Live OD rows often
+// have odScheduleId + odStatus="Scheduled" and a blank bookingGroupId.
+const BOOKING_OD_EMPTY_TOKENS = new Set([
+  '', 'null', 'undefined', 'n/a', 'na', 'none', 'nil',
+  '0', 'false', '-', '–', '—', '#n/a', '#value!', '#ref!', '#name?',
+]);
+
+function bookingOdMeaningfulToken(value) {
+  const s = String(value == null ? '' : value).trim();
+  if (!s) return '';
+  return BOOKING_OD_EMPTY_TOKENS.has(s.toLowerCase()) ? '' : s;
+}
+
 function bookingOdFieldValue(record, ...names) {
   if (!record || typeof record !== 'object') return '';
   const v = (typeof pickField === 'function')
     ? pickField(record, ...names)
     : names.reduce((found, n) => found || record[n], '');
-  return (v == null) ? '' : String(v).trim();
+  return bookingOdMeaningfulToken(v);
 }
 
 function bookingOdFieldsFromRecord(record) {
-  return {
-    odScheduleId: bookingOdFieldValue(record, 'odScheduleId', 'od_schedule_id', 'OdScheduleId'),
-    bookingGroupId: bookingOdFieldValue(record, 'bookingGroupId', 'booking_group_id', 'BookingGroupId'),
+  const fromNames = {
+    odScheduleId: bookingOdFieldValue(record, 'odScheduleId', 'od_schedule_id', 'OdScheduleId', 'ODScheduleId'),
+    bookingGroupId: bookingOdFieldValue(record, 'bookingGroupId', 'booking_group_id', 'BookingGroupId', 'ODBookingGroupId'),
+    odStatus: bookingOdFieldValue(record, 'odStatus', 'od_status', 'OdStatus', 'ODStatus'),
   };
+  if (!record || typeof record !== 'object') return fromNames;
+  if (fromNames.odScheduleId && fromNames.bookingGroupId && fromNames.odStatus) return fromNames;
+  // Excel / Graph sometimes ships a slightly different header. Scan keys
+  // for odschedule / bookinggroup / odstatus lookalikes only — never a
+  // bare "status" or "scheduleId" (those false-positive Twilight rows).
+  for (const key of Object.keys(record)) {
+    const compact = String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const token = bookingOdMeaningfulToken(record[key]);
+    if (!token) continue;
+    if (!fromNames.odScheduleId && (compact === 'odscheduleid' || compact === 'odschedule' || compact === 'onedatascheduleid')) {
+      fromNames.odScheduleId = token;
+    } else if (!fromNames.bookingGroupId && (compact === 'bookinggroupid' || compact === 'odbookinggroupid' || compact === 'bookinggroup')) {
+      fromNames.bookingGroupId = token;
+    } else if (!fromNames.odStatus && (compact === 'odstatus' || compact === 'onedatastatus')) {
+      fromNames.odStatus = token;
+    }
+  }
+  return fromNames;
 }
 
 function applyBookingOdFieldsFromRecord(target, record) {
   if (!target) return target;
   const incoming = bookingOdFieldsFromRecord(record);
-  if (!String(target.odScheduleId || '').trim()) target.odScheduleId = incoming.odScheduleId || '';
-  if (!String(target.bookingGroupId || '').trim()) target.bookingGroupId = incoming.bookingGroupId || '';
+  if (!bookingOdMeaningfulToken(target.odScheduleId)) target.odScheduleId = incoming.odScheduleId || '';
+  if (!bookingOdMeaningfulToken(target.bookingGroupId)) target.bookingGroupId = incoming.bookingGroupId || '';
+  if (!bookingOdMeaningfulToken(target.odStatus)) target.odStatus = incoming.odStatus || '';
   return target;
 }
 
 function assignmentIsOdOrigin(a) {
+  if (!a) return false;
   const fields = bookingOdFieldsFromRecord(a);
-  return !!(fields.odScheduleId || fields.bookingGroupId);
+  if (fields.odScheduleId || fields.bookingGroupId || fields.odStatus) return true;
+  const comment = String(a.comment || '').trim().toLowerCase();
+  const source = String(a.source || '').trim().toLowerCase();
+  return comment === 'od-sync' || source === 'od-sync';
 }
 
 function bookingSessionOrigin(a) {
   return assignmentIsOdOrigin(a) ? 'od' : 'twilight';
 }
 
-function bookingVisibleSessions(selectedDateStr, originFilter) {
+function bookingSessionScopeValue() {
+  return (adminState.bookingSessionScope === 'day') ? 'day' : 'week';
+}
+
+function bookingSessionDateSet(selectedDateStr, scope) {
+  const selected = parseYMD(selectedDateStr) || bookingSelectedDate();
+  if (scope === 'week') {
+    const weekStart = startOfWeek(selected);
+    return new Set(Array.from({ length: 7 }, (_, i) => ymd(addDays(weekStart, i))));
+  }
+  return new Set([ymd(selected)]);
+}
+
+function bookingVisibleSessions(selectedDateStr, originFilter, scope) {
   const filter = (originFilter === 'od' || originFilter === 'twilight') ? originFilter : 'all';
+  const useScope = (scope === 'day' || scope === 'week') ? scope : bookingSessionScopeValue();
+  const dates = bookingSessionDateSet(selectedDateStr, useScope);
   return (adminState.assignments || []).filter(a => {
     if (!a || a.status === 'Unassigned') return false;
-    if (a.date !== selectedDateStr) return false;
+    if (!dates.has(a.date)) return false;
     if (filter === 'all') return true;
     return bookingSessionOrigin(a) === filter;
-  }).sort((a, b) => (a.startMin || 0) - (b.startMin || 0));
+  }).sort((a, b) => {
+    const day = String(a.date || '').localeCompare(String(b.date || ''));
+    if (day) return day;
+    return (a.startMin || 0) - (b.startMin || 0);
+  });
+}
+
+function bookingBookedDateSet() {
+  const byDate = new Set();
+  for (const a of (adminState.assignments || [])) {
+    if (!a || !a.date || a.status === 'Unassigned') continue;
+    byDate.add(a.date);
+  }
+  return byDate;
 }
 
 function renderBookingMonthGridHTML(anchor) {
@@ -22086,11 +22183,7 @@ function renderBookingMonthGridHTML(anchor) {
   const startDow = (firstOfMonth.getDay() + 6) % 7; // Monday-first, matching week pills
   const gridStart = new Date(year, month, 1 - startDow);
   const totalCells = Math.ceil((startDow + lastOfMonth.getDate()) / 7) * 7;
-  const byDate = new Set();
-  for (const a of (adminState.assignments || [])) {
-    if (!a || !a.date || a.status === 'Unassigned') continue;
-    byDate.add(a.date);
-  }
+  const byDate = bookingBookedDateSet();
   const dows = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   const heads = dows.map(d => `<span class="bk-month-dow">${d}</span>`).join('');
   let cells = '';
@@ -22138,6 +22231,31 @@ function bookingSessionFilterValue() {
   return (adminState.bookingSessionFilter === 'od' || adminState.bookingSessionFilter === 'twilight')
     ? adminState.bookingSessionFilter
     : 'all';
+}
+
+function bookingSessionsTitle(scope, sessionFilter) {
+  const range = scope === 'week' ? 'this week' : 'this day';
+  if (sessionFilter === 'od') return `OD sessions ${range}`;
+  if (sessionFilter === 'twilight') return `Twilight sessions ${range}`;
+  return `Sessions ${range}`;
+}
+
+function bookingSessionsEmptyCopy(scope, sessionFilter) {
+  const range = scope === 'week' ? 'this week' : 'this day';
+  if (sessionFilter === 'od') return `No OD sessions ${range}.`;
+  if (sessionFilter === 'twilight') return `No Twilight sessions ${range}.`;
+  return `No sessions ${range}.`;
+}
+
+function bookingSessionListFingerprint(sessions, scope, sessionFilter) {
+  return [scope || 'week', sessionFilter || 'all'].concat(
+    (sessions || []).map(a => [
+      a.id, a.date, a.startMin, a.endMin, a.status, a.teamId,
+      bookingSessionOrigin(a),
+      (a.participantData && (a.participantData.firstName || a.participantData.lastName)) || '',
+      a.teamName || '',
+    ].join('|'))
+  ).join('~');
 }
 
 function bookingAssignIsOpen() {
@@ -22199,27 +22317,84 @@ function armBookingMotion() {
   requestAnimationFrame(() => requestAnimationFrame(enable));
 }
 
-function renderBookingSessionListHTML(sessions, sessionFilter) {
-  if (!sessions.length) {
-    return `<div class="bk-empty">${
-      sessionFilter === 'od' ? 'No OD sessions this day.'
-      : sessionFilter === 'twilight' ? 'No Twilight sessions this day.'
-      : 'No sessions this day.'
-    }</div>`;
+function renderBookingDayPillsHTML(weekStart, selectedStr, todayStr, booked) {
+  const dots = booked || bookingBookedDateSet();
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = addDays(weekStart, i);
+    const ds = ymd(d);
+    const active = ds === selectedStr;
+    const isToday = ds === todayStr;
+    const hasDot = dots.has(ds);
+    return `
+      <button type="button" class="bk-day-pill${active ? ' active' : ''}${isToday ? ' today' : ''}${hasDot ? ' has-dot' : ''}" data-date="${ds}">
+        <span class="name">${d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</span>
+        <span class="num">${d.getDate()}</span>
+      </button>`;
+  }).join('');
+}
+
+function renderBookingTeamListHTML(selectedStr) {
+  const teamRows = bookingListedTeams(selectedStr);
+  if (teamRows.length === 0) {
+    return `<div class="bk-empty">${bookingHasAddress() ? 'No available teams for this date and time.' : 'No teams yet. Tap Create a team to add one.'}</div>`;
   }
-  return sessions.slice(0, 8).map(a => {
+  return teamRows.map(row => {
+    const team = row.team;
+    const selectedCard = String(adminState._selectedTeam) === String(team.id);
+    const memberCount = (team.primaryIds || []).length
+      + ((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team).length : 0);
+    const sub = [
+      memberCount === 1 ? '1 member' : `${memberCount} members`,
+      team._pending ? 'Draft' : '',
+    ].filter(Boolean).join(' · ');
+    return `
+          <button type="button" class="bk-team-card${selectedCard ? ' selected' : ''}${row.status === 'Booked' ? ' is-booked' : ''}" data-team-id="${team.id}">
+            <div class="bk-team-avatar">${escapeHTML(bookingTeamInitials(team))}</div>
+            <div class="bk-team-info">
+              <h4>${escapeHTML(team.name || 'Untitled team')}</h4>
+              <p>${escapeHTML(sub)}</p>
+            </div>
+            <span class="bk-team-status ${row.status === 'Booked' ? 'is-booked' : 'is-open'}">${row.status}</span>
+            ${selectedCard ? `<div class="bk-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>` : ''}
+          </button>`;
+  }).join('');
+}
+
+function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
+  const useScope = (scope === 'day' || scope === 'week') ? scope : bookingSessionScopeValue();
+  if (!sessions.length) {
+    return `<div class="bk-empty">${bookingSessionsEmptyCopy(useScope, sessionFilter)}</div>`;
+  }
+  const cap = useScope === 'week' ? 40 : 16;
+  return sessions.slice(0, cap).map(a => {
     const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
     const p = a.participantData || {};
-    const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
+    const name = [p.firstName, p.lastName].filter(Boolean).join(' ')
+      || a.teamName
+      || (team && team.name)
+      || 'Session';
     const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
     const origin = bookingSessionOrigin(a);
     const originLabel = origin === 'od' ? 'OD' : 'Twilight';
+    const dayObj = a.date ? parseYMD(a.date) : null;
+    const dayLabel = (useScope === 'week' && dayObj)
+      ? dayObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+      : '';
+    const sub = [
+      dayLabel,
+      (team && team.name) || a.teamName || '',
+      a.status || '',
+    ].filter(Boolean).join(' · ');
     return `
-            <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}">
+            <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}" data-origin="${origin}">
               <div class="bk-session-time">${escapeHTML(when)}</div>
               <div class="bk-session-info">
                 <strong>${escapeHTML(name)}</strong>
-                <span>${escapeHTML((team && team.name) || a.teamName || a.status || '')}</span>
+                <span>${escapeHTML(sub)}</span>
               </div>
               <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
             </button>`;
@@ -22238,18 +22413,170 @@ function bindBookingSessionCards(root) {
   });
 }
 
-function refreshBookingSessions() {
+function bindBookingDateButtons(root) {
+  const host = root || document.getElementById('bookingSubtabBody');
+  if (!host) return;
+  host.querySelectorAll('.bk-day-pill, .bk-month-cell').forEach(btn => {
+    if (btn.dataset.bkDateBound === '1') return;
+    btn.dataset.bkDateBound = '1';
+    btn.addEventListener('click', () => {
+      if (!btn.dataset.date) return;
+      bookingSetSelectedDate(btn.dataset.date, { filterToDay: true });
+    });
+  });
+}
+
+function bindBookingTeamCards(root) {
+  const host = root || document.getElementById('bookingTeamList');
+  if (!host) return;
+  host.querySelectorAll('.bk-team-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const teamId = parseInt(card.dataset.teamId, 10);
+      const wasSelected = String(adminState._selectedTeam) === String(teamId);
+      adminState._selectedTeam = wasSelected ? null : teamId;
+      adminState.calTeamFilter = wasSelected ? null : teamId;
+      if (!syncBookingDashboardFromState({ animate: false })) renderAssignment();
+    });
+  });
+}
+
+function refreshBookingSessions(opts) {
+  opts = opts || {};
   const list = document.querySelector('#bookingSessions .bk-session-list');
   if (!list) return;
   const sessionFilter = bookingSessionFilterValue();
-  const sessions = bookingVisibleSessions(ymd(bookingSelectedDate()), sessionFilter);
-  list.innerHTML = renderBookingSessionListHTML(sessions, sessionFilter);
+  const scope = bookingSessionScopeValue();
+  const sessions = bookingVisibleSessions(ymd(bookingSelectedDate()), sessionFilter, scope);
+  const fp = bookingSessionListFingerprint(sessions, scope, sessionFilter);
+  const animate = !!opts.animate && !bookingPrefersReducedMotion();
+  if (!opts.force && fp === adminState._bookingSessionFp && list.childElementCount > 0) {
+    applyBookingSessionChrome(scope, sessionFilter);
+    return;
+  }
+  const nextHTML = renderBookingSessionListHTML(sessions, sessionFilter, scope);
+  list.classList.toggle('is-live-filter', animate);
+  list.innerHTML = nextHTML;
+  adminState._bookingSessionFp = fp;
   bindBookingSessionCards(list);
-  document.querySelectorAll('#bookingSubtabBody .bk-origin-btn').forEach(btn => {
+  applyBookingSessionChrome(scope, sessionFilter);
+}
+
+function applyBookingSessionChrome(scope, sessionFilter) {
+  const title = document.getElementById('bookingSessionsTitle');
+  const section = document.getElementById('bookingSessions');
+  const label = bookingSessionsTitle(scope, sessionFilter);
+  if (title) title.textContent = label;
+  if (section) section.setAttribute('aria-label', label);
+  document.querySelectorAll('#bookingSubtabBody [data-scope]').forEach(btn => {
+    const on = btn.dataset.scope === scope;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#bookingSubtabBody [data-origin]').forEach(btn => {
+    if (!btn.classList.contains('bk-origin-btn')) return;
     const on = btn.dataset.origin === sessionFilter;
     btn.classList.toggle('active', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
+}
+
+function applyBookingDateChrome() {
+  const selected = bookingSelectedDate();
+  const selectedStr = ymd(selected);
+  const todayStr = ymd(new Date());
+  const weekStart = startOfWeek(selected);
+  const booked = bookingBookedDateSet();
+
+  const dayEl = document.querySelector('#bookingSubtabBody .bk-date-day');
+  const monthEl = document.querySelector('#bookingSubtabBody .bk-date-month');
+  if (dayEl) dayEl.textContent = `${selected.toLocaleDateString(undefined, { weekday: 'long' })}, ${selected.getDate()}`;
+  if (monthEl) monthEl.textContent = selected.toLocaleDateString(undefined, { month: 'long' });
+
+  const todayBtn = document.getElementById('calToday');
+  if (todayBtn && todayBtn.closest('#bookingSubtabBody')) {
+    todayBtn.classList.toggle('is-current', selectedStr === todayStr);
+  }
+
+  const row = document.querySelector('#bookingSubtabBody .bk-day-row');
+  if (row) {
+    const first = row.querySelector('.bk-day-pill');
+    if (!first || first.dataset.date !== ymd(weekStart)) {
+      row.innerHTML = renderBookingDayPillsHTML(weekStart, selectedStr, todayStr, booked);
+      bindBookingDateButtons(row);
+    } else {
+      row.querySelectorAll('.bk-day-pill').forEach(p => {
+        p.classList.toggle('active', p.dataset.date === selectedStr);
+        p.classList.toggle('today', p.dataset.date === todayStr);
+        p.classList.toggle('has-dot', booked.has(p.dataset.date));
+      });
+    }
+  }
+
+  const monthLabel = document.querySelector('#bookingSubtabBody .bk-month-nav span');
+  if (monthLabel) {
+    monthLabel.textContent = selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }
+  const monthGrid = document.querySelector('#bookingSubtabBody .bk-month');
+  if (monthGrid) {
+    const firstCell = monthGrid.querySelector('.bk-month-cell:not(.other)') || monthGrid.querySelector('.bk-month-cell');
+    const gridMonth = firstCell && firstCell.dataset.date ? parseYMD(firstCell.dataset.date) : null;
+    const sameMonth = !!(gridMonth && gridMonth.getFullYear() === selected.getFullYear() && gridMonth.getMonth() === selected.getMonth());
+    if (!sameMonth) {
+      monthGrid.outerHTML = renderBookingMonthGridHTML(selected);
+      bindBookingDateButtons(document.querySelector('#bookingSubtabBody .bk-month'));
+    } else {
+      monthGrid.querySelectorAll('.bk-month-cell').forEach(cell => {
+        cell.classList.toggle('active', cell.dataset.date === selectedStr);
+        cell.classList.toggle('today', cell.dataset.date === todayStr);
+        cell.classList.toggle('has-dot', booked.has(cell.dataset.date));
+      });
+    }
+  }
+}
+
+function refreshBookingTeamList() {
+  const list = document.getElementById('bookingTeamList');
+  if (!list) return;
+  list.innerHTML = renderBookingTeamListHTML(ymd(bookingSelectedDate()));
+  bindBookingTeamCards(list);
+}
+
+function refreshBookingDock() {
+  const dock = document.querySelector('#bookingSubtabBody .bk-dock-text');
+  if (!dock) return;
+  const selected = bookingSelectedDate();
+  const selectedTeam = (adminState.teams || []).find(t => String(t.id) === String(adminState._selectedTeam));
+  dock.textContent = selectedTeam
+    ? `${selectedTeam.name} · ${selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
+    : 'Pick a team to book';
+}
+
+function syncBookingDashboardFromState(opts) {
+  opts = opts || {};
+  if (typeof isBookingOpen !== 'function' || !isBookingOpen()) return false;
+  const dash = document.querySelector('#bookingSubtabBody .bk-dash');
+  if (!dash) return false;
+  applyBookingDateChrome();
+  refreshBookingSessions({ animate: !!opts.animate, force: !!opts.force });
+  refreshBookingTeamList();
+  refreshBookingDock();
+  applyBookingMotionChrome();
+  return true;
+}
+
+function bookingSetSelectedDate(dateStr, opts) {
+  opts = opts || {};
+  if (dateStr) adminState.calAnchor = dateStr;
+  if (opts.scope === 'day' || opts.scope === 'week') {
+    adminState.bookingSessionScope = opts.scope;
+  } else if (opts.filterToDay) {
+    adminState.bookingSessionScope = 'day';
+  }
+  if (typeof isBookingOpen === 'function' && isBookingOpen()
+      && syncBookingDashboardFromState({ animate: !!opts.animate })) {
+    return;
+  }
+  if (typeof renderAssignment === 'function') renderAssignment();
 }
 
 function renderBookingDashboardHTML() {
@@ -22265,57 +22592,24 @@ function renderBookingDashboardHTML() {
   const dateMonth = selected.toLocaleDateString(undefined, { month: 'long' });
   const startMin = adminState.bookingStartMin;
   const endMin = adminState.bookingEndMin;
-  const teamRows = bookingListedTeams(selectedStr);
   // Month keeps Assign a team open (current two-column + sessions-below
   // layout). Collapse is Week-only and starts closed.
   const assignCollapsible = view === 'week';
   const assignOpen = bookingAssignIsOpen();
   const sessionFilter = bookingSessionFilterValue();
-  const sessions = bookingVisibleSessions(selectedStr, sessionFilter);
+  const sessionScope = bookingSessionScopeValue();
+  const sessions = bookingVisibleSessions(selectedStr, sessionFilter, sessionScope);
+  adminState._bookingSessionFp = bookingSessionListFingerprint(sessions, sessionScope, sessionFilter);
   const selectedTeam = (adminState.teams || []).find(t => String(t.id) === String(adminState._selectedTeam));
   const searchVal = escapeHTML(adminState.bookingSearch || '');
   const selectedPart = adminState.bookingSelectedParticipant;
   const selectedPartLabel = selectedPart
     ? ([selectedPart.firstName, selectedPart.lastName].filter(Boolean).join(' ') || selectedPart.address || 'Participant')
     : (adminState.bookingAddress || '');
-  const dayPills = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(weekStart, i);
-    const ds = ymd(d);
-    const active = ds === selectedStr;
-    const isToday = ds === todayStr;
-    return `
-      <button type="button" class="bk-day-pill${active ? ' active' : ''}${isToday ? ' today' : ''}" data-date="${ds}">
-        <span class="name">${d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase()}</span>
-        <span class="num">${d.getDate()}</span>
-      </button>`;
-  }).join('');
-  const teamCards = teamRows.length === 0
-    ? `<div class="bk-empty">${bookingHasAddress() ? 'No available teams for this date and time.' : 'No teams yet. Tap Create a team to add one.'}</div>`
-    : teamRows.map(row => {
-        const team = row.team;
-        const selectedCard = String(adminState._selectedTeam) === String(team.id);
-        const memberCount = (team.primaryIds || []).length
-          + ((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team).length : 0);
-        const sub = [
-          memberCount === 1 ? '1 member' : `${memberCount} members`,
-          team._pending ? 'Draft' : '',
-        ].filter(Boolean).join(' · ');
-        return `
-          <button type="button" class="bk-team-card${selectedCard ? ' selected' : ''}${row.status === 'Booked' ? ' is-booked' : ''}" data-team-id="${team.id}">
-            <div class="bk-team-avatar">${escapeHTML(bookingTeamInitials(team))}</div>
-            <div class="bk-team-info">
-              <h4>${escapeHTML(team.name || 'Untitled team')}</h4>
-              <p>${escapeHTML(sub)}</p>
-            </div>
-            <span class="bk-team-status ${row.status === 'Booked' ? 'is-booked' : 'is-open'}">${row.status}</span>
-            ${selectedCard ? `<div class="bk-check" aria-hidden="true">
-              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                <path d="M1 4L3.5 6.5L9 1" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>` : ''}
-          </button>`;
-      }).join('');
-  const sessionCards = renderBookingSessionListHTML(sessions, sessionFilter);
+  const dayPills = renderBookingDayPillsHTML(weekStart, selectedStr, todayStr, bookingBookedDateSet());
+  const teamCards = renderBookingTeamListHTML(selectedStr);
+  const sessionCards = renderBookingSessionListHTML(sessions, sessionFilter, sessionScope);
+  const sessionsTitle = bookingSessionsTitle(sessionScope, sessionFilter);
   const dockText = selectedTeam
     ? `${selectedTeam.name} · ${selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
     : 'Pick a team to book';
@@ -22399,13 +22693,19 @@ function renderBookingDashboardHTML() {
             </div>
           </div>
         </div>
-        <section class="bk-sessions" id="bookingSessions" aria-label="Sessions this day">
+        <section class="bk-sessions" id="bookingSessions" aria-label="${escapeHTML(sessionsTitle)}">
           <div class="bk-section">
-            <span>Sessions this day</span>
-            <div class="bk-origin-filter" role="group" aria-label="Filter sessions by origin">
-              <button type="button" class="bk-origin-btn${sessionFilter === 'all' ? ' active' : ''}" data-origin="all" aria-pressed="${sessionFilter === 'all' ? 'true' : 'false'}">All</button>
-              <button type="button" class="bk-origin-btn${sessionFilter === 'od' ? ' active' : ''}" data-origin="od" aria-pressed="${sessionFilter === 'od' ? 'true' : 'false'}">OD</button>
-              <button type="button" class="bk-origin-btn${sessionFilter === 'twilight' ? ' active' : ''}" data-origin="twilight" aria-pressed="${sessionFilter === 'twilight' ? 'true' : 'false'}">Twilight</button>
+            <span id="bookingSessionsTitle">${escapeHTML(sessionsTitle)}</span>
+            <div class="bk-sessions-tools">
+              <div class="bk-origin-filter" role="group" aria-label="Show day or week sessions">
+                <button type="button" class="bk-origin-btn${sessionScope === 'day' ? ' active' : ''}" data-scope="day" aria-pressed="${sessionScope === 'day' ? 'true' : 'false'}">Day</button>
+                <button type="button" class="bk-origin-btn${sessionScope === 'week' ? ' active' : ''}" data-scope="week" aria-pressed="${sessionScope === 'week' ? 'true' : 'false'}">Week</button>
+              </div>
+              <div class="bk-origin-filter" role="group" aria-label="Filter sessions by origin">
+                <button type="button" class="bk-origin-btn${sessionFilter === 'all' ? ' active' : ''}" data-origin="all" aria-pressed="${sessionFilter === 'all' ? 'true' : 'false'}">All</button>
+                <button type="button" class="bk-origin-btn${sessionFilter === 'od' ? ' active' : ''}" data-origin="od" aria-pressed="${sessionFilter === 'od' ? 'true' : 'false'}">OD</button>
+                <button type="button" class="bk-origin-btn${sessionFilter === 'twilight' ? ' active' : ''}" data-origin="twilight" aria-pressed="${sessionFilter === 'twilight' ? 'true' : 'false'}">Twilight</button>
+              </div>
             </div>
           </div>
           <div class="bk-session-list">${sessionCards}</div>
@@ -22486,13 +22786,7 @@ function bindBookingDashboardEvents() {
     });
   });
 
-  body.querySelectorAll('.bk-day-pill, .bk-month-cell').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!btn.dataset.date) return;
-      adminState.calAnchor = btn.dataset.date;
-      renderAssignment();
-    });
-  });
+  bindBookingDateButtons(body);
 
   const search = document.getElementById('bookingSearch');
   if (search) {
@@ -22564,24 +22858,24 @@ function bindBookingDashboardEvents() {
     });
   }
 
-  body.querySelectorAll('.bk-origin-btn').forEach(btn => {
+  body.querySelectorAll('.bk-origin-btn[data-scope]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.scope === 'day' ? 'day' : 'week';
+      if (bookingSessionScopeValue() === next) return;
+      adminState.bookingSessionScope = next;
+      refreshBookingSessions({ animate: true, force: true });
+    });
+  });
+
+  body.querySelectorAll('.bk-origin-btn[data-origin]').forEach(btn => {
     btn.addEventListener('click', () => {
       const next = btn.dataset.origin;
       adminState.bookingSessionFilter = (next === 'od' || next === 'twilight') ? next : 'all';
-      refreshBookingSessions();
+      refreshBookingSessions({ animate: true, force: true });
     });
   });
 
-  body.querySelectorAll('.bk-team-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const teamId = parseInt(card.dataset.teamId, 10);
-      const wasSelected = String(adminState._selectedTeam) === String(teamId);
-      adminState._selectedTeam = wasSelected ? null : teamId;
-      adminState.calTeamFilter = wasSelected ? null : teamId;
-      renderAssignment();
-    });
-  });
-
+  bindBookingTeamCards(body);
   bindBookingSessionCards(body);
 
   const bookBtn = document.getElementById('bookingBookBtn');
@@ -24446,7 +24740,13 @@ function bindAssignmentEvents() {
   if (prev) prev.addEventListener('click', () => navCalendar(-1));
   if (next) next.addEventListener('click', () => navCalendar(1));
   if (today) today.addEventListener('click', () => {
-    adminState.calAnchor = ymd(new Date());
+    const dateStr = ymd(new Date());
+    if (typeof isBookingOpen === 'function' && isBookingOpen()
+        && typeof bookingSetSelectedDate === 'function') {
+      bookingSetSelectedDate(dateStr, { filterToDay: true });
+      return;
+    }
+    adminState.calAnchor = dateStr;
     renderAssignment();
   });
 
@@ -24821,6 +25121,11 @@ function navCalendar(delta) {
     next = addDays(anchor, delta);
   }
   adminState.calAnchor = ymd(next);
+  if (typeof isBookingOpen === 'function' && isBookingOpen()
+      && typeof syncBookingDashboardFromState === 'function'
+      && syncBookingDashboardFromState({ animate: false })) {
+    return;
+  }
   renderAssignment();
 }
 
