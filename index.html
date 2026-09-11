@@ -12435,8 +12435,9 @@ button.perf-stat-chip.scheduled.active {
   gap: 22px;
   align-items: stretch;
   min-height: 0;
-  height: clamp(240px, calc(100vh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 12px), 580px);
-  height: clamp(240px, calc(100dvh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 12px), 580px);
+  container-type: size;
+  height: clamp(240px, calc(100vh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 8px), 580px);
+  height: clamp(240px, calc(100dvh - var(--ov-helios-measured-top, var(--ov-helios-chrome)) - 8px), 580px);
 }
 .ov-metrics-pane.ov-stats {
   display: grid;
@@ -12461,16 +12462,16 @@ button.perf-stat-chip.scheduled.active {
 .ov-helios-row .ov-stat-value { font-size: clamp(24px, 3.2vh, 36px); }
 .ov-helios-row .ov-stat-label { padding-top: 2px; }
 .ov-helios-row .ov-solar-orb {
-  width: clamp(56px, 14vh, 148px);
-  height: clamp(56px, 14vh, 148px);
+  width: clamp(48px, 30cqh, 148px);
+  height: clamp(48px, 30cqh, 148px);
 }
-.ov-helios-row .ov-viz-value { font-size: clamp(36px, 7vh, 80px); }
-.ov-helios-row .ov-viz-label { margin-bottom: clamp(4px, 1.2vh, 12px); }
-.ov-helios-row .ov-viz-time { margin-top: clamp(6px, 1.6vh, 16px); }
+.ov-helios-row .ov-viz-value { font-size: clamp(32px, 16cqh, 80px); }
+.ov-helios-row .ov-viz-label { margin-bottom: clamp(2px, 2.2cqh, 12px); }
+.ov-helios-row .ov-viz-time { margin-top: clamp(4px, 2.8cqh, 16px); }
 .ov-viz-stage {
   min-height: 0;
   height: 100%;
-  padding: clamp(10px, 2vh, 22px);
+  padding: clamp(8px, 4cqh, 22px);
   border-radius: 40px;
   background: var(--bg);
   box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light);
@@ -12486,7 +12487,7 @@ button.perf-stat-chip.scheduled.active {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  padding: clamp(12px, 3.2vh, 36px) clamp(16px, 2vw, 24px) clamp(10px, 2.4vh, 28px);
+  padding: clamp(8px, 6cqh, 36px) clamp(16px, 2vw, 24px) clamp(8px, 5cqh, 28px);
   background: var(--well-bg, var(--bg3));
   box-shadow: inset 8px 8px 16px var(--neu-dark), inset -8px -8px 16px var(--neu-light);
   transition: transform 0.12s ease-out, background 1.2s ease, box-shadow 1.2s ease;
@@ -12921,7 +12922,15 @@ button.perf-stat-chip.scheduled.active {
     align-items: start;
     height: auto;
     min-height: 0;
+    container-type: normal;
   }
+  .ov-helios-row .ov-solar-orb {
+    width: clamp(72px, 16vh, 148px);
+    height: clamp(72px, 16vh, 148px);
+  }
+  .ov-helios-row .ov-viz-value { font-size: clamp(40px, 7vh, 80px); }
+  .ov-helios-row .ov-viz-label { margin-bottom: 12px; }
+  .ov-helios-row .ov-viz-time { margin-top: 16px; }
   .ov-metrics-pane.ov-stats {
     height: auto;
     min-height: 0;
@@ -12934,10 +12943,15 @@ button.perf-stat-chip.scheduled.active {
   #adminApp .ov-helios-row .ov-stat-tile { height: auto; }
   .ov-viz-stage {
     height: auto;
+    padding: 18px;
     min-height: min(380px, 55vh);
     min-height: min(380px, 55dvh);
   }
-  .ov-viz-well { min-height: min(336px, 50vh); min-height: min(336px, 50dvh); }
+  .ov-viz-well {
+    min-height: min(336px, 50vh);
+    min-height: min(336px, 50dvh);
+    padding: 28px 24px 22px;
+  }
 }
 @media (max-width: 540px) {
   .ov-metrics-pane.ov-stats,
