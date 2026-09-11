@@ -4102,6 +4102,8 @@ function stationActionsHTML(station, data) {
   const calGuideOk = (typeof isCalGuideAcknowledged === 'function') ? isCalGuideAcknowledged() : true;
   const approvalBlocked = (typeof stationApprovalBlocksAdvance === 'function')
     && stationApprovalBlocksAdvance(station.key);
+  const calsReady = !approvalBlocked
+    || (typeof calibrationComplete === 'function' && calibrationComplete(station.key));
   const submitDisabled = locked || unresolved > 0 || !calGuideOk || approvalBlocked;
 
   const idx = STATIONS.findIndex(s => s.key === station.key);
@@ -4112,11 +4114,13 @@ function stationActionsHTML(station, data) {
     ? 'Session locked'
     : (!calGuideOk
       ? 'Acknowledge the calibration guide first'
-      : (approvalBlocked
-        ? 'Waiting for reviewer approval'
-        : (partialMissingNotes > 0 || skipMissingNotes > 0
-          ? 'Add notes to Partial and Skipped scenarios first'
-          : (unresolved > 0 ? 'Finish all scenarios first' : ''))));
+      : (approvalBlocked && !calsReady
+        ? 'Finish calibration first'
+        : (approvalBlocked
+          ? 'Waiting for reviewer approval'
+          : (partialMissingNotes > 0 || skipMissingNotes > 0
+            ? 'Add notes to Partial and Skipped scenarios first'
+            : (unresolved > 0 ? 'Finish all scenarios first' : '')))));
   const reminder = submitDisabled && submitReason
     ? `<div class="actions-reminder" role="status">${escapeHTML(submitReason)}</div>`
     : '';
