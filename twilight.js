@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126i';
-const APP_UPDATED_AT = '09/11/2026 18:05';
+const APP_VERSION = '1.3.091126j';
+const APP_UPDATED_AT = '09/11/2026 21:05';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10616,6 +10616,32 @@ function setOverviewTileFoot(kind, text) {
   if (el) el.textContent = text || '';
 }
 
+function syncOverviewHeliosFit() {
+  const row = document.querySelector('#adminApp .ov-helios-row');
+  if (!row) return;
+  if (window.matchMedia('(max-width: 1100px)').matches) {
+    row.style.removeProperty('--ov-helios-measured-top');
+    return;
+  }
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  const top = Math.max(0, Math.round(row.getBoundingClientRect().top + scrollY));
+  row.style.setProperty('--ov-helios-measured-top', top + 'px');
+}
+
+function bindOverviewHeliosFit() {
+  const apply = () => {
+    syncOverviewHeliosFit();
+    requestAnimationFrame(syncOverviewHeliosFit);
+  };
+  apply();
+  if (window._ovHeliosFitBound) return;
+  window._ovHeliosFitBound = true;
+  window.addEventListener('resize', apply, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', apply, { passive: true });
+  }
+}
+
 function renderOverview(body) {
   // Lazy-load missing data so the dashboard works even when the admin opens
   // Overview as their first action.
@@ -10729,6 +10755,10 @@ function renderOverview(body) {
         if (nowOpen) localStorage.setItem('orbit_ov_filter_open', '1');
         else localStorage.removeItem('orbit_ov_filter_open');
       } catch (_) {}
+      if (typeof syncOverviewHeliosFit === 'function') {
+        syncOverviewHeliosFit();
+        setTimeout(syncOverviewHeliosFit, 420);
+      }
     });
   }
   body.querySelectorAll('[data-ov-scope]').forEach(btn => {
@@ -10798,6 +10828,7 @@ function renderOverview(body) {
   updateOverviewMetrics();
   startOverviewHeliosClock();
   bindOverviewVizTilt(body);
+  bindOverviewHeliosFit();
 }
 
 // Refresh the moderator dropdown options based on the current team filter
@@ -11972,10 +12003,16 @@ function showApprovalIncomingBanner(n) {
     hideApprovalIncomingBanner();
     if (typeof renderAdmin === 'function') renderAdmin();
   });
+  if (typeof syncOverviewHeliosFit === 'function') {
+    requestAnimationFrame(syncOverviewHeliosFit);
+  }
 }
 function hideApprovalIncomingBanner() {
   const b = document.getElementById('apprIncomingBanner');
   if (b) b.remove();
+  if (typeof syncOverviewHeliosFit === 'function') {
+    requestAnimationFrame(syncOverviewHeliosFit);
+  }
 }
 
 function renderAdminTabBody(opts) {
