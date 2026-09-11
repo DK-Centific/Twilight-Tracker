@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126l';
-const APP_UPDATED_AT = '09/11/2026 21:30';
+const APP_VERSION = '1.3.091126m';
+const APP_UPDATED_AT = '09/11/2026 21:35';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10617,7 +10617,6 @@ function applyOverviewHeliosPhase(phase) {
   const orb = document.getElementById('ovSolarOrb');
   const sky = document.getElementById('ovVizSky');
   const name = (phase === 'sunset' || phase === 'night') ? phase : 'day';
-  const wx = _ovWxKind ? (' · ' + heliosWeatherWord(_ovWxKind)) : '';
   if (well) {
     well.classList.toggle('is-day', name === 'day');
     well.classList.toggle('is-sunset', name === 'sunset');
@@ -10629,13 +10628,9 @@ function applyOverviewHeliosPhase(phase) {
     orb.classList.toggle('is-sun', name === 'day');
     orb.classList.toggle('is-sunset', name === 'sunset');
     orb.classList.toggle('is-moon', name === 'night');
-    if (name === 'night' && _ovWxKind) {
-      orb.title = 'Night' + wx;
-    } else {
-      orb.title = name === 'day'
-        ? 'Sun · daytime' + wx
-        : (name === 'sunset' ? 'Sun · sunset' + wx : 'Moon · night');
-    }
+    orb.title = name === 'day'
+      ? 'Sun · daytime'
+      : (name === 'sunset' ? 'Sun · sunset' : 'Moon · night');
   }
   if (_ovWxKind) applyOverviewHeliosWeather(_ovWxKind);
 }
