@@ -2515,6 +2515,30 @@ a.icon-btn:focus-visible {
   display: flex; align-items: center; gap: 8px;
 }
 .bk-week-nav .bk-day-row { flex: 1; min-width: 0; }
+.bk-date-stack { min-width: 0; }
+.bk-date-pane {
+  display: grid;
+  grid-template-rows: 0fr;
+}
+.bk-dash-grid.is-week .bk-date-pane.is-week,
+.bk-dash-grid.is-month .bk-date-pane.is-month {
+  grid-template-rows: 1fr;
+}
+.bk-date-pane-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.bk-date-pane-inner > * {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+.bk-dash-grid.is-week .bk-date-pane.is-week .bk-date-pane-inner > *,
+.bk-dash-grid.is-month .bk-date-pane.is-month .bk-date-pane-inner > * {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
 .bk-month-nav {
   justify-content: space-between;
   margin-bottom: 10px;
@@ -2564,6 +2588,7 @@ a.icon-btn:focus-visible {
   color: var(--text);
   font-size: 13px; font-weight: 600;
   cursor: pointer;
+  transition: var(--bk-ms) var(--bk-ease);
 }
 .bk-month-cell.other { opacity: 0.35; }
 .bk-month-cell.today { color: var(--bk-accent); }
@@ -2598,6 +2623,10 @@ a.icon-btn:focus-visible {
   cursor: pointer;
   text-align: left;
   box-shadow: 4px 4px 10px var(--neu-dark), -4px -4px 10px var(--neu-light);
+}
+@keyframes bk-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 .bk-session-time {
   font-size: 12px; font-weight: 700;
@@ -2670,14 +2699,42 @@ a.icon-btn:focus-visible {
   cursor: pointer;
   padding: 0;
 }
+.bk-assign:not(.is-collapsible) .bk-assign-toggle {
+  pointer-events: none;
+  cursor: default;
+}
 .bk-assign-chevron {
   flex-shrink: 0;
+  width: 14px;
   color: var(--bk-text3);
-  transition: transform var(--bk-ms) var(--bk-ease);
+  overflow: hidden;
+  transition: transform var(--bk-ms) var(--bk-ease),
+              opacity var(--bk-ms) var(--bk-ease),
+              width var(--bk-ms) var(--bk-ease);
 }
 .bk-assign.is-open .bk-assign-chevron { transform: rotate(180deg); }
-.bk-assign-panel { min-width: 0; }
-.bk-assign-panel[hidden] { display: none !important; }
+.bk-assign:not(.is-collapsible) .bk-assign-chevron {
+  width: 0;
+  opacity: 0;
+}
+.bk-assign-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-width: 0;
+}
+.bk-assign.is-open .bk-assign-panel { grid-template-rows: 1fr; }
+.bk-assign-panel-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+.bk-assign-panel-inner .bk-team-list {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.bk-assign.is-open .bk-assign-panel-inner .bk-team-list {
+  opacity: 1;
+  transform: none;
+}
 .bk-right { min-width: 0; }
 .bk-slot-col { min-width: 0; }
 .bk-sessions {
@@ -2789,7 +2846,19 @@ a.icon-btn:focus-visible {
   padding: 7px 14px;
   border-radius: 99px;
   box-shadow: 4px 4px 10px var(--bk-neu-dark), -4px -4px 10px var(--bk-neu-light);
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 12rem;
   transition: var(--bk-ms) var(--bk-ease);
+}
+.bk-assign.is-collapsible:not(.is-open) .bk-new-team {
+  opacity: 0;
+  transform: scale(0.92);
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  pointer-events: none;
+  box-shadow: none;
 }
 .bk-new-team:active {
   box-shadow: var(--bk-press-inset);
@@ -2935,6 +3004,31 @@ a.icon-btn:focus-visible {
   .bk-dash-grid.is-assign-open .bk-right { display: contents; }
   .bk-dash-grid.is-assign-open .bk-sessions { grid-column: 1 / -1; }
 }
+.bk-motion-on .bk-date-pane {
+  transition: grid-template-rows var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-date-pane-inner > * {
+  transition: opacity var(--bk-ms) var(--bk-ease), transform var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-assign-panel {
+  transition: grid-template-rows var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-assign-panel-inner .bk-team-list {
+  transition: opacity var(--bk-ms) var(--bk-ease), transform var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-assign-head {
+  transition: margin-bottom var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-sessions {
+  transition: margin-top var(--bk-ms) var(--bk-ease);
+}
+.bk-motion-on .bk-session-card {
+  animation: bk-rise 0.45s var(--bk-ease) both;
+}
+.bk-motion-on .bk-session-card:nth-child(2) { animation-delay: 0.04s; }
+.bk-motion-on .bk-session-card:nth-child(3) { animation-delay: 0.08s; }
+.bk-motion-on .bk-session-card:nth-child(4) { animation-delay: 0.12s; }
+.bk-motion-on .bk-session-card:nth-child(n+5) { animation-delay: 0.16s; }
 .helios-rail .rail-booking-btn[aria-expanded="true"],
 .helios-bottombar .rail-booking-btn[aria-expanded="true"] {
   color: var(--accent-ink);
@@ -2957,6 +3051,7 @@ body.booking-open #panicFab,
   .booking-page,
   .bk-view-btn,
   .bk-day-pill,
+  .bk-month-cell,
   .bk-date-nav,
   .bk-new-team,
   .bk-team-card,
@@ -2964,10 +3059,17 @@ body.booking-open #panicFab,
   .bk-tool,
   .bk-today,
   .bk-assign-chevron,
-  .bk-origin-btn {
+  .bk-origin-btn,
+  .bk-date-pane,
+  .bk-date-pane-inner > *,
+  .bk-assign-panel,
+  .bk-assign-panel-inner .bk-team-list,
+  .bk-assign-head,
+  .bk-sessions {
     transition: none !important;
   }
-  .bk-optimal-dot { animation: none !important; }
+  .bk-optimal-dot,
+  .bk-session-card { animation: none !important; }
 }
 #bookingPage .asgn-modal {
   background: var(--bg) !important;

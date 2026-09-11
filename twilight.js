@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126c';
-const APP_UPDATED_AT = '09/11/2026 16:25';
+const APP_VERSION = '1.3.091126d';
+const APP_UPDATED_AT = '09/11/2026 16:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -22130,11 +22130,133 @@ function renderBookingSuggestHTML(query) {
   return `<div class="bk-suggest" id="bookingSuggest">${rows}${useNew}</div>`;
 }
 
+function bookingViewMode() {
+  return (adminState.calView === 'month') ? 'month' : 'week';
+}
+
+function bookingSessionFilterValue() {
+  return (adminState.bookingSessionFilter === 'od' || adminState.bookingSessionFilter === 'twilight')
+    ? adminState.bookingSessionFilter
+    : 'all';
+}
+
+function bookingAssignIsOpen() {
+  return bookingViewMode() === 'month' || !!adminState.bookingAssignOpen;
+}
+
+function bookingPrefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyBookingMotionChrome() {
+  const grid = document.querySelector('#bookingSubtabBody .bk-dash-grid');
+  const assign = document.querySelector('#bookingSubtabBody .bk-assign');
+  const panel = document.getElementById('bookingAssignPanel');
+  const toggle = document.getElementById('bookingAssignToggle');
+  if (!grid || !assign) return;
+  const view = bookingViewMode();
+  const assignOpen = bookingAssignIsOpen();
+  const collapsible = view === 'week';
+
+  grid.classList.toggle('is-week', view === 'week');
+  grid.classList.toggle('is-month', view === 'month');
+  grid.classList.toggle('is-assign-open', assignOpen);
+  grid.classList.toggle('is-assign-collapsed', !assignOpen);
+
+  assign.classList.toggle('is-open', assignOpen);
+  assign.classList.toggle('is-collapsible', collapsible);
+
+  if (panel) {
+    panel.toggleAttribute('inert', !assignOpen);
+    panel.setAttribute('aria-hidden', assignOpen ? 'false' : 'true');
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', assignOpen ? 'true' : 'false');
+    if (collapsible) toggle.removeAttribute('aria-disabled');
+    else toggle.setAttribute('aria-disabled', 'true');
+  }
+
+  document.querySelectorAll('#bookingSubtabBody .bk-view-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+  document.querySelectorAll('#bookingSubtabBody .bk-date-pane').forEach(pane => {
+    pane.toggleAttribute('inert', pane.dataset.dateView !== view);
+  });
+}
+
+function armBookingMotion() {
+  const dash = document.querySelector('#bookingSubtabBody .bk-dash');
+  if (!dash) return;
+  const enable = () => dash.classList.add('bk-motion-on');
+  if (bookingPrefersReducedMotion()) {
+    enable();
+    return;
+  }
+  requestAnimationFrame(() => requestAnimationFrame(enable));
+}
+
+function renderBookingSessionListHTML(sessions, sessionFilter) {
+  if (!sessions.length) {
+    return `<div class="bk-empty">${
+      sessionFilter === 'od' ? 'No OD sessions this day.'
+      : sessionFilter === 'twilight' ? 'No Twilight sessions this day.'
+      : 'No sessions this day.'
+    }</div>`;
+  }
+  return sessions.slice(0, 8).map(a => {
+    const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
+    const p = a.participantData || {};
+    const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
+    const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
+    const origin = bookingSessionOrigin(a);
+    const originLabel = origin === 'od' ? 'OD' : 'Twilight';
+    return `
+            <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}">
+              <div class="bk-session-time">${escapeHTML(when)}</div>
+              <div class="bk-session-info">
+                <strong>${escapeHTML(name)}</strong>
+                <span>${escapeHTML((team && team.name) || a.teamName || a.status || '')}</span>
+              </div>
+              <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
+            </button>`;
+  }).join('');
+}
+
+function bindBookingSessionCards(root) {
+  const host = root || document.getElementById('bookingSessions');
+  if (!host) return;
+  host.querySelectorAll('.bk-session-card').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.dataset.asgnId && typeof openViewAssignmentModal === 'function') {
+        openViewAssignmentModal(card.dataset.asgnId);
+      }
+    });
+  });
+}
+
+function refreshBookingSessions() {
+  const list = document.querySelector('#bookingSessions .bk-session-list');
+  if (!list) return;
+  const sessionFilter = bookingSessionFilterValue();
+  const sessions = bookingVisibleSessions(ymd(bookingSelectedDate()), sessionFilter);
+  list.innerHTML = renderBookingSessionListHTML(sessions, sessionFilter);
+  bindBookingSessionCards(list);
+  document.querySelectorAll('#bookingSubtabBody .bk-origin-btn').forEach(btn => {
+    const on = btn.dataset.origin === sessionFilter;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
 function renderBookingDashboardHTML() {
   ensureCalAnchor();
   if (adminState.bookingStartMin == null) adminState.bookingStartMin = BOOKING_DEFAULT_START_MIN;
   if (adminState.bookingEndMin == null) adminState.bookingEndMin = BOOKING_DEFAULT_END_MIN;
-  const view = (adminState.calView === 'month') ? 'month' : 'week';
+  const view = bookingViewMode();
   const selected = bookingSelectedDate();
   const selectedStr = ymd(selected);
   const todayStr = ymd(new Date());
@@ -22147,10 +22269,8 @@ function renderBookingDashboardHTML() {
   // Month keeps Assign a team open (current two-column + sessions-below
   // layout). Collapse is Week-only and starts closed.
   const assignCollapsible = view === 'week';
-  const assignOpen = !assignCollapsible || !!adminState.bookingAssignOpen;
-  const sessionFilter = (adminState.bookingSessionFilter === 'od' || adminState.bookingSessionFilter === 'twilight')
-    ? adminState.bookingSessionFilter
-    : 'all';
+  const assignOpen = bookingAssignIsOpen();
+  const sessionFilter = bookingSessionFilterValue();
   const sessions = bookingVisibleSessions(selectedStr, sessionFilter);
   const selectedTeam = (adminState.teams || []).find(t => String(t.id) === String(adminState._selectedTeam));
   const searchVal = escapeHTML(adminState.bookingSearch || '');
@@ -22195,32 +22315,7 @@ function renderBookingDashboardHTML() {
             </div>` : ''}
           </button>`;
       }).join('');
-  const sessionEmpty = sessions.length === 0
-    ? `<div class="bk-empty">${
-        sessionFilter === 'od' ? 'No OD sessions this day.'
-        : sessionFilter === 'twilight' ? 'No Twilight sessions this day.'
-        : 'No sessions this day.'
-      }</div>`
-    : '';
-  const sessionCards = sessions.length === 0
-    ? sessionEmpty
-    : sessions.slice(0, 8).map(a => {
-        const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
-        const p = a.participantData || {};
-        const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
-        const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
-        const origin = bookingSessionOrigin(a);
-        const originLabel = origin === 'od' ? 'OD' : 'Twilight';
-        return `
-            <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}">
-              <div class="bk-session-time">${escapeHTML(when)}</div>
-              <div class="bk-session-info">
-                <strong>${escapeHTML(name)}</strong>
-                <span>${escapeHTML((team && team.name) || a.teamName || a.status || '')}</span>
-              </div>
-              <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
-            </button>`;
-      }).join('');
+  const sessionCards = renderBookingSessionListHTML(sessions, sessionFilter);
   const dockText = selectedTeam
     ? `${selectedTeam.name} · ${selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
     : 'Pick a team to book';
@@ -22246,20 +22341,27 @@ function renderBookingDashboardHTML() {
             <span class="bk-date-month">${escapeHTML(dateMonth)}</span>
           </h1>
           <button type="button" class="bk-today${selectedStr === todayStr ? ' is-current' : ''}" id="calToday">Today</button>
-          ${view === 'month' ? `
-            <div class="bk-month-nav">
-              <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous month">‹</button>
-              <span>${escapeHTML(selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</span>
-              <button type="button" class="bk-date-nav" id="calNext" aria-label="Next month">›</button>
+          <div class="bk-date-stack">
+            <div class="bk-date-pane is-week" data-date-view="week"${view === 'week' ? '' : ' inert'}>
+              <div class="bk-date-pane-inner">
+                <div class="bk-week-nav">
+                  <button type="button" class="bk-date-nav" data-cal-nav="-1" aria-label="Previous week">‹</button>
+                  <div class="bk-day-row">${dayPills}</div>
+                  <button type="button" class="bk-date-nav" data-cal-nav="1" aria-label="Next week">›</button>
+                </div>
+              </div>
             </div>
-            ${renderBookingMonthGridHTML(selected)}
-          ` : `
-            <div class="bk-week-nav">
-              <button type="button" class="bk-date-nav" id="calPrev" aria-label="Previous week">‹</button>
-              <div class="bk-day-row">${dayPills}</div>
-              <button type="button" class="bk-date-nav" id="calNext" aria-label="Next week">›</button>
+            <div class="bk-date-pane is-month" data-date-view="month"${view === 'month' ? '' : ' inert'}>
+              <div class="bk-date-pane-inner">
+                <div class="bk-month-nav">
+                  <button type="button" class="bk-date-nav" data-cal-nav="-1" aria-label="Previous month">‹</button>
+                  <span>${escapeHTML(selected.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }))}</span>
+                  <button type="button" class="bk-date-nav" data-cal-nav="1" aria-label="Next month">›</button>
+                </div>
+                ${renderBookingMonthGridHTML(selected)}
+              </div>
             </div>
-          `}
+          </div>
         </section>
         <div class="bk-right">
         <div class="bk-slot-col">
@@ -22282,21 +22384,18 @@ function renderBookingDashboardHTML() {
           </div>
           <div class="bk-assign${assignOpen ? ' is-open' : ''}${assignCollapsible ? ' is-collapsible' : ''}">
             <div class="bk-section bk-assign-head">
-              ${assignCollapsible ? `
-              <button type="button" class="bk-assign-toggle" id="bookingAssignToggle" aria-expanded="${assignOpen ? 'true' : 'false'}" aria-controls="bookingAssignPanel">
+              <button type="button" class="bk-assign-toggle" id="bookingAssignToggle" aria-expanded="${assignOpen ? 'true' : 'false'}" aria-controls="bookingAssignPanel"${assignCollapsible ? '' : ' aria-disabled="true"'}>
                 <svg class="bk-assign-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
                   <path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
                 Assign a team
               </button>
-              ${assignOpen ? `<button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>` : ''}
-              ` : `
-              <span>Assign a team</span>
               <button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>
-              `}
             </div>
-            <div class="bk-assign-panel" id="bookingAssignPanel" ${assignOpen ? '' : 'hidden'}>
-              <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
+            <div class="bk-assign-panel" id="bookingAssignPanel" role="region" aria-label="Team list"${assignOpen ? '' : ' inert aria-hidden="true"'}>
+              <div class="bk-assign-panel-inner">
+                <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -22368,11 +22467,22 @@ function bindBookingSuggestEvents() {
 function bindBookingDashboardEvents() {
   const body = document.getElementById('bookingSubtabBody');
   if (!body || typeof isBookingOpen !== 'function' || !isBookingOpen()) return;
+  armBookingMotion();
 
   body.querySelectorAll('.bk-view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      adminState.calView = btn.dataset.view === 'month' ? 'month' : 'week';
-      renderAssignment();
+      const next = btn.dataset.view === 'month' ? 'month' : 'week';
+      if (bookingViewMode() === next) return;
+      adminState.calView = next;
+      applyBookingMotionChrome();
+    });
+  });
+
+  body.querySelectorAll('[data-cal-nav]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const delta = Number(btn.dataset.calNav);
+      if (!delta) return;
+      navCalendar(delta);
     });
   });
 
@@ -22448,9 +22558,9 @@ function bindBookingDashboardEvents() {
   const assignToggle = document.getElementById('bookingAssignToggle');
   if (assignToggle) {
     assignToggle.addEventListener('click', () => {
-      if (adminState.calView === 'month') return;
+      if (bookingViewMode() === 'month') return;
       adminState.bookingAssignOpen = !adminState.bookingAssignOpen;
-      renderAssignment();
+      applyBookingMotionChrome();
     });
   }
 
@@ -22458,7 +22568,7 @@ function bindBookingDashboardEvents() {
     btn.addEventListener('click', () => {
       const next = btn.dataset.origin;
       adminState.bookingSessionFilter = (next === 'od' || next === 'twilight') ? next : 'all';
-      renderAssignment();
+      refreshBookingSessions();
     });
   });
 
@@ -22472,13 +22582,7 @@ function bindBookingDashboardEvents() {
     });
   });
 
-  body.querySelectorAll('.bk-session-card').forEach(card => {
-    card.addEventListener('click', () => {
-      if (card.dataset.asgnId && typeof openViewAssignmentModal === 'function') {
-        openViewAssignmentModal(card.dataset.asgnId);
-      }
-    });
-  });
+  bindBookingSessionCards(body);
 
   const bookBtn = document.getElementById('bookingBookBtn');
   if (bookBtn) {
