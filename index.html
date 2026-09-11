@@ -5147,11 +5147,12 @@ body:not(:has(.station-accordion.in-station)) .acc-stepper {
    clips cleanly. */
 .ms-drawer.open.ms-anim-done .ms-drawer-body { overflow: visible; }
 .ms-drawer-inner {
-  border: 0.5px solid var(--border);
+  border: none;
   border-radius: var(--rl);
-  background: var(--tile-bg, var(--card-bg));
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  background: var(--bg);
+  box-shadow: 7px 7px 16px var(--neu-dark), -7px -7px 16px var(--neu-light);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   padding: 14px;
 }
 /* Inside the drawer the entry bar lays out as an even 2-column grid: the
@@ -15830,7 +15831,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1" defer></script>
+<script src="twilight.js?v=twilight-1.3.091126h" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -16847,6 +16848,180 @@ body.is-master-admin .master-admin-only { display:flex !important; }
   background: var(--accent) !important;
   color: var(--pill-fg) !important;
   background-image: none !important;
+}
+
+/* ============================================================
+   MODERATOR · Helios surfaces (entry-bar, My Session, login)
+   Residual pre-Helios chrome was the old glass/border/cyan card.
+   These rules raise the same neu language Booking uses.
+   ============================================================ */
+:root {
+  --helios-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --helios-ms: 0.5s;
+}
+
+.login-screen {
+  background: var(--bg) !important;
+}
+.login-card {
+  background: var(--bg) !important;
+  border: none !important;
+  box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light) !important;
+  animation: fadeUp var(--helios-ms) var(--helios-ease);
+}
+.login-mark {
+  filter: none;
+  animation: logoFloat 4s var(--helios-ease) infinite;
+}
+.login-field input {
+  background: var(--well-bg) !important;
+  border: none !important;
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
+}
+
+#app .entry-bar,
+#app .ms-drawer-inner,
+#app .assigned-tile,
+#app .no-assignment-tile,
+#app .my-session-section {
+  background: var(--bg) !important;
+  border: none !important;
+  box-shadow: 7px 7px 16px var(--neu-dark), -7px -7px 16px var(--neu-light);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+#app .entry-bar {
+  border-radius: var(--rl);
+  padding: 16px 18px;
+}
+#app .assigned-tile::before {
+  background: linear-gradient(90deg, var(--accent), transparent 80%);
+  opacity: 0.55;
+}
+#app .no-assignment-tile {
+  box-shadow: inset 4px 4px 8px var(--neu-dark), inset -4px -4px 8px var(--neu-light);
+}
+#app .ms-drawer-inner {
+  border-radius: var(--rl);
+  padding: 16px;
+}
+#app .ms-drawer-inner .entry-bar {
+  box-shadow: none !important;
+  padding: 0;
+  margin: 0;
+  background: transparent !important;
+}
+#app .entry-divider {
+  background: var(--border-strong);
+}
+#app .entry-arrived-btn,
+#app .entry-lakitu-btn,
+#app .entry-lakitu-none {
+  background: var(--bg) !important;
+  border: none !important;
+  box-shadow: 4px 4px 9px var(--neu-dark), -4px -4px 9px var(--neu-light);
+}
+#app .entry-lakitu-none {
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+}
+
+#loginWelcomeModal.teammate-sync-modal,
+#app .teammate-sync-modal {
+  background: var(--bg) !important;
+  border: none !important;
+  box-shadow: 18px 18px 44px var(--neu-dark), -18px -18px 44px var(--neu-light);
+  transition: opacity var(--helios-ms) var(--helios-ease),
+              transform var(--helios-ms) var(--helios-ease);
+}
+.teammate-sync-overlay {
+  transition: opacity var(--helios-ms) var(--helios-ease);
+}
+#loginWelcomeModal .teammate-sync-modal-icon,
+#app .teammate-sync-modal-icon {
+  background: var(--bg) !important;
+  box-shadow: 5px 5px 10px var(--neu-dark), -5px -5px 10px var(--neu-light);
+  color: var(--accent);
+}
+#loginWelcomeModal .login-welcome-summary {
+  background: var(--well-bg) !important;
+  border: none !important;
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+}
+
+.ms-drawer {
+  transition: grid-template-rows var(--helios-ms) var(--helios-ease);
+}
+.chip-chevron {
+  transition: transform var(--helios-ms) var(--helios-ease);
+}
+
+@media (max-width: 760px) {
+  #mySessionDrawer {
+    scroll-margin-top: 72px;
+  }
+  #app .entry-bar {
+    gap: 10px 12px;
+    padding: 14px 14px;
+  }
+  #app .ms-drawer-inner .entry-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px 12px;
+    padding: 0;
+  }
+  /* Username + session date already live on the chip / My Session tile.
+     Leaving them in the phone drawer parked them under the sticky nav
+     and read as leftover pre-Helios chrome. */
+  #app .ms-drawer-inner .entry-bar > .entry-field:not(.entry-field-wide):not(.entry-field-arrived):not(.entry-field-lakitu) {
+    display: none;
+  }
+  #app .ms-drawer-inner .entry-field,
+  #app .ms-drawer-inner .entry-field-wide,
+  #app .ms-drawer-inner .entry-field-arrived,
+  #app .ms-drawer-inner .entry-field-lakitu {
+    min-width: 0;
+    flex: none;
+  }
+  #app .entry-session-links {
+    flex-wrap: wrap;
+  }
+  #app .assigned-tile,
+  #app .no-assignment-tile {
+    padding: 14px 14px 12px;
+  }
+  #loginWelcomeModal.teammate-sync-modal {
+    width: min(94vw, 420px);
+    padding: 22px 18px 18px;
+  }
+}
+@media (max-width: 400px) {
+  #app .ms-drawer-inner {
+    padding: 14px 12px;
+  }
+  #app .entry-field label,
+  #app .ms-drawer-inner .entry-field label {
+    font-size: 10.5px;
+  }
+  #app .entry-arrived-btn {
+    width: 100%;
+    justify-content: center;
+    margin: 2px 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card,
+  .login-mark,
+  .ms-drawer,
+  .chip-chevron,
+  .teammate-sync-overlay,
+  #loginWelcomeModal.teammate-sync-modal,
+  #app .teammate-sync-modal,
+  #app .entry-arrived-btn,
+  #app .entry-lakitu-btn {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 </style>
 
