@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126o';
-const APP_UPDATED_AT = '09/11/2026 21:45';
+const APP_VERSION = '1.3.091126p';
+const APP_UPDATED_AT = '09/11/2026 21:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10844,7 +10844,7 @@ function setOverviewTileFoot(kind, text) {
 function syncOverviewHeliosFit() {
   const row = document.querySelector('#adminApp .ov-helios-row');
   if (!row) return;
-  if (window.matchMedia('(max-width: 1100px)').matches) {
+  if (window.matchMedia('(max-width: 760px)').matches) {
     row.style.removeProperty('--ov-helios-measured-top');
     return;
   }
