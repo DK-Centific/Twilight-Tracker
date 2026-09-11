@@ -10689,7 +10689,7 @@ async function fetchHeliosHqForecast(force) {
         + '&temperature_unit=fahrenheit'
         + '&timezone=America%2FLos_Angeles'
         + '&forecast_days=16'
-        + '&past_days=7';
+        + '&past_days=31';
       const res = await fetch(url);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
