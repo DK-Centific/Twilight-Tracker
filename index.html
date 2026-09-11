@@ -12463,7 +12463,7 @@ button.perf-stat-chip.scheduled.active {
 }
 .ov-metrics-pane.ov-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   grid-template-rows: 1fr 1fr;
   align-content: stretch;
   align-items: stretch;
@@ -12473,6 +12473,7 @@ button.perf-stat-chip.scheduled.active {
   width: 100%;
 }
 .ov-helios-row .ov-stat-tile {
+  min-width: 0;
   min-height: 0;
   height: 100%;
   padding: clamp(10px, 1.5vh, 16px) 16px clamp(8px, 1.2vh, 14px);
@@ -16925,6 +16926,7 @@ body.is-master-admin .master-admin-only { display:flex !important; }
   transition: transform 0.28s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.28s ease;
 }
 #adminApp .ov-helios-row .ov-stat-tile {
+  min-width: 0;
   min-height: 0;
   height: 100%;
   padding: clamp(10px, 1.5vh, 16px) 16px clamp(8px, 1.2vh, 14px);
