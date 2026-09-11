@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126e';
-const APP_UPDATED_AT = '09/11/2026 17:25';
+const APP_VERSION = '1.3.091126f';
+const APP_UPDATED_AT = '09/11/2026 17:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -19236,6 +19236,13 @@ async function fetchAssignmentsFromPA() {
   };
   if (typeof adminState !== 'undefined') adminState._asgnFetchInfo = info;
 
+  // Kick TeamLog in parallel with the Assignment POST so first paint
+  // is not blocked on two serial PA round-trips.
+  const teamLogPromise = (typeof TEAMLOG_PA_READ_URL !== 'undefined' && TEAMLOG_PA_READ_URL
+      && typeof fetchTeamsFromPA === 'function')
+    ? fetchTeamsFromPA().catch((e) => ({ error: (e && e.message) || String(e), teams: null }))
+    : null;
+
   if (!ASSIGNMENT_PA_READ_URL) {
     info.error = 'No read URL configured';
     return loadAssignmentsWithTeamSessions();
@@ -19475,11 +19482,50 @@ async function fetchAssignmentsFromPA() {
         personalEmail:  r.personalEmail || '',
       });
     }
+    if (r.orbitLoginId || r.centificEmail || r.personalEmail) {
+      g._modHints = g._modHints || [];
+      g._modHints.push({
+        orbitLoginId:   r.orbitLoginId   || '',
+        firstName:      r.firstName      || '',
+        lastName:       r.lastName       || '',
+        phoneNumber:    r.phoneNumber    || '',
+        centificEmail:  r.centificEmail  || '',
+        personalEmail:  r.personalEmail  || '',
+        lastActive:     r.lastActive     || '',
+      });
+    }
   }
 
-  // Strip the internal _latestActive tracking field · it's an implementation
-  // detail of the grouping pass, not part of the assignment shape.
-  for (const g of grouped.values()) delete g._latestActive;
+  // Strip internal grouping fields. If the newest write batch had no
+  // orbitLoginId (common on OD metadata-only rows), rebuild snapshots
+  // from the newest hint cohort that actually names a moderator.
+  for (const g of grouped.values()) {
+    if ((!g.modSnapshots || g.modSnapshots.length === 0) && Array.isArray(g._modHints) && g._modHints.length) {
+      const hints = g._modHints.slice().sort((a, b) =>
+        String(b.lastActive || '').localeCompare(String(a.lastActive || ''))
+      );
+      const topTs = hints[0].lastActive || '';
+      const cohort = topTs ? hints.filter(h => (h.lastActive || '') === topTs) : hints;
+      const seen = new Set();
+      g.modSnapshots = [];
+      for (const h of cohort) {
+        const key = (typeof normalizeOrbitKey === 'function' ? normalizeOrbitKey(h.orbitLoginId) : String(h.orbitLoginId || '').toLowerCase())
+          || (typeof normalizeEmailKey === 'function' ? normalizeEmailKey(h.centificEmail || h.personalEmail) : String(h.centificEmail || h.personalEmail || '').toLowerCase());
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        g.modSnapshots.push({
+          orbitLoginId:  h.orbitLoginId || h.centificEmail || h.personalEmail || '',
+          firstName:     h.firstName || '',
+          lastName:      h.lastName || '',
+          phoneNumber:   h.phoneNumber || '',
+          centificEmail: h.centificEmail || '',
+          personalEmail: h.personalEmail || '',
+        });
+      }
+    }
+    delete g._latestActive;
+    delete g._modHints;
+  }
   const remoteAssignments = [...grouped.values()];
 
   // Reconstruct teams by collecting unique (teamId, teamName, primaryIds[]) tuples
@@ -19794,7 +19840,9 @@ async function fetchAssignmentsFromPA() {
   // until TeamLog catches up.
   if (TEAMLOG_PA_READ_URL) {
     try {
-      const tl = await fetchTeamsFromPA();
+      const tl = teamLogPromise
+        ? await teamLogPromise
+        : await fetchTeamsFromPA();
       if (tl.teams && tl.teams.length > 0) {
         const remoteIds = new Set(tl.teams.map(t => t.id));
         // Apply TeamLog tombstones FIRST · any team id TeamLog marks
@@ -29825,7 +29873,7 @@ function isAnyAsgnModalOpen() {
       '#asgnModalOverlay.open',
       '#recipientChooserModal.open',
       '#bulkResendModal.open',
-      '.teammate-sync-modal.open',
+      '.teammate-sync-modal.open:not(#loginWelcomeModal)',
       '.cal-drill-modal.open',
       '#calGuideModal.open',
       '#modUserModal.open',
@@ -33491,6 +33539,45 @@ const MOD_ASGN_STALE_THRESHOLD_MS  = 90_000;    // 90s · visibility refresh
 let _modAsgnFetchPromise = null;                // dedupe in-flight fetch
 let _modAsgnLastFetchAt  = 0;                   // ms epoch of last success
 let _modAsgnRefreshTimer = null;                // setInterval handle
+let _modAsgnNetworkSettled = false;             // first network attempt finished
+
+function beginModAssignmentPrefetch() {
+  try {
+    hydrateLocalAssignmentsIfNeeded();
+  } catch (_) {}
+  if (typeof refreshModAssignments !== 'function') return null;
+  if (window._orbitInitialAsgnRefresh && typeof window._orbitInitialAsgnRefresh.then === 'function') {
+    return window._orbitInitialAsgnRefresh;
+  }
+  const p = refreshModAssignments({ silent: true });
+  window._orbitInitialAsgnRefresh = p;
+  return p;
+}
+
+function assignmentRefreshInFlight() {
+  return !!( _modAsgnFetchPromise && typeof _modAsgnFetchPromise.then === 'function' );
+}
+
+async function waitForModAssignmentHydrate(maxMs) {
+  const p = _modAsgnFetchPromise || window._orbitInitialAsgnRefresh;
+  if (!p || typeof p.then !== 'function') return;
+  await Promise.race([
+    Promise.resolve(p).catch(() => false),
+    new Promise(resolve => setTimeout(resolve, Math.max(0, maxMs || 8000))),
+  ]);
+}
+
+function replaceLoginWelcomeAfterHydrate() {
+  const w = (typeof determineWelcomeState === 'function') ? determineWelcomeState() : null;
+  if (!w || (w.kind !== 'next_session' && w.kind !== 'today_completed')) return;
+  const overlay = document.getElementById('loginWelcomeOverlay');
+  const modal = document.getElementById('loginWelcomeModal');
+  if (overlay || modal) {
+    try { if (overlay) overlay.remove(); } catch (_) {}
+    try { if (modal) modal.remove(); } catch (_) {}
+  }
+  try { checkLoginWelcome(); } catch (_) {}
+}
 
 // Fetch assignments from cloud and re-render any visible mod UI that
 // depends on them. Re-uses fetchAssignmentsFromPA() (the same function
@@ -33530,13 +33617,19 @@ async function refreshModAssignments(opts) {
       // operator's data on adminState/state is already updated; only
       // the painted UI is delayed by at most a couple of seconds.
       try {
+        const loginVisible = typeof isLoginScreenVisible === 'function' && isLoginScreenVisible();
+        const welcomeOpen = !!(document.getElementById('loginWelcomeOverlay') || document.getElementById('loginWelcomeModal'));
         const modalOpen = (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen());
-        if (modalOpen) {
+        if (loginVisible) {
+          // Profile/app not painted yet · data is already on adminState.
+        } else if (modalOpen && !welcomeOpen) {
           console.log('[Twilight] Mod refresh landed during open modal · skipping page render');
         } else {
           applyAssignmentToEntryFields();
+          if (typeof renderMySessionSection === 'function') renderMySessionSection();
           if (typeof renderApp === 'function') renderApp();
         }
+        if (welcomeOpen) replaceLoginWelcomeAfterHydrate();
         // The mod calendar's body is safe to re-render even if other
         // modals are open · it lives inside its own overlay and reads
         // fresh data directly. Skipping its update would leave it stale.
@@ -33553,6 +33646,7 @@ async function refreshModAssignments(opts) {
       console.warn('[Twilight] mod-asgn refresh failed:', e && e.message);
       return false;
     } finally {
+      _modAsgnNetworkSettled = true;
       _modAsgnFetchPromise = null;
     }
   })();
@@ -33602,31 +33696,21 @@ function stopModAssignmentRefresh() {
 
 function getOperatorAssignments() {
   if (!state.modProfile || !state.modProfile.orbitLoginId) return [];
-  if (!adminState._asgnLoaded) {
-    const stored = loadAssignmentData();
-    adminState.teams = stored.teams;
-    adminState.assignments = stored.assignments;
-    adminState._asgnLoaded = true;
-  }
+  hydrateLocalAssignmentsIfNeeded();
   if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
-  const myId = String(state.modProfile.orbitLoginId).toLowerCase();
-  // MULTI-TEAM VISIBILITY FIX (1.3.061526):
-  // A booking is "mine" if EITHER (a) my orbitLoginId is in its modSnapshots
-  // (the historical gate) OR (b) the booking's teamId belongs to a team I'm
-  // a member of (primary or backup). The snapshot-only gate silently hid
-  // today's booking from a mod whose id wasn't captured in that booking's
-  // modSnapshots · which happens for multi-team mods when the per-booking
-  // snapshot is incomplete (partial/legacy write, id-format drift between
-  // how the mod was entered on each team, or a roster-reconstruction edge).
-  // The team-ownership clause makes visibility robust: a mod on Team 1 owns
-  // Team 1's bookings regardless of what the per-row snapshot captured.
+  // A booking is "mine" if ANY of:
+  //   (a) my orbitLoginId is on the booking (modSnapshots or row)
+  //   (b) my Masterlist emails match the booking's orbitLoginId / emails
+  //       (OD hourly sync may write email where Twilight writes orbitLoginId)
+  //   (c) the booking's teamId belongs to a team I'm on (primary or backup)
+  const identity = getOperatorIdentity();
+  const emailToOrbit = buildEmailToOrbitLoginMap();
   const myTeamIds = (typeof getOperatorTeams === 'function')
     ? new Set(getOperatorTeams().map(t => String(t.id)))
     : new Set();
-  const mine = (adminState.assignments || []).filter(a => {
-    if ((a.modSnapshots || []).some(s => String(s.orbitLoginId || '').toLowerCase() === myId)) return true;
-    return a.teamId != null && myTeamIds.has(String(a.teamId));
-  });
+  const mine = (adminState.assignments || []).filter(a =>
+    assignmentBelongsToOperator(a, identity, emailToOrbit, myTeamIds)
+  );
   if (mine.length === 0) return [];
 
   // Sort STRICTLY by scheduled time · earliest first, latest last. Past
@@ -33644,23 +33728,16 @@ function getOperatorAssignments() {
 
 function getOperatorAssignment() {
   if (!state.modProfile || !state.modProfile.orbitLoginId) return null;
-  if (!adminState._asgnLoaded) {
-    const stored = loadAssignmentData();
-    adminState.teams = stored.teams;
-    adminState.assignments = stored.assignments;
-    adminState._asgnLoaded = true;
-  }
+  hydrateLocalAssignmentsIfNeeded();
   if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
-  const myId = String(state.modProfile.orbitLoginId).toLowerCase();
-  // Union match · see getOperatorAssignments() for the full rationale.
-  // Snapshot membership OR team ownership.
+  const identity = getOperatorIdentity();
+  const emailToOrbit = buildEmailToOrbitLoginMap();
   const myTeamIds = (typeof getOperatorTeams === 'function')
     ? new Set(getOperatorTeams().map(t => String(t.id)))
     : new Set();
-  const mine = (adminState.assignments || []).filter(a => {
-    if ((a.modSnapshots || []).some(s => String(s.orbitLoginId || '').toLowerCase() === myId)) return true;
-    return a.teamId != null && myTeamIds.has(String(a.teamId));
-  });
+  const mine = (adminState.assignments || []).filter(a =>
+    assignmentBelongsToOperator(a, identity, emailToOrbit, myTeamIds)
+  );
   if (mine.length === 0) return null;
   const todayStr = getPSTDateString();  // PST team-reference day · session dates are scheduled in PST; using local time here surfaced the next day's session when the device tz was ahead of Pacific
   // Skip assignments the operator has ALREADY completed · those should not
@@ -33756,19 +33833,167 @@ function getOperatorTeam() {
 // mod on Team 1 AND Team 2 would only ever resolve to one team. The union
 // match in getOperatorAssignments()/getOperatorAssignment() needs the full
 // set so a booking owned by ANY of the mod's teams counts as theirs.
-function getOperatorTeams() {
-  if (!state.modProfile || !state.modProfile.orbitLoginId) return [];
-  if (!adminState._asgnLoaded) {
-    const stored = loadAssignmentData();
+function normalizeOrbitKey(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function isEmailLike(raw) {
+  const s = String(raw || '').trim();
+  const at = s.indexOf('@');
+  return at > 0 && at < s.length - 1 && !/\s/.test(s);
+}
+
+function normalizeEmailKey(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
+function collectModeratorEmails(src) {
+  if (!src || typeof src !== 'object') return [];
+  const seen = new Set();
+  const out = [];
+  const add = (v) => {
+    const email = normalizeEmailKey(v);
+    if (!email || !isEmailLike(email) || seen.has(email)) return;
+    seen.add(email);
+    out.push(email);
+  };
+  if (typeof pickField === 'function') {
+    add(pickField(src, 'centificEmail', 'centific_email', 'CentificEmail', 'Centific Email', 'workEmail', 'email'));
+    add(pickField(src, 'personalEmail', 'personal_email', 'PersonalEmail', 'Personal Email'));
+  }
+  add(src.centificEmail);
+  add(src.personalEmail);
+  add(src.email);
+  add(src.workEmail);
+  return out;
+}
+
+function buildEmailToOrbitLoginMap() {
+  const map = new Map();
+  const add = (email, orbitId) => {
+    const e = normalizeEmailKey(email);
+    const id = normalizeOrbitKey(orbitId);
+    if (!e || !isEmailLike(e) || !id) return;
+    if (!map.has(e)) map.set(e, id);
+  };
+  const rows = [];
+  try {
+    if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.moderators)) {
+      rows.push(...adminState.moderators);
+    }
+  } catch (_) {}
+  try { if (state && state.modProfile) rows.push(state.modProfile); } catch (_) {}
+  for (const m of rows) {
+    if (!m) continue;
+    const orbitId = (typeof pickField === 'function')
+      ? pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id')
+      : (m.orbitLoginId || m.loginId || m.username || m.id);
+    for (const email of collectModeratorEmails(m)) add(email, orbitId);
+    if (isEmailLike(orbitId)) add(orbitId, orbitId);
+  }
+  return map;
+}
+
+function getOperatorIdentity() {
+  const ids = new Set();
+  const emails = new Set();
+  const addId = (v) => {
+    const k = normalizeOrbitKey(v);
+    if (k) ids.add(k);
+  };
+  const addEmail = (v) => {
+    const e = normalizeEmailKey(v);
+    if (e && isEmailLike(e)) emails.add(e);
+  };
+  const profile = (state && state.modProfile) || null;
+  const username = state && state.username;
+  if (profile) {
+    addId(profile.orbitLoginId);
+    collectModeratorEmails(profile).forEach(addEmail);
+  }
+  addId(username);
+  try {
+    const dir = (typeof getModeratorByOrbitId === 'function')
+      ? getModeratorByOrbitId((profile && profile.orbitLoginId) || username)
+      : null;
+    if (dir) {
+      addId(typeof pickField === 'function'
+        ? pickField(dir, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id')
+        : dir.orbitLoginId);
+      collectModeratorEmails(dir).forEach(addEmail);
+    }
+  } catch (_) {}
+  return { ids, emails };
+}
+
+function snapshotMatchesOperator(snap, identity, emailToOrbit) {
+  if (!snap || !identity) return false;
+  const idRaw = snap.orbitLoginId || snap.orbitId || '';
+  const idKey = normalizeOrbitKey(idRaw);
+  if (idKey && identity.ids.has(idKey)) return true;
+  if (idKey && isEmailLike(idRaw)) {
+    const email = normalizeEmailKey(idRaw);
+    if (identity.emails.has(email)) return true;
+    const mapped = emailToOrbit && emailToOrbit.get(email);
+    if (mapped && identity.ids.has(mapped)) return true;
+  }
+  for (const email of collectModeratorEmails(snap)) {
+    if (identity.emails.has(email)) return true;
+    const mapped = emailToOrbit && emailToOrbit.get(email);
+    if (mapped && identity.ids.has(mapped)) return true;
+  }
+  return false;
+}
+
+function operatorOwnsTeam(team, identity, emailToOrbit) {
+  if (!team) return false;
+  identity = identity || getOperatorIdentity();
+  emailToOrbit = emailToOrbit || buildEmailToOrbitLoginMap();
+  const ids = [
+    ...(team.primaryIds || []),
+    ...((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(team) : (team.backupIds || [])),
+  ];
+  return ids.some(id => snapshotMatchesOperator({ orbitLoginId: id }, identity, emailToOrbit));
+}
+
+function assignmentBelongsToOperator(asgn, identity, emailToOrbit, myTeamIds) {
+  if (!asgn) return false;
+  identity = identity || getOperatorIdentity();
+  emailToOrbit = emailToOrbit || buildEmailToOrbitLoginMap();
+  if ((asgn.modSnapshots || []).some(s => snapshotMatchesOperator(s, identity, emailToOrbit))) return true;
+  if (snapshotMatchesOperator(asgn, identity, emailToOrbit)) return true;
+  if (asgn.teamId != null && myTeamIds && myTeamIds.has(String(asgn.teamId))) return true;
+  return false;
+}
+
+function hydrateLocalAssignmentsIfNeeded() {
+  if (typeof adminState === 'undefined' || !adminState || adminState._asgnLoaded) return;
+  try {
+    const stored = (typeof loadAssignmentData === 'function') ? loadAssignmentData() : { teams: [], assignments: [] };
     adminState.teams = stored.teams;
     adminState.assignments = stored.assignments;
     adminState._asgnLoaded = true;
-  }
-  const myId = String(state.modProfile.orbitLoginId).toLowerCase();
-  return (adminState.teams || []).filter(t => {
-    if ((t.primaryIds || []).some(id => String(id).toLowerCase() === myId)) return true;
-    return getTeamBackupIds(t).some(id => String(id).toLowerCase() === myId);
-  });
+  } catch (_) {}
+}
+
+function getOperatorTeams() {
+  if (!state.modProfile || !state.modProfile.orbitLoginId) return [];
+  hydrateLocalAssignmentsIfNeeded();
+  const identity = getOperatorIdentity();
+  const emailToOrbit = buildEmailToOrbitLoginMap();
+  return (adminState.teams || []).filter(t => operatorOwnsTeam(t, identity, emailToOrbit));
+}
+
+if (typeof window !== 'undefined') {
+  window.__twilightModAsgn = {
+    normalizeOrbitKey,
+    isEmailLike,
+    normalizeEmailKey,
+    collectModeratorEmails,
+    snapshotMatchesOperator,
+    assignmentBelongsToOperator,
+    operatorOwnsTeam,
+  };
 }
 
 // CANONICAL "MY SESSION" CAROUSEL LIST · the single source of truth for what
@@ -36531,9 +36756,11 @@ function startAppAfterLogin() {
   // typically resolves (~600-900ms for a normal PA call) so they get
   // fresh data; if the fetch is slow, they fall back to whatever was
   // in localStorage, which is no worse than the old behavior.
-  const _initialAsgnRefresh = (typeof refreshModAssignments === 'function')
-    ? refreshModAssignments({ silent: true })
-    : Promise.resolve();
+  const _initialAsgnRefresh = (typeof beginModAssignmentPrefetch === 'function')
+    ? beginModAssignmentPrefetch()
+    : ((typeof refreshModAssignments === 'function')
+      ? refreshModAssignments({ silent: true })
+      : Promise.resolve());
   // Check for teammate's session progress on the current assignment.
   // Runs ~1s after paint so the operator sees their app first; the
   // teammate-sync banner appears non-modally if a teammate has progress.
@@ -37537,9 +37764,32 @@ function determineWelcomeState() {
 function checkLoginWelcome() {
   const w = determineWelcomeState();
   if (!w) return;
-  if (w.kind === 'today_completed')  showTodayCompletedModal(w);
-  else if (w.kind === 'next_session') showNextSessionModal(w);
-  else if (w.kind === 'no_session')   showNoSessionModal(w);
+  if (w.kind === 'today_completed')  { showTodayCompletedModal(w); return; }
+  if (w.kind === 'next_session')     { showNextSessionModal(w); return; }
+  if (w.kind === 'no_session') {
+    // Never flash a false empty-booking popup while Assignment is still
+    // hydrating. OD hourly sync lives on the Assignment READ path — wait
+    // for that, then re-check. If a fetch is in flight, stay quiet.
+    if (typeof assignmentRefreshInFlight === 'function' && assignmentRefreshInFlight()) {
+      Promise.resolve(_modAsgnFetchPromise).then(() => {
+        if (document.getElementById('loginWelcomeOverlay') || document.getElementById('loginWelcomeModal')) return;
+        try { checkLoginWelcome(); } catch (_) {}
+      }).catch(() => {
+        try { showNoSessionModal(); } catch (_) {}
+      });
+      return;
+    }
+    if (!_modAsgnNetworkSettled && window._orbitInitialAsgnRefresh) {
+      Promise.resolve(window._orbitInitialAsgnRefresh).then(() => {
+        if (document.getElementById('loginWelcomeOverlay') || document.getElementById('loginWelcomeModal')) return;
+        try { checkLoginWelcome(); } catch (_) {}
+      }).catch(() => {
+        try { showNoSessionModal(); } catch (_) {}
+      });
+      return;
+    }
+    showNoSessionModal();
+  }
 }
 
 // === Variant 1: "Today's session is completed" ===
@@ -37624,10 +37874,19 @@ function showTodayCompletedModal(w) {
 function showNextSessionModal(w) {
   const asgn = w.assignment;
   const part = asgn.participantData || {};
-  const partName = [part.firstName, part.lastName].filter(Boolean).join(' ').trim() || 'TBD';
-  const partAddress = [part.address, part.state, part.zipCode].filter(Boolean).join(', ') || '';
-  const team = (adminState.teams || []).find(t => t.id === asgn.teamId);
-  const teamName = team ? team.name : '';
+  const team = (typeof teamForAssignment === 'function')
+    ? teamForAssignment(asgn)
+    : (adminState.teams || []).find(t => String(t.id) === String(asgn.teamId));
+  const teamName = (team && team.name) || asgn.teamName || '';
+  const isTeamSession = (typeof isTeamSessionAssignment === 'function')
+    ? isTeamSessionAssignment(asgn)
+    : (asgn.source === 'team-session');
+  const partName = isTeamSession
+    ? (teamName || 'Team session')
+    : ([part.firstName, part.lastName].filter(Boolean).join(' ').trim() || 'TBD');
+  const partAddress = isTeamSession
+    ? ((typeof getTeamOfficeAddress === 'function' && team) ? getTeamOfficeAddress(team) : (team && team.teamAddress) || '')
+    : ([part.address, part.state, part.zipCode].filter(Boolean).join(', ') || '');
   // Friendly day label: "today", "tomorrow", or full date
   const todayStr = getPSTDateString();
   // Compute "tomorrow in PST" by parsing today as a YYYY-MM-DD string,
@@ -38013,6 +38272,7 @@ function buildSafeModProfileFromAuth(src) {
   const lName   = pickField(src, 'lastName',  'last_name',  'LastName',  'Last Name');
   const phone   = pickField(src, 'phoneNumber', 'phone_number', 'PhoneNumber', 'Phone Number', 'phone');
   const cEmail  = pickField(src, 'centificEmail', 'centific_email', 'CentificEmail', 'Centific Email', 'workEmail', 'email');
+  const pEmail  = pickField(src, 'personalEmail', 'personal_email', 'PersonalEmail', 'Personal Email');
   const loginRole = pickField(src, 'LoginRole', 'loginRole', 'login_role', 'Login Role', 'LOGINROLE');
   const profile = {
     orbitLoginId: orbitId,
@@ -38020,6 +38280,7 @@ function buildSafeModProfileFromAuth(src) {
     lastName: lName,
     phoneNumber: phone,
     centificEmail: cEmail,
+    personalEmail: pEmail,
   };
   if (loginRole) profile.LoginRole = loginRole;
   profile.name = [fName, lName].filter(Boolean).join(' ').trim() || orbitId;
@@ -38209,14 +38470,24 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
     if (row) {
       const role = directoryLoginRole(row);
       if (role) safe = Object.assign({}, safe, { LoginRole: role });
+      if (!safe.centificEmail) {
+        const c = pickField(row, 'centificEmail', 'centific_email', 'CentificEmail', 'Centific Email', 'workEmail', 'email');
+        if (c) safe.centificEmail = c;
+      }
+      if (!safe.personalEmail) {
+        const p = pickField(row, 'personalEmail', 'personal_email', 'PersonalEmail', 'Personal Email');
+        if (p) safe.personalEmail = p;
+      }
     }
   } catch (_) {}
   try {
-    if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
-    else if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  } catch (_) {
     if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  }
+  } catch (_) {}
+  Promise.resolve().then(async () => {
+    try {
+      if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
+    } catch (_) {}
+  });
   const id = safe.orbitLoginId || orbitId;
   // Directory LoginRole is authoritative. The PA login profile often omits
   // LoginRole, which previously sent every Admin to the moderator app.
@@ -38310,19 +38581,28 @@ async function routeAfterSuccessfulAuth(orbitId, profile) {
     if (!_loginWelcomePending) return;
     _loginWelcomePending = false;
     try {
-      const initial = window._orbitInitialAsgnRefresh;
-      if (initial && typeof initial.then === 'function') {
-        await Promise.race([
-          initial,
-          new Promise(resolve => setTimeout(resolve, 2500)),
-        ]);
+      const cached = (typeof determineWelcomeState === 'function') ? determineWelcomeState() : null;
+      if (cached && (cached.kind === 'next_session' || cached.kind === 'today_completed')) {
+        checkLoginWelcome();
+        return;
+      }
+      if (typeof waitForModAssignmentHydrate === 'function') {
+        await waitForModAssignmentHydrate(8000);
+      } else {
+        const initial = window._orbitInitialAsgnRefresh;
+        if (initial && typeof initial.then === 'function') {
+          await Promise.race([
+            initial,
+            new Promise(resolve => setTimeout(resolve, 8000)),
+          ]);
+        }
       }
       checkLoginWelcome();
     } catch (e) {
       console.warn('[Twilight] Welcome check error:', e && e.message);
       try { checkLoginWelcome(); } catch (_) {}
     }
-  }, 900);
+  }, 200);
 }
 
 async function maybeRerouteFromDirectoryRole() {
@@ -38472,6 +38752,10 @@ async function doLogin() {
         return;
       }
     }
+
+    // Start Assignment READ while password auth is in flight so My Session
+    // can paint from cache + the in-flight hydrate instead of waiting.
+    try { if (typeof beginModAssignmentPrefetch === 'function') beginModAssignmentPrefetch(); } catch (_) {}
 
     const data = await postPasswordAuth({
       operation: 'login',
