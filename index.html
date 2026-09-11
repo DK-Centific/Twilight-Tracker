@@ -2604,9 +2604,90 @@ a.icon-btn:focus-visible {
   color: var(--bk-accent);
   min-width: 92px;
 }
-.bk-session-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bk-session-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.bk-session-info strong,
+.bk-session-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bk-session-info strong { font-size: 14px; font-weight: 600; }
 .bk-session-info span { font-size: 12px; color: var(--text3); }
+.bk-origin-pill {
+  flex-shrink: 0;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 99px;
+  line-height: 1.2;
+}
+.bk-origin-pill.is-od {
+  color: var(--bk-accent);
+  background: var(--bk-accent-soft);
+}
+.bk-origin-pill.is-twilight {
+  color: var(--bk-text2);
+  background: var(--bk-well);
+  box-shadow: inset 2px 2px 4px var(--bk-neu-dark), inset -2px -2px 4px var(--bk-neu-light);
+}
+.bk-origin-filter {
+  display: flex; gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--well-bg, var(--bg3));
+  box-shadow: inset 3px 3px 7px var(--neu-dark), inset -3px -3px 7px var(--neu-light);
+  flex-shrink: 0;
+}
+.bk-origin-btn {
+  padding: 5px 10px;
+  border: none; cursor: pointer;
+  border-radius: 9px;
+  font-family: Inter, var(--font), system-ui, sans-serif;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--bk-text3);
+  transition: var(--bk-ms) var(--bk-ease);
+}
+.bk-origin-btn.active {
+  background: var(--bk-bg);
+  color: var(--bk-accent);
+  box-shadow: 3px 3px 7px var(--neu-dark), -3px -3px 7px var(--neu-light);
+}
+.bk-assign { min-width: 0; }
+.bk-assign-head { margin-bottom: 0; }
+.bk-assign.is-open .bk-assign-head { margin-bottom: 14px; }
+.bk-assign-toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.bk-assign-chevron {
+  flex-shrink: 0;
+  color: var(--bk-text3);
+  transition: transform var(--bk-ms) var(--bk-ease);
+}
+.bk-assign.is-open .bk-assign-chevron { transform: rotate(180deg); }
+.bk-assign-panel { min-width: 0; }
+.bk-assign-panel[hidden] { display: none !important; }
+.bk-right { min-width: 0; }
+.bk-slot-col { min-width: 0; }
+.bk-sessions {
+  min-width: 0;
+  margin-top: 18px;
+}
+.bk-sessions .bk-section {
+  margin-top: 0;
+  flex-wrap: wrap;
+}
 .bk-day-row {
   display: flex;
   justify-content: space-between;
@@ -2841,6 +2922,18 @@ a.icon-btn:focus-visible {
     align-items: start;
   }
   .bk-dash-grid .bk-hero { margin-bottom: 0; }
+  /* Week collapsed: stack sessions under timeslot in the right column
+     so there is no empty gap. Month / Week-expanded: let the right
+     wrapper dissolve so sessions can span full width below both columns. */
+  .bk-dash-grid.is-assign-collapsed .bk-right {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-width: 0;
+  }
+  .bk-dash-grid.is-assign-collapsed .bk-sessions { margin-top: 0; }
+  .bk-dash-grid.is-assign-open .bk-right { display: contents; }
+  .bk-dash-grid.is-assign-open .bk-sessions { grid-column: 1 / -1; }
 }
 .helios-rail .rail-booking-btn[aria-expanded="true"],
 .helios-bottombar .rail-booking-btn[aria-expanded="true"] {
@@ -2869,7 +2962,9 @@ body.booking-open #panicFab,
   .bk-team-card,
   .bk-book-btn,
   .bk-tool,
-  .bk-today {
+  .bk-today,
+  .bk-assign-chevron,
+  .bk-origin-btn {
     transition: none !important;
   }
   .bk-optimal-dot { animation: none !important; }

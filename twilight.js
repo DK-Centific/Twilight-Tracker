@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126a';
-const APP_UPDATED_AT = '09/11/2026 01:45';
+const APP_VERSION = '1.3.091126c';
+const APP_UPDATED_AT = '09/11/2026 16:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6691,6 +6691,8 @@ const adminState = {
   bookingSelectedParticipant: null,
   bookingStartMin: 17 * 60,
   bookingEndMin: 25 * 60,
+  bookingAssignOpen: false,  // Week-only Assign a team disclosure · closed by default
+  bookingSessionFilter: 'all', // Sessions this day · 'all' | 'od' | 'twilight'
   modal: null,               // { kind: 'createTeam' | 'editTeam' | 'createAssignment' | 'viewAssignment', ...payload }
   // Overview dashboard state
   overview: {
@@ -7398,6 +7400,8 @@ function openBookingPage() {
   }
   adminState.bookingStartMin = 17 * 60;
   adminState.bookingEndMin = 25 * 60;
+  adminState.bookingAssignOpen = false;
+  adminState.bookingSessionFilter = 'all';
   parkHubAssignmentModal();
   document.body.classList.add('booking-open');
   const panicFab = document.getElementById('panicFab');
@@ -19353,6 +19357,12 @@ async function fetchAssignmentsFromPA() {
         // accumulate, which then inflates Performance/Overview counts
         // because the booking gets attributed to every historical mod.
         _latestActive: r.lastActive || '',
+        // Display-only OD origin keys for Booking pills. Copied from the
+        // Excel row when present; empty when the booking was created in
+        // Twilight. Does not change the Assignment write payload.
+        ...((typeof bookingOdFieldsFromRecord === 'function')
+          ? bookingOdFieldsFromRecord(r)
+          : { odScheduleId: '', bookingGroupId: '' }),
       };
       grouped.set(groupKey, g);
     } else {
@@ -19424,6 +19434,9 @@ async function fetchAssignmentsFromPA() {
         if (!g.completedBy && (r.firstName || r.lastName)) {
           g.completedBy = [r.firstName, r.lastName].filter(Boolean).join(' ');
         }
+      }
+      if (typeof applyBookingOdFieldsFromRecord === 'function') {
+        applyBookingOdFieldsFromRecord(g, r);
       }
     }
     // Append this mod to the assignment, but ONLY if this row is from
@@ -22018,10 +22031,48 @@ function bookingSessionHaystack(asgn) {
   return [asgn.date, asgn.status, team && team.name, name, p.email, p.address].filter(Boolean).join(' ');
 }
 
-function bookingVisibleSessions(selectedDateStr) {
+// OneData origin for Booking session cards. A non-empty schedule or
+// booking-group key means the row came from the OD sync. Twilight-created
+// bookings leave those keys blank. Display-only — does not write Excel/PA.
+function bookingOdFieldValue(record, ...names) {
+  if (!record || typeof record !== 'object') return '';
+  const v = (typeof pickField === 'function')
+    ? pickField(record, ...names)
+    : names.reduce((found, n) => found || record[n], '');
+  return (v == null) ? '' : String(v).trim();
+}
+
+function bookingOdFieldsFromRecord(record) {
+  return {
+    odScheduleId: bookingOdFieldValue(record, 'odScheduleId', 'od_schedule_id', 'OdScheduleId'),
+    bookingGroupId: bookingOdFieldValue(record, 'bookingGroupId', 'booking_group_id', 'BookingGroupId'),
+  };
+}
+
+function applyBookingOdFieldsFromRecord(target, record) {
+  if (!target) return target;
+  const incoming = bookingOdFieldsFromRecord(record);
+  if (!String(target.odScheduleId || '').trim()) target.odScheduleId = incoming.odScheduleId || '';
+  if (!String(target.bookingGroupId || '').trim()) target.bookingGroupId = incoming.bookingGroupId || '';
+  return target;
+}
+
+function assignmentIsOdOrigin(a) {
+  const fields = bookingOdFieldsFromRecord(a);
+  return !!(fields.odScheduleId || fields.bookingGroupId);
+}
+
+function bookingSessionOrigin(a) {
+  return assignmentIsOdOrigin(a) ? 'od' : 'twilight';
+}
+
+function bookingVisibleSessions(selectedDateStr, originFilter) {
+  const filter = (originFilter === 'od' || originFilter === 'twilight') ? originFilter : 'all';
   return (adminState.assignments || []).filter(a => {
     if (!a || a.status === 'Unassigned') return false;
-    return a.date === selectedDateStr;
+    if (a.date !== selectedDateStr) return false;
+    if (filter === 'all') return true;
+    return bookingSessionOrigin(a) === filter;
   }).sort((a, b) => (a.startMin || 0) - (b.startMin || 0));
 }
 
@@ -22093,7 +22144,14 @@ function renderBookingDashboardHTML() {
   const startMin = adminState.bookingStartMin;
   const endMin = adminState.bookingEndMin;
   const teamRows = bookingListedTeams(selectedStr);
-  const sessions = bookingVisibleSessions(selectedStr);
+  // Month keeps Assign a team open (current two-column + sessions-below
+  // layout). Collapse is Week-only and starts closed.
+  const assignCollapsible = view === 'week';
+  const assignOpen = !assignCollapsible || !!adminState.bookingAssignOpen;
+  const sessionFilter = (adminState.bookingSessionFilter === 'od' || adminState.bookingSessionFilter === 'twilight')
+    ? adminState.bookingSessionFilter
+    : 'all';
+  const sessions = bookingVisibleSessions(selectedStr, sessionFilter);
   const selectedTeam = (adminState.teams || []).find(t => String(t.id) === String(adminState._selectedTeam));
   const searchVal = escapeHTML(adminState.bookingSearch || '');
   const selectedPart = adminState.bookingSelectedParticipant;
@@ -22137,26 +22195,32 @@ function renderBookingDashboardHTML() {
             </div>` : ''}
           </button>`;
       }).join('');
+  const sessionEmpty = sessions.length === 0
+    ? `<div class="bk-empty">${
+        sessionFilter === 'od' ? 'No OD sessions this day.'
+        : sessionFilter === 'twilight' ? 'No Twilight sessions this day.'
+        : 'No sessions this day.'
+      }</div>`
+    : '';
   const sessionCards = sessions.length === 0
-    ? ''
-    : `
-      <div class="bk-section">Sessions this day</div>
-      <div class="bk-session-list">
-        ${sessions.slice(0, 8).map(a => {
-          const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
-          const p = a.participantData || {};
-          const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
-          const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
-          return `
+    ? sessionEmpty
+    : sessions.slice(0, 8).map(a => {
+        const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
+        const p = a.participantData || {};
+        const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
+        const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
+        const origin = bookingSessionOrigin(a);
+        const originLabel = origin === 'od' ? 'OD' : 'Twilight';
+        return `
             <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}">
               <div class="bk-session-time">${escapeHTML(when)}</div>
               <div class="bk-session-info">
                 <strong>${escapeHTML(name)}</strong>
                 <span>${escapeHTML((team && team.name) || a.teamName || a.status || '')}</span>
               </div>
+              <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
             </button>`;
-        }).join('')}
-      </div>`;
+      }).join('');
   const dockText = selectedTeam
     ? `${selectedTeam.name} · ${selected.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`
     : 'Pick a team to book';
@@ -22168,7 +22232,7 @@ function renderBookingDashboardHTML() {
         ${selectedPartLabel && !String(adminState.bookingSearch || '').trim() ? `<div class="bk-search-picked">${escapeHTML(selectedPartLabel)}</div>` : ''}
         ${renderBookingSuggestHTML(adminState.bookingSearch)}
       </div>
-      <div class="bk-dash-grid">
+      <div class="bk-dash-grid is-${view}${assignOpen ? ' is-assign-open' : ' is-assign-collapsed'}">
         <section class="bk-hero">
           <div class="bk-hero-top">
             <span class="bk-date-label">Select a booking date</span>
@@ -22197,7 +22261,8 @@ function renderBookingDashboardHTML() {
             </div>
           `}
         </section>
-        <div>
+        <div class="bk-right">
+        <div class="bk-slot-col">
           <div class="bk-section">
             <span>Choose timeslot</span>
             <span class="bk-optimal" title="Shown as a design cue · not live weather">
@@ -22215,14 +22280,39 @@ function renderBookingDashboardHTML() {
               <input class="bk-time-input" id="bookingEndTime" type="time" value="${bookingMinToInput(endMin)}">
             </label>
           </div>
-          <div class="bk-section">
-            Assign a team
-            <button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>
+          <div class="bk-assign${assignOpen ? ' is-open' : ''}${assignCollapsible ? ' is-collapsible' : ''}">
+            <div class="bk-section bk-assign-head">
+              ${assignCollapsible ? `
+              <button type="button" class="bk-assign-toggle" id="bookingAssignToggle" aria-expanded="${assignOpen ? 'true' : 'false'}" aria-controls="bookingAssignPanel">
+                <svg class="bk-assign-chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Assign a team
+              </button>
+              ${assignOpen ? `<button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>` : ''}
+              ` : `
+              <span>Assign a team</span>
+              <button type="button" class="bk-new-team" id="newTeamBtn">Create a team</button>
+              `}
+            </div>
+            <div class="bk-assign-panel" id="bookingAssignPanel" ${assignOpen ? '' : 'hidden'}>
+              <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
+            </div>
           </div>
-          <div class="bk-team-list" id="bookingTeamList">${teamCards}</div>
+        </div>
+        <section class="bk-sessions" id="bookingSessions" aria-label="Sessions this day">
+          <div class="bk-section">
+            <span>Sessions this day</span>
+            <div class="bk-origin-filter" role="group" aria-label="Filter sessions by origin">
+              <button type="button" class="bk-origin-btn${sessionFilter === 'all' ? ' active' : ''}" data-origin="all" aria-pressed="${sessionFilter === 'all' ? 'true' : 'false'}">All</button>
+              <button type="button" class="bk-origin-btn${sessionFilter === 'od' ? ' active' : ''}" data-origin="od" aria-pressed="${sessionFilter === 'od' ? 'true' : 'false'}">OD</button>
+              <button type="button" class="bk-origin-btn${sessionFilter === 'twilight' ? ' active' : ''}" data-origin="twilight" aria-pressed="${sessionFilter === 'twilight' ? 'true' : 'false'}">Twilight</button>
+            </div>
+          </div>
+          <div class="bk-session-list">${sessionCards}</div>
+        </section>
         </div>
       </div>
-      ${sessionCards}
       <div class="bk-footer">
         <div class="bk-tools">
           <button type="button" class="bk-tool" id="scheduleByModBtn">Schedule by mod</button>
@@ -22290,7 +22380,6 @@ function bindBookingDashboardEvents() {
     btn.addEventListener('click', () => {
       if (!btn.dataset.date) return;
       adminState.calAnchor = btn.dataset.date;
-      if (btn.classList.contains('bk-month-cell')) adminState.calView = 'week';
       renderAssignment();
     });
   });
@@ -22355,6 +22444,23 @@ function bindBookingDashboardEvents() {
   };
   if (startInput) startInput.addEventListener('change', applyTimes);
   if (endInput) endInput.addEventListener('change', applyTimes);
+
+  const assignToggle = document.getElementById('bookingAssignToggle');
+  if (assignToggle) {
+    assignToggle.addEventListener('click', () => {
+      if (adminState.calView === 'month') return;
+      adminState.bookingAssignOpen = !adminState.bookingAssignOpen;
+      renderAssignment();
+    });
+  }
+
+  body.querySelectorAll('.bk-origin-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.origin;
+      adminState.bookingSessionFilter = (next === 'od' || next === 'twilight') ? next : 'all';
+      renderAssignment();
+    });
+  });
 
   body.querySelectorAll('.bk-team-card').forEach(card => {
     card.addEventListener('click', () => {
