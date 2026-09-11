@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126k';
-const APP_UPDATED_AT = '09/11/2026 21:14';
+const APP_VERSION = '1.3.091126l';
+const APP_UPDATED_AT = '09/11/2026 21:30';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -10458,7 +10458,118 @@ const OVERVIEW_TEMP_REFRESH_MS = 10 * 60 * 1000;
 let _ovHeliosTimer = null;
 let _ovTempF = null;
 let _ovTempFetchedAt = 0;
-let _ovTempInFlight = false;
+let _ovTempInFlight = null;
+let _ovWxKind = null;
+let _heliosWxPayload = null;
+let _bkWxFadeTimer = null;
+
+// WMO weathercode → Helios buckets. Clear 0–1, cloudy/fog 2–3/45/48,
+// anything wet (drizzle, rain, snow, thunder) collapses to rain.
+function heliosWeatherKindFromCode(code) {
+  const n = Number(code);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n <= 1) return 'clear';
+  if (n === 2 || n === 3 || n === 45 || n === 48) return 'cloudy';
+  if (n >= 51) return 'rain';
+  return 'cloudy';
+}
+
+function heliosWeatherWord(kind) {
+  if (kind === 'clear') return 'Clear';
+  if (kind === 'cloudy') return 'Cloud';
+  if (kind === 'rain') return 'Rain';
+  return '';
+}
+
+function heliosReadWeatherCode(obj) {
+  if (!obj || typeof obj !== 'object') return NaN;
+  const n = Number(obj.weather_code != null ? obj.weather_code : obj.weathercode);
+  return n;
+}
+
+function heliosParseForecast(data) {
+  const current = data && data.current;
+  const daily = data && data.daily;
+  const hourly = data && data.hourly;
+  const currentTempF = Number(current && current.temperature_2m);
+  const currentCode = heliosReadWeatherCode(current);
+  const days = {};
+  const times = (daily && daily.time) || [];
+  const codes = (daily && (daily.weather_code || daily.weathercode)) || [];
+  const maxes = (daily && daily.temperature_2m_max) || [];
+  const means = (daily && daily.temperature_2m_mean) || [];
+  times.forEach((t, i) => {
+    const key = String(t || '').slice(0, 10);
+    if (!key) return;
+    const mean = Number(means[i]);
+    const max = Number(maxes[i]);
+    days[key] = {
+      code: Number(codes[i]),
+      tempF: Number.isFinite(mean) ? mean : max,
+    };
+  });
+  const hours = [];
+  const hTimes = (hourly && hourly.time) || [];
+  const hTemps = (hourly && hourly.temperature_2m) || [];
+  const hCodes = (hourly && (hourly.weather_code || hourly.weathercode)) || [];
+  hTimes.forEach((t, i) => {
+    hours.push({
+      time: String(t || ''),
+      tempF: Number(hTemps[i]),
+      code: Number(hCodes[i]),
+    });
+  });
+  return {
+    fetchedAt: Date.now(),
+    currentTempF: Number.isFinite(currentTempF) ? currentTempF : null,
+    currentCode: Number.isFinite(currentCode) ? currentCode : null,
+    currentKind: heliosWeatherKindFromCode(currentCode),
+    days,
+    hours,
+  };
+}
+
+function heliosSnapshotForDate(dateStr, opts) {
+  opts = opts || {};
+  const cache = _heliosWxPayload;
+  if (!cache || !dateStr) return null;
+  const todayStr = (typeof ymd === 'function') ? ymd(new Date()) : '';
+  const useCurrent = !!opts.preferCurrent || dateStr === todayStr;
+  if (useCurrent && Number.isFinite(cache.currentTempF) && cache.currentKind) {
+    return { tempF: cache.currentTempF, kind: cache.currentKind, dateStr, source: 'current' };
+  }
+  const day = cache.days && cache.days[dateStr];
+  if (day && Number.isFinite(day.tempF)) {
+    return {
+      tempF: day.tempF,
+      kind: heliosWeatherKindFromCode(day.code),
+      dateStr,
+      source: 'daily',
+    };
+  }
+  const hours = (cache.hours || []).filter(h => String(h.time).slice(0, 10) === dateStr);
+  if (hours.length) {
+    const pref = hours.find(h => /T15:/.test(h.time))
+      || hours[Math.floor(hours.length / 2)]
+      || hours[0];
+    if (pref && Number.isFinite(pref.tempF)) {
+      return {
+        tempF: pref.tempF,
+        kind: heliosWeatherKindFromCode(pref.code),
+        dateStr,
+        source: 'hourly',
+      };
+    }
+  }
+  return null;
+}
+
+function bookingWeatherTargetDateStr() {
+  if (typeof bookingViewMode === 'function' && bookingViewMode() === 'week') {
+    return ymd(new Date());
+  }
+  return ymd(bookingSelectedDate());
+}
 
 function overviewSolarAltitudeDeg(at) {
   const date = at instanceof Date ? at : new Date();
@@ -10486,11 +10597,27 @@ function overviewHeliosPhase(alt) {
   return 'sunset';
 }
 
+function applyOverviewHeliosWeather(kind) {
+  const well = document.getElementById('ovVizWell');
+  const orb = document.getElementById('ovSolarOrb');
+  const name = (kind === 'cloudy' || kind === 'rain' || kind === 'clear') ? kind : '';
+  _ovWxKind = name || null;
+  [well, orb].forEach(el => {
+    if (!el) return;
+    el.classList.toggle('wx-clear', name === 'clear');
+    el.classList.toggle('wx-cloudy', name === 'cloudy');
+    el.classList.toggle('wx-rain', name === 'rain');
+    if (name) el.setAttribute('data-ov-wx', name);
+    else el.removeAttribute('data-ov-wx');
+  });
+}
+
 function applyOverviewHeliosPhase(phase) {
   const well = document.getElementById('ovVizWell');
   const orb = document.getElementById('ovSolarOrb');
   const sky = document.getElementById('ovVizSky');
   const name = (phase === 'sunset' || phase === 'night') ? phase : 'day';
+  const wx = _ovWxKind ? (' · ' + heliosWeatherWord(_ovWxKind)) : '';
   if (well) {
     well.classList.toggle('is-day', name === 'day');
     well.classList.toggle('is-sunset', name === 'sunset');
@@ -10502,10 +10629,15 @@ function applyOverviewHeliosPhase(phase) {
     orb.classList.toggle('is-sun', name === 'day');
     orb.classList.toggle('is-sunset', name === 'sunset');
     orb.classList.toggle('is-moon', name === 'night');
-    orb.title = name === 'day'
-      ? 'Sun · daytime'
-      : (name === 'sunset' ? 'Sun · sunset' : 'Moon · night');
+    if (name === 'night' && _ovWxKind) {
+      orb.title = 'Night' + wx;
+    } else {
+      orb.title = name === 'day'
+        ? 'Sun · daytime' + wx
+        : (name === 'sunset' ? 'Sun · sunset' + wx : 'Moon · night');
+    }
   }
+  if (_ovWxKind) applyOverviewHeliosWeather(_ovWxKind);
 }
 
 function paintOverviewHeliosClock() {
@@ -10545,30 +10677,128 @@ function paintOverviewHeliosClock() {
   }
 }
 
+async function fetchHeliosHqForecast(force) {
+  const now = Date.now();
+  if (!force && _heliosWxPayload && (now - _heliosWxPayload.fetchedAt) < OVERVIEW_TEMP_REFRESH_MS) {
+    return _heliosWxPayload;
+  }
+  if (_ovTempInFlight) return _ovTempInFlight;
+  _ovTempInFlight = (async () => {
+    try {
+      const url = 'https://api.open-meteo.com/v1/forecast'
+        + '?latitude=' + encodeURIComponent(OVERVIEW_HQ_LAT)
+        + '&longitude=' + encodeURIComponent(OVERVIEW_HQ_LNG)
+        + '&current=temperature_2m,weather_code'
+        + '&hourly=temperature_2m,weather_code'
+        + '&daily=weather_code,temperature_2m_max,temperature_2m_mean'
+        + '&temperature_unit=fahrenheit'
+        + '&timezone=America%2FLos_Angeles'
+        + '&forecast_days=16'
+        + '&past_days=7';
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const parsed = heliosParseForecast(data);
+      _heliosWxPayload = parsed;
+      if (Number.isFinite(parsed.currentTempF)) {
+        _ovTempF = parsed.currentTempF;
+        _ovTempFetchedAt = parsed.fetchedAt;
+      }
+      if (parsed.currentKind) _ovWxKind = parsed.currentKind;
+      return parsed;
+    } catch (e) {
+      console.warn('[Twilight] HQ weather unavailable:', e && e.message);
+      return _heliosWxPayload;
+    } finally {
+      _ovTempInFlight = null;
+    }
+  })();
+  return _ovTempInFlight;
+}
+
 async function refreshOverviewHqTemperature(force) {
   const now = Date.now();
   if (!force && _ovTempF != null && (now - _ovTempFetchedAt) < OVERVIEW_TEMP_REFRESH_MS) return;
-  if (_ovTempInFlight) return;
-  _ovTempInFlight = true;
-  try {
-    const url = 'https://api.open-meteo.com/v1/forecast'
-      + '?latitude=' + encodeURIComponent(OVERVIEW_HQ_LAT)
-      + '&longitude=' + encodeURIComponent(OVERVIEW_HQ_LNG)
-      + '&current=temperature_2m&temperature_unit=fahrenheit'
-      + '&timezone=America%2FLos_Angeles';
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const t = Number(data && data.current && data.current.temperature_2m);
-    if (Number.isFinite(t)) {
-      _ovTempF = t;
-      _ovTempFetchedAt = Date.now();
-      paintOverviewHeliosClock();
+  const parsed = await fetchHeliosHqForecast(force);
+  if (parsed && Number.isFinite(parsed.currentTempF)) {
+    applyOverviewHeliosWeather(parsed.currentKind);
+    paintOverviewHeliosClock();
+    if (typeof paintBookingHeliosWeather === 'function') {
+      paintBookingHeliosWeather({ skipFetch: true });
     }
-  } catch (e) {
-    console.warn('[Twilight] Overview temperature unavailable:', e && e.message);
-  } finally {
-    _ovTempInFlight = false;
+  }
+}
+
+function paintBookingHeliosWeather(opts) {
+  opts = opts || {};
+  const el = document.getElementById('bkOptimal');
+  if (!el) return;
+  const week = typeof bookingViewMode === 'function' && bookingViewMode() === 'week';
+  const dateStr = bookingWeatherTargetDateStr();
+  const snap = heliosSnapshotForDate(dateStr, { preferCurrent: week });
+  const whenEl = el.querySelector('.bk-optimal-when');
+  const tempEl = el.querySelector('.bk-optimal-temp');
+  const condEl = el.querySelector('.bk-optimal-cond');
+  const kind = snap && snap.kind;
+  const temp = snap && snap.tempF;
+  const phase = overviewHeliosPhase(overviewSolarAltitudeDeg(new Date()));
+  const nightChip = week && phase === 'night';
+  const wxClass = nightChip ? 'night' : (kind || '');
+  const key = [
+    week ? 'today' : dateStr,
+    Number.isFinite(temp) ? Math.round(temp) : '—',
+    kind || '',
+    nightChip ? 'night' : '',
+  ].join('|');
+
+  const apply = () => {
+    el.classList.toggle('is-clear', wxClass === 'clear');
+    el.classList.toggle('is-cloudy', wxClass === 'cloudy');
+    el.classList.toggle('is-rain', wxClass === 'rain');
+    el.classList.toggle('is-night', wxClass === 'night');
+    el.classList.toggle('is-pending', !kind);
+    if (whenEl) whenEl.textContent = week ? 'Today' : '';
+    if (tempEl) tempEl.textContent = Number.isFinite(temp) ? (Math.round(temp) + '°') : '—';
+    if (condEl) condEl.textContent = kind ? heliosWeatherWord(kind) : '';
+    const label = [
+      week ? 'Today' : 'Selected day',
+      Number.isFinite(temp) ? (Math.round(temp) + '°') : '',
+      kind ? heliosWeatherWord(kind) : 'weather unavailable',
+    ].filter(Boolean).join(' ');
+    el.title = 'HQ weather · ' + label;
+    el.dataset.wxKey = key;
+  };
+
+  if (el.dataset.wxKey === key) {
+    if (!opts.skipFetch) fetchHeliosHqForecast();
+    return;
+  }
+
+  const reduce = typeof bookingPrefersReducedMotion === 'function' && bookingPrefersReducedMotion();
+  const canFade = !reduce && !!el.dataset.wxKey;
+  if (_bkWxFadeTimer) {
+    clearTimeout(_bkWxFadeTimer);
+    _bkWxFadeTimer = null;
+    el.classList.remove('is-fading');
+  }
+  if (canFade) {
+    el.classList.add('is-fading');
+    _bkWxFadeTimer = setTimeout(() => {
+      _bkWxFadeTimer = null;
+      apply();
+      el.classList.remove('is-fading');
+    }, 250);
+  } else {
+    apply();
+  }
+
+  if (!opts.skipFetch) {
+    fetchHeliosHqForecast().then(payload => {
+      if (!payload) return;
+      if (document.getElementById('bkOptimal') === el) {
+        paintBookingHeliosWeather({ skipFetch: true });
+      }
+    });
   }
 }
 
@@ -22788,6 +23018,7 @@ function applyBookingMotionChrome() {
   document.querySelectorAll('#bookingSubtabBody .bk-date-pane').forEach(pane => {
     pane.toggleAttribute('inert', pane.dataset.dateView !== view);
   });
+  if (typeof paintBookingHeliosWeather === 'function') paintBookingHeliosWeather();
 }
 
 function armBookingMotion() {
@@ -23045,6 +23276,7 @@ function syncBookingDashboardFromState(opts) {
   refreshBookingTeamList();
   refreshBookingDock();
   applyBookingMotionChrome();
+  if (typeof paintBookingHeliosWeather === 'function') paintBookingHeliosWeather();
   return true;
 }
 
@@ -23145,9 +23377,13 @@ function renderBookingDashboardHTML() {
         <div class="bk-slot-col">
           <div class="bk-section">
             <span>Choose timeslot</span>
-            <span class="bk-optimal" title="Shown as a design cue · not live weather">
+            <span class="bk-optimal is-pending" id="bkOptimal" role="status" aria-live="polite" title="HQ weather">
               <span class="bk-optimal-dot" aria-hidden="true"></span>
-              Optimal Conditions
+              <span class="bk-optimal-copy">
+                <span class="bk-optimal-when"></span>
+                <span class="bk-optimal-temp">—</span>
+                <span class="bk-optimal-cond"></span>
+              </span>
             </span>
           </div>
           <div class="bk-time-grid">
@@ -23252,6 +23488,7 @@ function bindBookingDashboardEvents() {
   const body = document.getElementById('bookingSubtabBody');
   if (!body || typeof isBookingOpen !== 'function' || !isBookingOpen()) return;
   armBookingMotion();
+  if (typeof paintBookingHeliosWeather === 'function') paintBookingHeliosWeather();
 
   body.querySelectorAll('.bk-view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
