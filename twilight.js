@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126g';
-const APP_UPDATED_AT = '09/11/2026 18:10';
+const APP_VERSION = '1.3.091126h';
+const APP_UPDATED_AT = '09/11/2026 18:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1624,7 +1624,7 @@ function toggleMySessionDrawer(force) {
     // After the slide settles, let the popover overflow the drawer.
     setTimeout(() => { if (d.classList.contains('open')) d.classList.add('ms-anim-done'); }, 340);
     // Ease the freshly-opened drawer into view under the nav.
-    setTimeout(() => { try { d.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {} }, 60);
+    setTimeout(() => { try { d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {} }, 60);
   } else {
     d.classList.remove('ms-anim-done'); // clip during the collapse
   }

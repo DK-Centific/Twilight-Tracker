@@ -5147,11 +5147,12 @@ body:not(:has(.station-accordion.in-station)) .acc-stepper {
    clips cleanly. */
 .ms-drawer.open.ms-anim-done .ms-drawer-body { overflow: visible; }
 .ms-drawer-inner {
-  border: 0.5px solid var(--border);
+  border: none;
   border-radius: var(--rl);
-  background: var(--tile-bg, var(--card-bg));
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  background: var(--bg);
+  box-shadow: 7px 7px 16px var(--neu-dark), -7px -7px 16px var(--neu-light);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   padding: 14px;
 }
 /* Inside the drawer the entry bar lays out as an even 2-column grid: the
@@ -15830,7 +15831,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091126g" defer></script>
+<script src="twilight.js?v=twilight-1.3.091126h" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -16955,6 +16956,9 @@ body.is-master-admin .master-admin-only { display:flex !important; }
 }
 
 @media (max-width: 760px) {
+  #mySessionDrawer {
+    scroll-margin-top: 72px;
+  }
   #app .entry-bar {
     gap: 10px 12px;
     padding: 14px 14px;
@@ -16964,6 +16968,12 @@ body.is-master-admin .master-admin-only { display:flex !important; }
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px 12px;
     padding: 0;
+  }
+  /* Username + session date already live on the chip / My Session tile.
+     Leaving them in the phone drawer parked them under the sticky nav
+     and read as leftover pre-Helios chrome. */
+  #app .ms-drawer-inner .entry-bar > .entry-field:not(.entry-field-wide):not(.entry-field-arrived):not(.entry-field-lakitu) {
+    display: none;
   }
   #app .ms-drawer-inner .entry-field,
   #app .ms-drawer-inner .entry-field-wide,
