@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.090826dh';
-const APP_UPDATED_AT = '09/10/2026 20:50';
+const APP_VERSION = '1.3.091126a';
+const APP_UPDATED_AT = '09/11/2026 01:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -929,6 +929,7 @@ function afterLoginLeave(next) {
   setTimeout(finish, 420);
 }
 function revealLoginScreen() {
+  if (typeof destroyStationSwitchChrome === 'function') destroyStationSwitchChrome();
   const app = document.getElementById('app');
   const adminAppEl = document.getElementById('adminApp');
   const loginEl = document.getElementById('loginScreen');
@@ -957,12 +958,12 @@ function renderApp() {
       renderStationsAccordion();
     } else {
       _accordionCollapsed = false;
-      removeAccordionStepper();
+      destroyStationSwitchChrome();
       renderStation(currentStationKey);
     }
   } else {
     _accordionCollapsed = false;
-    removeAccordionStepper();
+    destroyStationSwitchChrome();
     renderWelcome();
     syncNavScenarioAxes();
   }
@@ -2459,12 +2460,16 @@ function nextOpenScenarioNumAfter(stationKey, doneNum) {
   const st = STATIONS.find(s => s.key === stationKey);
   const data = st && state.stations ? state.stations[st.key] : null;
   if (!st || !Array.isArray(st.scenarios)) return '';
+  if (typeof shouldHoldAtApprovalCheckpoint === 'function'
+      && shouldHoldAtApprovalCheckpoint(stationKey, doneNum)) {
+    return '';
+  }
   const nums = st.scenarios.map(sc => String(sc.num));
   const start = nums.indexOf(String(doneNum));
   const order = start >= 0 ? nums.slice(start + 1).concat(nums.slice(0, start)) : nums;
   const hit = order.find(n => {
     const sd = data && data.scenarios ? data.scenarios[n] : null;
-    return sd && !isScenarioDoneForStation(sd);
+    return isScenarioOpenForFlow(stationKey, n, sd);
   });
   return hit || '';
 }
@@ -2473,9 +2478,20 @@ function firstOpenScenarioNum(station, data) {
   if (!station || !Array.isArray(station.scenarios)) return '';
   const hit = station.scenarios.find(sc => {
     const sd = data && data.scenarios ? data.scenarios[sc.num] : null;
-    return sd && !isScenarioDoneForStation(sd);
+    return isScenarioOpenForFlow(station.key, sc.num, sd);
   });
-  return String((hit || station.scenarios[0] || {}).num || '');
+  if (hit) return String(hit.num || '');
+  if (typeof stationApprovalBlocksAdvance === 'function' && stationApprovalBlocksAdvance(station.key)
+      && typeof GATE_CAL_NUMS !== 'undefined') {
+    for (let i = GATE_CAL_NUMS.length - 1; i >= 0; i--) {
+      const n = GATE_CAL_NUMS[i];
+      const sd = data && data.scenarios ? data.scenarios[n] : null;
+      if (sd && typeof isScenarioDoneForStation === 'function' && isScenarioDoneForStation(sd)) {
+        return String(n);
+      }
+    }
+  }
+  return String((station.scenarios[0] || {}).num || '');
 }
 
 function updateScenarioFlowCount() {
@@ -2783,7 +2799,19 @@ function paintScenarioFlow() {
   const prevBtn = root.querySelector('.sc-flow-nav-prev');
   const nextBtn = root.querySelector('.sc-flow-nav-next');
   if (prevBtn) prevBtn.disabled = cur <= 0;
-  if (nextBtn) nextBtn.disabled = cur < 0 || cur >= tiles.length - 1;
+  if (nextBtn) {
+    const curNum = cur >= 0 ? (tiles[cur].getAttribute('data-num') || '') : '';
+    const nextNum = (cur >= 0 && cur < tiles.length - 1)
+      ? (tiles[cur + 1].getAttribute('data-num') || '')
+      : '';
+    const stationKey = root.dataset.station || '';
+    const hold = typeof shouldHoldAtApprovalCheckpoint === 'function'
+      && shouldHoldAtApprovalCheckpoint(stationKey, curNum);
+    const nextBlocked = nextNum
+      && typeof scenarioFlowCanFocus === 'function'
+      && !scenarioFlowCanFocus(stationKey, nextNum);
+    nextBtn.disabled = cur < 0 || cur >= tiles.length - 1 || hold || nextBlocked;
+  }
 }
 
 function nearestScenarioFlowNum() {
@@ -2835,7 +2863,19 @@ function stepScenarioFlow(dir) {
   const idx = Math.max(0, Math.min(tiles.length - 1, (cur < 0 ? 0 : cur) + (dir < 0 ? -1 : 1)));
   const next = tiles[idx];
   if (!next) return;
-  _scenarioFlowFocusNum = next.getAttribute('data-num') || '';
+  const stationKey = root.dataset.station || '';
+  const nextNum = next.getAttribute('data-num') || '';
+  const curNum = cur >= 0 ? (tiles[cur].getAttribute('data-num') || '') : '';
+  if (dir > 0) {
+    if (typeof shouldHoldAtApprovalCheckpoint === 'function'
+        && shouldHoldAtApprovalCheckpoint(stationKey, curNum)) {
+      return;
+    }
+    if (typeof scenarioFlowCanFocus === 'function' && !scenarioFlowCanFocus(stationKey, nextNum)) {
+      return;
+    }
+  }
+  _scenarioFlowFocusNum = nextNum;
   snapScenarioFlowToFocus('smooth');
   requestAnimationFrame(paintScenarioFlow);
 }
@@ -3777,13 +3817,34 @@ function removeAccordionStepper() {
   document.querySelectorAll('.acc-stepper').forEach(el => el.remove());
 }
 
+// Tear down body-level station chrome that can outlive #content (the
+// accordion stepper is mounted on document.body). Call on logout, login
+// reveal, welcome, and any time the user is not inside a station view.
+function destroyStationSwitchChrome() {
+  removeAccordionStepper();
+  if (typeof syncNavScenarioAxes === 'function') syncNavScenarioAxes();
+}
+
+function isOperatorStationViewActive() {
+  if (typeof isLoginScreenVisible === 'function' && isLoginScreenVisible()) return false;
+  const app = document.getElementById('app');
+  if (!app || app.style.display === 'none') return false;
+  if (app.style.display !== 'block') {
+    try { if (getComputedStyle(app).display === 'none') return false; } catch (_) { return false; }
+  }
+  return !!(currentStationKey && typeof isStationAccordionMode === 'function' && isStationAccordionMode());
+}
+
 function mountAccordionStepper(openKey) {
   removeAccordionStepper();
   if (openKey == null) return;
-  if (typeof isStationAccordionMode === 'function' && !isStationAccordionMode()) return;
+  if (!isOperatorStationViewActive()) return;
   const sIdx = STATIONS.findIndex(s => String(s.key) === String(openKey));
   const hasPrev = sIdx > 0;
   const hasNext = sIdx >= 0 && sIdx < STATIONS.length - 1;
+  const nextBlocked = hasNext
+    && typeof stationApprovalBlocksAdvance === 'function'
+    && stationApprovalBlocksAdvance(openKey);
   const stepper = document.createElement('div');
   stepper.className = 'acc-stepper';
   stepper.setAttribute('role', 'group');
@@ -3793,7 +3854,7 @@ function mountAccordionStepper(openKey) {
           <svg width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 10L8 6L12 10" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <span class="acc-step-label">${sIdx + 1}/${STATIONS.length}</span>
-        <button class="acc-step-btn" type="button" data-dir="next" ${hasNext ? '' : 'disabled'} aria-label="Next station" title="Next station">
+        <button class="acc-step-btn" type="button" data-dir="next" ${hasNext && !nextBlocked ? '' : 'disabled'} aria-label="Next station" title="${nextBlocked ? 'Waiting for reviewer approval' : 'Next station'}">
           <svg width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>`;
   document.body.appendChild(stepper);
@@ -3938,7 +3999,7 @@ function onAccordionHeadTap(key) {
     const accordion = c.querySelector('.station-accordion');
     if (accordion) accordion.classList.remove('in-station');
     _closeAccItem(tapped);
-    removeAccordionStepper();
+    destroyStationSwitchChrome();
     syncNavScenarioAxes();
     _lastRenderedView = currentStationKey || '__welcome__';
     renderSidebar(); // keep desktop sidebar active-state coherent on resize
@@ -4039,7 +4100,11 @@ function stationActionsHTML(station, data) {
   // flow opens Lakitu directly (default URL when the field is empty), so
   // we don't also require a pasted URL.
   const calGuideOk = (typeof isCalGuideAcknowledged === 'function') ? isCalGuideAcknowledged() : true;
-  const submitDisabled = locked || unresolved > 0 || !calGuideOk;
+  const approvalBlocked = (typeof stationApprovalBlocksAdvance === 'function')
+    && stationApprovalBlocksAdvance(station.key);
+  const calsReady = !approvalBlocked
+    || (typeof calibrationComplete === 'function' && calibrationComplete(station.key));
+  const submitDisabled = locked || unresolved > 0 || !calGuideOk || approvalBlocked;
 
   const idx = STATIONS.findIndex(s => s.key === station.key);
   const isFirst = idx === 0;
@@ -4049,14 +4114,16 @@ function stationActionsHTML(station, data) {
     ? 'Session locked'
     : (!calGuideOk
       ? 'Acknowledge the calibration guide first'
-      : (partialMissingNotes > 0 || skipMissingNotes > 0
-        ? 'Add notes to Partial and Skipped scenarios first'
-        : (unresolved > 0 ? 'Resolve all scenarios first' : '')));
-  const submitVisible = submitDisabled
-    ? (unresolved > 0
-      ? 'Resolve scenarios first'
-      : (!calGuideOk ? 'Acknowledge guide first' : (locked ? 'Locked' : submitLabel)))
-    : submitLabel;
+      : (approvalBlocked && !calsReady
+        ? 'Finish calibration first'
+        : (approvalBlocked
+          ? 'Waiting for reviewer approval'
+          : (partialMissingNotes > 0 || skipMissingNotes > 0
+            ? 'Add notes to Partial and Skipped scenarios first'
+            : (unresolved > 0 ? 'Finish all scenarios first' : '')))));
+  const reminder = submitDisabled && submitReason
+    ? `<div class="actions-reminder" role="status">${escapeHTML(submitReason)}</div>`
+    : '';
 
   // Carousel-aware "current assignment" · same source of truth as the lock check
   const activeAsgn = (typeof getActiveOperatorAssignment === 'function')
@@ -4072,6 +4139,7 @@ function stationActionsHTML(station, data) {
 
   return `
     <div class="actions-bar">
+      ${reminder}
       <div class="left">
         <span class="station-summary">
           <span class="summary-num">${done}</span> / ${total} complete
@@ -4089,14 +4157,14 @@ function stationActionsHTML(station, data) {
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          ${isFirst ? 'First station' : 'Previous'}
+          Previous
         </button>
         ${locked
-          ? `<button class="btn btn-ghost is-disabled" disabled title="Session locked">Locked</button>`
+          ? `<button class="btn btn-ghost is-disabled" disabled title="Session locked">Submit</button>`
           : (stationAlreadySubmitted && !isLast
             ? `<button class="btn btn-ghost is-disabled" disabled title="Already submitted">Submitted</button>`
-            : `<button class="btn ${submitDisabled ? 'btn-ghost is-disabled' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? 'disabled' : ''} title="${submitDisabled ? submitReason : ''}">
-              ${submitVisible}
+            : `<button class="btn ${submitDisabled ? 'btn-ghost is-disabled' : 'btn-primary'}" onclick="submitStation()" ${submitDisabled ? `disabled title="${escapeHTML(submitReason)}"` : `title="${escapeHTML(submitLabel)}"`}>
+              ${submitLabel}
               ${!submitDisabled && !isLast ? `<svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 3.5L10.5 8L6 12.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
             </button>`)}
       </div>
@@ -4887,6 +4955,13 @@ function submitStation() {
   // If session already locked, do nothing
   if (typeof isSessionLocked === 'function' && isSessionLocked()) return;
 
+  if (typeof stationApprovalBlocksAdvance === 'function' && stationApprovalBlocksAdvance(currentStationKey)) {
+    if (typeof showToast === 'function') {
+      showToast('Reviewers must approve this station before you can continue.', 'warning', 3600);
+    }
+    return;
+  }
+
   // Cal guide acknowledgment gate.
   // The mod must have clicked "I acknowledge..." in the DOs and DON'Ts
   // popup before any station can be submitted. On block, open the
@@ -4949,6 +5024,8 @@ function goToStation(delta) {
   if (idx < 0) return;
   const next = Math.max(0, Math.min(STATIONS.length - 1, idx + delta));
   if (next === idx) return;
+  const target = STATIONS[next];
+  if (target && typeof guardEnterStation === 'function' && !guardEnterStation(target.key)) return;
   const apply = () => {
     currentStationKey = STATIONS[next].key;
     renderApp();
@@ -5068,8 +5145,48 @@ function gateApproved(k) {
 // its OWN per-station calibration gate (see isGateActive / LEVEL 2 below).
 function isZeroAApproved() { return true; }
 function isStationZeroALocked(k) { return false; }
-// Nav guard · 0A prerequisite is gone, so entry is never blocked here now.
+// Forward nav is blocked while this station's approval checkpoint is open.
+// Reviewer approval is required before the next station (or later scenario
+// work) unlocks. Backward nav and re-opening the current station stay free.
+function stationApprovalBlocksAdvance(k) {
+  return typeof isGatedStation === 'function' && isGatedStation(k)
+    && typeof isGateActive === 'function' && isGateActive(k);
+}
+
+function shouldHoldAtApprovalCheckpoint(stationKey, doneNum) {
+  if (!stationApprovalBlocksAdvance(stationKey)) return false;
+  if (GATE_CAL_NUMS.indexOf(String(doneNum)) < 0) return false;
+  return GATE_CAL_NUMS.every(n => {
+    if (String(n) === String(doneNum)) return true;
+    const sd = state.stations[stationKey] && state.stations[stationKey].scenarios[n];
+    return !!(sd && (typeof isScenarioDoneForStation === 'function') && isScenarioDoneForStation(sd));
+  });
+}
+
+function scenarioFlowCanFocus(stationKey, num) {
+  if (!stationApprovalBlocksAdvance(stationKey)) return true;
+  return GATE_CAL_NUMS.indexOf(String(num)) >= 0;
+}
+
+function isScenarioOpenForFlow(stationKey, num, sd) {
+  if (!sd || (typeof isScenarioDoneForStation === 'function' && isScenarioDoneForStation(sd))) return false;
+  if (typeof isScenarioGateLocked === 'function' && isScenarioGateLocked(stationKey, num)) return false;
+  if (!scenarioFlowCanFocus(stationKey, num)) return false;
+  return true;
+}
+
 function guardEnterStation(k) {
+  const from = currentStationKey;
+  if (!from || String(from) === String(k)) return true;
+  const fromIdx = STATIONS.findIndex(s => String(s.key) === String(from));
+  const toIdx = STATIONS.findIndex(s => String(s.key) === String(k));
+  if (fromIdx < 0 || toIdx < 0) return true;
+  if (toIdx > fromIdx && stationApprovalBlocksAdvance(from)) {
+    if (typeof showToast === 'function') {
+      showToast('Reviewers must approve this station before you can continue.', 'warning', 3600);
+    }
+    return false;
+  }
   return true;
 }
 // Active = should lock other scenarios / show the slide-down.
@@ -29564,6 +29681,7 @@ function startAdminAppAfterLogin() {
   if (typeof wireBookingPage === 'function') wireBookingPage();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
   if (typeof startWorklogPolling === 'function') startWorklogPolling();
+  if (typeof destroyStationSwitchChrome === 'function') destroyStationSwitchChrome();
   document.getElementById('app').style.display = 'none';
   document.getElementById('adminApp').classList.add('active');
   // Theme
@@ -34179,6 +34297,8 @@ function logoutAndClearOperatorState() {
   // re-loaded on the next login.
   state = defaultState();
   currentStationKey = null;
+  _accordionCollapsed = false;
+  if (typeof destroyStationSwitchChrome === 'function') destroyStationSwitchChrome();
 
   // Stop any tickers
   if (window._worklogTickInterval) {
@@ -38309,16 +38429,21 @@ function init() {
     closeMenu();
     if (typeof stopApprovalPoll === 'function') stopApprovalPoll();
     if (typeof hideApprovalIncomingBanner === 'function') hideApprovalIncomingBanner();
-    document.getElementById('app').style.display = 'none';
-    document.getElementById('adminApp').classList.remove('active');
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('loginUsername').value = '';
-    clearPendingAuth();
-    closePasswordChangeModal();
-    clearLoginPasswordInputs();
-    syncLoginPasswordFieldForUsername();
-    document.getElementById('loginUsername').focus();
-    if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+    if (typeof logoutAndClearOperatorState === 'function') {
+      logoutAndClearOperatorState();
+    } else {
+      if (typeof destroyStationSwitchChrome === 'function') destroyStationSwitchChrome();
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('adminApp').classList.remove('active');
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('loginUsername').value = '';
+      clearPendingAuth();
+      closePasswordChangeModal();
+      clearLoginPasswordInputs();
+      syncLoginPasswordFieldForUsername();
+      document.getElementById('loginUsername').focus();
+      if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+    }
   });
 
   // Sidebar mobile
