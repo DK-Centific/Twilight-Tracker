@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126f';
-const APP_UPDATED_AT = '09/11/2026 17:45';
+const APP_VERSION = '1.3.091126g';
+const APP_UPDATED_AT = '09/11/2026 18:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4765,6 +4765,11 @@ function getSessionDisplayTeam() {
   if (asgn && typeof teamForAssignment === 'function') {
     const t = teamForAssignment(asgn);
     if (t) return t;
+    // OD-synced Assignment rows always carry a team display name even
+    // when TeamLog has not reconstructed that team id yet.
+    if (asgn.teamName) {
+      return { id: asgn.teamId, name: asgn.teamName, primaryIds: [], backupIds: [] };
+    }
   }
   return (typeof getOperatorTeam === 'function') ? getOperatorTeam() : null;
 }
@@ -33814,18 +33819,8 @@ function getActiveOperatorAssignment() {
 }
 
 function getOperatorTeam() {
-  if (!state.modProfile || !state.modProfile.orbitLoginId) return null;
-  if (!adminState._asgnLoaded) {
-    const stored = loadAssignmentData();
-    adminState.teams = stored.teams;
-    adminState.assignments = stored.assignments;
-    adminState._asgnLoaded = true;
-  }
-  const myId = String(state.modProfile.orbitLoginId).toLowerCase();
-  return (adminState.teams || []).find(t => {
-    if ((t.primaryIds || []).some(id => String(id).toLowerCase() === myId)) return true;
-    return getTeamBackupIds(t).some(id => String(id).toLowerCase() === myId);
-  }) || null;
+  const teams = (typeof getOperatorTeams === 'function') ? getOperatorTeams() : [];
+  return teams[0] || null;
 }
 
 // ALL teams the operator belongs to (primary OR backup). getOperatorTeam()
@@ -34064,14 +34059,22 @@ function getOperatorTeammates(team) {
   // operator's first team membership when no team is passed.
   team = team || getOperatorTeam();
   if (!team || !state.modProfile) return [];
-  const myId = String(state.modProfile.orbitLoginId).toLowerCase();
+  const identity = (typeof getOperatorIdentity === 'function') ? getOperatorIdentity() : null;
+  const emailToOrbit = (typeof buildEmailToOrbitLoginMap === 'function') ? buildEmailToOrbitLoginMap() : null;
+  const isSelf = (id) => {
+    if (identity && typeof snapshotMatchesOperator === 'function') {
+      return snapshotMatchesOperator({ orbitLoginId: id }, identity, emailToOrbit);
+    }
+    return String(id || '').toLowerCase() === String(state.modProfile.orbitLoginId).toLowerCase();
+  };
   const backupIds = getTeamBackupIds(team);
   const backupIdSet = new Set(backupIds.map(id => String(id).toLowerCase()));
   // Build the teammate list · every primary + every backup, minus the
-  // operator themselves. The isBackup flag drives the "(BU)" badge in the UI.
+  // operator themselves (including when TeamLog/OD stored their email
+  // as orbitLoginId). The isBackup flag drives the "(BU)" badge in the UI.
   const otherIds = [
-    ...(team.primaryIds || []).filter(id => String(id).toLowerCase() !== myId),
-    ...backupIds.filter(id => String(id).toLowerCase() !== myId),
+    ...(team.primaryIds || []).filter(id => !isSelf(id)),
+    ...backupIds.filter(id => !isSelf(id)),
   ];
   return otherIds.map(id => ({
     id,
@@ -34096,6 +34099,17 @@ function teamForAssignment(asgn) {
   if (asgn && asgn.teamId != null) {
     const t = getTeamById(asgn.teamId);
     if (t) return t;
+  }
+  // OD-synced Assignment rows carry a display team name even when
+  // TeamLog has not reconstructed that team id yet.
+  if (asgn && asgn.teamName) {
+    const snaps = asgn.modSnapshots || [];
+    return {
+      id: asgn.teamId,
+      name: asgn.teamName,
+      primaryIds: snaps.map(s => s && s.orbitLoginId).filter(Boolean),
+      backupIds: [],
+    };
   }
   return (typeof getOperatorTeam === 'function') ? getOperatorTeam() : null;
 }
@@ -34202,7 +34216,8 @@ function renderMySessionSection() {
   // Resolve from the CAROUSEL-SELECTED assignment, not getOperatorTeam() (which
   // returns only the operator's first team membership → wrong pair for a
   // multi-team mod viewing another team's session).
-  const tileTeam = tileTeamEarly || ((typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : team);
+  const tileTeam = tileTeamEarly || ((typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : team)
+    || (asgn.teamName ? { id: asgn.teamId, name: asgn.teamName, primaryIds: [], backupIds: [] } : null);
   if (tileTeam) {
     const mates = getOperatorTeammates(tileTeam);
     const showMeta = typeof shouldBindAssignedSessionLinks === 'function'

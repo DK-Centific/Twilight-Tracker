@@ -114,5 +114,17 @@ assert('Mod-Twilight / NotFound id is not a false positive for David',
     modSnapshots: [{ orbitLoginId: 'Mod-Twilight' }],
   }, david, emailMap, new Set()));
 
+function operatorOwnsTeam(team, identity, emailToOrbit) {
+  if (!team) return false;
+  const ids = [...(team.primaryIds || []), ...(team.backupIds || [])];
+  return ids.some(id => snapshotMatchesOperator({ orbitLoginId: id }, identity, emailToOrbit));
+}
+
+assert('team roster with email-as-orbitLoginId still belongs to David',
+  operatorOwnsTeam({ primaryIds: ['david@centific.com'], backupIds: [] }, david, emailMap));
+
+assert('unrelated team roster does not belong to David',
+  !operatorOwnsTeam({ primaryIds: ['Jamie-tw'], backupIds: [] }, david, emailMap));
+
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);
