@@ -10629,9 +10629,14 @@ function syncOverviewHeliosFit() {
 }
 
 function bindOverviewHeliosFit() {
+  let ticking = false;
   const apply = () => {
-    syncOverviewHeliosFit();
-    requestAnimationFrame(syncOverviewHeliosFit);
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      syncOverviewHeliosFit();
+    });
   };
   apply();
   if (window._ovHeliosFitBound) return;
@@ -10639,6 +10644,12 @@ function bindOverviewHeliosFit() {
   window.addEventListener('resize', apply, { passive: true });
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', apply, { passive: true });
+  }
+  const host = document.getElementById('adminContent') || document.getElementById('adminApp');
+  if (host && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(apply);
+    ro.observe(host);
+    window._ovHeliosFitRo = ro;
   }
 }
 
