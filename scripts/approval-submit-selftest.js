@@ -103,6 +103,19 @@ assert('shows address even on team-session rows', teamish.address === '12 Oak St
 assert('shows phone when present', teamish.phone === '555-0100');
 assert('shows email when present', teamish.email === 'pat@example.com');
 
+const fullLine = context.assignmentParticipantContact({
+  participantData: {
+    address: '322 Pasco Mes NE 98059, Seattle, Washington',
+    state: 'Washington',
+    zipCode: '98059',
+  },
+});
+assert(
+  'does not duplicate state/zip already in the address line',
+  fullLine.address === '322 Pasco Mes NE 98059, Seattle, Washington',
+  fullLine.address
+);
+
 console.log('');
 console.log(failed ? `FAILED ${failed} · passed ${passed}` : `All ${passed} checks passed`);
 process.exit(failed ? 1 : 0);

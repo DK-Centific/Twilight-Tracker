@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226';
-const APP_UPDATED_AT = '09/12/2026 03:05';
+const APP_VERSION = '1.3.091226a';
+const APP_UPDATED_AT = '09/12/2026 03:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4704,9 +4704,15 @@ function isTeamSessionAssignment(a) {
 // carry an address or phone. Do not invent values.
 function assignmentParticipantContact(asgn) {
   const pd = (asgn && asgn.participantData) || {};
-  const address = [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ').trim();
+  const rawAddr = String(pd.address || '').trim();
+  const state = String(pd.state || '').trim();
+  const zip = String(pd.zipCode || '').trim();
+  const extra = [];
+  const hay = rawAddr.toLowerCase();
+  if (state && hay.indexOf(state.toLowerCase()) < 0) extra.push(state);
+  if (zip && hay.indexOf(zip.toLowerCase()) < 0) extra.push(zip);
   return {
-    address: address,
+    address: [rawAddr].concat(extra).filter(Boolean).join(', '),
     phone: String(pd.phone || '').trim(),
     email: String(pd.email || '').trim(),
   };
@@ -6909,6 +6915,97 @@ function pickField(obj, ...candidates) {
   }
   return '';
 }
+
+/* ASGN_READ_HYDRATE_BEGIN
+ * Map Assignment READ / SharePoint List columns onto participantData.
+ * PA already stores address + contact; Twilight must not drop aliases
+ * like phonenumber0 or a nested Graph `fields` envelope.
+ */
+function assignmentReadScalar(v) {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (Array.isArray(v)) {
+      return v.map(assignmentReadScalar).filter(Boolean).join(', ');
+    }
+    const inner = v.LookupValue || v.Value || v.Title || v.Email || v.Address || '';
+    return inner != null ? String(inner).trim() : '';
+  }
+  return String(v).trim();
+}
+
+function flattenAssignmentReadRow(r) {
+  if (!r || typeof r !== 'object') return r || {};
+  const nested = r.fields || r.Fields || r.columnSet;
+  if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return r;
+  const out = Object.assign({}, nested, r);
+  Object.keys(nested).forEach(k => {
+    if ((out[k] == null || out[k] === '') && nested[k] != null && nested[k] !== '') {
+      out[k] = nested[k];
+    }
+  });
+  return out;
+}
+
+function assignmentReadField(r, ...names) {
+  r = flattenAssignmentReadRow(r);
+  if (!r) return '';
+  if (typeof pickField === 'function') {
+    const v = assignmentReadScalar(pickField(r, ...names));
+    if (v) return v;
+  }
+  for (let i = 0; i < names.length; i++) {
+    const v = assignmentReadScalar(r[names[i]]);
+    if (v) return v;
+  }
+  return '';
+}
+
+function assignmentParticipantPhoneFromRecord(r) {
+  r = flattenAssignmentReadRow(r);
+  if (!r) return '';
+  // Exact participant columns first. Do NOT pickField('phonenumber') —
+  // that match is case-insensitive and would steal moderator phoneNumber.
+  const exact = ['phonenumber', 'phonenumber0', 'phonenumber1', 'participantPhone', 'participant_phone'];
+  for (let i = 0; i < exact.length; i++) {
+    const v = assignmentReadScalar(r[exact[i]]);
+    if (v) return v;
+  }
+  const keys = Object.keys(r);
+  for (let i = 0; i < keys.length; i++) {
+    const compact = String(keys[i] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (/^phonenumber\d+$/.test(compact)) {
+      const v = assignmentReadScalar(r[keys[i]]);
+      if (v) return v;
+    }
+  }
+  return '';
+}
+
+function assignmentParticipantFieldsFromRecord(r) {
+  r = flattenAssignmentReadRow(r);
+  return {
+    address: assignmentReadField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress'),
+    email: assignmentReadField(r, 'participantEmail', 'participant_email'),
+    phone: assignmentParticipantPhoneFromRecord(r),
+    state: assignmentReadField(r, 'participantState', 'participant_state'),
+    zipCode: assignmentReadField(r, 'participantZipCode', 'participant_zip', 'zipCode'),
+  };
+}
+
+function assignmentTeamNameFromRecord(r) {
+  return assignmentReadField(r, 'team', 'teamName', 'TeamName');
+}
+
+function mergeParticipantDataPreferFilled(primary, fallback) {
+  const out = Object.assign({}, primary || {});
+  const src = fallback || {};
+  const missing = v => v == null || String(v).trim() === '';
+  Object.keys(src).forEach(k => {
+    if (missing(out[k]) && !missing(src[k])) out[k] = src[k];
+  });
+  return out;
+}
+/* ASGN_READ_HYDRATE_END */
 
 // Power Automate flows often wrap the result in various envelopes. Try to
 // find an array of records inside the response no matter how it's nested.
@@ -19709,8 +19806,16 @@ async function fetchAssignmentsFromPA() {
   }
 
   // Filter out phantom empty rows that PA returns when the table has been
-  // edited (same pattern as the availability and worklog read paths)
-  rows = rows.filter(r => r && (r.assignmentId || r.assignedDate || r.orbitLoginId));
+  // edited (same pattern as the availability and worklog read paths).
+  // Flatten Graph / SharePoint `fields` envelopes first so assignmentId
+  // and OD keys are visible on the row.
+  rows = rows.map(r => (typeof flattenAssignmentReadRow === 'function') ? flattenAssignmentReadRow(r) : r);
+  rows = rows.filter(r => {
+    if (!r) return false;
+    if (r.assignmentId || r.assignedDate || r.orbitLoginId) return true;
+    const od = (typeof bookingOdFieldsFromRecord === 'function') ? bookingOdFieldsFromRecord(r) : null;
+    return !!(od && od.odScheduleId);
+  });
 
   // Sort rows newest-first by lastActive (the per-row timestamp Power
   // Automate sees when the assignment was last written). This makes the
@@ -19756,6 +19861,18 @@ async function fetchAssignmentsFromPA() {
         firstName = parts[0] || '';
         lastName  = parts.slice(1).join(' ') || '';
       }
+      const contact = (typeof assignmentParticipantFieldsFromRecord === 'function')
+        ? assignmentParticipantFieldsFromRecord(r)
+        : {
+            address: r.address || '',
+            phone: r.phonenumber || r.phonenumber0 || '',
+            email: r.participantEmail || '',
+            state: r.participantState || '',
+            zipCode: r.participantZipCode || '',
+          };
+      const teamName = (typeof assignmentTeamNameFromRecord === 'function')
+        ? (assignmentTeamNameFromRecord(r) || r.team || '')
+        : (r.team || '');
       g = {
         id: r.assignmentId || ('asgn_remote_' + _hashKey(groupKey)),
         // Normalize teamId · Excel can return numeric IDs as either number
@@ -19765,7 +19882,7 @@ async function fetchAssignmentsFromPA() {
         // merge below treats "1" (string from Excel) and 1 (number from
         // localStorage) as different keys, causing duplicate cards.
         teamId: (r.teamId == null || r.teamId === '') ? null : (Number(r.teamId) || r.teamId),
-        teamName: r.team || '',
+        teamName,
         date: dateInfo ? dateInfo.date : fallbackDate,
         startMin: dateInfo ? dateInfo.startMin : 8 * 60,
         endMin: dateInfo ? dateInfo.endMin : 17 * 60,
@@ -19773,31 +19890,11 @@ async function fetchAssignmentsFromPA() {
         participantData: {
           orbitLoginId: pid,
           firstName, lastName,
-          // pickField covers Address / participantAddress aliases from
-          // OD hourly sync. Do NOT case-fold phonenumber → phoneNumber:
-          // the latter is the moderator's phone on the same Excel row.
-          address: (typeof pickField === 'function'
-            ? (pickField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress') || r.address || '')
-            : (r.address || '')),
-          phone: r.phonenumber || r.participantPhone || '',
-          // Recover the participant-specific columns we now write on
-          // every row. Fall back to '' (not undefined) so the read-back
-          // shape matches what saveAssignment produces · keeps the
-          // localKeys-vs-remoteKeys merge math consistent. For rows
-          // written by older builds (before participantEmail/State/
-          // ZipCode existed) these stay empty; the merge then prefers
-          // a local cache entry if it has richer data, so admin's
-          // overrides survive the version transition without a manual
-          // re-save.
-          email:   (typeof pickField === 'function'
-            ? (pickField(r, 'participantEmail', 'participant_email') || '')
-            : (r.participantEmail || '')),
-          state:   (typeof pickField === 'function'
-            ? (pickField(r, 'participantState', 'participant_state', 'state') || '')
-            : (r.participantState || '')),
-          zipCode: (typeof pickField === 'function'
-            ? (pickField(r, 'participantZipCode', 'participant_zip', 'zipCode') || '')
-            : (r.participantZipCode || '')),
+          address: contact.address || '',
+          phone: contact.phone || '',
+          email: contact.email || '',
+          state: contact.state || '',
+          zipCode: contact.zipCode || '',
         },
         modSnapshots: [],
         status: r.status || 'Booked',
@@ -19904,6 +20001,18 @@ async function fetchAssignmentsFromPA() {
       }
       if (typeof applyBookingOdFieldsFromRecord === 'function') {
         applyBookingOdFieldsFromRecord(g, r);
+      }
+      // Older rows in the group may still carry address / contact that
+      // the newest write omitted. Fill gaps only — never overwrite.
+      if (typeof mergeParticipantDataPreferFilled === 'function'
+          && typeof assignmentParticipantFieldsFromRecord === 'function') {
+        g.participantData = mergeParticipantDataPreferFilled(
+          g.participantData,
+          assignmentParticipantFieldsFromRecord(r)
+        );
+      }
+      if (!g.teamName && typeof assignmentTeamNameFromRecord === 'function') {
+        g.teamName = assignmentTeamNameFromRecord(r) || g.teamName;
       }
     }
     // Append this mod to the assignment, but ONLY if this row is from
@@ -20229,16 +20338,17 @@ async function fetchAssignmentsFromPA() {
     if ((!Array.isArray(r.modSnapshots) || r.modSnapshots.length === 0) && Array.isArray(l.modSnapshots) && l.modSnapshots.length > 0) {
       patches.modSnapshots = l.modSnapshots;
     }
-    // participantData: remote rebuilds from r.assignedTo string split,
-    // which may be less rich than what we saved (no email/phone/address
-    // if those columns are missing). Prefer local participantData when
-    // it has more fields populated than remote.
-    if (l.participantData && r.participantData) {
-      const localKeys = Object.keys(l.participantData).filter(k => !missing(l.participantData[k])).length;
-      const remoteKeys = Object.keys(r.participantData).filter(k => !missing(r.participantData[k])).length;
-      if (localKeys > remoteKeys) patches.participantData = l.participantData;
-    } else if (l.participantData && !r.participantData) {
-      patches.participantData = l.participantData;
+    // participantData: merge field-by-field. A stale local snapshot
+    // with more keys (empty address) must not wipe a richer OD read
+    // that just brought address / email / phonenumber.
+    if (l.participantData || r.participantData) {
+      const mergedPd = (typeof mergeParticipantDataPreferFilled === 'function')
+        ? mergeParticipantDataPreferFilled(r.participantData, l.participantData)
+        : Object.assign({}, l.participantData || {}, r.participantData || {});
+      const before = r.participantData || {};
+      const changed = Object.keys(mergedPd).some(k => String(mergedPd[k] || '') !== String(before[k] || ''))
+        || Object.keys(before).some(k => String(mergedPd[k] || '') !== String(before[k] || ''));
+      if (changed) patches.participantData = mergedPd;
     }
     if (Object.keys(patches).length > 0) {
       backfilledCount++;
@@ -35292,9 +35402,13 @@ function applyAssignmentToEntryFields() {
     ? getActiveOperatorAssignment()
     : getOperatorAssignment();
   if (!asgn || !asgn.participantData) return;
+  const contact = (typeof assignmentParticipantContact === 'function')
+    ? assignmentParticipantContact(asgn)
+    : null;
   const p = asgn.participantData;
   if (!state.participantAddress) {
-    const parts = [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
+    const parts = (contact && contact.address)
+      || [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
     state.participantAddress = parts;
   }
   saveState();
@@ -36132,8 +36246,11 @@ function renderModCalScheduleHTML() {
       : day.sessions.map(asgn => {
           const p = asgn.participantData || {};
           const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
-          const team = (typeof getTeamColor === 'function') ? '' : '';
-          const teamName = asgn.teamName || (asgn.teamId ? `Team ${asgn.teamId}` : '');
+          const teamObj = (typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : null;
+          const teamName = (teamObj && (teamObj.name || teamObj.teamName)) || asgn.teamName || (asgn.teamId ? `Team ${asgn.teamId}` : '');
+          const contact = (typeof assignmentParticipantContact === 'function')
+            ? assignmentParticipantContact(asgn)
+            : { address: p.address || '' };
           const startTime = (typeof fmtTimeOfDay === 'function') ? fmtTimeOfDay(asgn.startMin) : '';
           const endTime   = (typeof fmtTimeOfDay === 'function') ? fmtTimeOfDay(asgn.endMin)   : '';
           return `
@@ -36141,7 +36258,7 @@ function renderModCalScheduleHTML() {
               <div class="mc-session-time">${escapeHTML(startTime)} – ${escapeHTML(endTime)}</div>
               <div class="mc-session-info">
                 <div class="mc-session-name">${escapeHTML(name)}</div>
-                <div class="mc-session-team">${teamName ? `<span class="team-chip">${escapeHTML(teamName)}</span>` : ''}${escapeHTML(p.address || '')}</div>
+                <div class="mc-session-team">${teamName ? `<span class="team-chip">${escapeHTML(teamName)}</span>` : ''}${escapeHTML(contact.address || '')}</div>
               </div>
             </div>
           `;
