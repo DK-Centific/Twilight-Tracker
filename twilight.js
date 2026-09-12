@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091126p';
-const APP_UPDATED_AT = '09/11/2026 21:55';
+const APP_VERSION = '1.3.091226a';
+const APP_UPDATED_AT = '09/12/2026 03:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4699,6 +4699,25 @@ function isTeamSessionAssignment(a) {
   return !hasPart && a.teamId != null && a.teamId !== '';
 }
 
+// Participant contact as stored on the assignment. Show these whenever
+// they are present — including OD-synced / team-session rows that also
+// carry an address or phone. Do not invent values.
+function assignmentParticipantContact(asgn) {
+  const pd = (asgn && asgn.participantData) || {};
+  const rawAddr = String(pd.address || '').trim();
+  const state = String(pd.state || '').trim();
+  const zip = String(pd.zipCode || '').trim();
+  const extra = [];
+  const hay = rawAddr.toLowerCase();
+  if (state && hay.indexOf(state.toLowerCase()) < 0) extra.push(state);
+  if (zip && hay.indexOf(zip.toLowerCase()) < 0) extra.push(zip);
+  return {
+    address: [rawAddr].concat(extra).filter(Boolean).join(', '),
+    phone: String(pd.phone || '').trim(),
+    email: String(pd.email || '').trim(),
+  };
+}
+
 function stampTeamOpenSession(team, asgn) {
   if (!team || !asgn) return;
   team.currentSessionId = asgn.id;
@@ -4748,7 +4767,8 @@ function ensureTeamSessionAssignments() {
     if (!team || !team.currentSessionId) return;
     const existing = adminState.assignments.find(a => a && String(a.id) === String(team.currentSessionId));
     if (existing) {
-      if (!existing.source) existing.source = 'team-session';
+      const isOd = (typeof assignmentIsOdOrigin === 'function') && assignmentIsOdOrigin(existing);
+      if (!existing.source && !isOd) existing.source = 'team-session';
       if (team.sessionStatus === 'complete'
           && existing.status !== 'Cancelled'
           && existing.status !== 'Unassigned'
@@ -5131,8 +5151,29 @@ function isGatedStation(k)        { return isGatedCaptureStation(k); }
 function gateStationLabel(k) {
   return ({ station1: 'Station1', station2: 'Station2', station3: 'Station3', station4: 'Station4' })[k] || k;
 }
+// Resolve the booking the approval is FOR. Prefer the carousel session
+// the moderator is looking at, then any open assigned session (including
+// OD-synced bookings that never set team.currentSessionId), then the
+// first upcoming row. Empty is allowed — calibration submit must not
+// depend on a session pointer.
+function _resolveGateAssignment() {
+  const tryFns = [
+    (typeof getActiveOperatorAssignment === 'function') ? getActiveOperatorAssignment : null,
+    (typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession : null,
+    (typeof getOperatorAssignment === 'function') ? getOperatorAssignment : null,
+  ];
+  for (let i = 0; i < tryFns.length; i++) {
+    const fn = tryFns[i];
+    if (!fn) continue;
+    try {
+      const a = fn();
+      if (a && a.id) return a;
+    } catch (_) {}
+  }
+  return null;
+}
 function _gateAsgnId() {
-  const a = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
+  const a = _resolveGateAssignment();
   return (a && a.id) ? String(a.id) : '';
 }
 function _gateKey(k) { return _gateAsgnId() + '|' + k; }
@@ -5262,7 +5303,7 @@ function isScenarioGateLocked(k, num) {
 
 // Resolve the moderator's identity / team / lakitu for an approval row.
 function _gateModContext() {
-  const asgn = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
+  const asgn = _resolveGateAssignment();
   const orbitId = (state.modProfile && state.modProfile.orbitLoginId) || state.username || '';
   let modName = (typeof getModeratorDisplayName === 'function' && getModeratorDisplayName(orbitId)) || '';
   if (!modName && state.modProfile) {
@@ -5458,11 +5499,9 @@ function promptStation1LakituUrl() {
 }
 
 async function beginApprovalSubmit(stationKey, resubmit) {
+  // No session gate. Moderators can submit calibration for review even
+  // when My Session is empty (OD booking not linked, session not started).
   const ctx = _gateModContext();
-  if (!ctx.asgn || !ctx.asgn.id) {
-    appAlert({ title: 'No active session', message: 'Start your booked session before submitting calibration for review.' });
-    return;
-  }
   let lakituUrl = '';
   if (stationKey === 'station1') {
     lakituUrl = await promptStation1LakituUrl();
@@ -5471,18 +5510,22 @@ async function beginApprovalSubmit(stationKey, resubmit) {
     saveState();
     if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
   }
+  if (!ctx.asgn || !ctx.asgn.id) {
+    if (typeof toast === 'function') {
+      toast('No booked session linked · still submitting for review.');
+    } else if (typeof showToast === 'function') {
+      showToast('No booked session linked · still submitting for review.', 'info', 3200);
+    }
+  }
   return submitApprovalFromStation(stationKey, resubmit, lakituUrl);
 }
 
 // Submit (or resubmit) the calibration for review for a station.
 async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride) {
   const ctx = _gateModContext();
-  if (!ctx.asgn || !ctx.asgn.id) {
-    appAlert({ title: 'No active session', message: 'Start your booked session before submitting calibration for review.' });
-    return;
-  }
+  const asgnId = (ctx.asgn && ctx.asgn.id) ? String(ctx.asgn.id) : 'unbound';
   const g = getGate(stationKey);
-  const apprId = g.approvalId || ('appr_' + ctx.orbitId + '_' + ctx.asgn.id + '_' + gateStationLabel(stationKey) + '_' + Date.now());
+  const apprId = g.approvalId || ('appr_' + ctx.orbitId + '_' + asgnId + '_' + gateStationLabel(stationKey) + '_' + Date.now());
   const resubmitCount = (g.resubmitCount || 0) + (resubmit ? 1 : 0);
   const lakituUrl = (lakituUrlOverride && String(lakituUrlOverride).trim())
     || (state.recordLakituUrl && String(state.recordLakituUrl).trim())
@@ -5502,7 +5545,7 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
   // (and the admin queue) · so await the result and tell the moderator if
   // it didn't reach the server.
   const writtenId = await createApprovalRequest({
-    approval_id: apprId, assignmentId: ctx.asgn.id,
+    approval_id: apprId, assignmentId: asgnId === 'unbound' ? '' : asgnId,
     teamId: ctx.teamId, teamName: ctx.teamName,
     orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
     station: gateStationLabel(stationKey), scenario: 'calibration',
@@ -5516,8 +5559,8 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
 // --- popups (reuse appAlert) ---
 function showApprovalWaitingPopup() {
   appAlert({
-    title: 'Submitted for review', html: true, okLabel: 'Got it',
-    message: 'The admin has been notified to review your calibration recording.',
+    title: 'Submitted for review', html: true, okLabel: 'Continue',
+    message: 'Stay on this station. You\u2019ll get a notice when a reviewer decides. Other scenarios stay locked until then.',
   });
 }
 // Per-checkpoint acknowledgment of the "Approved" notification.
@@ -5665,7 +5708,7 @@ function decorateApprovalGate(c, station) {
   } else {
     const ready = calibrationComplete(k);
     inner = '<div class="appr-slidedown-title">Calibration video must be done first</div>' +
-            '<div class="appr-slidedown-sub">Record CAL_EXT and CAL_GND, then submit for review. ' + unlockSub + '</div>' +
+            '<div class="appr-slidedown-sub">Record CAL_EXT and CAL_GND, then tap Submit for review. You can submit even if My Session is empty. ' + unlockSub + '</div>' +
             '<button class="appr-submit-btn" data-act="submit"' + (ready ? '' : ' disabled title="Complete CAL_EXT and CAL_GND first"') + '>Submit for review</button>';
   }
 
@@ -5734,13 +5777,20 @@ async function pollMyApprovals() {
   }
   const asgnId = _gateAsgnId();
   const orbitId = (state.modProfile && state.modProfile.orbitLoginId) || state.username || '';
-  if (asgnId && orbitId) {
+  if (orbitId) {
     for (const k of GATE_ALL_KEYS) {
       const label = gateStationLabel(k);
-      const mine = resolved.find(a =>
-        String(a.assignment_id) === String(asgnId) &&
-        String(a.station) === label &&
-        String(a.orbit_login_id || '').toLowerCase() === String(orbitId).toLowerCase());
+      const g0 = getGate(k);
+      const mine = resolved.find(a => {
+        const sameMod = String(a.orbit_login_id || '').toLowerCase() === String(orbitId).toLowerCase();
+        const sameStation = String(a.station) === label;
+        if (!sameMod || !sameStation) return false;
+        if (g0.approvalId && String(a.approval_id) === String(g0.approvalId)) return true;
+        const rowAsgn = String(a.assignment_id || '').trim();
+        if (asgnId && rowAsgn === String(asgnId)) return true;
+        if (!asgnId && (!rowAsgn || rowAsgn === 'unbound')) return true;
+        return false;
+      });
       const g = getGate(k);
       if (mine) {
         const cloudStatus = mine.status;
@@ -6865,6 +6915,97 @@ function pickField(obj, ...candidates) {
   }
   return '';
 }
+
+/* ASGN_READ_HYDRATE_BEGIN
+ * Map Assignment READ / SharePoint List columns onto participantData.
+ * PA already stores address + contact; Twilight must not drop aliases
+ * like phonenumber0 or a nested Graph `fields` envelope.
+ */
+function assignmentReadScalar(v) {
+  if (v == null) return '';
+  if (typeof v === 'object') {
+    if (Array.isArray(v)) {
+      return v.map(assignmentReadScalar).filter(Boolean).join(', ');
+    }
+    const inner = v.LookupValue || v.Value || v.Title || v.Email || v.Address || '';
+    return inner != null ? String(inner).trim() : '';
+  }
+  return String(v).trim();
+}
+
+function flattenAssignmentReadRow(r) {
+  if (!r || typeof r !== 'object') return r || {};
+  const nested = r.fields || r.Fields || r.columnSet;
+  if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return r;
+  const out = Object.assign({}, nested, r);
+  Object.keys(nested).forEach(k => {
+    if ((out[k] == null || out[k] === '') && nested[k] != null && nested[k] !== '') {
+      out[k] = nested[k];
+    }
+  });
+  return out;
+}
+
+function assignmentReadField(r, ...names) {
+  r = flattenAssignmentReadRow(r);
+  if (!r) return '';
+  if (typeof pickField === 'function') {
+    const v = assignmentReadScalar(pickField(r, ...names));
+    if (v) return v;
+  }
+  for (let i = 0; i < names.length; i++) {
+    const v = assignmentReadScalar(r[names[i]]);
+    if (v) return v;
+  }
+  return '';
+}
+
+function assignmentParticipantPhoneFromRecord(r) {
+  r = flattenAssignmentReadRow(r);
+  if (!r) return '';
+  // Exact participant columns first. Do NOT pickField('phonenumber') —
+  // that match is case-insensitive and would steal moderator phoneNumber.
+  const exact = ['phonenumber', 'phonenumber0', 'phonenumber1', 'participantPhone', 'participant_phone'];
+  for (let i = 0; i < exact.length; i++) {
+    const v = assignmentReadScalar(r[exact[i]]);
+    if (v) return v;
+  }
+  const keys = Object.keys(r);
+  for (let i = 0; i < keys.length; i++) {
+    const compact = String(keys[i] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (/^phonenumber\d+$/.test(compact)) {
+      const v = assignmentReadScalar(r[keys[i]]);
+      if (v) return v;
+    }
+  }
+  return '';
+}
+
+function assignmentParticipantFieldsFromRecord(r) {
+  r = flattenAssignmentReadRow(r);
+  return {
+    address: assignmentReadField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress'),
+    email: assignmentReadField(r, 'participantEmail', 'participant_email'),
+    phone: assignmentParticipantPhoneFromRecord(r),
+    state: assignmentReadField(r, 'participantState', 'participant_state'),
+    zipCode: assignmentReadField(r, 'participantZipCode', 'participant_zip', 'zipCode'),
+  };
+}
+
+function assignmentTeamNameFromRecord(r) {
+  return assignmentReadField(r, 'team', 'teamName', 'TeamName');
+}
+
+function mergeParticipantDataPreferFilled(primary, fallback) {
+  const out = Object.assign({}, primary || {});
+  const src = fallback || {};
+  const missing = v => v == null || String(v).trim() === '';
+  Object.keys(src).forEach(k => {
+    if (missing(out[k]) && !missing(src[k])) out[k] = src[k];
+  });
+  return out;
+}
+/* ASGN_READ_HYDRATE_END */
 
 // Power Automate flows often wrap the result in various envelopes. Try to
 // find an array of records inside the response no matter how it's nested.
@@ -19665,8 +19806,16 @@ async function fetchAssignmentsFromPA() {
   }
 
   // Filter out phantom empty rows that PA returns when the table has been
-  // edited (same pattern as the availability and worklog read paths)
-  rows = rows.filter(r => r && (r.assignmentId || r.assignedDate || r.orbitLoginId));
+  // edited (same pattern as the availability and worklog read paths).
+  // Flatten Graph / SharePoint `fields` envelopes first so assignmentId
+  // and OD keys are visible on the row.
+  rows = rows.map(r => (typeof flattenAssignmentReadRow === 'function') ? flattenAssignmentReadRow(r) : r);
+  rows = rows.filter(r => {
+    if (!r) return false;
+    if (r.assignmentId || r.assignedDate || r.orbitLoginId) return true;
+    const od = (typeof bookingOdFieldsFromRecord === 'function') ? bookingOdFieldsFromRecord(r) : null;
+    return !!(od && od.odScheduleId);
+  });
 
   // Sort rows newest-first by lastActive (the per-row timestamp Power
   // Automate sees when the assignment was last written). This makes the
@@ -19712,6 +19861,18 @@ async function fetchAssignmentsFromPA() {
         firstName = parts[0] || '';
         lastName  = parts.slice(1).join(' ') || '';
       }
+      const contact = (typeof assignmentParticipantFieldsFromRecord === 'function')
+        ? assignmentParticipantFieldsFromRecord(r)
+        : {
+            address: r.address || '',
+            phone: r.phonenumber || r.phonenumber0 || '',
+            email: r.participantEmail || '',
+            state: r.participantState || '',
+            zipCode: r.participantZipCode || '',
+          };
+      const teamName = (typeof assignmentTeamNameFromRecord === 'function')
+        ? (assignmentTeamNameFromRecord(r) || r.team || '')
+        : (r.team || '');
       g = {
         id: r.assignmentId || ('asgn_remote_' + _hashKey(groupKey)),
         // Normalize teamId · Excel can return numeric IDs as either number
@@ -19721,7 +19882,7 @@ async function fetchAssignmentsFromPA() {
         // merge below treats "1" (string from Excel) and 1 (number from
         // localStorage) as different keys, causing duplicate cards.
         teamId: (r.teamId == null || r.teamId === '') ? null : (Number(r.teamId) || r.teamId),
-        teamName: r.team || '',
+        teamName,
         date: dateInfo ? dateInfo.date : fallbackDate,
         startMin: dateInfo ? dateInfo.startMin : 8 * 60,
         endMin: dateInfo ? dateInfo.endMin : 17 * 60,
@@ -19729,20 +19890,11 @@ async function fetchAssignmentsFromPA() {
         participantData: {
           orbitLoginId: pid,
           firstName, lastName,
-          address: r.address || '',
-          phone: r.phonenumber || '',
-          // Recover the participant-specific columns we now write on
-          // every row. Fall back to '' (not undefined) so the read-back
-          // shape matches what saveAssignment produces · keeps the
-          // localKeys-vs-remoteKeys merge math consistent. For rows
-          // written by older builds (before participantEmail/State/
-          // ZipCode existed) these stay empty; the merge then prefers
-          // a local cache entry if it has richer data, so admin's
-          // overrides survive the version transition without a manual
-          // re-save.
-          email:   r.participantEmail   || '',
-          state:   r.participantState   || '',
-          zipCode: r.participantZipCode || '',
+          address: contact.address || '',
+          phone: contact.phone || '',
+          email: contact.email || '',
+          state: contact.state || '',
+          zipCode: contact.zipCode || '',
         },
         modSnapshots: [],
         status: r.status || 'Booked',
@@ -19849,6 +20001,18 @@ async function fetchAssignmentsFromPA() {
       }
       if (typeof applyBookingOdFieldsFromRecord === 'function') {
         applyBookingOdFieldsFromRecord(g, r);
+      }
+      // Older rows in the group may still carry address / contact that
+      // the newest write omitted. Fill gaps only — never overwrite.
+      if (typeof mergeParticipantDataPreferFilled === 'function'
+          && typeof assignmentParticipantFieldsFromRecord === 'function') {
+        g.participantData = mergeParticipantDataPreferFilled(
+          g.participantData,
+          assignmentParticipantFieldsFromRecord(r)
+        );
+      }
+      if (!g.teamName && typeof assignmentTeamNameFromRecord === 'function') {
+        g.teamName = assignmentTeamNameFromRecord(r) || g.teamName;
       }
     }
     // Append this mod to the assignment, but ONLY if this row is from
@@ -20174,16 +20338,17 @@ async function fetchAssignmentsFromPA() {
     if ((!Array.isArray(r.modSnapshots) || r.modSnapshots.length === 0) && Array.isArray(l.modSnapshots) && l.modSnapshots.length > 0) {
       patches.modSnapshots = l.modSnapshots;
     }
-    // participantData: remote rebuilds from r.assignedTo string split,
-    // which may be less rich than what we saved (no email/phone/address
-    // if those columns are missing). Prefer local participantData when
-    // it has more fields populated than remote.
-    if (l.participantData && r.participantData) {
-      const localKeys = Object.keys(l.participantData).filter(k => !missing(l.participantData[k])).length;
-      const remoteKeys = Object.keys(r.participantData).filter(k => !missing(r.participantData[k])).length;
-      if (localKeys > remoteKeys) patches.participantData = l.participantData;
-    } else if (l.participantData && !r.participantData) {
-      patches.participantData = l.participantData;
+    // participantData: merge field-by-field. A stale local snapshot
+    // with more keys (empty address) must not wipe a richer OD read
+    // that just brought address / email / phonenumber.
+    if (l.participantData || r.participantData) {
+      const mergedPd = (typeof mergeParticipantDataPreferFilled === 'function')
+        ? mergeParticipantDataPreferFilled(r.participantData, l.participantData)
+        : Object.assign({}, l.participantData || {}, r.participantData || {});
+      const before = r.participantData || {};
+      const changed = Object.keys(mergedPd).some(k => String(mergedPd[k] || '') !== String(before[k] || ''))
+        || Object.keys(before).some(k => String(mergedPd[k] || '') !== String(before[k] || ''));
+      if (changed) patches.participantData = mergedPd;
     }
     if (Object.keys(patches).length > 0) {
       backfilledCount++;
@@ -23094,9 +23259,13 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
     const dayLabel = (useScope === 'week' && dayObj)
       ? dayObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
       : '';
+    const contact = (typeof assignmentParticipantContact === 'function')
+      ? assignmentParticipantContact(a)
+      : { address: (p.address || '').trim() };
     const sub = [
       dayLabel,
       (team && team.name) || a.teamName || '',
+      contact.address || '',
       a.status || '',
     ].filter(Boolean).join(' · ');
     return `
@@ -34862,14 +35031,16 @@ function renderMySessionSection() {
   const isTeamSession = (typeof isTeamSessionAssignment === 'function')
     ? isTeamSessionAssignment(asgn)
     : (asgn.source === 'team-session');
+  const contact = (typeof assignmentParticipantContact === 'function')
+    ? assignmentParticipantContact(asgn)
+    : { address: '', phone: '', email: '' };
   const partName = isTeamSession
     ? ((tileTeamEarly && tileTeamEarly.name) || asgn.teamName || 'Team session')
     : ([p.firstName, p.lastName].filter(Boolean).join(' ') || '·');
-  const addr = isTeamSession
-    ? ''
-    : (p.address ? [p.address, p.state, p.zipCode].filter(Boolean).join(', ') : '');
+  const addr = contact.address || '';
   const mapUrl = addr ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}` : '';
-  const phone = isTeamSession ? '' : (p.phone || '');
+  const phone = contact.phone || '';
+  const email = contact.email || '';
 
   const eyebrowText = total > 1
     ? (isFuture ? `Upcoming session ${idx + 1} of ${total}` : (isToday ? `Today's session ${idx + 1} of ${total}` : `Past session ${idx + 1} of ${total}`))
@@ -34980,6 +35151,14 @@ function renderMySessionSection() {
               <path d="M3 4c0-1 .5-1.5 1.5-1.5h1.5c.5 0 1 .3 1.2.8l.7 2c.2.5 0 1-.4 1.3l-.9.6a8 8 0 0 0 3.7 3.7l.6-.9c.3-.4.8-.6 1.3-.4l2 .7c.5.2.8.7.8 1.2v1.5c0 1-.5 1.5-1.5 1.5C7.7 14.5 1.5 8.3 1.5 4z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
             </svg>
             <a href="tel:${escapeForUrl(phone)}">${escapeHTML(phone)}</a>
+          </div>` : ''}
+        ${email ? `
+          <div class="assigned-tile-row">
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="4" width="12" height="8" rx="1.4" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M3 5.2l5 3.4 5-3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <a href="mailto:${escapeForUrl(email)}">${escapeHTML(email)}</a>
           </div>` : ''}
         ${teamHTML}
         ${renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, isCancelled, equipmentReady)}
@@ -35223,9 +35402,13 @@ function applyAssignmentToEntryFields() {
     ? getActiveOperatorAssignment()
     : getOperatorAssignment();
   if (!asgn || !asgn.participantData) return;
+  const contact = (typeof assignmentParticipantContact === 'function')
+    ? assignmentParticipantContact(asgn)
+    : null;
   const p = asgn.participantData;
   if (!state.participantAddress) {
-    const parts = [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
+    const parts = (contact && contact.address)
+      || [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
     state.participantAddress = parts;
   }
   saveState();
@@ -36063,8 +36246,11 @@ function renderModCalScheduleHTML() {
       : day.sessions.map(asgn => {
           const p = asgn.participantData || {};
           const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
-          const team = (typeof getTeamColor === 'function') ? '' : '';
-          const teamName = asgn.teamName || (asgn.teamId ? `Team ${asgn.teamId}` : '');
+          const teamObj = (typeof teamForAssignment === 'function') ? teamForAssignment(asgn) : null;
+          const teamName = (teamObj && (teamObj.name || teamObj.teamName)) || asgn.teamName || (asgn.teamId ? `Team ${asgn.teamId}` : '');
+          const contact = (typeof assignmentParticipantContact === 'function')
+            ? assignmentParticipantContact(asgn)
+            : { address: p.address || '' };
           const startTime = (typeof fmtTimeOfDay === 'function') ? fmtTimeOfDay(asgn.startMin) : '';
           const endTime   = (typeof fmtTimeOfDay === 'function') ? fmtTimeOfDay(asgn.endMin)   : '';
           return `
@@ -36072,7 +36258,7 @@ function renderModCalScheduleHTML() {
               <div class="mc-session-time">${escapeHTML(startTime)} – ${escapeHTML(endTime)}</div>
               <div class="mc-session-info">
                 <div class="mc-session-name">${escapeHTML(name)}</div>
-                <div class="mc-session-team">${teamName ? `<span class="team-chip">${escapeHTML(teamName)}</span>` : ''}${escapeHTML(p.address || '')}</div>
+                <div class="mc-session-team">${teamName ? `<span class="team-chip">${escapeHTML(teamName)}</span>` : ''}${escapeHTML(contact.address || '')}</div>
               </div>
             </div>
           `;
@@ -38562,9 +38748,13 @@ function showNextSessionModal(w) {
   const partName = isTeamSession
     ? (teamName || 'Team session')
     : ([part.firstName, part.lastName].filter(Boolean).join(' ').trim() || 'TBD');
-  const partAddress = isTeamSession
-    ? ((typeof getTeamOfficeAddress === 'function' && team) ? getTeamOfficeAddress(team) : (team && team.teamAddress) || '')
-    : ([part.address, part.state, part.zipCode].filter(Boolean).join(', ') || '');
+  const contact = (typeof assignmentParticipantContact === 'function')
+    ? assignmentParticipantContact(asgn)
+    : { address: [part.address, part.state, part.zipCode].filter(Boolean).join(', ') };
+  const teamAddr = (typeof getTeamOfficeAddress === 'function' && team)
+    ? getTeamOfficeAddress(team)
+    : ((team && team.teamAddress) || '');
+  const partAddress = contact.address || (isTeamSession ? teamAddr : '');
   // Friendly day label: "today", "tomorrow", or full date
   const todayStr = getPSTDateString();
   // Compute "tomorrow in PST" by parsing today as a YYYY-MM-DD string,
