@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226d';
-const APP_UPDATED_AT = '09/12/2026 04:35';
+const APP_VERSION = '1.3.091226e';
+const APP_UPDATED_AT = '09/12/2026 06:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -13289,6 +13289,120 @@ const GEO_DEMO_FLAG_KEY = 'centific_orbit_geo_demo_v1';
 const MOD_TRACKING_LS_KEY = 'centific_orbit_mod_tracking_v1';
 const MOD_TRACKING_SETTING_ID = 'ss_app_setting_mod_tracking';
 let _modTrackingEnabled = true;
+
+/* MOD_GEO_TRACK_BEGIN */
+function lastGeoPingAtMs(g) {
+  if (!g || typeof g !== 'object') return 0;
+  const raw = g.at;
+  if (raw == null || raw === '') return 0;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) {
+    if (n > 1e11) return n;
+    if (n > 1e9) return n * 1000;
+    if (n > 20000 && n < 90000) return Math.round((n - 25569) * 86400 * 1000);
+  }
+  const parsed = Date.parse(raw);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+function shouldCaptureModeratorGeo(input) {
+  input = input || {};
+  if (!input.hasProfile) return false;
+  if (input.isPasswordlessAdmin) return false;
+  if (input.appView === 'admin' || input.appView === 'reviewer') return false;
+  if (input.appView === 'moderator' || input.modAppVisible) return true;
+  return !input.isAdmin;
+}
+
+function resolveSessionStateWriteTarget(input) {
+  input = input || {};
+  const orbitId = String(input.orbitLoginId || '');
+  if (!orbitId) return null;
+  const openId = input.openAssignmentId ? String(input.openAssignmentId) : '';
+  const completed = !!input.sessionCompletedAt;
+  const persistCompletion = !!input.persistCompletion;
+  if (openId && (!completed || persistCompletion)) {
+    return { id: openId, kind: 'assignment', teamId: input.teamId || '' };
+  }
+  if (!input.teamId && !input.hasLastGeo) return null;
+  const day = String(input.day || '').trim() || 'unknown';
+  return {
+    id: 'geo_presence_' + orbitId + '_' + day,
+    kind: 'presence',
+    teamId: input.teamId || '',
+  };
+}
+
+function pickBestCloudLastGeo(rows) {
+  const best = new Map();
+  (rows || []).forEach(r => {
+    if (!r) return;
+    let parsed = r.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+    } else if (parsed && typeof parsed === 'object') {
+      parsed = parsed;
+    } else {
+      parsed = null;
+    }
+    if (!parsed || parsed.type === 'appSetting') return;
+    const g = parsed.lastGeo;
+    if (!g || !Number.isFinite(Number(g.lat)) || !Number.isFinite(Number(g.lng))) return;
+    const id = String(r.orbitLoginId || g.orbitLoginId || '').toLowerCase();
+    if (!id || id === '_app_setting') return;
+    const geoAt = lastGeoPingAtMs(g);
+    let rowAt = 0;
+    if (r.lastActive != null && r.lastActive !== '') {
+      const la = Date.parse(r.lastActive);
+      if (!isNaN(la)) rowAt = la;
+      else {
+        const n = Number(r.lastActive);
+        if (Number.isFinite(n) && n > 20000 && n < 90000) {
+          rowAt = Math.round((n - 25569) * 86400 * 1000);
+        }
+      }
+    }
+    // Use the GPS fix time. A later heartbeat that reused Sept 9
+    // coordinates must not outrank a newer real fix.
+    const at = geoAt || rowAt;
+    if (!at) return;
+    const prev = best.get(id);
+    if (prev && prev.at >= at) return;
+    best.set(id, {
+      orbitLoginId: id,
+      name: g.name || '',
+      role: g.role || 'moderator',
+      lat: Number(g.lat),
+      lng: Number(g.lng),
+      accuracy: g.accuracy,
+      at,
+    });
+  });
+  return best;
+}
+
+function shouldKeepLocalLastGeo(localGeo, incomingGeo) {
+  const localAt = lastGeoPingAtMs(localGeo);
+  const incomingAt = lastGeoPingAtMs(incomingGeo);
+  if (localAt && incomingAt) return localAt > incomingAt;
+  if (localAt && !incomingAt) return true;
+  return false;
+}
+/* MOD_GEO_TRACK_END */
+
+function isModeratorGeoActor() {
+  return shouldCaptureModeratorGeo({
+    hasProfile: !!(typeof state !== 'undefined' && state && state.modProfile && state.modProfile.orbitLoginId),
+    isPasswordlessAdmin: typeof isAdminUsername === 'function'
+      && !!(typeof state !== 'undefined' && state && isAdminUsername(state.username)),
+    appView: (typeof state !== 'undefined' && state) ? state.appView : '',
+    isAdmin: !!(typeof state !== 'undefined' && state && state.isAdmin),
+    modAppVisible: !!(typeof document !== 'undefined'
+      && document.getElementById
+      && document.getElementById('app')
+      && document.getElementById('app').style.display === 'block'),
+  });
+}
 let _geoPingTimer = null;
 let _geoSessionStateTimer = null;
 let _geoFlowBusy = false;
@@ -13530,8 +13644,14 @@ function ingestAppSettingsFromSessionRows(rows) {
       try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
     }
     if (parsed && typeof parsed.enabled === 'boolean') {
+      const was = isModTrackingEnabled();
       cacheModTrackingEnabled(parsed.enabled);
       syncModTrackingUi();
+      // An already-open moderator app used to keep a stopped GPS loop
+      // after Admin turned tracking back on, so the map kept an old pin.
+      if (was !== isModTrackingEnabled() && typeof applyModeratorTrackingMode === 'function') {
+        applyModeratorTrackingMode();
+      }
     }
   }
   ingestDeactivatedUsersFromSessionRows(rows);
@@ -14335,7 +14455,8 @@ function setOrbitMockGeo(presetOrCoords) {
 }
 try { window.setOrbitMockGeo = setOrbitMockGeo; } catch (_) {}
 
-function readCurrentPosition() {
+function readCurrentPosition(opts) {
+  opts = opts || {};
   return new Promise((resolve, reject) => {
     if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
       reject(Object.assign(new Error('Moderator tracking is disabled.'), { code: 0, trackingOff: true }));
@@ -14364,7 +14485,11 @@ function readCurrentPosition() {
         mocked: false,
       }),
       err => reject(err),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }
+      {
+        enableHighAccuracy: true,
+        timeout: opts.forceFresh ? 20000 : 12000,
+        maximumAge: opts.forceFresh ? 0 : 15000,
+      }
     );
   });
 }
@@ -14505,9 +14630,9 @@ function geoPhaseBannerCopy(phase) {
 async function pingModeratorLocation(opts) {
   opts = opts || {};
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return;
-  if (state.isAdmin || isAdminUsername(state.username)) return;
+  if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) return;
   try {
-    const pos = await readCurrentPosition();
+    const pos = await readCurrentPosition({ forceFresh: !!opts.forceFresh });
     _geoPermissionDenied = false;
     recordGeoPing({
       orbitLoginId: state.modProfile.orbitLoginId,
@@ -14533,16 +14658,32 @@ async function syncModeratorLocationToSessionState(reason) {
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) {
     return { ok: false, reason: 'notmoderator' };
   }
-  if (state.isAdmin || isAdminUsername(state.username)) {
+  if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) {
     return { ok: false, reason: 'admin' };
   }
-  // Capture first so stateJson contains the freshest coordinates. If the
-  // browser cannot provide a new fix, still write the last known location
-  // and any lifecycle state (completion/logout) already stored locally.
-  await pingModeratorLocation({ skipSync: true, syncReason: reason || 'scheduled' });
+  // Capture first so stateJson contains the freshest coordinates.
+  const pos = await pingModeratorLocation({
+    skipSync: true,
+    syncReason: reason || 'scheduled',
+    forceFresh: true,
+  });
+  const persistCompletion = reason === 'session_completed';
+  if (!pos) {
+    const age = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(state.lastGeo) : 0;
+    const staleMs = 24 * 60 * 60 * 1000;
+    // A days-old lastGeo must not be rewritten as a "new" cloud pin.
+    // Completion still needs one assignment write so wrap-up lands.
+    if ((!age || (Date.now() - age) > staleMs) && !persistCompletion) {
+      return { ok: false, reason: 'nofix' };
+    }
+  }
   _lastGeoSyncAt = Date.now();
   if (typeof flushSessionStateSync === 'function') {
-    return flushSessionStateSync({ force: true, geoSyncReason: reason || 'scheduled' });
+    return flushSessionStateSync({
+      force: true,
+      geoSyncReason: reason || 'scheduled',
+      persistCompletion,
+    });
   }
   return { ok: false, reason: 'notconfigured' };
 }
@@ -14851,7 +14992,7 @@ async function tickModeratorGeoFlow(opts) {
   opts = opts || {};
   if (_geoFlowBusy && !opts.force) return;
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return;
-  if (state.isAdmin || isAdminUsername(state.username)) return;
+  if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) return;
   if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) return;
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
@@ -14900,7 +15041,7 @@ async function tickModeratorGeoFlow(opts) {
 }
 
 function startModeratorGeofence() {
-  if (state.isAdmin || isAdminUsername(state.username)) return;
+  if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) return;
   if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) {
     if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
     return;
@@ -14909,7 +15050,8 @@ function startModeratorGeofence() {
   if (typeof syncModeratorRingLinks === 'function') syncModeratorRingLinks();
   // App-open upload: location is captured and written to SessionState
   // immediately, even when this moderator has no assignment today.
-  _lastGeoSyncAt = Date.now();
+  // Do not stamp _lastGeoSyncAt before GPS succeeds — that used to
+  // skip the follow-up write for 15 minutes after a failed first fix.
   syncModeratorLocationToSessionState('app_open');
   tickModeratorGeoFlow({ force: true });
   if (_geoPingTimer) return;
@@ -31978,29 +32120,48 @@ const _sessionStateSyncState = {
   lastSyncedActive:      null,
 };
 
-function getSessionStateWriteContext() {
+function assignmentCompletionNeedsWrite(asgn) {
+  if (!state || !state.sessionCompletedAt || !asgn || !asgn.id) return false;
+  if (String(_sessionStateSyncState.lastSyncedAsgnId || '') !== String(asgn.id)) return true;
+  try {
+    const prev = JSON.parse(_sessionStateSyncState.lastSyncedStateJson || '{}');
+    return !prev.sessionCompletedAt;
+  } catch (_) {
+    return true;
+  }
+}
+
+function getSessionStateWriteContext(opts) {
+  opts = opts || {};
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return null;
-  // Stop overwriting the live row once this moderator finished wrap-up.
-  if (state.sessionCompletedAt) return null;
 
   const open = (typeof getAssignedOpenSession === 'function')
     ? getAssignedOpenSession()
     : null;
-  if (open && open.id) {
-    return Object.assign({}, open, { teamId: resolveMappedTeamId(open) });
-  }
+  const persistCompletion = !!(opts.persistCompletion
+    || opts.geoSyncReason === 'session_completed'
+    || (open && assignmentCompletionNeedsWrite(open)));
 
-  // Mapped team (or geo ping) still needs one presence row per user/day
-  // so Admin By Team can show Live before a booking exists.
-  const orbitId = String(state.modProfile.orbitLoginId);
-  const teamId = resolveMappedTeamId(null);
-  if (!teamId && !state.lastGeo) return null;
-  const day = (typeof getPSTDateString === 'function')
-    ? getPSTDateString()
-    : new Date().toISOString().slice(0, 10);
+  const target = (typeof resolveSessionStateWriteTarget === 'function')
+    ? resolveSessionStateWriteTarget({
+      orbitLoginId: state.modProfile.orbitLoginId,
+      sessionCompletedAt: state.sessionCompletedAt,
+      openAssignmentId: open && open.id,
+      teamId: resolveMappedTeamId(open || null),
+      hasLastGeo: !!(state.lastGeo && Number.isFinite(Number(state.lastGeo.lat))),
+      persistCompletion,
+      day: (typeof getPSTDateString === 'function')
+        ? getPSTDateString()
+        : new Date().toISOString().slice(0, 10),
+    })
+    : null;
+  if (!target) return null;
+  if (target.kind === 'assignment' && open) {
+    return Object.assign({}, open, { teamId: target.teamId || resolveMappedTeamId(open) });
+  }
   return {
-    id: `geo_presence_${orbitId}_${day}`,
-    teamId: teamId || '',
+    id: target.id,
+    teamId: target.teamId || '',
     _geoPresenceOnly: true,
   };
 }
@@ -32056,7 +32217,7 @@ async function flushSessionStateSync(opts) {
   opts = opts || {};
   if (!SESSIONSTATE_PA_WRITE_URL) return { ok: false, reason: 'notconfigured' };
   if (!state || !state.username || !state.modProfile) return { ok: false, reason: 'noassignment' };
-  const asgn = getSessionStateWriteContext();
+  const asgn = getSessionStateWriteContext(opts);
   if (!asgn || !asgn.id) return { ok: false, reason: 'noassignment' };
 
   // Re-entry guard: if a write is already in flight, mark pending and
@@ -32279,28 +32440,21 @@ async function fetchSessionStateRows() {
 
 function ingestGeoPingsFromSessionRows(rows) {
   if (!Array.isArray(rows)) return;
-  rows.forEach(r => {
-    let parsed = null;
-    try {
-      parsed = typeof r.stateJson === 'string' ? JSON.parse(r.stateJson) : r.stateJson;
-    } catch (_) { parsed = null; }
-    const g = parsed && parsed.lastGeo;
-    if (!g || !Number.isFinite(Number(g.lat)) || !Number.isFinite(Number(g.lng))) return;
-    const id = String(r.orbitLoginId || '').toLowerCase();
-    if (!id || id === '_app_setting') return;
-    if (parsed && parsed.type === 'appSetting') return;
+  const best = (typeof pickBestCloudLastGeo === 'function')
+    ? pickBestCloudLastGeo(rows)
+    : new Map();
+  best.forEach((ping, id) => {
     const existing = (loadGeoPings() || {})[id];
-    const at = Number(g.at) || Date.parse(r.lastActive) || Date.now();
-    if (existing && existing.at && existing.at > at) return;
+    if (existing && existing.at && Number(existing.at) > ping.at) return;
     const name = (typeof getModeratorDisplayName === 'function') ? getModeratorDisplayName(id) : id;
     recordGeoPing({
       orbitLoginId: id,
-      name: g.name || name,
-      role: g.role || 'moderator',
-      lat: Number(g.lat),
-      lng: Number(g.lng),
-      accuracy: g.accuracy,
-      at,
+      name: ping.name || name,
+      role: ping.role || 'moderator',
+      lat: ping.lat,
+      lng: ping.lng,
+      accuracy: ping.accuracy,
+      at: ping.at,
     }, { fromCloud: true });
   });
 }
@@ -32598,7 +32752,12 @@ function applySelfSyncReplace(s) {
   state.arrivedAt          = s.arrivedAt          || '';
   state.officeCheckedInAt  = s.officeCheckedInAt  || '';
   state.officeCheckedOutAt = s.officeCheckedOutAt || '';
-  state.lastGeo            = s.lastGeo            || null;
+  if (typeof shouldKeepLocalLastGeo === 'function' && shouldKeepLocalLastGeo(state.lastGeo, s.lastGeo)) {
+    // Keep the newer GPS fix from this device. An older cloud lastGeo
+    // (for example a Sept 9 pin) must not replace a just-captured fix.
+  } else {
+    state.lastGeo = s.lastGeo || null;
+  }
   state.calGuideAck        = s.calGuideAck         || null;
   state.recordLakituUrl    = s.recordLakituUrl     || '';
   state._progressScore     = Number(s.progressScore || s._progressScore || 0);
@@ -35553,7 +35712,7 @@ function openWrapUpModal(asgn) {
         // completion marker, then flush immediately (terminal action · worth
         // the round trip).
         try { if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync(); } catch (_) {}
-        try { if (typeof flushSessionStateSync === 'function') flushSessionStateSync(); } catch (_) {}
+        try { if (typeof flushSessionStateSync === 'function') flushSessionStateSync({ force: true, persistCompletion: true, geoSyncReason: 'session_completed' }); } catch (_) {}
         // Send back to welcome (locked state)
         currentStationKey = null;
         try { renderApp(); } catch (e) { console.warn('[Twilight] renderApp after completion failed:', e); }
