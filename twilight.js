@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226f';
-const APP_UPDATED_AT = '09/12/2026 07:20';
+const APP_VERSION = '1.3.091226g';
+const APP_UPDATED_AT = '09/12/2026 07:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -13392,6 +13392,29 @@ function resolveSessionStateWriteTarget(input) {
   };
 }
 
+function parseSessionRowActiveMs(r) {
+  if (!r) return 0;
+  return lastGeoPingAtMs({ at: r.lastActive });
+}
+
+function lastGeoCandidateRank(g, r) {
+  const geoAt = lastGeoPingAtMs(g);
+  const rowAt = parseSessionRowActiveMs(r);
+  // Append-only Write leaves the Sept 9 row in place and adds new rows.
+  // Rank must use the later of GPS time and row time so today's
+  // geo_presence_* / assignment appends beat that stale pin.
+  return Math.max(geoAt || 0, rowAt || 0);
+}
+
+function sessionStateWriteAccepted(body) {
+  if (body == null || body === '') return true;
+  if (typeof body !== 'object') return true;
+  if (body.ok === false || body.success === false) return false;
+  if (body.error && !body.ok) return false;
+  if (typeof body.error === 'object' && body.error.code && body.ok !== true) return false;
+  return true;
+}
+
 function pickBestCloudLastGeo(rows) {
   const best = new Map();
   (rows || []).forEach(r => {
@@ -13410,23 +13433,12 @@ function pickBestCloudLastGeo(rows) {
     const id = String(r.orbitLoginId || g.orbitLoginId || '').toLowerCase();
     if (!id || id === '_app_setting') return;
     const geoAt = lastGeoPingAtMs(g);
-    let rowAt = 0;
-    if (r.lastActive != null && r.lastActive !== '') {
-      const la = Date.parse(r.lastActive);
-      if (!isNaN(la)) rowAt = la;
-      else {
-        const n = Number(r.lastActive);
-        if (Number.isFinite(n) && n > 20000 && n < 90000) {
-          rowAt = Math.round((n - 25569) * 86400 * 1000);
-        }
-      }
-    }
-    // Use the GPS fix time. A later heartbeat that reused Sept 9
-    // coordinates must not outrank a newer real fix.
-    const at = geoAt || rowAt;
-    if (!at) return;
+    const rowAt = parseSessionRowActiveMs(r);
+    const rank = lastGeoCandidateRank(g, r);
+    if (!rank) return;
     const prev = best.get(id);
-    if (prev && prev.at >= at) return;
+    if (prev && prev.rank > rank) return;
+    if (prev && prev.rank === rank && prev.at >= rank) return;
     best.set(id, {
       orbitLoginId: id,
       name: g.name || '',
@@ -13434,7 +13446,8 @@ function pickBestCloudLastGeo(rows) {
       lat: Number(g.lat),
       lng: Number(g.lng),
       accuracy: g.accuracy,
-      at,
+      at: rank,
+      rank,
     });
   });
   return best;
@@ -13445,6 +13458,19 @@ function shouldKeepLocalLastGeo(localGeo, incomingGeo) {
   const incomingAt = lastGeoPingAtMs(incomingGeo);
   if (localAt && incomingAt) return localAt > incomingAt;
   if (localAt && !incomingAt) return true;
+  return false;
+}
+
+function shouldReplaceLocalGeoPing(existing, incoming) {
+  if (!incoming || !Number.isFinite(Number(incoming.lat)) || !Number.isFinite(Number(incoming.lng))) return false;
+  if (!existing || !Number.isFinite(Number(existing.lat))) return true;
+  const incomingAt = lastGeoPingAtMs(incoming);
+  const localAt = lastGeoPingAtMs(existing);
+  if (incomingAt && incomingAt > localAt) return true;
+  if (localAt && (Date.now() - localAt) > 24 * 60 * 60 * 1000 && incomingAt) return true;
+  const sameCoords = Number(existing.lat).toFixed(5) === Number(incoming.lat).toFixed(5)
+    && Number(existing.lng).toFixed(5) === Number(incoming.lng).toFixed(5);
+  if (!sameCoords && incomingAt && incomingAt >= localAt) return true;
   return false;
 }
 /* MOD_GEO_TRACK_END */
@@ -14004,6 +14030,9 @@ async function setModTrackingEnabled(enabled) {
   applyModeratorTrackingMode();
   const app = document.getElementById('app');
   const isModApp = !!(app && app.style.display === 'block');
+  if (enabled && isModApp && typeof syncModeratorLocationToSessionState === 'function') {
+    syncModeratorLocationToSessionState('tracking_enabled');
+  }
   if (enabled && !isModApp && typeof toast === 'function') {
     toast('Tracking is on. Open the moderator app on the phone and allow location.', 4500);
   }
@@ -32269,8 +32298,9 @@ function buildSessionStateCloudPayload(asgn, reason) {
     : (state.modProfile && state.modProfile.orbitLoginId || ''));
   stampLocalProgressIfAdvanced(syncable, orbit);
   const geo = syncable.lastGeo && typeof syncable.lastGeo === 'object' ? syncable.lastGeo : null;
+  const sessionStateId = sessionStateStableId(asgn, orbit);
   return {
-    sessionStateId: sessionStateStableId(asgn, orbit),
+    sessionStateId: sessionStateId,
     assignmentId:   String(asgn.id),
     teamId:         String(teamId),
     orbitLoginId:   orbit,
@@ -32285,6 +32315,7 @@ function buildSessionStateCloudPayload(asgn, reason) {
     lastActive:     new Date().toISOString(),
     appVersion:     APP_VERSION,
     overwrite:      true,
+    writeMode:      'upsert',
   };
 }
 
@@ -32424,6 +32455,13 @@ async function flushSessionStateSync(opts) {
   let outcome = { ok: false, reason: 'error' };
   try {
     const payload = buildSessionStateCloudPayload(asgn, opts.geoSyncReason || '');
+    payload.overwrite = true;
+    payload.writeMode = 'upsert';
+    if (!payload.sessionStateId) {
+      outcome = { ok: false, reason: 'error', error: 'missing sessionStateId' };
+      if (opts.force || opts.geoSyncReason) notifyGeoSaveResult(outcome);
+      return outcome;
+    }
     const stateJson = payload.stateJson;
 
     // No-op diff guard. If the syncable payload is byte-identical to
@@ -32452,14 +32490,16 @@ async function flushSessionStateSync(opts) {
     // Shorter timeout (20s vs 45s default) so a stalled write doesn't
     // hold up the next interaction-driven flush.
     if (typeof fetchWithRetry === 'function') {
-      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+      const body = await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
         timeoutMs: 20000,
         maxAttempts: 2,
       });
-      // fetchWithRetry returns parsed JSON and throws on failure.
+      if (typeof sessionStateWriteAccepted === 'function' && !sessionStateWriteAccepted(body)) {
+        throw new Error((body && (body.message || body.error || body.reason)) || 'SessionState write returned not ok');
+      }
       _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
       _sessionStateSyncState.lastSyncedStateJson = stateJson;
       _sessionStateSyncState.lastSyncedActive = payload.lastActive;
@@ -32471,9 +32511,13 @@ async function flushSessionStateSync(opts) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) {
-        console.warn('[Twilight] SessionState write failed:', res.status);
+      const text = await res.text();
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch (_) { body = null; }
+      if (!res.ok || (typeof sessionStateWriteAccepted === 'function' && !sessionStateWriteAccepted(body))) {
+        console.warn('[Twilight] SessionState write failed:', res.status, text && text.slice(0, 180));
         outcome = { ok: false, reason: 'error' };
+        if (opts.force || opts.geoSyncReason) notifyGeoSaveResult(outcome);
       } else {
         _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
         _sessionStateSyncState.lastSyncedStateJson = stateJson;
@@ -32551,6 +32595,9 @@ async function fetchSessionStateRows() {
     if (Array.isArray(parsed)) rows = parsed;
     else if (parsed && Array.isArray(parsed.value)) rows = parsed.value;
     else return [];
+    if (rows.length === 256) {
+      console.warn('[Twilight] SessionState read returned exactly 256 rows. Append-only Write may have pushed today’s lastGeo off the page. Enable pagination on SessionState Read, or change Write to upsert by sessionStateId.');
+    }
 
     // CRITICAL (1.2.052825 fix): normalize column keys defensively.
     // Power Automate's "List rows present in a table" returns each row
@@ -32640,7 +32687,11 @@ function ingestGeoPingsFromSessionRows(rows) {
     : new Map();
   best.forEach((ping, id) => {
     const existing = (loadGeoPings() || {})[id];
-    if (existing && existing.at && Number(existing.at) > ping.at) return;
+    if (typeof shouldReplaceLocalGeoPing === 'function') {
+      if (!shouldReplaceLocalGeoPing(existing, ping)) return;
+    } else if (existing && existing.at && Number(existing.at) > ping.at) {
+      return;
+    }
     const name = (typeof getModeratorDisplayName === 'function') ? getModeratorDisplayName(id) : id;
     recordGeoPing({
       orbitLoginId: id,

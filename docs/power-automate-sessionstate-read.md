@@ -1,14 +1,14 @@
 # SessionState Read flow · live location for Admin Activities
 
-Twilight **Write** to SessionState is working. Twilight **Read** is not.
+Twilight **Write** can return `200 {"ok":true}` while still only **adding** a row (see `docs/power-automate-sessionstate-overwrite.md`). That leaves the Sept 9 pin in the table.
 
-A probe on 12 Sep 2026:
+Twilight **Read** was also failing live:
 
 - **Write** `POST SESSIONSTATE_PA_WRITE_URL` → `200 {"ok":true}` in about 2 seconds
 - **Read** `GET SESSIONSTATE_PA_READ_URL` → `HTTP 502` in about 0.4 seconds  
   Body: `NoResponse` · “The server did not receive a response from an upstream server.”
 
-That is why Admin → Moderators → **Activities** still shows an old pin (for example Sept 9). The phone can save a new location. The admin map cannot load it.
+Admin → Moderators → **Activities** loads pins from Read, then picks the **newest** `lastGeo` for that person across **all** rows (assignment rows and `geo_presence_*` rows). If Read is down, or Read only returns the first 256 old rows, the map stays on Sept 9.
 
 Do **not** make a new HTTP URL unless you also paste it into `SESSIONSTATE_PA_READ_URL` in `twilight.js`.
 
@@ -70,6 +70,14 @@ If the list step is SharePoint **Get items**, use that step’s `value` instead.
 19. Confirm it uses the **same** file / list that **SessionState Write** updates.
 20. If Write was moved to a SharePoint List and Read still points at the old Excel workbook, Read will keep failing and Activities will stay on the old pin.
 21. Click **Save**.
+
+### B2. Return every row (or the newest first)
+
+If Write was append-only for a while, the table has many rows. Power Automate **List rows** stops at **256** unless pagination is on. Today’s `lastGeo` is then missing and Activities keeps Sept 9.
+
+19a. Click the list step → **⋯** → **Settings**.
+19b. Turn **Pagination** **On**. Threshold `5000`.
+19c. Save.
 
 ### C. Columns Twilight reads
 

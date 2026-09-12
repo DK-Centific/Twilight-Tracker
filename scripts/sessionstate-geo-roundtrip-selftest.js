@@ -89,7 +89,7 @@ function summarizeRead(text) {
       updatedAt: now,
     }),
     lastActive: now,
-    appVersion: '1.3.091226f',
+    appVersion: '1.3.091226g',
     overwrite: true,
   };
 
