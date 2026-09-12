@@ -28,6 +28,8 @@ const {
   resolveSessionStateWriteTarget,
   pickBestCloudLastGeo,
   shouldKeepLocalLastGeo,
+  lastGeoFromSessionRow,
+  recoverLastGeoFromTruncatedJson,
 } = context;
 
 let passed = 0;
@@ -160,6 +162,29 @@ assert('local newer lastGeo is kept over cloud Sept 9',
   shouldKeepLocalLastGeo({ at: sept12, lat: 47.64 }, { at: sept9, lat: 47.61 }) === true);
 assert('cloud newer lastGeo replaces local Sept 9',
   shouldKeepLocalLastGeo({ at: sept9, lat: 47.61 }, { at: sept12, lat: 47.64 }) === false);
+
+const fromCols = lastGeoFromSessionRow({
+  lastGeoLat: 47.6446,
+  lastGeoLng: -122.137,
+  lastGeoAt: sept12,
+  lastGeoName: 'David',
+}, {});
+assert('top-level lastGeo columns are used when stateJson has none',
+  fromCols && fromCols.lat === 47.6446 && fromCols.at === sept12);
+
+const truncated = recoverLastGeoFromTruncatedJson(
+  '{"participantName":"x","lastGeo":{"lat":47.6446,"lng":-122.137,"at":' + sept12 + ',"name":"David"'
+);
+assert('truncated stateJson still yields lastGeo',
+  truncated && truncated.lat === 47.6446 && Number(truncated.at) === sept12);
+
+const fromTruncRow = pickBestCloudLastGeo([{
+  orbitLoginId: 'david-tw',
+  lastActive: '2026-09-12T18:00:00.000Z',
+  stateJson: '{"stations":{},"lastGeo":{"lat":47.71,"lng":-122.2,"at":' + sept12 + ',"name":"David"',
+}]).get('david-tw');
+assert('pickBestCloudLastGeo recovers truncated lastGeo',
+  fromTruncRow && fromTruncRow.lat === 47.71 && fromTruncRow.at === sept12);
 
 console.log(failed ? ('FAILED ' + failed + ' / ' + (passed + failed)) : ('All ' + passed + ' checks passed'));
 process.exit(failed ? 1 : 0);

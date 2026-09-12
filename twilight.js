@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226e';
-const APP_UPDATED_AT = '09/12/2026 06:15';
+const APP_VERSION = '1.3.091226f';
+const APP_UPDATED_AT = '09/12/2026 07:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -6525,12 +6525,18 @@ function toggleTheme() {
   if (typeof syncActivitiesMapTheme === 'function') syncActivitiesMapTheme();
 }
 
-function toast(text) {
+function toast(text, ms) {
   const t = document.getElementById('toast');
-  document.getElementById('toastText').textContent = text;
+  const el = document.getElementById('toastText');
+  if (!t || !el) return;
+  el.textContent = text;
   t.classList.add('show');
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.remove('show'), 2400);
+  const hold = (typeof ms === 'number' && ms > 0) ? ms : 2400;
+  toast._t = setTimeout(() => t.classList.remove('show'), hold);
+}
+function showToast(text, _kind, ms) {
+  toast(text, typeof ms === 'number' ? ms : 3200);
 }
 
 function escapeHTML(s) {
@@ -13282,7 +13288,7 @@ const GEOCODE_CACHE_KEY = 'centific_orbit_geocode_v1';
 const GEO_PINGS_KEY = 'centific_orbit_geo_pings_v1';
 const GEO_PING_STALE_MS = 15 * 60 * 1000;
 const GEO_FLOW_TICK_MS = 45000;
-const GEO_SESSIONSTATE_SYNC_MS = 15 * 60 * 1000;
+const GEO_SESSIONSTATE_SYNC_MS = 30 * 1000;
 const GEO_MOCK_LS_KEY = 'centific_orbit_mock_geo_v1';
 const GEO_BC_NAME = 'centific_orbit_geo_pings_bc_v1';
 const GEO_DEMO_FLAG_KEY = 'centific_orbit_geo_demo_v1';
@@ -13292,7 +13298,17 @@ let _modTrackingEnabled = true;
 
 /* MOD_GEO_TRACK_BEGIN */
 function lastGeoPingAtMs(g) {
-  if (!g || typeof g !== 'object') return 0;
+  if (g == null || g === '') return 0;
+  if (typeof g !== 'object') {
+    const n = Number(g);
+    if (Number.isFinite(n) && n > 0) {
+      if (n > 1e11) return n;
+      if (n > 1e9) return n * 1000;
+      if (n > 20000 && n < 90000) return Math.round((n - 25569) * 86400 * 1000);
+    }
+    const parsed = Date.parse(g);
+    return isNaN(parsed) ? 0 : parsed;
+  }
   const raw = g.at;
   if (raw == null || raw === '') return 0;
   const n = Number(raw);
@@ -13305,9 +13321,52 @@ function lastGeoPingAtMs(g) {
   return isNaN(parsed) ? 0 : parsed;
 }
 
+function recoverLastGeoFromTruncatedJson(raw) {
+  if (typeof raw !== 'string' || raw.indexOf('lastGeo') < 0) return null;
+  const lat = raw.match(/"lat"\s*:\s*(-?\d+(?:\.\d+)?)/);
+  const lng = raw.match(/"lng"\s*:\s*(-?\d+(?:\.\d+)?)/);
+  if (!lat || !lng) return null;
+  const at = raw.match(/"at"\s*:\s*("([^"]+)"|(\d+))/);
+  const name = raw.match(/"name"\s*:\s*"([^"]*)"/);
+  return {
+    lat: Number(lat[1]),
+    lng: Number(lng[1]),
+    at: at ? (at[2] || at[3] || '') : 0,
+    name: name ? name[1] : '',
+    role: 'moderator',
+  };
+}
+
+function lastGeoFromSessionRow(r, parsed) {
+  const fromParsed = parsed && parsed.lastGeo && typeof parsed.lastGeo === 'object'
+    ? parsed.lastGeo
+    : null;
+  if (fromParsed && Number.isFinite(Number(fromParsed.lat)) && Number.isFinite(Number(fromParsed.lng))) {
+    return fromParsed;
+  }
+  if (r) {
+    const lat = Number(r.lastGeoLat != null ? r.lastGeoLat : r.LastGeoLat);
+    const lng = Number(r.lastGeoLng != null ? r.lastGeoLng : r.LastGeoLng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {
+        lat,
+        lng,
+        at: (r.lastGeoAt != null && r.lastGeoAt !== '') ? r.lastGeoAt : (r.LastGeoAt || r.lastActive || 0),
+        name: r.lastGeoName || r.LastGeoName || '',
+        role: r.lastGeoRole || r.LastGeoRole || 'moderator',
+      };
+    }
+    if (typeof r.stateJson === 'string') {
+      const recovered = recoverLastGeoFromTruncatedJson(r.stateJson);
+      if (recovered) return recovered;
+    }
+  }
+  return fromParsed;
+}
+
 function shouldCaptureModeratorGeo(input) {
   input = input || {};
-  if (!input.hasProfile) return false;
+  if (!input.hasProfile && !input.hasUsername) return false;
   if (input.isPasswordlessAdmin) return false;
   if (input.appView === 'admin' || input.appView === 'reviewer') return false;
   if (input.appView === 'moderator' || input.modAppVisible) return true;
@@ -13345,8 +13404,8 @@ function pickBestCloudLastGeo(rows) {
     } else {
       parsed = null;
     }
-    if (!parsed || parsed.type === 'appSetting') return;
-    const g = parsed.lastGeo;
+    if (parsed && parsed.type === 'appSetting') return;
+    const g = lastGeoFromSessionRow(r, parsed);
     if (!g || !Number.isFinite(Number(g.lat)) || !Number.isFinite(Number(g.lng))) return;
     const id = String(r.orbitLoginId || g.orbitLoginId || '').toLowerCase();
     if (!id || id === '_app_setting') return;
@@ -13390,9 +13449,15 @@ function shouldKeepLocalLastGeo(localGeo, incomingGeo) {
 }
 /* MOD_GEO_TRACK_END */
 
+function moderatorGeoOrbitId() {
+  if (typeof state === 'undefined' || !state) return '';
+  return String((state.modProfile && state.modProfile.orbitLoginId) || state.username || '').trim();
+}
+
 function isModeratorGeoActor() {
   return shouldCaptureModeratorGeo({
-    hasProfile: !!(typeof state !== 'undefined' && state && state.modProfile && state.modProfile.orbitLoginId),
+    hasProfile: !!moderatorGeoOrbitId(),
+    hasUsername: !!(typeof state !== 'undefined' && state && state.username),
     isPasswordlessAdmin: typeof isAdminUsername === 'function'
       && !!(typeof state !== 'undefined' && state && isAdminUsername(state.username)),
     appView: (typeof state !== 'undefined' && state) ? state.appView : '',
@@ -13405,9 +13470,13 @@ function isModeratorGeoActor() {
 }
 let _geoPingTimer = null;
 let _geoSessionStateTimer = null;
+let _geoSyncRetryTimer = null;
+let _geoSyncRetryCount = 0;
 let _geoFlowBusy = false;
 let _geoPermissionDenied = false;
 let _geoLastToastKey = '';
+let _geoWriteToastKey = '';
+let _sessionStateReadHealth = { ok: null, error: '', at: 0 };
 
 function loadModTrackingCache() {
   try {
@@ -13432,6 +13501,13 @@ function cacheModTrackingEnabled(enabled) {
   try { localStorage.setItem(MOD_TRACKING_LS_KEY, enabled ? '1' : '0'); } catch (_) {}
 }
 
+function sessionStateReadStatusText() {
+  const h = (typeof _sessionStateReadHealth === 'object' && _sessionStateReadHealth) ? _sessionStateReadHealth : null;
+  if (!h || h.ok == null) return '';
+  if (h.ok) return '';
+  return 'Live location service did not answer. Pins may be old.';
+}
+
 function syncModTrackingUi() {
   const enabled = isModTrackingEnabled();
   const label = modTrackingStatusText(enabled);
@@ -13441,8 +13517,10 @@ function syncModTrackingUi() {
   if (desc) desc.textContent = label;
   const banner = document.getElementById('activitiesTrackingStatus');
   if (banner) {
-    banner.textContent = label;
+    const cloud = sessionStateReadStatusText();
+    banner.textContent = cloud ? (label + ' · ' + cloud) : label;
     banner.classList.toggle('is-off', !enabled);
+    banner.classList.toggle('is-cloud-down', !!cloud);
   }
   const teamSel = document.getElementById('activitiesTeamSelect');
   if (teamSel) {
@@ -13904,7 +13982,7 @@ async function persistModTrackingSetting(enabled) {
     return { ok: true };
   } catch (e) {
     console.warn('[Twilight] Mod tracking setting write failed:', e && e.message);
-    return { ok: false, reason: 'error' };
+    return { ok: false, reason: 'error', error: e && e.message };
   }
 }
 
@@ -13922,8 +14000,16 @@ async function refreshModTrackingSetting() {
 async function setModTrackingEnabled(enabled) {
   cacheModTrackingEnabled(!!enabled);
   syncModTrackingUi();
-  await persistModTrackingSetting(!!enabled);
+  const saved = await persistModTrackingSetting(!!enabled);
   applyModeratorTrackingMode();
+  const app = document.getElementById('app');
+  const isModApp = !!(app && app.style.display === 'block');
+  if (enabled && !isModApp && typeof toast === 'function') {
+    toast('Tracking is on. Open the moderator app on the phone and allow location.', 4500);
+  }
+  if (saved && saved.ok === false && typeof toast === 'function') {
+    toast('Tracking setting was not saved. The save service did not answer.', 4500);
+  }
 }
 let _geoLastToastAt = 0;
 let _lastGeoSyncAt = 0;
@@ -14145,13 +14231,13 @@ function startActivitiesLocalPingPoll() {
     if (!_activitiesMap || !adminState || adminState.modView !== 'activities') return;
     try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
   }, 5000);
-  // Cloud locations are written every 15 minutes. Poll once a minute so
+  // Cloud locations are written about every 30 seconds. Poll often so
   // Admin sees a newly-written SessionState row shortly after it lands.
   if (!_activitiesCloudPingPoll) {
     _activitiesCloudPingPoll = setInterval(() => {
       if (!_activitiesMap || !adminState || adminState.modView !== 'activities') return;
       refreshActivitiesCloudPings();
-    }, 60 * 1000);
+    }, 20 * 1000);
   }
 }
 
@@ -14171,7 +14257,11 @@ async function refreshActivitiesCloudPings() {
   _activitiesCloudPingInflight = true;
   try {
     const rows = await fetchSessionStateRows();
-    if (rows == null) return;
+    if (rows == null) {
+      if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+      updateActivitiesMapCaption();
+      return;
+    }
     if (typeof adminState !== 'undefined') adminState.perfSessionStateRows = rows;
     if (_activitiesMap) {
       try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
@@ -14353,8 +14443,10 @@ function recordGeoPing(ping, opts) {
   map[id] = next;
   saveGeoPings(map);
   if (opts.fromCloud) return;
-  if (!state || !state.modProfile) return;
-  if (String(state.modProfile.orbitLoginId || '').toLowerCase() !== id) return;
+  const myId = String((typeof moderatorGeoOrbitId === 'function')
+    ? moderatorGeoOrbitId()
+    : ((state && state.modProfile && state.modProfile.orbitLoginId) || '')).toLowerCase();
+  if (!state || !myId || myId !== id) return;
   state.lastGeo = {
     lat: next.lat,
     lng: next.lng,
@@ -14627,16 +14719,62 @@ function geoPhaseBannerCopy(phase) {
   }
 }
 
+function notifyGeoSaveResult(result) {
+  if (!result || typeof toast !== 'function') return;
+  if (result.ok) {
+    if (_geoWriteToastKey !== 'ok') {
+      _geoWriteToastKey = 'ok';
+      toast('Location saved', 2400);
+    }
+    return;
+  }
+  const key = String(result.reason || 'error');
+  if (_geoWriteToastKey === key) return;
+  _geoWriteToastKey = key;
+  if (key === 'nofix') {
+    toast('Location is on, but this phone did not share a GPS fix. Allow location and keep the moderator app open.', 5200);
+  } else if (key === 'admin') {
+    toast('Location only saves in the moderator app, not Admin.', 4200);
+  } else if (key === 'notmoderator') {
+    toast('Location did not save. Sign in again in the moderator app.', 4200);
+  } else {
+    toast('Location was not saved. The save service did not answer.', 5200);
+  }
+}
+
+function scheduleGeoLocationRetry(reason) {
+  if (_geoSyncRetryTimer) return;
+  if (_geoSyncRetryCount >= 6) return;
+  _geoSyncRetryTimer = setTimeout(() => {
+    _geoSyncRetryTimer = null;
+    _geoSyncRetryCount += 1;
+    if (typeof syncModeratorLocationToSessionState === 'function') {
+      syncModeratorLocationToSessionState(reason || 'retry');
+    }
+  }, 4000);
+}
+
+function resetGeoLocationRetry() {
+  _geoSyncRetryCount = 0;
+  if (_geoSyncRetryTimer) {
+    clearTimeout(_geoSyncRetryTimer);
+    _geoSyncRetryTimer = null;
+  }
+}
+
 async function pingModeratorLocation(opts) {
   opts = opts || {};
-  if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return;
+  const orbitId = (typeof moderatorGeoOrbitId === 'function')
+    ? moderatorGeoOrbitId()
+    : String((state && state.modProfile && state.modProfile.orbitLoginId) || '');
+  if (!orbitId) return;
   if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) return;
   try {
     const pos = await readCurrentPosition({ forceFresh: !!opts.forceFresh });
     _geoPermissionDenied = false;
     recordGeoPing({
-      orbitLoginId: state.modProfile.orbitLoginId,
-      name: state.modProfile.name || state.username,
+      orbitLoginId: orbitId,
+      name: (state.modProfile && state.modProfile.name) || state.username,
       role: getOperatorFenceRole(),
       lat: pos.lat,
       lng: pos.lng,
@@ -14655,11 +14793,15 @@ async function pingModeratorLocation(opts) {
 }
 
 async function syncModeratorLocationToSessionState(reason) {
-  if (!state || !state.modProfile || !state.modProfile.orbitLoginId) {
-    return { ok: false, reason: 'notmoderator' };
+  if (!state || !((state.modProfile && state.modProfile.orbitLoginId) || state.username)) {
+    const out = { ok: false, reason: 'notmoderator' };
+    notifyGeoSaveResult(out);
+    return out;
   }
   if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) {
-    return { ok: false, reason: 'admin' };
+    const out = { ok: false, reason: 'admin' };
+    notifyGeoSaveResult(out);
+    return out;
   }
   // Capture first so stateJson contains the freshest coordinates.
   const pos = await pingModeratorLocation({
@@ -14674,18 +14816,28 @@ async function syncModeratorLocationToSessionState(reason) {
     // A days-old lastGeo must not be rewritten as a "new" cloud pin.
     // Completion still needs one assignment write so wrap-up lands.
     if ((!age || (Date.now() - age) > staleMs) && !persistCompletion) {
-      return { ok: false, reason: 'nofix' };
+      const out = { ok: false, reason: 'nofix' };
+      notifyGeoSaveResult(out);
+      scheduleGeoLocationRetry(reason || 'retry');
+      return out;
     }
   }
   _lastGeoSyncAt = Date.now();
+  let out = { ok: false, reason: 'notconfigured' };
   if (typeof flushSessionStateSync === 'function') {
-    return flushSessionStateSync({
+    out = await flushSessionStateSync({
       force: true,
       geoSyncReason: reason || 'scheduled',
       persistCompletion,
-    });
+    }) || out;
   }
-  return { ok: false, reason: 'notconfigured' };
+  if (out && out.ok) {
+    resetGeoLocationRetry();
+  } else if (out && (out.reason === 'error' || out.reason === 'notconfigured' || out.reason === 'noassignment')) {
+    scheduleGeoLocationRetry(reason || 'retry');
+  }
+  notifyGeoSaveResult(out);
+  return out;
 }
 
 function buildFenceCheckResult(kind, role, pos, dest, radiusM, extra) {
@@ -14768,7 +14920,9 @@ async function checkHqGeofence() {
     officeSource: fence.source,
   });
   recordGeoPing({
-    orbitLoginId: state.modProfile && state.modProfile.orbitLoginId,
+    orbitLoginId: (typeof moderatorGeoOrbitId === 'function')
+      ? moderatorGeoOrbitId()
+      : (state.modProfile && state.modProfile.orbitLoginId),
     name: (state.modProfile && state.modProfile.name) || state.username,
     role,
     lat: pos.lat,
@@ -14809,7 +14963,9 @@ async function checkParticipantGeofence(asgn) {
   }
   const result = buildFenceCheckResult('home', role, pos, dest, GEOFENCE_HOME_RADIUS_M, { address });
   recordGeoPing({
-    orbitLoginId: state.modProfile && state.modProfile.orbitLoginId,
+    orbitLoginId: (typeof moderatorGeoOrbitId === 'function')
+      ? moderatorGeoOrbitId()
+      : (state.modProfile && state.modProfile.orbitLoginId),
     name: (state.modProfile && state.modProfile.name) || state.username,
     role,
     lat: pos.lat,
@@ -14991,13 +15147,18 @@ async function confirmOperatorArrival() {
 async function tickModeratorGeoFlow(opts) {
   opts = opts || {};
   if (_geoFlowBusy && !opts.force) return;
-  if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return;
+  if (!state || !((state.modProfile && state.modProfile.orbitLoginId) || state.username)) return;
   if (typeof isModeratorGeoActor === 'function' ? !isModeratorGeoActor() : (state.isAdmin || isAdminUsername(state.username))) return;
   if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) return;
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
 
   _geoFlowBusy = true;
   try {
+    // Keep the pin fresh even before office check-in. The fence checks
+    // below may return early; Admin still needs a current location.
+    if (!opts.skipPing) {
+      await pingModeratorLocation({ syncReason: 'tick' });
+    }
     const asgn = activeOperatorAssignmentForGeo();
     const phase = getModeratorGeoPhase(asgn);
 
@@ -15048,19 +15209,20 @@ function startModeratorGeofence() {
   }
   hideModeratorGeoUi();
   if (typeof syncModeratorRingLinks === 'function') syncModeratorRingLinks();
+  resetGeoLocationRetry();
   // App-open upload: location is captured and written to SessionState
   // immediately, even when this moderator has no assignment today.
   // Do not stamp _lastGeoSyncAt before GPS succeeds — that used to
   // skip the follow-up write for 15 minutes after a failed first fix.
   syncModeratorLocationToSessionState('app_open');
-  tickModeratorGeoFlow({ force: true });
+  tickModeratorGeoFlow({ force: true, skipPing: true });
   if (_geoPingTimer) return;
   _geoPingTimer = setInterval(() => {
     tickModeratorGeoFlow();
   }, GEO_FLOW_TICK_MS);
   if (!_geoSessionStateTimer) {
     _geoSessionStateTimer = setInterval(() => {
-      syncModeratorLocationToSessionState('15_minute_interval');
+      syncModeratorLocationToSessionState('location_interval');
     }, GEO_SESSIONSTATE_SYNC_MS);
   }
   document.addEventListener('visibilitychange', onGeoVisibilityChange);
@@ -15076,6 +15238,7 @@ function onGeoVisibilityChange() {
 }
 
 function stopModeratorGeofence() {
+  resetGeoLocationRetry();
   if (_geoPingTimer) {
     clearInterval(_geoPingTimer);
     _geoPingTimer = null;
@@ -15333,6 +15496,15 @@ function activitiesPersonPopupHtml(orbitId, ping, role) {
   html += '<strong>' + escapeHTML(first) + '</strong>';
   if (teamName) html += '<span>' + escapeHTML(teamName) + '</span>';
   else html += '<span>' + escapeHTML(roleLabel) + '</span>';
+  const whenMs = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(ping) : Number(ping && ping.at) || 0;
+  if (whenMs) {
+    const when = new Date(whenMs);
+    if (!isNaN(when.getTime())) {
+      const label = when.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const stale = (Date.now() - whenMs) > 24 * 60 * 60 * 1000;
+      html += '<span>' + (stale ? 'Last seen ' : 'Updated ') + escapeHTML(label) + '</span>';
+    }
+  }
   html += '</div>';
   return html;
 }
@@ -15801,9 +15973,9 @@ function renderModActivitiesView() {
   prefetchActivityHomeGeocodes();
   startActivitiesLocalPingPoll();
   ensureGeoPingBroadcast();
-  // Prefer local / demo pins immediately. Cloud SessionState READ may be
-  // disabled (HTTP 400 WorkflowTriggerIsNotEnabled) — soft-fail and keep
-  // showing whatever is already in localStorage.
+  // Prefer local / demo pins immediately. Cloud SessionState READ is
+  // currently failing live (HTTP 502 NoResponse). Soft-fail and keep
+  // showing whatever is already in localStorage, with a visible warning.
   if (_activitiesMap) {
     try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
   }
@@ -31370,7 +31542,10 @@ function bindAdminMenu() {
       } else if (tab === 'moderators') {
         // Moderator Hub: refresh based on the active subtab, matching the
         // logic the old in-tab Refresh button used
-        if (adminState.subtab === 'moderators') {
+        if (adminState.modView === 'activities') {
+          if (typeof refreshActivitiesCloudPings === 'function') refreshActivitiesCloudPings();
+          if (typeof loadModerators === 'function') loadModerators(true);
+        } else if (adminState.subtab === 'moderators') {
           if (typeof loadModerators === 'function')          loadModerators(true);
           if (typeof fetchAvailabilityFromPA === 'function') fetchAvailabilityFromPA();
         } else if (adminState.subtab === 'participants') {
@@ -31864,10 +32039,14 @@ function sessionStateRowTeamId(r, asgnTeamMap) {
 
 function parseSessionStateJson(r) {
   if (!r) return {};
+  let parsed = {};
   try {
-    const parsed = (typeof r.stateJson === 'string') ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
-    return (parsed && typeof parsed === 'object') ? parsed : {};
-  } catch (_) { return {}; }
+    parsed = (typeof r.stateJson === 'string') ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
+    if (!parsed || typeof parsed !== 'object') parsed = {};
+  } catch (_) { parsed = {}; }
+  const g = (typeof lastGeoFromSessionRow === 'function') ? lastGeoFromSessionRow(r, parsed) : parsed.lastGeo;
+  if (g && !parsed.lastGeo) parsed.lastGeo = g;
+  return parsed;
 }
 
 // How far a SessionState snapshot has gone on stations / scenarios.
@@ -32085,15 +32264,23 @@ function buildSessionStateCloudPayload(asgn, reason) {
     syncable.officeLng = GEO_HQ_CENTER.lng;
   }
   const teamId = resolveMappedTeamId(asgn);
-  const orbit = String(state.modProfile && state.modProfile.orbitLoginId || '');
+  const orbit = String((typeof moderatorGeoOrbitId === 'function')
+    ? moderatorGeoOrbitId()
+    : (state.modProfile && state.modProfile.orbitLoginId || ''));
   stampLocalProgressIfAdvanced(syncable, orbit);
+  const geo = syncable.lastGeo && typeof syncable.lastGeo === 'object' ? syncable.lastGeo : null;
   return {
     sessionStateId: sessionStateStableId(asgn, orbit),
     assignmentId:   String(asgn.id),
     teamId:         String(teamId),
-    orbitLoginId:   String(state.modProfile && state.modProfile.orbitLoginId || ''),
+    orbitLoginId:   orbit,
     assignmentAddress: syncable.assignmentAddress || '',
     milesFromHq:    syncable.milesFromHq != null ? syncable.milesFromHq : '',
+    lastGeoLat:     geo && Number.isFinite(Number(geo.lat)) ? Number(geo.lat) : '',
+    lastGeoLng:     geo && Number.isFinite(Number(geo.lng)) ? Number(geo.lng) : '',
+    lastGeoAt:      geo && geo.at != null ? geo.at : '',
+    lastGeoName:    geo && geo.name ? String(geo.name) : '',
+    lastGeoRole:    geo && geo.role ? String(geo.role) : '',
     stateJson:      JSON.stringify(syncable),
     lastActive:     new Date().toISOString(),
     appVersion:     APP_VERSION,
@@ -32133,7 +32320,10 @@ function assignmentCompletionNeedsWrite(asgn) {
 
 function getSessionStateWriteContext(opts) {
   opts = opts || {};
-  if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return null;
+  const orbitId = (typeof moderatorGeoOrbitId === 'function')
+    ? moderatorGeoOrbitId()
+    : String((state && state.modProfile && state.modProfile.orbitLoginId) || '');
+  if (!state || !orbitId) return null;
 
   const open = (typeof getAssignedOpenSession === 'function')
     ? getAssignedOpenSession()
@@ -32144,7 +32334,7 @@ function getSessionStateWriteContext(opts) {
 
   const target = (typeof resolveSessionStateWriteTarget === 'function')
     ? resolveSessionStateWriteTarget({
-      orbitLoginId: state.modProfile.orbitLoginId,
+      orbitLoginId: orbitId,
       sessionCompletedAt: state.sessionCompletedAt,
       openAssignmentId: open && open.id,
       teamId: resolveMappedTeamId(open || null),
@@ -32185,7 +32375,7 @@ function getSessionStateWriteContext(opts) {
 function triggerSessionStateSync() {
   if (!SESSIONSTATE_PA_WRITE_URL) return;         // not configured
   if (!state || !state.username) return;          // no logged-in user
-  if (!state.modProfile || !state.modProfile.orbitLoginId) return;  // admin doesn't sync
+  if (!(state.modProfile && state.modProfile.orbitLoginId) && !state.username) return;
   // Real assignments use their assignmentId. Location-only presence uses
   // a stable synthetic context so Admin can locate an unassigned moderator.
   const asgn = getSessionStateWriteContext();
@@ -32216,7 +32406,7 @@ const scheduleSessionStateSync = triggerSessionStateSync;
 async function flushSessionStateSync(opts) {
   opts = opts || {};
   if (!SESSIONSTATE_PA_WRITE_URL) return { ok: false, reason: 'notconfigured' };
-  if (!state || !state.username || !state.modProfile) return { ok: false, reason: 'noassignment' };
+  if (!state || !state.username) return { ok: false, reason: 'noassignment' };
   const asgn = getSessionStateWriteContext(opts);
   if (!asgn || !asgn.id) return { ok: false, reason: 'noassignment' };
 
@@ -32292,11 +32482,11 @@ async function flushSessionStateSync(opts) {
       }
     }
   } catch (e) {
-    // Don't surface errors to the user · SessionState sync is
-    // best-effort; localStorage is the authoritative local copy and
-    // the next debounce cycle will retry. Log for debugging.
     console.warn('[Twilight] SessionState write error:', e && e.message);
-    outcome = { ok: false, reason: 'error' };
+    outcome = { ok: false, reason: 'error', error: e && e.message };
+    if (opts.force || opts.geoSyncReason) {
+      notifyGeoSaveResult(outcome);
+    }
   } finally {
     _sessionStateSyncState.inflight = false;
     if (_sessionStateSyncState.pendingAgain) {
@@ -32390,7 +32580,8 @@ async function fetchSessionStateRows() {
     // a duplicate column).
     const CANONICAL_KEYS = ['sessionStateId', 'assignmentId', 'teamId', 'orbitLoginId',
                             'stateJson', 'lastActive', 'appVersion',
-                            'assignmentAddress', 'milesFromHq', 'assignmentLat', 'assignmentLng'];
+                            'assignmentAddress', 'milesFromHq', 'assignmentLat', 'assignmentLng',
+                            'lastGeoLat', 'lastGeoLng', 'lastGeoAt', 'lastGeoName', 'lastGeoRole'];
     const normalize = (key) => {
       // Strip non-alphanumeric and lowercase · produces a stable
       // comparison form. "OrbitLoginId" → "orbitloginid",
@@ -32419,17 +32610,21 @@ async function fetchSessionStateRows() {
     ingestGeoPingsFromSessionRows(normalizedRows);
     _sessionStateReadRetryAt = 0;
     _sessionStateReadWarned = false;
+    _sessionStateReadHealth = { ok: true, error: '', at: Date.now() };
+    if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
     return normalizedRows;
   } catch (e) {
     const msg = (e && e.message) || String(e);
-    // Power Automate SessionState READ flow is often disabled
-    // (HTTP 400 WorkflowTriggerIsNotEnabled). Stop hammering it and keep
-    // using local / BroadcastChannel / demo pings for the Activities map.
-    if (/HTTP 400|WorkflowTriggerIsNotEnabled|not enabled/i.test(msg)) {
-      _sessionStateReadRetryAt = Date.now() + 60 * 1000;
+    _sessionStateReadHealth = { ok: false, error: msg, at: Date.now() };
+    if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+    // Power Automate SessionState READ is currently failing live with
+    // HTTP 502 NoResponse (and historically HTTP 400 when disabled).
+    // Cool off briefly, then keep retrying so a repaired flow is picked up.
+    if (/HTTP 400|HTTP 502|WorkflowTriggerIsNotEnabled|not enabled|NoResponse/i.test(msg)) {
+      _sessionStateReadRetryAt = Date.now() + 20 * 1000;
       if (!_sessionStateReadWarned) {
         _sessionStateReadWarned = true;
-        console.warn('[Twilight] SessionState cloud read is disabled (PA flow not enabled). Retrying in one minute; Activities map will keep local pins meanwhile.');
+        console.warn('[Twilight] SessionState cloud read failed (' + msg + '). Retrying in 20s; Activities map will keep local pins meanwhile.');
       }
     } else {
       console.warn('[Twilight] SessionState read error:', msg);

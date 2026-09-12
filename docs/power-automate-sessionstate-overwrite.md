@@ -1,6 +1,10 @@
 # SessionState write flow · overwrite one row per assignment
 
-The Twilight app now sends the **same** `sessionStateId` every time a team updates the same assignment (`ss_{assignmentId}`). The Power Automate write flow must **update that row** instead of adding a new row each time.
+The Twilight app now sends the **same** `sessionStateId` every time a team updates the same assignment (`ss_{assignmentId}_{orbit}`). The Power Automate write flow must **update that row** instead of adding a new row each time.
+
+Location tracking also writes `lastGeo` inside `stateJson`. After a session is finished, Twilight may write a same-day row whose `assignmentId` looks like `geo_presence_David-tw_2026-09-12`.
+
+**Write is working** (`200 {"ok":true}`). Admin Activities still needs **SessionState Read**. See `docs/power-automate-sessionstate-read.md` if the map pin stays old.
 
 Use the existing **SessionState Write** flow (HTTP trigger). Do not create a new HTTP URL unless you also paste the new URL into `SESSIONSTATE_PA_WRITE_URL` in `twilight.js`.
 
