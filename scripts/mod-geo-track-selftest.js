@@ -28,6 +28,11 @@ const {
   resolveSessionStateWriteTarget,
   pickBestCloudLastGeo,
   shouldKeepLocalLastGeo,
+  shouldReplaceLocalGeoPing,
+  lastGeoFromSessionRow,
+  recoverLastGeoFromTruncatedJson,
+  sessionStateWriteAccepted,
+  lastGeoCandidateRank,
 } = context;
 
 let passed = 0;
@@ -153,13 +158,102 @@ const heartbeatReuse = pickBestCloudLastGeo([
     }),
   },
 ]).get('david-tw');
-assert('heartbeat that reused Sept 9 coords does not look newer than the GPS fix',
-  heartbeatReuse && heartbeatReuse.at === sept9 && heartbeatReuse.lat === 47.61);
+assert('heartbeat that reused Sept 9 coords keeps those coords',
+  heartbeatReuse && heartbeatReuse.lat === 47.61 && heartbeatReuse.lng === -122.33);
+
+const appendedNewCoordsOldAt = pickBestCloudLastGeo([
+  oldRow,
+  {
+    orbitLoginId: 'David-tw',
+    assignmentId: 'geo_presence_David-tw_2026-09-12',
+    lastActive: '2026-09-12T19:30:00.000Z',
+    stateJson: JSON.stringify({
+      lastGeo: { lat: 47.72, lng: -122.15, at: sept9, name: 'David' },
+    }),
+  },
+  {
+    orbitLoginId: 'david-tw',
+    assignmentId: 'asgn_1',
+    lastActive: '2026-09-12T18:10:00.000Z',
+    stateJson: JSON.stringify({
+      lastGeo: { lat: 47.61, lng: -122.33, at: sept9, name: 'David' },
+    }),
+  },
+]).get('david-tw');
+assert('append-only newer row with new coords beats Sept 9 pin even if lastGeo.at is old',
+  appendedNewCoordsOldAt && appendedNewCoordsOldAt.lat === 47.72,
+  JSON.stringify(appendedNewCoordsOldAt));
+
+const manyAppends = [];
+for (let i = 0; i < 8; i++) {
+  manyAppends.push({
+    orbitLoginId: 'david-tw',
+    assignmentId: i % 2 ? 'geo_presence_David-tw_2026-09-12' : 'asgn_old',
+    lastActive: '2026-09-09T1' + i + ':00:00.000Z',
+    stateJson: JSON.stringify({ lastGeo: { lat: 47.61, lng: -122.33, at: sept9, name: 'David' } }),
+  });
+}
+manyAppends.push({
+  orbitLoginId: 'DAVID-TW',
+  assignmentId: 'geo_presence_David-tw_2026-09-12',
+  lastActive: '2026-09-12T20:00:00.000Z',
+  stateJson: JSON.stringify({ lastGeo: { lat: 47.55, lng: -122.10, at: sept12, name: 'David' } }),
+});
+const fromMany = pickBestCloudLastGeo(manyAppends).get('david-tw');
+assert('newest lastGeo wins across many appended assignment and presence rows',
+  fromMany && fromMany.lat === 47.55 && fromMany.at >= sept12,
+  JSON.stringify(fromMany));
+
+assert('David-tw Master Admin in moderator app is a geo actor',
+  shouldCaptureModeratorGeo({
+    hasProfile: true,
+    hasUsername: true,
+    isPasswordlessAdmin: false,
+    appView: 'moderator',
+    isAdmin: true,
+    modAppVisible: true,
+  }) === true);
+
+assert('write body {ok:true} is accepted', sessionStateWriteAccepted({ ok: true }) === true);
+assert('write body {ok:false} is rejected', sessionStateWriteAccepted({ ok: false }) === false);
+assert('write 429-style error body is rejected',
+  sessionStateWriteAccepted({ error: { code: 'NoResponse' } }) === false);
+
+assert('days-old local pin is replaced by cloud lastGeo',
+  shouldReplaceLocalGeoPing({ lat: 47.61, lng: -122.33, at: sept9 }, { lat: 47.72, lng: -122.15, at: sept12 }) === true);
+assert('newer local lastGeo is kept over older cloud',
+  shouldReplaceLocalGeoPing({ lat: 47.72, lng: -122.15, at: sept12 }, { lat: 47.61, lng: -122.33, at: sept9 }) === false);
+
+assert('today append ranks above Sept 9 GPS',
+  lastGeoCandidateRank({ at: sept9, lat: 47.72 }, { lastActive: '2026-09-12T19:30:00.000Z' }) > sept9);
 
 assert('local newer lastGeo is kept over cloud Sept 9',
   shouldKeepLocalLastGeo({ at: sept12, lat: 47.64 }, { at: sept9, lat: 47.61 }) === true);
 assert('cloud newer lastGeo replaces local Sept 9',
   shouldKeepLocalLastGeo({ at: sept9, lat: 47.61 }, { at: sept12, lat: 47.64 }) === false);
+
+const fromCols = lastGeoFromSessionRow({
+  lastGeoLat: 47.6446,
+  lastGeoLng: -122.137,
+  lastGeoAt: sept12,
+  lastGeoName: 'David',
+}, {});
+assert('top-level lastGeo columns are used when stateJson has none',
+  fromCols && fromCols.lat === 47.6446 && fromCols.at === sept12);
+
+const truncated = recoverLastGeoFromTruncatedJson(
+  '{"participantName":"x","lastGeo":{"lat":47.6446,"lng":-122.137,"at":' + sept12 + ',"name":"David"'
+);
+assert('truncated stateJson still yields lastGeo',
+  truncated && truncated.lat === 47.6446 && Number(truncated.at) === sept12);
+
+const fromTruncRow = pickBestCloudLastGeo([{
+  orbitLoginId: 'david-tw',
+  lastActive: '2026-09-12T18:00:00.000Z',
+  stateJson: '{"stations":{},"lastGeo":{"lat":47.71,"lng":-122.2,"at":' + sept12 + ',"name":"David"',
+}]).get('david-tw');
+assert('pickBestCloudLastGeo recovers truncated lastGeo',
+  fromTruncRow && fromTruncRow.lat === 47.71 && fromTruncRow.at === sept12);
 
 console.log(failed ? ('FAILED ' + failed + ' / ' + (passed + failed)) : ('All ' + passed + ' checks passed'));
 process.exit(failed ? 1 : 0);
