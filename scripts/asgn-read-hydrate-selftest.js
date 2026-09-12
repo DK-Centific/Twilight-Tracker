@@ -36,6 +36,8 @@ const {
   assignmentParticipantPhoneFromRecord,
   assignmentTeamNameFromRecord,
   mergeParticipantDataPreferFilled,
+  sanitizeSharePointPlainText,
+  formatParticipantAddressLine,
 } = context;
 
 let passed = 0;
@@ -110,6 +112,67 @@ assert('does not steal moderator phoneNumber as participant phone', noSteal === 
 
 const flat = flattenAssignmentReadRow({ fields: { address: 'A' }, assignmentId: 'x', address: '' });
 assert('wrapper empty address does not clobber nested', flat.address === 'A', flat.address);
+
+const dirtyHtml = '<div class="ExternalClassAABC6FCFB38B4C1CBA91962FD918F19B">(your own residence), Seattle, Washington</div>';
+const dirtyMapped = assignmentParticipantFieldsFromRecord({
+  address: dirtyHtml,
+  participantState: 'Washington',
+  participantZipCode: '98101',
+});
+assert(
+  'strips ExternalClass HTML from address',
+  dirtyMapped.address === '(your own residence), Seattle, Washington',
+  dirtyMapped.address
+);
+assert(
+  'no HTML tags remain on hydrated address',
+  dirtyMapped.address.indexOf('<') < 0 && dirtyMapped.address.indexOf('ExternalClass') < 0,
+  dirtyMapped.address
+);
+assert('state still hydrates separately', dirtyMapped.state === 'Washington', dirtyMapped.state);
+
+const dirtyPlusState = assignmentParticipantFieldsFromRecord({
+  address: dirtyHtml + ', Washington',
+  participantState: 'Washington',
+});
+assert(
+  'collapses Washington already present outside the wrapper',
+  dirtyPlusState.address === '(your own residence), Seattle, Washington',
+  dirtyPlusState.address
+);
+
+const formatted = formatParticipantAddressLine({
+  address: dirtyHtml,
+  state: 'Washington',
+});
+assert(
+  'format does not duplicate Washington after HTML strip',
+  formatted === '(your own residence), Seattle, Washington',
+  formatted
+);
+
+const formattedDup = formatParticipantAddressLine({
+  address: dirtyHtml + ', Washington',
+  state: 'Washington',
+  zipCode: '98101',
+});
+assert(
+  'format collapses duplicated state and skips zip already absent only',
+  formattedDup === '(your own residence), Seattle, Washington, 98101',
+  formattedDup
+);
+
+const ents = sanitizeSharePointPlainText('<div class="ExternalClassX">221B&nbsp;Baker &amp; Son</div>');
+assert('decodes entities and collapses space', ents === '221B Baker & Son', ents);
+
+const nestedFields = assignmentParticipantFieldsFromRecord({
+  fields: { address: dirtyHtml },
+});
+assert(
+  'flattens nested Graph HTML address',
+  nestedFields.address === '(your own residence), Seattle, Washington',
+  nestedFields.address
+);
 
 console.log('');
 console.log(failed ? `FAILED ${failed} · passed ${passed}` : `All ${passed} checks passed`);

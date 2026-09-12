@@ -51,6 +51,10 @@ const contactIdx = src.indexOf('function assignmentParticipantContact(asgn)');
 const contactEnd = src.indexOf('function stampTeamOpenSession');
 assert('assignmentParticipantContact is present', contactIdx > 0 && contactEnd > contactIdx);
 
+const hydrateBegin = src.indexOf('/* ASGN_READ_HYDRATE_BEGIN');
+const hydrateEnd = src.indexOf('/* ASGN_READ_HYDRATE_END */');
+assert('hydrate helpers are present', hydrateBegin > 0 && hydrateEnd > hydrateBegin);
+
 const context = {
   console,
   getActiveOperatorAssignment: null,
@@ -59,6 +63,9 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(src.slice(beginIdx, beginEnd), context);
+if (hydrateBegin > 0 && hydrateEnd > hydrateBegin) {
+  vm.runInContext(src.slice(hydrateBegin, hydrateEnd), context);
+}
 vm.runInContext(src.slice(contactIdx, contactEnd), context);
 
 context.getActiveOperatorAssignment = () => null;
@@ -114,6 +121,30 @@ assert(
   'does not duplicate state/zip already in the address line',
   fullLine.address === '322 Pasco Mes NE 98059, Seattle, Washington',
   fullLine.address
+);
+
+const htmlLine = context.assignmentParticipantContact({
+  participantData: {
+    address: '<div class="ExternalClassAABC6FCFB38B4C1CBA91962FD918F19B">(your own residence), Seattle, Washington</div>',
+    state: 'Washington',
+  },
+});
+assert(
+  'strips SharePoint HTML and does not duplicate Washington',
+  htmlLine.address === '(your own residence), Seattle, Washington',
+  htmlLine.address
+);
+
+const htmlDup = context.assignmentParticipantContact({
+  participantData: {
+    address: '<div class="ExternalClassAABC6FCFB38B4C1CBA91962FD918F19B">(your own residence), Seattle, Washington</div>, Washington',
+    state: 'Washington',
+  },
+});
+assert(
+  'collapses Washington that was appended outside ExternalClass',
+  htmlDup.address === '(your own residence), Seattle, Washington',
+  htmlDup.address
 );
 
 console.log('');
