@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226g';
-const APP_UPDATED_AT = '09/12/2026 07:45';
+const APP_VERSION = '1.3.091226h';
+const APP_UPDATED_AT = '09/12/2026 08:15';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1252,7 +1252,7 @@ function renderWelcomeWorklogBannerHTML() {
       </div>
       <div class="welcome-worklog-banner-text">
         <div class="welcome-worklog-banner-title">Traveling to the assigned location</div>
-        <div class="welcome-worklog-banner-sub">When you arrive at ${escapeHTML((asgn.participantData && asgn.participantData.address) || 'the team address')}, please confirm your arrival.</div>
+        <div class="welcome-worklog-banner-sub">When you arrive at ${escapeHTML(((typeof assignmentParticipantContact === 'function' && assignmentParticipantContact(asgn).address) || (asgn.participantData && asgn.participantData.address) || 'the team address'))}, please confirm your arrival.</div>
       </div>
       <button class="btn btn-primary welcome-worklog-action" id="welcomeArrivalBtn">
         Confirm Arrival
@@ -4421,7 +4421,10 @@ function resolveTeamRingDashboardUrl(team) {
 
 function getTeamOfficeAddress(team) {
   if (!team || team.teamAddress == null) return '';
-  return String(team.teamAddress).trim();
+  const raw = String(team.teamAddress).trim();
+  return (typeof sanitizeSharePointPlainText === 'function')
+    ? sanitizeSharePointPlainText(raw)
+    : raw;
 }
 
 const TEAM_ADDR_MEMORY_KEY = 'centific_orbit_team_addr_v1';
@@ -4704,6 +4707,16 @@ function isTeamSessionAssignment(a) {
 // carry an address or phone. Do not invent values.
 function assignmentParticipantContact(asgn) {
   const pd = (asgn && asgn.participantData) || {};
+  if (typeof formatParticipantAddressLine === 'function') {
+    const clean = (v) => (typeof sanitizeSharePointPlainText === 'function')
+      ? sanitizeSharePointPlainText(v)
+      : String(v == null ? '' : v).trim();
+    return {
+      address: formatParticipantAddressLine(pd),
+      phone: clean(pd.phone),
+      email: clean(pd.email),
+    };
+  }
   const rawAddr = String(pd.address || '').trim();
   const state = String(pd.state || '').trim();
   const zip = String(pd.zipCode || '').trim();
@@ -6926,7 +6939,81 @@ function pickField(obj, ...candidates) {
  * Map Assignment READ / SharePoint List columns onto participantData.
  * PA already stores address + contact; Twilight must not drop aliases
  * like phonenumber0 or a nested Graph `fields` envelope.
+ *
+ * SharePoint multiline text often arrives wrapped in
+ * <div class="ExternalClass…">…</div>. Strip that (and decode entities)
+ * on READ so Booking / My Session still show clean text for older rows.
  */
+function stripHtmlTagsToPlainText(s) {
+  s = String(s == null ? '' : s);
+  s = s.replace(/<\s*br\s*\/?\s*>/gi, ' ');
+  s = s.replace(/<\s*\/\s*(p|div|li|h[1-6]|tr|td|th)\s*>/gi, ' ');
+  s = s.replace(/<[^>]+>/g, '');
+  return s;
+}
+
+function decodeHtmlEntitiesToPlainText(s) {
+  s = String(s == null ? '' : s);
+  s = s.replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => {
+      const n = parseInt(h, 16);
+      if (!n || n < 1 || n > 0x10ffff) return '';
+      try { return String.fromCodePoint(n); } catch (_) { return ''; }
+    })
+    .replace(/&#(\d+);/g, (_, d) => {
+      const n = parseInt(d, 10);
+      if (!n || n < 1 || n > 0x10ffff) return '';
+      try { return String.fromCodePoint(n); } catch (_) { return ''; }
+    });
+  return s;
+}
+
+function sanitizeSharePointPlainText(value) {
+  if (value == null) return '';
+  let s = String(value);
+  if (!s) return '';
+  s = s.replace(/\u00a0/g, ' ');
+  s = stripHtmlTagsToPlainText(s);
+  s = decodeHtmlEntitiesToPlainText(s);
+  s = stripHtmlTagsToPlainText(s);
+  s = decodeHtmlEntitiesToPlainText(s);
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function collapseDuplicateLocationParts(addr) {
+  const parts = String(addr == null ? '' : addr).split(',').map(p => p.trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (out.length && out[out.length - 1].toLowerCase() === parts[i].toLowerCase()) continue;
+    out.push(parts[i]);
+  }
+  return out.join(', ');
+}
+
+function formatParticipantAddressLine(pd) {
+  if (pd && pd.participantData && typeof pd.participantData === 'object'
+      && (pd.address == null || String(pd.address).trim() === '')) {
+    pd = pd.participantData;
+  }
+  pd = pd || {};
+  let addr = sanitizeSharePointPlainText(pd.address);
+  const state = sanitizeSharePointPlainText(pd.state);
+  const zip = sanitizeSharePointPlainText(pd.zipCode || pd.zip);
+  addr = collapseDuplicateLocationParts(addr);
+  const extra = [];
+  const hay = addr.toLowerCase();
+  if (state && hay.indexOf(state.toLowerCase()) < 0) extra.push(state);
+  if (zip && hay.indexOf(zip.toLowerCase()) < 0) extra.push(zip);
+  return collapseDuplicateLocationParts([addr].concat(extra).filter(Boolean).join(', '));
+}
+
 function assignmentReadScalar(v) {
   if (v == null) return '';
   if (typeof v === 'object') {
@@ -6934,9 +7021,9 @@ function assignmentReadScalar(v) {
       return v.map(assignmentReadScalar).filter(Boolean).join(', ');
     }
     const inner = v.LookupValue || v.Value || v.Title || v.Email || v.Address || '';
-    return inner != null ? String(inner).trim() : '';
+    return sanitizeSharePointPlainText(inner != null ? String(inner) : '');
   }
-  return String(v).trim();
+  return sanitizeSharePointPlainText(String(v));
 }
 
 function flattenAssignmentReadRow(r) {
@@ -6990,7 +7077,9 @@ function assignmentParticipantPhoneFromRecord(r) {
 function assignmentParticipantFieldsFromRecord(r) {
   r = flattenAssignmentReadRow(r);
   return {
-    address: assignmentReadField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress'),
+    address: collapseDuplicateLocationParts(
+      assignmentReadField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress')
+    ),
     email: assignmentReadField(r, 'participantEmail', 'participant_email'),
     phone: assignmentParticipantPhoneFromRecord(r),
     state: assignmentReadField(r, 'participantState', 'participant_state'),
@@ -10315,7 +10404,7 @@ function openPerformancePanel(asgnId) {
         <div class="perf-panel-meta-val">${escapeHTML(dateLabel)}${timeLabel ? ` · ${escapeHTML(timeLabel)}` : ''}</div>
         ${pd.address ? `
           <div class="perf-panel-meta-key">Address</div>
-          <div class="perf-panel-meta-val">${escapeHTML(pd.address)}${pd.state ? `, ${escapeHTML(pd.state)}` : ''}${pd.zipCode ? ` ${escapeHTML(pd.zipCode)}` : ''}</div>
+          <div class="perf-panel-meta-val">${escapeHTML((typeof formatParticipantAddressLine === 'function') ? formatParticipantAddressLine(pd) : ([pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ')))}</div>
         ` : ''}
         ${pd.phone ? `
           <div class="perf-panel-meta-key">Phone</div>
@@ -14337,9 +14426,14 @@ function geofenceCirclePolygon(lng, lat, radiusM, steps) {
 function assignmentFenceAddress(asgn) {
   if (!asgn) return '';
   const pd = asgn.participantData || {};
-  const fromPd = [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ').trim();
+  const fromPd = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ').trim();
   if (fromPd) return fromPd;
-  return String(asgn.location || asgn.address || '').trim();
+  const fallback = String(asgn.location || asgn.address || '').trim();
+  return (typeof sanitizeSharePointPlainText === 'function')
+    ? sanitizeSharePointPlainText(fallback)
+    : fallback;
 }
 
 function loadGeocodeCache() {
@@ -16707,7 +16801,12 @@ function renderModAssignmentView() {
                     <div class="mod-asgn-item-part">${escapeHTML(partName)}</div>
                     <div class="mod-asgn-item-team">${escapeHTML(team ? team.name : a.teamName || '')}</div>
                   </div>
-                  ${a.participantData && a.participantData.address ? `<div class="mod-asgn-item-addr">${escapeHTML(a.participantData.address)}</div>` : ''}
+                  ${(() => {
+                    const addr = (typeof formatParticipantAddressLine === 'function')
+                      ? formatParticipantAddressLine(a.participantData)
+                      : (a.participantData && a.participantData.address);
+                    return addr ? `<div class="mod-asgn-item-addr">${escapeHTML(addr)}</div>` : '';
+                  })()}
                 </div>`;
             }).join('')}
           </div>
@@ -17484,7 +17583,7 @@ function participantRowHTML(p, visibleCols) {
       case 'avaTime':
         return p.avaTime ? `<td>${escapeHTML(p.avaTime)}</td>` : muted;
       case 'address':
-        return p.address ? `<td>${escapeHTML(p.address)}</td>` : muted;
+        return p.address ? `<td>${escapeHTML((typeof formatParticipantAddressLine === 'function') ? formatParticipantAddressLine(p) : p.address)}</td>` : muted;
       case 'state':
         return p.state ? `<td>${escapeHTML(p.state)}</td>` : muted;
       case 'zipCode':
@@ -19005,8 +19104,9 @@ async function sendBookingEmail(assignment) {
   const firstNameForSubject = fname || lname || 'there';
   // Address: assemble from the parts we have. Some Excel rows have a
   // street address but not state/zip; some have everything in one field.
-  const addressParts = [pd.address, pd.state, pd.zipCode].filter(Boolean);
-  const address = addressParts.join(', ') || pd.address || '·';
+  const address = ((typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ')) || pd.address || '·';
   // Moderator names · primaries only, joined with " & ". The modSnapshots
   // array is built from the team's primaryIds at save time (see
   // saveAssignment), so backups never appear here, which matches the
@@ -19177,8 +19277,9 @@ async function sendModBookingEmails(assignment) {
   const pFirstName = (pd.firstName || '').trim();
   const pLastName  = (pd.lastName  || '').trim();
   const participantFullName = [pFirstName, pLastName].filter(Boolean).join(' ') || 'a participant';
-  const addressParts = [pd.address, pd.state, pd.zipCode].filter(Boolean);
-  const address = addressParts.join(', ') || pd.address || '·';
+  const address = ((typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : [pd.address, pd.state, pd.zipCode].filter(Boolean).join(', ')) || pd.address || '·';
   const phone = (pd.phone || pd.phoneNumber || '').trim() || '·';
 
   // Pre-compute display info for every recipient (primary and backup).
@@ -19424,7 +19525,9 @@ function collectPanicReportContext() {
     teamId: (team && team.id != null) ? String(team.id) : (asgn && asgn.teamId != null ? String(asgn.teamId) : ''),
     assignmentId: (asgn && asgn.id) || '',
     sessionDate: (asgn && asgn.date) || ((typeof getPSTDateString === 'function') ? getPSTDateString() : ''),
-    location: (pd.address || (team && team.teamAddress) || '').trim(),
+    location: ((typeof assignmentParticipantContact === 'function')
+      ? assignmentParticipantContact(asgn).address
+      : '') || (pd.address || (team && team.teamAddress) || '').trim(),
     reportedAt: new Date().toLocaleString(),
     reportedAtIso: new Date().toISOString(),
     appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
@@ -21201,9 +21304,15 @@ function normalizeParticipants() {
       scheduled:    findField(p, /^(scheduled|scheduled[\s_-]?date)$/i) || '',
       avaDay:       findField(p, /^(ava[\s_-]?day|availability[\s_-]?day)$/i) || '',
       avaTime:      findField(p, /^(ava[\s_-]?time|availability[\s_-]?time)$/i) || '',
-      address:      findField(p, /^(address|street|street[\s_-]?address|location)$/i) || '',
-      state:        findField(p, /^state$/i) || '',
-      zipCode:      findField(p, /^(zip|zip[\s_-]?code|postal|postal[\s_-]?code)$/i) || '',
+      address:      (typeof sanitizeSharePointPlainText === 'function')
+        ? sanitizeSharePointPlainText(findField(p, /^(address|street|street[\s_-]?address|location)$/i) || '')
+        : (findField(p, /^(address|street|street[\s_-]?address|location)$/i) || ''),
+      state:        (typeof sanitizeSharePointPlainText === 'function')
+        ? sanitizeSharePointPlainText(findField(p, /^state$/i) || '')
+        : (findField(p, /^state$/i) || ''),
+      zipCode:      (typeof sanitizeSharePointPlainText === 'function')
+        ? sanitizeSharePointPlainText(findField(p, /^(zip|zip[\s_-]?code|postal|postal[\s_-]?code)$/i) || '')
+        : (findField(p, /^(zip|zip[\s_-]?code|postal|postal[\s_-]?code)$/i) || ''),
       notes:        findField(p, /^(notes?|comments?)$/i) || '',
     };
   });
@@ -22997,11 +23106,19 @@ function bookingLooksLikeAddress(value) {
 }
 
 function bookingCurrentAddress() {
+  const clean = (v) => (typeof sanitizeSharePointPlainText === 'function')
+    ? sanitizeSharePointPlainText(v)
+    : String(v == null ? '' : v).trim();
   const part = adminState && adminState.bookingSelectedParticipant;
-  if (part && String(part.address || '').trim()) return String(part.address).trim();
-  const explicit = String((adminState && adminState.bookingAddress) || '').trim();
+  if (part && (part.address || part.state || part.zipCode)) {
+    const line = (typeof formatParticipantAddressLine === 'function')
+      ? formatParticipantAddressLine(part)
+      : [part.address, part.state, part.zipCode].filter(Boolean).join(', ');
+    if (line) return line;
+  }
+  const explicit = clean((adminState && adminState.bookingAddress) || '');
   if (explicit) return explicit;
-  const q = String((adminState && adminState.bookingSearch) || '').trim();
+  const q = clean((adminState && adminState.bookingSearch) || '');
   if (bookingLooksLikeAddress(q)) return q;
   return '';
 }
@@ -23425,7 +23542,9 @@ function renderBookingSuggestHTML(query) {
   const matches = bookingSearchMatches();
   const rows = matches.map(p => {
     const name = [p.firstName, p.lastName].filter(Boolean).join(' ') || 'Participant';
-    const addr = [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
+    const addr = (typeof formatParticipantAddressLine === 'function')
+      ? formatParticipantAddressLine(p)
+      : [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
     return `
       <button type="button" class="bk-suggest-item" data-part-id="${escapeHTML(bookingParticipantId(p))}">
         <strong>${escapeHTML(name)}</strong>
@@ -23974,14 +24093,20 @@ function bindBookingSuggestEvents() {
     item.addEventListener('click', () => {
       if (item.dataset.newAddress) {
         adminState.bookingSelectedParticipant = null;
-        adminState.bookingAddress = String(adminState.bookingSearch || '').trim();
+        adminState.bookingAddress = (typeof sanitizeSharePointPlainText === 'function')
+          ? sanitizeSharePointPlainText(adminState.bookingSearch)
+          : String(adminState.bookingSearch || '').trim();
         adminState.bookingSearch = adminState.bookingAddress;
       } else {
         const id = item.dataset.partId;
         const match = bookingSearchMatches().find(p => bookingParticipantId(p) === id)
           || (typeof normalizeParticipants === 'function' ? normalizeParticipants().find(p => bookingParticipantId(p) === id) : null);
         adminState.bookingSelectedParticipant = match || null;
-        adminState.bookingAddress = (match && match.address) || String(adminState.bookingSearch || '').trim();
+        adminState.bookingAddress = (match && (typeof formatParticipantAddressLine === 'function')
+          ? formatParticipantAddressLine(match)
+          : (match && match.address)) || ((typeof sanitizeSharePointPlainText === 'function')
+          ? sanitizeSharePointPlainText(adminState.bookingSearch)
+          : String(adminState.bookingSearch || '').trim());
         adminState.bookingSearch = match
           ? ([match.firstName, match.lastName].filter(Boolean).join(' ') || match.address || '')
           : adminState.bookingSearch;
@@ -25428,7 +25553,9 @@ function renderListItemHTML(a) {
   const isCancelled = a.status === 'Cancelled';
   const isCompleted = a.status === 'Completed';
   const isUnassigned = a.status === 'Unassigned';
-  const addr = a.participantData && a.participantData.address ? [a.participantData.address, a.participantData.state, a.participantData.zipCode].filter(Boolean).join(', ') : '';
+  const addr = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(a.participantData)
+    : (a.participantData && a.participantData.address ? [a.participantData.address, a.participantData.state, a.participantData.zipCode].filter(Boolean).join(', ') : '');
   // Team label: show the previous-team name for Unassigned rows so admin
   // can see "this used to be Team 3" rather than just "No team". Falls
   // back to "No team" when neither a current nor previous team is known.
@@ -27730,7 +27857,12 @@ function renderAssignmentModal() {
                 ${pill}
               </div>
               <div class="part-pick-meta">
-                ${p.address ? escapeHTML(p.address) + ' · ' : ''}${p.state ? escapeHTML(p.state) + ' · ' : ''}${p.phone ? escapeHTML(p.phone) : (p.email ? escapeHTML(p.email) : '')}
+                ${(() => {
+                  const line = (typeof formatParticipantAddressLine === 'function')
+                    ? formatParticipantAddressLine(p)
+                    : [p.address, p.state].filter(Boolean).join(', ');
+                  return line ? escapeHTML(line) + ' · ' : '';
+                })()}${p.phone ? escapeHTML(p.phone) : (p.email ? escapeHTML(p.email) : '')}
               </div>
             </div>
           </div>
@@ -29014,7 +29146,12 @@ function openViewAssignmentModal(asgnId) {
           <div style="margin-top: 6px; font-size: 13px; color: var(--text2); line-height: 1.6;">
             ${a.participantData.email ? `<a href="mailto:${escapeForUrl(a.participantData.email)}" style="color: var(--accent-ink)">${escapeHTML(a.participantData.email)}</a><br>` : ''}
             ${a.participantData.phone ? `<a href="tel:${escapeForUrl(a.participantData.phone)}" style="color: var(--accent-ink)">${escapeHTML(a.participantData.phone)}</a><br>` : ''}
-            ${a.participantData.address ? escapeHTML(a.participantData.address) + (a.participantData.state ? ', ' + escapeHTML(a.participantData.state) : '') + (a.participantData.zipCode ? ' ' + escapeHTML(a.participantData.zipCode) : '') : ''}
+            ${(() => {
+              const line = (typeof formatParticipantAddressLine === 'function')
+                ? formatParticipantAddressLine(a.participantData)
+                : [a.participantData.address, a.participantData.state, a.participantData.zipCode].filter(Boolean).join(', ');
+              return line ? escapeHTML(line) : '';
+            })()}
           </div>` : ''}
       </div>
       ${isCancelled && a.comment ? `
@@ -33606,9 +33743,11 @@ function pushWorklogStatus(asgn, status, opts) {
   const pid = (state && state.participantId && String(state.participantId).trim())
     ? String(state.participantId).trim()
     : ((asgn.participantData && (asgn.participantData.participantId || asgn.participantData.email)) || '');
-  const addr = asgn.participantData && asgn.participantData.address
-    ? [asgn.participantData.address, asgn.participantData.state, asgn.participantData.zipCode].filter(Boolean).join(', ')
-    : '';
+  const addr = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(asgn.participantData)
+    : (asgn.participantData && asgn.participantData.address
+      ? [asgn.participantData.address, asgn.participantData.state, asgn.participantData.zipCode].filter(Boolean).join(', ')
+      : '');
 
   const now = new Date();
   const event = {
@@ -35811,10 +35950,20 @@ function applyAssignmentToEntryFields() {
     ? assignmentParticipantContact(asgn)
     : null;
   const p = asgn.participantData;
+  const formatted = (contact && contact.address)
+    || ((typeof formatParticipantAddressLine === 'function')
+      ? formatParticipantAddressLine(p)
+      : [p.address, p.state, p.zipCode].filter(Boolean).join(', '));
+  if (state.participantAddress) {
+    state.participantAddress = (typeof sanitizeSharePointPlainText === 'function')
+      ? sanitizeSharePointPlainText(state.participantAddress)
+      : String(state.participantAddress).trim();
+    if (typeof collapseDuplicateLocationParts === 'function') {
+      state.participantAddress = collapseDuplicateLocationParts(state.participantAddress);
+    }
+  }
   if (!state.participantAddress) {
-    const parts = (contact && contact.address)
-      || [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
-    state.participantAddress = parts;
+    state.participantAddress = formatted;
   }
   saveState();
 }
@@ -39155,7 +39304,9 @@ function showNextSessionModal(w) {
     : ([part.firstName, part.lastName].filter(Boolean).join(' ').trim() || 'TBD');
   const contact = (typeof assignmentParticipantContact === 'function')
     ? assignmentParticipantContact(asgn)
-    : { address: [part.address, part.state, part.zipCode].filter(Boolean).join(', ') };
+    : { address: (typeof formatParticipantAddressLine === 'function')
+      ? formatParticipantAddressLine(part)
+      : [part.address, part.state, part.zipCode].filter(Boolean).join(', ') };
   const teamAddr = (typeof getTeamOfficeAddress === 'function' && team)
     ? getTeamOfficeAddress(team)
     : ((team && team.teamAddress) || '');
