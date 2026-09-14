@@ -34,6 +34,10 @@ const {
   flattenAssignmentReadRow,
   assignmentParticipantFieldsFromRecord,
   assignmentParticipantPhoneFromRecord,
+  assignmentParticipantNameFromRecord,
+  assignmentHydrateParticipantNames,
+  assignmentParticipantDisplayName,
+  assignmentRecordLooksOd,
   assignmentTeamNameFromRecord,
   mergeParticipantDataPreferFilled,
   sanitizeSharePointPlainText,
@@ -72,6 +76,7 @@ assert('maps phonenumber', mapped.phone === '206-555-0199', mapped.phone);
 assert('maps participantState', mapped.state === 'Washington', mapped.state);
 assert('maps participantZipCode', mapped.zipCode === '98059', mapped.zipCode);
 assert('maps team from team', assignmentTeamNameFromRecord(c408) === 'Alex x Blair');
+assert('Twilight hydrate uses assignedTo as participant name', mapped.firstName === 'Pat' && mapped.lastName === 'Mes', mapped.firstName + ' ' + mapped.lastName);
 
 const aliased = assignmentParticipantFieldsFromRecord({
   assignmentId: 'c408fa07',
@@ -172,6 +177,128 @@ assert(
   'flattens nested Graph HTML address',
   nestedFields.address === '(your own residence), Seattle, Washington',
   nestedFields.address
+);
+
+const odRow = {
+  comment: 'od-sync',
+  odScheduleId: 'sched-od-1',
+  orbitLoginId: 'alex.mod',
+  firstName: 'Alex',
+  lastName: 'Moderator',
+  team: 'Alex x Blair',
+  assignedTo: 'Alex Moderator',
+  participantEmail: 'pat@example.com',
+  phonenumber0: '206-555-0199',
+  address: '322 Pasco Mes NE 98059, Seattle, Washington',
+  participantFirstName: 'Pat',
+  participantLastName: 'Mes',
+};
+assert('OD row is detected as OD', assignmentRecordLooksOd(odRow) === true);
+const odMapped = assignmentParticipantFieldsFromRecord(odRow);
+assert('OD uses participantFirstName not moderator firstName', odMapped.firstName === 'Pat', odMapped.firstName);
+assert('OD uses participantLastName not moderator lastName', odMapped.lastName === 'Mes', odMapped.lastName);
+assert('OD name helper ignores assignedTo when participant cols exist',
+  assignmentParticipantNameFromRecord(odRow).firstName === 'Pat');
+
+const odNoNewCols = {
+  comment: 'od-sync',
+  odScheduleId: 'sched-od-2',
+  firstName: 'Alex',
+  lastName: 'Moderator',
+  team: 'Alex x Blair',
+  assignedTo: 'Should Not Win',
+  participantEmail: 'pat@example.com',
+};
+const odEmptyNames = assignmentHydrateParticipantNames(odNoNewCols);
+assert('OD without participant name cols does not use assignedTo', odEmptyNames.firstName === '' && odEmptyNames.lastName === '', JSON.stringify(odEmptyNames));
+assert('OD without participant name cols does not use moderator firstName', assignmentParticipantNameFromRecord(odNoNewCols).firstName === '');
+
+const odAliased = assignmentParticipantNameFromRecord({
+  fields: {
+    participant_first_name: 'Jordan',
+    participant_last_name: 'Lee',
+    firstName: 'Alex',
+    lastName: 'Moderator',
+  },
+  odStatus: 'Scheduled',
+});
+assert('reads nested participant_first_name alias', odAliased.firstName === 'Jordan' && odAliased.lastName === 'Lee', JSON.stringify(odAliased));
+
+const odFull = assignmentParticipantNameFromRecord({
+  odScheduleId: 's3',
+  participantName: 'Sam Rivera',
+  firstName: 'Alex',
+});
+assert('splits participantName when first/last cols missing', odFull.firstName === 'Sam' && odFull.lastName === 'Rivera', JSON.stringify(odFull));
+
+const odCard = assignmentParticipantDisplayName({
+  source: 'od-sync',
+  odScheduleId: 'sched-od-1',
+  teamName: 'Alex x Blair',
+  participantData: { firstName: 'Pat', lastName: 'Mes', email: 'pat@example.com' },
+  modSnapshots: [{ firstName: 'Alex', lastName: 'Moderator' }],
+});
+assert('Booking title uses OD participant name', odCard === 'Pat Mes', odCard);
+
+const odFallbackEmail = assignmentParticipantDisplayName({
+  source: 'od-sync',
+  odScheduleId: 'sched-od-2',
+  teamName: 'Alex x Blair',
+  participantData: { email: 'pat@example.com' },
+  modSnapshots: [{ firstName: 'Alex', lastName: 'Moderator' }],
+});
+assert('OD missing name uses email not team string', odFallbackEmail === 'pat@example.com', odFallbackEmail);
+
+const odFallbackNeutral = assignmentParticipantDisplayName({
+  source: 'od-sync',
+  odScheduleId: 'sched-od-3',
+  teamName: 'Alex x Blair',
+  participantData: { firstName: 'Alex', lastName: 'Moderator' },
+  modSnapshots: [{ firstName: 'Alex', lastName: 'Moderator' }],
+});
+assert('OD moderator-shaped name is rejected for title', odFallbackNeutral === 'Participant', odFallbackNeutral);
+
+const odTeamAsTitle = assignmentParticipantDisplayName({
+  source: 'od-sync',
+  teamName: 'Alex x Blair',
+  participantData: { firstName: 'Alex', lastName: 'x Blair' },
+});
+assert('OD "A x B" team string is never the bold title', odTeamAsTitle === 'Participant', odTeamAsTitle);
+
+const twilightCard = assignmentParticipantDisplayName({
+  participantData: { firstName: 'Pat', lastName: 'Mes' },
+  teamName: 'Alex x Blair',
+});
+assert('Twilight title keeps participantData name', twilightCard === 'Pat Mes', twilightCard);
+
+context.getLiveParticipantByAssignmentId = function (id) {
+  if (id === 'orbit-pat') return { firstName: 'Directory', lastName: 'Pat' };
+  return null;
+};
+const fromDir = assignmentParticipantDisplayName({
+  source: 'od-sync',
+  participantOrbitId: 'orbit-pat',
+  teamName: 'Alex x Blair',
+  participantData: { firstName: 'Alex', lastName: 'Moderator', email: 'pat@example.com' },
+  modSnapshots: [{ firstName: 'Alex', lastName: 'Moderator' }],
+});
+assert('participantOrbitId directory name wins for OD title', fromDir === 'Directory Pat', fromDir);
+
+assert(
+  'Booking session list uses shared participant display helper',
+  /assignmentParticipantDisplayName\(a\)/.test(src)
+);
+assert(
+  'OneData Booked Sessions URL constant exists',
+  /const ONEDATA_BOOKED_SESSIONS_URL =/.test(src)
+    && /onedata\.centific\.com/.test(src)
+    && /8f948ab0-4d52-4677-bb7d-9543dfe82e65/.test(src)
+    && /tab=booked-sessions/.test(src)
+);
+assert(
+  'Booking header opener uses shared popup helper',
+  /function onBookingOnedataOpenClick/.test(src)
+    && /openExternalAppWindow\(href/.test(src)
 );
 
 console.log('');

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091426';
-const APP_UPDATED_AT = '09/14/2026 16:00';
+const APP_VERSION = '1.3.091426a';
+const APP_UPDATED_AT = '09/14/2026 17:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -7098,9 +7098,99 @@ function assignmentParticipantPhoneFromRecord(r) {
   return '';
 }
 
+function splitAssignmentPersonName(full) {
+  const parts = String(full == null ? '' : full).trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
+}
+
+// OD Assignment List: firstName/lastName are the moderator (orbitLoginId
+// row). team is a "{mod1First} x {mod2First}" string. assignedTo is not
+// in the live OD→List field set. Never treat those as the participant.
+function assignmentRecordLooksOd(r) {
+  if (!r || typeof r !== 'object') return false;
+  const comment = String(r.comment || '').trim().toLowerCase();
+  const source = String(r.source || '').trim().toLowerCase();
+  if (comment === 'od-sync' || source === 'od-sync' || source === 'od') return true;
+  const token = (v) => {
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    const empty = new Set([
+      'null', 'undefined', 'n/a', 'na', 'none', 'nil', '0', 'false', '-',
+      '–', '—', '#n/a', '#value!', '#ref!', '#name?',
+    ]);
+    return empty.has(s.toLowerCase()) ? '' : s;
+  };
+  if (token(r.odScheduleId) || token(r.bookingGroupId) || token(r.odStatus)) return true;
+  return false;
+}
+
+function looksLikeOdModTeamLabel(s) {
+  const t = String(s == null ? '' : s).trim();
+  if (!t) return false;
+  return /^\S+\s+[x×]\s+\S+$/i.test(t);
+}
+
+function assignmentParticipantLabelIsUntrusted(name, asgn) {
+  const n = String(name == null ? '' : name).trim();
+  if (!n) return true;
+  if (looksLikeOdModTeamLabel(n)) return true;
+  const team = String((asgn && (asgn.teamName || asgn.team)) || '').trim();
+  if (team && n.toLowerCase() === team.toLowerCase()) return true;
+  const snaps = (asgn && asgn.modSnapshots) || [];
+  for (let i = 0; i < snaps.length; i++) {
+    const m = snaps[i] || {};
+    const full = [m.firstName, m.lastName].filter(Boolean).join(' ').trim();
+    if (full && full.toLowerCase() === n.toLowerCase()) return true;
+    const fn = String(m.firstName || '').trim();
+    if (fn && fn.toLowerCase() === n.toLowerCase()) return true;
+  }
+  return false;
+}
+
+// Participant-scoped name columns only. Do not read moderator
+// firstName/lastName or assignedTo here.
+function assignmentParticipantNameFromRecord(r) {
+  r = flattenAssignmentReadRow(r);
+  const first = assignmentReadField(
+    r,
+    'participantFirstName', 'participant_first_name', 'ParticipantFirstName',
+    'odParticipantFirstName', 'od_participant_first_name', 'participantGivenName'
+  );
+  const last = assignmentReadField(
+    r,
+    'participantLastName', 'participant_last_name', 'ParticipantLastName',
+    'odParticipantLastName', 'od_participant_last_name',
+    'participantSurname', 'participantFamilyName'
+  );
+  if (first || last) return { firstName: first, lastName: last };
+  const full = assignmentReadField(
+    r,
+    'participantName', 'participant_name', 'ParticipantName',
+    'participantFullName', 'odParticipantName'
+  );
+  if (full) return splitAssignmentPersonName(full);
+  return { firstName: '', lastName: '' };
+}
+
+// Hydrate names for Assignment READ. Twilight rows may still carry the
+// participant in assignedTo. OD rows must not — use participantFirstName
+// / participantLastName (PA is adding those List columns) or leave blank.
+function assignmentHydrateParticipantNames(r) {
+  const named = assignmentParticipantNameFromRecord(r);
+  if (named.firstName || named.lastName) return named;
+  if (!assignmentRecordLooksOd(r)) {
+    const assigned = assignmentReadField(r, 'assignedTo', 'assigned_to', 'AssignedTo');
+    if (assigned) return splitAssignmentPersonName(assigned);
+  }
+  return { firstName: '', lastName: '' };
+}
+
 function assignmentParticipantFieldsFromRecord(r) {
   r = flattenAssignmentReadRow(r);
+  const names = assignmentHydrateParticipantNames(r);
   return {
+    firstName: names.firstName,
+    lastName: names.lastName,
     address: collapseDuplicateLocationParts(
       assignmentReadField(r, 'address', 'participantAddress', 'participant_address', 'streetAddress')
     ),
@@ -7109,6 +7199,30 @@ function assignmentParticipantFieldsFromRecord(r) {
     state: assignmentReadField(r, 'participantState', 'participant_state'),
     zipCode: assignmentReadField(r, 'participantZipCode', 'participant_zip', 'zipCode'),
   };
+}
+
+// Shared Booking / session-card title. Prefer directory name, then
+// participant-scoped first/last, then email. Never use an OD moderator
+// name or "{mod} x {mod}" team string as the bold title.
+function assignmentParticipantDisplayName(asgn, opts) {
+  opts = opts || {};
+  const isOd = (typeof assignmentIsOdOrigin === 'function')
+    ? assignmentIsOdOrigin(asgn)
+    : assignmentRecordLooksOd(asgn);
+  const pd = (asgn && asgn.participantData) || {};
+  if (asgn && asgn.participantOrbitId && typeof getLiveParticipantByAssignmentId === 'function') {
+    try {
+      const live = getLiveParticipantByAssignmentId(asgn.participantOrbitId);
+      const liveName = live ? [live.firstName, live.lastName].filter(Boolean).join(' ').trim() : '';
+      if (liveName) return liveName;
+    } catch (_) { /* directory not loaded */ }
+  }
+  let fromPd = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim();
+  if (fromPd && isOd && assignmentParticipantLabelIsUntrusted(fromPd, asgn)) fromPd = '';
+  if (fromPd) return fromPd;
+  const email = String(pd.email || '').trim();
+  if (email) return email;
+  return opts.fallback || (isOd ? 'Participant' : 'Session');
 }
 
 function assignmentTeamNameFromRecord(r) {
@@ -7791,6 +7905,7 @@ function wireBookingPage() {
     closeBtn._bookingWired = true;
     closeBtn.addEventListener('click', () => closeBookingPage());
   }
+  if (typeof initBookingOnedataOpener === 'function') initBookingOnedataOpener();
   if (!document._bookingEscWired) {
     document._bookingEscWired = true;
     document.addEventListener('keydown', (e) => {
@@ -20386,24 +20501,24 @@ async function fetchAssignmentsFromPA() {
 
     let g = grouped.get(groupKey);
     if (!g) {
-      // Reconstruct participantData. participantOrbitId is preferred; otherwise
-      // we keep the display name and best-effort split for first/last.
+      // Reconstruct participantData. Prefer participant-scoped name
+      // columns (participantFirstName / participantLastName). OD List
+      // firstName/lastName are the moderator; assignedTo is not in the
+      // live OD field set. Twilight rows may still split assignedTo.
       const pid = r.participantOrbitId || '';
-      let firstName = '', lastName = '';
-      if (r.assignedTo) {
-        const parts = String(r.assignedTo).trim().split(/\s+/);
-        firstName = parts[0] || '';
-        lastName  = parts.slice(1).join(' ') || '';
-      }
       const contact = (typeof assignmentParticipantFieldsFromRecord === 'function')
         ? assignmentParticipantFieldsFromRecord(r)
         : {
+            firstName: '',
+            lastName: '',
             address: r.address || '',
             phone: r.phonenumber || r.phonenumber0 || '',
             email: r.participantEmail || '',
             state: r.participantState || '',
             zipCode: r.participantZipCode || '',
           };
+      const firstName = contact.firstName || '';
+      const lastName = contact.lastName || '';
       const teamName = (typeof assignmentTeamNameFromRecord === 'function')
         ? (assignmentTeamNameFromRecord(r) || r.team || '')
         : (r.team || '');
@@ -21065,9 +21180,11 @@ async function fetchAssignmentsFromPA() {
   info.teamCount = mergedTeams.length;
 
   // Enrich participantData with live participant fields before storing.
-  // The Assignment Excel table doesn't carry the participant's email,
-  // phone, state, or zipCode · only firstName/lastName (parsed from
-  // the `assignedTo` column) and address. So when an assignment comes
+  // The Assignment List stores participant contact on dedicated
+  // columns. firstName/lastName on the row are the moderator.
+  // Participant names come from participantFirstName/LastName (PA is
+  // adding those) or, for Twilight rows only, assignedTo. So when an
+  // assignment comes
   // back from a fresh PA read, its participantData is sparse, even
   // though the Participants Excel table has those fields.
   //
@@ -23273,6 +23390,43 @@ function bookingSessionHaystack(asgn) {
   return [asgn.date, asgn.status, team && team.name, name, p.email, p.address].filter(Boolean).join(' ');
 }
 
+// User-facing OneData Booked Sessions browser link (not an API).
+// Project 8f948ab0-4d52-4677-bb7d-9543dfe82e65 is the Booked Sessions
+// SoT Twilight's hourly OD sync reads. Open in a popup / new tab only.
+const ONEDATA_PROJECT_ID = '8f948ab0-4d52-4677-bb7d-9543dfe82e65';
+const ONEDATA_BOOKED_SESSIONS_WINDOW = 'twilightBookingOnedata';
+const ONEDATA_BOOKED_SESSIONS_URL =
+  'https://onedata.centific.com/?project=' + ONEDATA_PROJECT_ID + '&tab=booked-sessions';
+
+function onBookingOnedataOpenClick(e) {
+  const a = e.target && e.target.closest && e.target.closest('#bookingOpenOnedata, a.bk-onedata-btn');
+  if (!a) return;
+  if (e.defaultPrevented) return;
+  if (e.button !== 0) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const href = (typeof ONEDATA_BOOKED_SESSIONS_URL === 'string' && ONEDATA_BOOKED_SESSIONS_URL)
+    ? ONEDATA_BOOKED_SESSIONS_URL
+    : (a.getAttribute('href') || '');
+  if (!href) return;
+  if (typeof isSafeHttpsUrl === 'function' && !isSafeHttpsUrl(href)) return;
+  e.preventDefault();
+  if (typeof openExternalAppWindow === 'function') {
+    openExternalAppWindow(href, a.getAttribute('data-od-win') || ONEDATA_BOOKED_SESSIONS_WINDOW);
+  } else {
+    try { window.open(href, '_blank', 'noopener,noreferrer'); } catch (_) { /* ignore */ }
+  }
+}
+
+function initBookingOnedataOpener() {
+  if (initBookingOnedataOpener._wired) return;
+  initBookingOnedataOpener._wired = true;
+  document.addEventListener('click', onBookingOnedataOpenClick);
+  const a = document.getElementById('bookingOpenOnedata');
+  if (a && typeof ONEDATA_BOOKED_SESSIONS_URL === 'string') {
+    a.setAttribute('href', ONEDATA_BOOKED_SESSIONS_URL);
+  }
+}
+
 // OneData origin for Booking session cards.
 // Rule (display-only — does not write Excel / PA / OD sync):
 //   OD        = hourly OneData → Excel upsert. A real token on
@@ -23798,10 +23952,9 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
   return sessions.slice(0, cap).map(a => {
     const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
     const p = a.participantData || {};
-    const name = [p.firstName, p.lastName].filter(Boolean).join(' ')
-      || a.teamName
-      || (team && team.name)
-      || 'Session';
+    const name = (typeof assignmentParticipantDisplayName === 'function')
+      ? assignmentParticipantDisplayName(a)
+      : ([p.firstName, p.lastName].filter(Boolean).join(' ') || 'Session');
     const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;
     const origin = bookingSessionOrigin(a);
     const originLabel = origin === 'od' ? 'OD' : 'Twilight';
@@ -31579,6 +31732,8 @@ function buildAssignmentExcelRow(a) {
       participantEmail:   (a.participantData && a.participantData.email) || '',
       participantState:   (a.participantData && a.participantData.state) || '',
       participantZipCode: (a.participantData && a.participantData.zipCode) || '',
+      participantFirstName: (a.participantData && a.participantData.firstName) || '',
+      participantLastName:  (a.participantData && a.participantData.lastName) || '',
       teamId:             a.teamId,
       status:             a.status          || 'Booked',
       comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
@@ -31607,6 +31762,8 @@ function buildAssignmentExcelRow(a) {
     participantEmail:   (a.participantData && a.participantData.email) || '',
     participantState:   (a.participantData && a.participantData.state) || '',
     participantZipCode: (a.participantData && a.participantData.zipCode) || '',
+    participantFirstName: (a.participantData && a.participantData.firstName) || '',
+    participantLastName:  (a.participantData && a.participantData.lastName) || '',
     teamId:             a.teamId,
     status:             a.status          || 'Booked',
     comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
