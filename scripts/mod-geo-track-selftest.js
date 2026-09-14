@@ -33,6 +33,9 @@ const {
   recoverLastGeoFromTruncatedJson,
   sessionStateWriteAccepted,
   lastGeoCandidateRank,
+  isSilentGeoSaveReason,
+  shouldWaitForSessionStateInflight,
+  geoSaveToastMessage,
 } = context;
 
 let passed = 0;
@@ -222,7 +225,10 @@ assert('write 429-style error body is rejected',
 assert('days-old local pin is replaced by cloud lastGeo',
   shouldReplaceLocalGeoPing({ lat: 47.61, lng: -122.33, at: sept9 }, { lat: 47.72, lng: -122.15, at: sept12 }) === true);
 assert('newer local lastGeo is kept over older cloud',
-  shouldReplaceLocalGeoPing({ lat: 47.72, lng: -122.15, at: sept12 }, { lat: 47.61, lng: -122.33, at: sept9 }) === false);
+  shouldReplaceLocalGeoPing(
+    { lat: 47.72, lng: -122.15, at: Date.now() - 60 * 1000 },
+    { lat: 47.61, lng: -122.33, at: Date.now() - 2 * 60 * 60 * 1000 }
+  ) === false);
 
 assert('today append ranks above Sept 9 GPS',
   lastGeoCandidateRank({ at: sept9, lat: 47.72 }, { lastActive: '2026-09-12T19:30:00.000Z' }) > sept9);
@@ -231,6 +237,28 @@ assert('local newer lastGeo is kept over cloud Sept 9',
   shouldKeepLocalLastGeo({ at: sept12, lat: 47.64 }, { at: sept9, lat: 47.61 }) === true);
 assert('cloud newer lastGeo replaces local Sept 9',
   shouldKeepLocalLastGeo({ at: sept9, lat: 47.61 }, { at: sept12, lat: 47.64 }) === false);
+
+assert('inflight is a silent geo-save reason', isSilentGeoSaveReason('inflight') === true);
+assert('nochange is a silent geo-save reason', isSilentGeoSaveReason('nochange') === true);
+assert('error is not a silent geo-save reason', isSilentGeoSaveReason('error') === false);
+assert('force geo writes wait for an in-flight SessionState POST',
+  shouldWaitForSessionStateInflight({ force: true, geoSyncReason: 'tracking_enabled' }) === true);
+assert('background heartbeat does not wait for inflight',
+  shouldWaitForSessionStateInflight({}) === false);
+assert('successful write still toasts Location saved',
+  geoSaveToastMessage({ ok: true, reason: 'written' }) === 'Location saved');
+assert('nochange success still toasts Location saved',
+  geoSaveToastMessage({ ok: true, reason: 'nochange' }) === 'Location saved');
+assert('inflight does not blame the save service',
+  geoSaveToastMessage({ ok: false, reason: 'inflight' }) === null);
+assert('false nochange does not blame the save service',
+  geoSaveToastMessage({ ok: false, reason: 'nochange' }) === null);
+assert('noassignment toast is distinct from PA outage',
+  geoSaveToastMessage({ ok: false, reason: 'noassignment' }) === 'Location did not save. No open session is available to store it.');
+assert('real PA/network error still blames the save service',
+  geoSaveToastMessage({ ok: false, reason: 'error' }) === 'Location was not saved. The save service did not answer.');
+assert('notconfigured toast is distinct from PA outage',
+  geoSaveToastMessage({ ok: false, reason: 'notconfigured' }) === 'Location did not save. Cloud save is not set up on this device.');
 
 const fromCols = lastGeoFromSessionRow({
   lastGeoLat: 47.6446,
@@ -255,5 +283,52 @@ const fromTruncRow = pickBestCloudLastGeo([{
 assert('pickBestCloudLastGeo recovers truncated lastGeo',
   fromTruncRow && fromTruncRow.lat === 47.71 && fromTruncRow.at === sept12);
 
-console.log(failed ? ('FAILED ' + failed + ' / ' + (passed + failed)) : ('All ' + passed + ' checks passed'));
-process.exit(failed ? 1 : 0);
+const lockBegin = src.indexOf('function rememberPendingSessionStateFlush');
+const lockEnd = src.indexOf('async function flushSessionStateSync');
+assert('session-state inflight helpers are present', lockBegin > 0 && lockEnd > lockBegin);
+
+(async () => {
+  if (lockBegin > 0 && lockEnd > lockBegin) {
+    const lockCtx = {
+      console,
+      scheduled: 0,
+      flushed: [],
+      toasts: [],
+      setTimeout,
+      clearTimeout,
+    };
+    vm.createContext(lockCtx);
+    vm.runInContext(
+      'var _sessionStateSyncState = { inflight:false, pendingAgain:false, pendingForce:false, pendingGeoSyncReason:"", pendingPersistCompletion:false, idleWaiters:[] };\n'
+      + 'function scheduleSessionStateSync(){ scheduled += 1; }\n'
+      + 'async function flushSessionStateSync(opts){ flushed.push(opts || {}); return { ok:true, reason:"written" }; }\n'
+      + 'function notifyGeoSaveResult(r){ toasts.push(r); }\n'
+      + src.slice(lockBegin, lockEnd),
+      lockCtx
+    );
+    lockCtx._sessionStateSyncState.inflight = true;
+    lockCtx.rememberPendingSessionStateFlush({ force: true, geoSyncReason: 'tracking_enabled' });
+    const waitP = lockCtx.waitForSessionStateSyncIdle(200);
+    lockCtx.releaseSessionStateSyncLock();
+    const waited = await waitP;
+    assert('geo waiter is woken when the in-flight write finishes', waited === true);
+    assert('geo waiter suppresses a duplicate pending flush', lockCtx.flushed.length === 0 && lockCtx.scheduled === 0);
+    lockCtx._sessionStateSyncState.inflight = true;
+    lockCtx.rememberPendingSessionStateFlush({ force: true, geoSyncReason: 'location_interval' });
+    const timedOut = await lockCtx.waitForSessionStateSyncIdle(20);
+    assert('geo waiter times out while a write stays busy', timedOut === false);
+    lockCtx.releaseSessionStateSyncLock();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert('timed-out geo still follows up with a forced write',
+      lockCtx.flushed.length === 1 && lockCtx.flushed[0].force === true && lockCtx.flushed[0].geoSyncReason === 'location_interval',
+      JSON.stringify(lockCtx.flushed));
+    assert('follow-up geo write toasts the real outcome',
+      lockCtx.toasts.length === 1 && lockCtx.toasts[0].ok === true);
+  }
+
+  console.log(failed ? ('FAILED ' + failed + ' / ' + (passed + failed)) : ('All ' + passed + ' checks passed'));
+  process.exit(failed ? 1 : 0);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
