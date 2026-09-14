@@ -2379,6 +2379,45 @@ a.icon-btn:focus-visible {
 #bookingPage .icon-btn:active {
   box-shadow: inset 3px 3px 6px var(--bk-neu-dark), inset -3px -3px 6px var(--bk-neu-light) !important;
 }
+.bk-onedata-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-family: Inter, var(--font), system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--bk-accent);
+  background: var(--bk-bg);
+  box-shadow: 4px 4px 8px var(--bk-neu-dark), -4px -4px 8px var(--bk-neu-light);
+  flex-shrink: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bk-onedata-btn:hover {
+  color: var(--bk-accent);
+  box-shadow: 5px 5px 10px var(--bk-neu-dark), -5px -5px 10px var(--bk-neu-light);
+}
+.bk-onedata-btn:active {
+  box-shadow: inset 3px 3px 6px var(--bk-neu-dark), inset -3px -3px 6px var(--bk-neu-light);
+}
+.bk-onedata-btn:focus-visible {
+  outline: 2px solid var(--bk-accent);
+  outline-offset: 2px;
+}
+.bk-onedata-btn svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+}
+@media (max-width: 380px) {
+  .bk-onedata-btn { padding: 7px 9px; }
+  .bk-onedata-btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+}
 .booking-page-body {
   flex: 1; min-height: 0;
   overflow: auto;
@@ -15874,6 +15913,13 @@ button.perf-stat-chip.scheduled.active {
   <div class="booking-page-head appr-guide-head">
     <h3 id="bookingPageTitle">Booking</h3>
     <div class="appr-guide-head-actions">
+      <a id="bookingOpenOnedata" class="bk-onedata-btn" href="https://onedata.centific.com/?project=8f948ab0-4d52-4677-bb7d-9543dfe82e65&tab=booked-sessions" target="_blank" rel="noopener noreferrer" title="Open OneData Booked Sessions" aria-label="Open OneData Booked Sessions" data-od-win="twilightBookingOnedata">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path d="M8 2h4v4M12 2L7 7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M11 8.2V11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h2.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span class="bk-onedata-btn-label">OneData</span>
+      </a>
       <button type="button" class="icon-btn" id="bookingPageClose" aria-label="Close Booking">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
@@ -16090,7 +16136,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091426" defer></script>
+<script src="twilight.js?v=twilight-1.3.091426a" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
