@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091226h';
-const APP_UPDATED_AT = '09/12/2026 08:15';
+const APP_VERSION = '1.3.091426';
+const APP_UPDATED_AT = '09/14/2026 16:00';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2255,27 +2255,48 @@ function recordFlowControlsHTML(station, sd, scenarioNum) {
     </div>`;
 }
 
+// Desktop popup chrome for Lakitu / Ring. Mobile browsers ignore features
+// and open a normal tab. Iframes are not used: Lakitu sends
+// X-Frame-Options: DENY + CSP frame-ancestors 'none'; Ring account sends
+// X-Frame-Options: SAMEORIGIN.
+function desktopPopupFeatures(opts) {
+  const availW = (window.screen && window.screen.availWidth) || 1024;
+  const availH = (window.screen && window.screen.availHeight) || 768;
+  const w = Math.min(1100, Math.max(420, Math.floor(availW * 0.7)));
+  const h = Math.min(900, Math.max(560, Math.floor(availH * 0.85)));
+  const left = Math.max(0, Math.floor((availW - w) / 2));
+  const top = Math.max(0, Math.floor((availH - h) / 2));
+  const opener = (opts && opts.allowOpener) ? ',noopener=no' : '';
+  return `popup=yes,width=${w},height=${h},left=${left},top=${top}${opener}`;
+}
+
+// Named popup (repeat clicks reuse / focus the same window). If the
+// popup is blocked, fall back to a normal new tab so the action never
+// fails silently. Approval does not need window.opener / return-watch;
+// pass { allowOpener: true } only for record-flow, which polls win.closed.
+function openExternalAppWindow(url, windowName, opts) {
+  const dest = (url == null ? '' : String(url)).trim();
+  if (!dest) return null;
+  const name = windowName || '_blank';
+  let win = null;
+  try {
+    win = window.open(dest, name, desktopPopupFeatures(opts));
+  } catch (e) { win = null; }
+  if (!win) {
+    try { win = window.open(dest, '_blank'); } catch (e) { win = null; }
+  } else if (!(opts && opts.allowOpener)) {
+    try { win.opener = null; } catch (e) { /* ignore */ }
+  }
+  return win;
+}
+
 // Open Lakitu for a record-flow scenario. On mobile this is a new tab; on
 // desktop a sized popup window (best-effort). We then watch for the
 // moderator returning to the app · via window focus / tab visibility, plus
 // a desktop popup-close poll · and flip the button to "Completed recording?".
 function openLakituForRecord(stationKey, num) {
   const url = resolveLakituUrl();
-  // Desktop popup sizing; mobile browsers ignore features and open a tab.
-  const w = Math.min(1100, Math.max(420, Math.floor((window.screen && window.screen.availWidth || 1024) * 0.7)));
-  const h = Math.min(900, Math.max(560, Math.floor((window.screen && window.screen.availHeight || 768) * 0.85)));
-  const left = Math.max(0, Math.floor(((window.screen && window.screen.availWidth || 1024) - w) / 2));
-  const top = Math.max(0, Math.floor(((window.screen && window.screen.availHeight || 768) - h) / 2));
-  let win = null;
-  try {
-    win = window.open(url, 'lakituRecord',
-      `popup=yes,noopener=no,width=${w},height=${h},left=${left},top=${top}`);
-  } catch (e) { win = null; }
-  // Popup blocked → fall back to a normal new tab so the action never silently fails.
-  if (!win) {
-    try { win = window.open(url, '_blank'); } catch (e) { win = null; }
-  }
-
+  const win = openExternalAppWindow(url, 'lakituRecord', { allowOpener: true });
   _pendingRecord = { stationKey, num, win };
   _armRecordReturnWatch();
 }
@@ -4244,6 +4265,9 @@ const RING_DASHBOARDS = [
   { key: 'nighttime-centific-4', label: 'Nighttime Centific 4', url: 'https://account.ring.com/account/dashboard?l=cf59ccd3-2f3d-441f-ac44-6b2e8befd904' },
   { key: 'nighttime-centific-5', label: 'Nighttime Centific 5', url: 'https://account.ring.com/account/dashboard?l=2fa21650-29ae-414b-add7-872f30910719' },
 ];
+// Approval popup fallback when a request has no team-mapped Ring dashboard.
+// Nighttime Centific 4 is the named default (was nighttime-centific-1).
+const DEFAULT_APPROVAL_RING_DASHBOARD_KEY = 'nighttime-centific-4';
 
 // Legacy catalog entry only. Open Ring / nav Ring now use TeamLog URLs
 // and stay empty when a team has no Ring assignment.
@@ -12075,6 +12099,7 @@ function collectApprovalQaReasonIds() {
 
 function renderApprovalTab(body) {
   if (!body) return;
+  if (typeof initApprovalExternalOpeners === 'function') initApprovalExternalOpeners();
   body.innerHTML = `
     <div id="apprIncomingSlot"></div>
     <div class="appr-filterbar">
@@ -12100,7 +12125,10 @@ function renderApprovalTab(body) {
         <div class="appr-empty">Loading approval requests…</div>
       </div>
       <div class="appr-panel" id="apprPanel">
-        <div class="appr-panel-empty">Select a request to review.</div>
+        <div class="appr-panel-empty">
+          <div>Select a request to review.</div>
+          ${approvalExternalOpenRowHTML(resolveApprovalLakituUrl(null), resolveApprovalRingUrl(null))}
+        </div>
       </div>
     </div>
   `;
@@ -12172,11 +12200,19 @@ function renderApprovalListInto() {
   });
 }
 
-function resolveApprovalRingUrl(appr) {
+function defaultApprovalRingUrl() {
+  const preferredKey = (typeof DEFAULT_APPROVAL_RING_DASHBOARD_KEY !== 'undefined')
+    ? DEFAULT_APPROVAL_RING_DASHBOARD_KEY
+    : 'nighttime-centific-4';
   const fallback = (typeof getRingDashboardByKey === 'function')
-    ? getRingDashboardByKey('nighttime-centific-1')
+    ? (getRingDashboardByKey(preferredKey) || getRingDashboardByKey('nighttime-centific-1'))
     : ((typeof RING_DASHBOARDS !== 'undefined' && RING_DASHBOARDS[0]) || null);
-  const fallbackUrl = (fallback && fallback.url) ? fallback.url : '';
+  if (fallback && fallback.url) return fallback.url;
+  return 'https://account.ring.com/account/dashboard?l=cf59ccd3-2f3d-441f-ac44-6b2e8befd904';
+}
+
+function resolveApprovalRingUrl(appr) {
+  const fallbackUrl = defaultApprovalRingUrl();
   if (!appr) return fallbackUrl;
   const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
   let team = null;
@@ -12199,29 +12235,84 @@ function resolveApprovalRingUrl(appr) {
   return fallbackUrl;
 }
 
+// Prefer the request's submitted / review Lakitu URL; otherwise the
+// sessions list so Approval always has a Lakitu opener.
+function resolveApprovalLakituUrl(appr) {
+  const raw = (appr && appr.lakitu_url != null) ? String(appr.lakitu_url).trim() : '';
+  if (raw) {
+    if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(raw)) {
+      return (typeof lakituReviewUrl === 'function') ? lakituReviewUrl(raw) : raw;
+    }
+    if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(raw)) return raw;
+  }
+  return (typeof DEFAULT_LAKITU_URL !== 'undefined')
+    ? DEFAULT_LAKITU_URL
+    : 'https://lakitu.ring.amazon.dev/sessions';
+}
+
+const APPROVAL_LAKITU_WINDOW = 'twilightApprovalLakitu';
+const APPROVAL_RING_WINDOW = 'twilightApprovalRing';
+
+function approvalExternalOpenBtnHTML(kind, url) {
+  const isLakitu = kind === 'lakitu';
+  const label = isLakitu ? 'Open Lakitu' : 'Open Ring';
+  const win = isLakitu ? APPROVAL_LAKITU_WINDOW : APPROVAL_RING_WINDOW;
+  const icon = isLakitu ? '↗' : '◎';
+  const safe = url && (isLakitu
+    ? (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(url))
+    : (typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(url)));
+  if (!safe) {
+    return `<span class="appr-icon-btn disabled" title="No ${isLakitu ? 'Lakitu' : 'Ring'} URL available">${icon} ${label}</span>`;
+  }
+  return `<a class="appr-icon-btn" href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" data-appr-ext="${kind}" data-appr-win="${win}" aria-label="${label}" title="${label}">${icon} ${label}</a>`;
+}
+
+function approvalExternalOpenRowHTML(lakituUrl, ringUrl) {
+  return `<div class="appr-icon-row">
+      ${approvalExternalOpenBtnHTML('lakitu', lakituUrl)}
+      ${approvalExternalOpenBtnHTML('ring', ringUrl)}
+    </div>`;
+}
+
+function onApprovalExternalOpenClick(e) {
+  const a = e.target && e.target.closest && e.target.closest('a.appr-icon-btn[data-appr-ext]');
+  if (!a) return;
+  if (e.defaultPrevented) return;
+  if (e.button !== 0) return;
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const href = a.getAttribute('href') || '';
+  if (!href) return;
+  e.preventDefault();
+  if (typeof openExternalAppWindow === 'function') {
+    openExternalAppWindow(href, a.getAttribute('data-appr-win') || '_blank');
+  } else {
+    try { window.open(href, '_blank'); } catch (err) { /* ignore */ }
+  }
+}
+
+function initApprovalExternalOpeners() {
+  if (initApprovalExternalOpeners._wired) return;
+  initApprovalExternalOpeners._wired = true;
+  document.addEventListener('click', onApprovalExternalOpenClick);
+}
+
 function renderApprovalPanelInto() {
   const panel = document.getElementById('apprPanel');
   if (!panel) return;
+  if (typeof initApprovalExternalOpeners === 'function') initApprovalExternalOpeners();
   const id = adminState._apprSelected || '';
   const a = ((adminState.approvals) || []).find(x => String(x.approval_id) === String(id));
   if (!a) {
-    panel.innerHTML = `<div class="appr-panel-empty">Select a request to review.</div>`;
+    panel.innerHTML = `<div class="appr-panel-empty">
+      <div>Select a request to review.</div>
+      ${approvalExternalOpenRowHTML(resolveApprovalLakituUrl(null), resolveApprovalRingUrl(null))}
+    </div>`;
     return;
   }
-  const rawLakitu = (a.lakitu_url && String(a.lakitu_url).trim()) || '';
-  const reviewUrl = rawLakitu
-    ? ((typeof lakituReviewUrl === 'function' && isValidLakituUrl(rawLakitu))
-        ? lakituReviewUrl(rawLakitu)
-        : (isSafeHttpUrl(rawLakitu) ? rawLakitu : ''))
-    : '';
+  const reviewUrl = resolveApprovalLakituUrl(a);
   const ringUrl = resolveApprovalRingUrl(a);
   const decided = (a.status === 'Approved' || a.status === 'Rejected' || a.status === 'AutoApproved');
-  const lakituBtn = reviewUrl
-    ? `<a class="appr-icon-btn" href="${escapeHTML(reviewUrl)}" target="_blank" rel="noopener">↗ Lakitu session</a>`
-    : `<span class="appr-icon-btn disabled" title="No Lakitu URL submitted">↗ Lakitu session</span>`;
-  const ringBtn = (ringUrl && isSafeHttpsUrl(ringUrl))
-    ? `<a class="appr-icon-btn" href="${escapeHTML(ringUrl)}" target="_blank" rel="noopener">◎ Ring</a>`
-    : `<span class="appr-icon-btn disabled" title="No Ring dashboard assigned">◎ Ring</span>`;
+  const openRow = approvalExternalOpenRowHTML(reviewUrl, ringUrl);
   const parsedNote = parseApprovalQaFeedback(a.feedback_note || '');
   const decidedFeedback = decided
     ? approvalQaFeedbackHtml(a.feedback_note || '', a.decided_by)
@@ -12257,10 +12348,7 @@ function renderApprovalPanelInto() {
     <div class="appr-panel-eyebrow">${escapeHTML(apprStatusLabel(a.status))} · ${escapeHTML(apprStationLabel(a.station))}</div>
     <div class="appr-panel-title">${escapeHTML(a.moderator_name || a.orbit_login_id || '')}${a.team_name ? ' · ' + escapeHTML(a.team_name) : ''}</div>
     ${metaLine}
-    <div class="appr-icon-row">
-      ${lakituBtn}
-      ${ringBtn}
-    </div>
+    ${openRow}
     ${decidedBlock}
   `;
   const approveBtn = document.getElementById('apprApproveBtn');
