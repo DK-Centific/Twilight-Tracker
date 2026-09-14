@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091426a';
-const APP_UPDATED_AT = '09/14/2026 17:40';
+const APP_VERSION = '1.3.091426b';
+const APP_UPDATED_AT = '09/14/2026 20:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -13765,6 +13765,31 @@ function shouldReplaceLocalGeoPing(existing, incoming) {
   if (!sameCoords && incomingAt && incomingAt >= localAt) return true;
   return false;
 }
+
+function isSilentGeoSaveReason(reason) {
+  const key = String(reason || '');
+  return key === 'inflight' || key === 'nochange';
+}
+
+function shouldWaitForSessionStateInflight(opts) {
+  opts = opts || {};
+  return !!(opts.force || opts.geoSyncReason);
+}
+
+function geoSaveToastMessage(result) {
+  if (!result) return null;
+  if (result.ok) return 'Location saved';
+  const key = String(result.reason || 'error');
+  if (isSilentGeoSaveReason(key)) return null;
+  if (key === 'nofix') {
+    return 'Location is on, but this phone did not share a GPS fix. Allow location and keep the moderator app open.';
+  }
+  if (key === 'admin') return 'Location only saves in the moderator app, not Admin.';
+  if (key === 'notmoderator') return 'Location did not save. Sign in again in the moderator app.';
+  if (key === 'noassignment') return 'Location did not save. No open session is available to store it.';
+  if (key === 'notconfigured') return 'Location did not save. Cloud save is not set up on this device.';
+  return 'Location was not saved. The save service did not answer.';
+}
 /* MOD_GEO_TRACK_END */
 
 function moderatorGeoOrbitId() {
@@ -15047,25 +15072,22 @@ function geoPhaseBannerCopy(phase) {
 
 function notifyGeoSaveResult(result) {
   if (!result || typeof toast !== 'function') return;
+  const message = (typeof geoSaveToastMessage === 'function')
+    ? geoSaveToastMessage(result)
+    : (result.ok ? 'Location saved' : null);
+  if (!message) return;
   if (result.ok) {
     if (_geoWriteToastKey !== 'ok') {
       _geoWriteToastKey = 'ok';
-      toast('Location saved', 2400);
+      toast(message, 2400);
     }
     return;
   }
   const key = String(result.reason || 'error');
   if (_geoWriteToastKey === key) return;
   _geoWriteToastKey = key;
-  if (key === 'nofix') {
-    toast('Location is on, but this phone did not share a GPS fix. Allow location and keep the moderator app open.', 5200);
-  } else if (key === 'admin') {
-    toast('Location only saves in the moderator app, not Admin.', 4200);
-  } else if (key === 'notmoderator') {
-    toast('Location did not save. Sign in again in the moderator app.', 4200);
-  } else {
-    toast('Location was not saved. The save service did not answer.', 5200);
-  }
+  const ms = (key === 'nofix' || key === 'error' || key === 'notconfigured' || key === 'noassignment') ? 5200 : 4200;
+  toast(message, ms);
 }
 
 function scheduleGeoLocationRetry(reason) {
@@ -15159,7 +15181,7 @@ async function syncModeratorLocationToSessionState(reason) {
   }
   if (out && out.ok) {
     resetGeoLocationRetry();
-  } else if (out && (out.reason === 'error' || out.reason === 'notconfigured' || out.reason === 'noassignment')) {
+  } else if (out && (out.reason === 'error' || out.reason === 'notconfigured' || out.reason === 'noassignment' || out.reason === 'inflight')) {
     scheduleGeoLocationRetry(reason || 'retry');
   }
   notifyGeoSaveResult(out);
@@ -32711,6 +32733,10 @@ const _sessionStateSyncState = {
   timer:                 null,
   inflight:              false,
   pendingAgain:          false,
+  pendingForce:          false,
+  pendingGeoSyncReason:  '',
+  pendingPersistCompletion: false,
+  idleWaiters:           [],
   lastSyncedAsgnId:      null,
   lastSyncedStateJson:   null,
   // lastActive ISO of this browser's most recent successful self write
@@ -32807,6 +32833,76 @@ function triggerSessionStateSync() {
 // flushSessionStateSync uses the alias too.
 const scheduleSessionStateSync = triggerSessionStateSync;
 
+function rememberPendingSessionStateFlush(opts) {
+  opts = opts || {};
+  _sessionStateSyncState.pendingAgain = true;
+  if (opts.force) _sessionStateSyncState.pendingForce = true;
+  if (opts.geoSyncReason) _sessionStateSyncState.pendingGeoSyncReason = opts.geoSyncReason;
+  if (opts.persistCompletion) _sessionStateSyncState.pendingPersistCompletion = true;
+}
+
+function takePendingSessionStateFlushOpts() {
+  const followOpts = {
+    force: !!_sessionStateSyncState.pendingForce,
+    geoSyncReason: _sessionStateSyncState.pendingGeoSyncReason || '',
+    persistCompletion: !!_sessionStateSyncState.pendingPersistCompletion,
+  };
+  _sessionStateSyncState.pendingAgain = false;
+  _sessionStateSyncState.pendingForce = false;
+  _sessionStateSyncState.pendingGeoSyncReason = '';
+  _sessionStateSyncState.pendingPersistCompletion = false;
+  return followOpts;
+}
+
+function waitForSessionStateSyncIdle(timeoutMs) {
+  timeoutMs = timeoutMs || 45000;
+  if (!_sessionStateSyncState.inflight) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+    const waiter = () => finish(true);
+    _sessionStateSyncState.idleWaiters.push(waiter);
+    setTimeout(() => {
+      const list = _sessionStateSyncState.idleWaiters;
+      const idx = list.indexOf(waiter);
+      if (idx >= 0) list.splice(idx, 1);
+      finish(false);
+    }, timeoutMs);
+  });
+}
+
+function notifySessionStateIdleWaiters() {
+  const waiters = _sessionStateSyncState.idleWaiters.splice(0);
+  waiters.forEach((fn) => {
+    try { fn(); } catch (_) {}
+  });
+  return waiters.length;
+}
+
+function releaseSessionStateSyncLock() {
+  _sessionStateSyncState.inflight = false;
+  const waiterCount = notifySessionStateIdleWaiters();
+  if (!_sessionStateSyncState.pendingAgain) return;
+  const followOpts = takePendingSessionStateFlushOpts();
+  const followIsGeo = !!(followOpts.force || followOpts.geoSyncReason || followOpts.persistCompletion);
+  // A geo/force waiter is about to write with its own opts. Skip a
+  // duplicate immediate flush; keep the generic debounce only when
+  // intervening non-geo edits still need a follow-up.
+  if (waiterCount && followIsGeo) return;
+  if (followIsGeo) {
+    Promise.resolve().then(async () => {
+      const outcome = await flushSessionStateSync(followOpts);
+      if (typeof notifyGeoSaveResult === 'function') notifyGeoSaveResult(outcome);
+    });
+    return;
+  }
+  scheduleSessionStateSync();
+}
+
 // Immediately write current state to cloud. Called from the debounce
 // timer, from page-unload, and from explicit user actions where the
 // operator would want their progress flushed RIGHT NOW (e.g., before
@@ -32820,17 +32916,30 @@ async function flushSessionStateSync(opts) {
   opts = opts || {};
   if (!SESSIONSTATE_PA_WRITE_URL) return { ok: false, reason: 'notconfigured' };
   if (!state || !state.username) return { ok: false, reason: 'noassignment' };
-  const asgn = getSessionStateWriteContext(opts);
-  if (!asgn || !asgn.id) return { ok: false, reason: 'noassignment' };
+  if (!getSessionStateWriteContext(opts)) return { ok: false, reason: 'noassignment' };
 
   // Re-entry guard: if a write is already in flight, mark pending and
   // let the in-flight one finish first. After it resolves, it checks
   // pendingAgain and schedules an immediate follow-up if there's been
   // intervening activity.
+  // Geo / force writes wait for that in-flight POST, then write with
+  // the latest lastGeo. Returning inflight immediately used to toast
+  // "save service did not answer" even though PA was healthy.
   if (_sessionStateSyncState.inflight) {
-    _sessionStateSyncState.pendingAgain = true;
-    return { ok: false, reason: 'inflight' };
+    rememberPendingSessionStateFlush(opts);
+    if (typeof shouldWaitForSessionStateInflight === 'function'
+        ? shouldWaitForSessionStateInflight(opts)
+        : !!(opts.force || opts.geoSyncReason)) {
+      const idle = await waitForSessionStateSyncIdle(45000);
+      if (!idle || _sessionStateSyncState.inflight) {
+        return { ok: false, reason: 'inflight' };
+      }
+    } else {
+      return { ok: false, reason: 'inflight' };
+    }
   }
+  const asgn = getSessionStateWriteContext(opts);
+  if (!asgn || !asgn.id) return { ok: false, reason: 'noassignment' };
   _sessionStateSyncState.inflight = true;
 
   // Tracks the outcome to return after the finally block runs.
@@ -32858,8 +32967,8 @@ async function flushSessionStateSync(opts) {
     if (!opts.force && !heartbeatDue
         && _sessionStateSyncState.lastSyncedAsgnId === String(asgn.id)
         && _sessionStateSyncState.lastSyncedStateJson === stateJson) {
-      _sessionStateSyncState.inflight = false;
-      return { ok: true, reason: 'nochange' };
+      outcome = { ok: true, reason: 'nochange' };
+      return outcome;
     }
 
     // Use the resilient fetch helper (same one that loads participants /
@@ -32914,13 +33023,7 @@ async function flushSessionStateSync(opts) {
       notifyGeoSaveResult(outcome);
     }
   } finally {
-    _sessionStateSyncState.inflight = false;
-    if (_sessionStateSyncState.pendingAgain) {
-      _sessionStateSyncState.pendingAgain = false;
-      // One more cycle to capture intervening edits. Use the debounce
-      // so we batch any subsequent rapid edits with this final flush.
-      scheduleSessionStateSync();
-    }
+    releaseSessionStateSyncLock();
   }
   return outcome;
 }
