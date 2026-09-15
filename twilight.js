@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526e';
-const APP_UPDATED_AT = '09/15/2026 20:25';
+const APP_VERSION = '1.3.091526f';
+const APP_UPDATED_AT = '09/15/2026 21:19';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -4475,6 +4475,148 @@ function resolveTeamRingDashboardUrl(team) {
   return (url && isSafeHttpsUrl(url)) ? url : '';
 }
 
+/* SESSION_LINK_RESOLVE_BEGIN */
+// Session Lakitu / Ring resolution. OD or TeamLog values win; Admin
+// overrides fill a side only when that side is still empty. Used by
+// Booking chips, the assignment modal, moderator Open pills, and
+// Approval side-panel openers.
+function resolveLakituUrlFromRecord(rec) {
+  if (!rec) return '';
+  let url = rec.lakituProjectUrl != null ? String(rec.lakituProjectUrl).trim() : '';
+  if (!url && rec.lakituProjectKey) {
+    const proj = (typeof getLakituProjectByKey === 'function')
+      ? getLakituProjectByKey(rec.lakituProjectKey)
+      : null;
+    if (proj && proj.url) url = String(proj.url).trim();
+  }
+  if (!url) return '';
+  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(url)) return url;
+  if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(url)) return url;
+  if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(url)) return url;
+  return '';
+}
+
+function resolveRingUrlFromRecord(rec) {
+  if (!rec) return '';
+  let url = rec.ringDashboardUrl != null ? String(rec.ringDashboardUrl).trim() : '';
+  if (!url && rec.ringDashboardKey) {
+    const dash = (typeof getRingDashboardByKey === 'function')
+      ? getRingDashboardByKey(rec.ringDashboardKey)
+      : null;
+    if (dash && dash.url) url = String(dash.url).trim();
+  }
+  return (url && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(url)) ? url : '';
+}
+
+function resolveAssignmentLakituUrl(asgn, team, override) {
+  return resolveLakituUrlFromRecord(asgn)
+    || resolveLakituUrlFromRecord(team)
+    || resolveLakituUrlFromRecord(override)
+    || '';
+}
+
+function resolveAssignmentRingUrl(asgn, team, override) {
+  return resolveRingUrlFromRecord(asgn)
+    || resolveRingUrlFromRecord(team)
+    || resolveRingUrlFromRecord(override)
+    || '';
+}
+
+function assignmentMissingSessionLinks(asgn, team, override) {
+  return {
+    lakitu: !resolveAssignmentLakituUrl(asgn, team, override),
+    ring: !resolveAssignmentRingUrl(asgn, team, override),
+  };
+}
+
+function sessionLinkMissingChipLabels(missing) {
+  const out = [];
+  if (missing && missing.lakitu) out.push('Missing Lakitu');
+  if (missing && missing.ring) out.push('Missing Ring');
+  return out;
+}
+
+function applySessionLinkOverrideGapFill(target, override) {
+  if (!target || !override) return target;
+  if (!resolveLakituUrlFromRecord(target)
+      && (override.lakituProjectKey || override.lakituProjectUrl)) {
+    target.lakituProjectKey = override.lakituProjectKey || '';
+    target.lakituProjectUrl = resolveLakituUrlFromRecord(override) || String(override.lakituProjectUrl || '').trim();
+  }
+  if (!resolveRingUrlFromRecord(target)
+      && (override.ringDashboardKey || override.ringDashboardUrl)) {
+    target.ringDashboardKey = override.ringDashboardKey || '';
+    const ringUrl = resolveRingUrlFromRecord(override) || String(override.ringDashboardUrl || '').trim();
+    target.ringDashboardUrl = (ringUrl && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(ringUrl))
+      ? ringUrl
+      : '';
+  }
+  return target;
+}
+
+function keepRicherTeamSessionLinks(next, prev) {
+  if (!next) return next;
+  const take = (key) => {
+    const cur = next[key] != null ? String(next[key]).trim() : '';
+    const old = prev && prev[key] != null ? String(prev[key]).trim() : '';
+    return cur || old || '';
+  };
+  const lakituProjectKey = take('lakituProjectKey');
+  const lakituProjectUrl = take('lakituProjectUrl');
+  const ringDashboardKey = take('ringDashboardKey');
+  const ringDashboardUrl = take('ringDashboardUrl');
+  if (lakituProjectKey === (next.lakituProjectKey || '')
+      && lakituProjectUrl === (next.lakituProjectUrl || '')
+      && ringDashboardKey === (next.ringDashboardKey || '')
+      && ringDashboardUrl === (next.ringDashboardUrl || '')) {
+    return next;
+  }
+  return Object.assign({}, next, {
+    lakituProjectKey,
+    lakituProjectUrl,
+    ringDashboardKey,
+    ringDashboardUrl,
+  });
+}
+
+function buildSessionLinkOverrideEntry(asgnId, lakituKey, ringKey) {
+  const lakituProject = (lakituKey && typeof getLakituProjectByKey === 'function')
+    ? getLakituProjectByKey(lakituKey)
+    : null;
+  const ringDashboard = (ringKey && typeof getRingDashboardByKey === 'function')
+    ? getRingDashboardByKey(ringKey)
+    : null;
+  let ringUrl = ringDashboard && ringDashboard.url ? String(ringDashboard.url).trim() : '';
+  if (ringUrl && typeof isSafeHttpsUrl === 'function' && !isSafeHttpsUrl(ringUrl)) ringUrl = '';
+  return {
+    assignmentId: asgnId != null ? String(asgnId) : '',
+    lakituProjectKey: lakituKey ? String(lakituKey) : '',
+    lakituProjectUrl: lakituProject && lakituProject.url ? String(lakituProject.url).trim() : '',
+    ringDashboardKey: ringKey ? String(ringKey) : '',
+    ringDashboardUrl: ringUrl,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mergeSessionLinkOverrideMaps(current, incoming) {
+  const out = Object.assign({}, current && typeof current === 'object' ? current : {});
+  const src = incoming && typeof incoming === 'object' ? incoming : {};
+  Object.keys(src).forEach((id) => {
+    const next = src[id];
+    if (!next || typeof next !== 'object') return;
+    const prev = out[id];
+    if (!prev) {
+      out[id] = next;
+      return;
+    }
+    const prevAt = String(prev.updatedAt || '');
+    const nextAt = String(next.updatedAt || '');
+    out[id] = (nextAt && nextAt > prevAt) ? next : prev;
+  });
+  return out;
+}
+/* SESSION_LINK_RESOLVE_END */
+
 function getTeamOfficeAddress(team) {
   if (!team || team.teamAddress == null) return '';
   const raw = String(team.teamAddress).trim();
@@ -4550,6 +4692,7 @@ function mergeTeamLocalEnrichment(next, prev) {
   let out = next;
   if (typeof keepRicherTeamAddress === 'function') out = keepRicherTeamAddress(out, prev);
   if (typeof keepRicherTeamOdMeta === 'function') out = keepRicherTeamOdMeta(out, prev);
+  if (typeof keepRicherTeamSessionLinks === 'function') out = keepRicherTeamSessionLinks(out, prev);
   return out;
 }
 
@@ -4608,17 +4751,22 @@ function modListSortHeaderButton(key, label, sortSpec) {
 // (assignment team when a session is open, else first membership),
 // or '' when TeamLog has no project for that team.
 function getAssignedLakituUrl() {
+  const asgn = (typeof getAssignedOpenSession === 'function')
+    ? getAssignedOpenSession()
+    : ((typeof getActiveOperatorAssignment === 'function') ? getActiveOperatorAssignment() : null);
   let team = (typeof getSessionDisplayTeam === 'function') ? getSessionDisplayTeam() : null;
   if (!team) {
-    const asgn = (typeof getAssignedOpenSession === 'function')
-      ? getAssignedOpenSession()
-      : ((typeof getActiveOperatorAssignment === 'function') ? getActiveOperatorAssignment() : null);
     if (typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
     else if (typeof getOperatorTeam === 'function') team = getOperatorTeam();
   }
-  let url = (typeof resolveTeamLakituProjectUrl === 'function')
-    ? resolveTeamLakituProjectUrl(team)
-    : (team && team.lakituProjectUrl ? String(team.lakituProjectUrl).trim() : '');
+  const override = (asgn && typeof getSessionLinkOverride === 'function')
+    ? getSessionLinkOverride(asgn.id)
+    : null;
+  let url = (typeof resolveAssignmentLakituUrl === 'function')
+    ? resolveAssignmentLakituUrl(asgn, team, override)
+    : ((typeof resolveTeamLakituProjectUrl === 'function')
+      ? resolveTeamLakituProjectUrl(team)
+      : (team && team.lakituProjectUrl ? String(team.lakituProjectUrl).trim() : ''));
   if (url && typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(url)) return url;
   if (url && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(url)) return url;
   return '';
@@ -4930,17 +5078,22 @@ function clearSessionBackendBindingsAfterComplete(asgn) {
 // TeamLog Ring dashboard for the moderator's displayed team, or '' when
 // that team has no Ring link. Do not fall back to a hardcoded default.
 function getAssignedRingUrl() {
+  const asgn = (typeof getAssignedOpenSession === 'function')
+    ? getAssignedOpenSession()
+    : ((typeof getActiveOperatorAssignment === 'function') ? getActiveOperatorAssignment() : null);
   let team = (typeof getSessionDisplayTeam === 'function') ? getSessionDisplayTeam() : null;
   if (!team) {
-    const asgn = (typeof getAssignedOpenSession === 'function')
-      ? getAssignedOpenSession()
-      : ((typeof getActiveOperatorAssignment === 'function') ? getActiveOperatorAssignment() : null);
     if (typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
     else if (typeof getOperatorTeam === 'function') team = getOperatorTeam();
   }
-  let url = (typeof resolveTeamRingDashboardUrl === 'function')
-    ? resolveTeamRingDashboardUrl(team)
-    : '';
+  const override = (asgn && typeof getSessionLinkOverride === 'function')
+    ? getSessionLinkOverride(asgn.id)
+    : null;
+  let url = (typeof resolveAssignmentRingUrl === 'function')
+    ? resolveAssignmentRingUrl(asgn, team, override)
+    : ((typeof resolveTeamRingDashboardUrl === 'function')
+      ? resolveTeamRingDashboardUrl(team)
+      : '');
   if (url && isSafeHttpsUrl(url)) return url;
   return '';
 }
@@ -12362,7 +12515,12 @@ function resolveApprovalRingUrl(appr) {
   const fallbackUrl = defaultApprovalRingUrl();
   if (!appr) return fallbackUrl;
   const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  const asgns = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
   let team = null;
+  let asgn = null;
+  if (appr.assignment_id) {
+    asgn = asgns.find(x => x && String(x.id) === String(appr.assignment_id)) || null;
+  }
   if (appr.team_id) {
     team = teams.find(t => t && String(t.id) === String(appr.team_id));
   }
@@ -12370,20 +12528,23 @@ function resolveApprovalRingUrl(appr) {
     const want = String(appr.team_name).trim().toLowerCase();
     team = teams.find(t => t && String(t.name || t.teamName || '').trim().toLowerCase() === want);
   }
-  if (!team && appr.assignment_id && typeof adminState !== 'undefined' && adminState && adminState.assignments) {
-    const asgn = adminState.assignments.find(x => x && String(x.id) === String(appr.assignment_id));
-    if (asgn && typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
-    else if (asgn && asgn.teamId) team = teams.find(t => t && String(t.id) === String(asgn.teamId));
+  if (!team && asgn) {
+    if (typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
+    else if (asgn.teamId) team = teams.find(t => t && String(t.id) === String(asgn.teamId));
   }
-  const mapped = (typeof resolveTeamRingDashboardUrl === 'function')
-    ? resolveTeamRingDashboardUrl(team)
-    : '';
+  const override = (asgn && typeof getSessionLinkOverride === 'function')
+    ? getSessionLinkOverride(asgn.id)
+    : null;
+  const mapped = (typeof resolveAssignmentRingUrl === 'function')
+    ? resolveAssignmentRingUrl(asgn, team, override)
+    : ((typeof resolveTeamRingDashboardUrl === 'function') ? resolveTeamRingDashboardUrl(team) : '');
   if (mapped && typeof isSafeHttpsUrl === 'function' && isSafeHttpsUrl(mapped)) return mapped;
   return fallbackUrl;
 }
 
 // Prefer the request's submitted / review Lakitu URL; otherwise the
-// sessions list so Approval always has a Lakitu opener.
+// Admin-assigned / TeamLog project URL; otherwise the sessions list
+// so Approval always has a Lakitu opener.
 function resolveApprovalLakituUrl(appr) {
   const raw = (appr && appr.lakitu_url != null) ? String(appr.lakitu_url).trim() : '';
   if (raw) {
@@ -12391,6 +12552,27 @@ function resolveApprovalLakituUrl(appr) {
       return (typeof lakituReviewUrl === 'function') ? lakituReviewUrl(raw) : raw;
     }
     if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(raw)) return raw;
+  }
+  if (appr) {
+    const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+    const asgns = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+    const asgn = appr.assignment_id
+      ? (asgns.find(x => x && String(x.id) === String(appr.assignment_id)) || null)
+      : null;
+    let team = null;
+    if (appr.team_id) team = teams.find(t => t && String(t.id) === String(appr.team_id));
+    if (!team && appr.team_name) {
+      const want = String(appr.team_name).trim().toLowerCase();
+      team = teams.find(t => t && String(t.name || t.teamName || '').trim().toLowerCase() === want);
+    }
+    if (!team && asgn && typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
+    const override = (asgn && typeof getSessionLinkOverride === 'function')
+      ? getSessionLinkOverride(asgn.id)
+      : null;
+    const assigned = (typeof resolveAssignmentLakituUrl === 'function')
+      ? resolveAssignmentLakituUrl(asgn, team, override)
+      : '';
+    if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
   }
   return (typeof DEFAULT_LAKITU_URL !== 'undefined')
     ? DEFAULT_LAKITU_URL
@@ -14112,6 +14294,9 @@ function ingestAppSettingsFromSessionRows(rows) {
   ingestMasterAdminsFromSessionRows(rows);
   if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
   if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
+  if (typeof ingestSessionLinkOverridesFromSessionRows === 'function') {
+    ingestSessionLinkOverridesFromSessionRows(rows);
+  }
 }
 
 loadDeactivatedUsersCache();
@@ -14256,6 +14441,137 @@ async function refreshMasterAdmins() {
   overlayMasterAdminFlagsOnModerators();
   return Array.from(_masterAdminIds);
 }
+
+const SESSION_LINK_OVERRIDE_LS_KEY = 'centific_twilight_session_links_v1';
+const SESSION_LINK_OVERRIDE_SETTING_ID = 'ss_app_setting_session_links';
+let _sessionLinkOverrides = {};
+
+function loadSessionLinkOverridesCache() {
+  try {
+    const raw = localStorage.getItem(SESSION_LINK_OVERRIDE_LS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      _sessionLinkOverrides = parsed;
+    }
+  } catch (_) {}
+}
+
+function cacheSessionLinkOverrides(map) {
+  _sessionLinkOverrides = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+  try { localStorage.setItem(SESSION_LINK_OVERRIDE_LS_KEY, JSON.stringify(_sessionLinkOverrides)); } catch (_) {}
+}
+
+function getSessionLinkOverride(asgnId) {
+  if (asgnId == null || asgnId === '') return null;
+  const hit = _sessionLinkOverrides[String(asgnId)];
+  return hit && typeof hit === 'object' ? hit : null;
+}
+
+function upsertSessionLinkOverride(entry) {
+  if (!entry || !entry.assignmentId) return;
+  const id = String(entry.assignmentId);
+  const next = Object.assign({}, _sessionLinkOverrides);
+  next[id] = Object.assign({}, next[id] || {}, entry, { assignmentId: id });
+  cacheSessionLinkOverrides(next);
+}
+
+function applySessionLinkOverridesToState() {
+  if (typeof adminState === 'undefined' || !adminState) return 0;
+  const asgns = Array.isArray(adminState.assignments) ? adminState.assignments : [];
+  const teams = Array.isArray(adminState.teams) ? adminState.teams : [];
+  let n = 0;
+  asgns.forEach((asgn) => {
+    if (!asgn) return;
+    const ov = getSessionLinkOverride(asgn.id);
+    if (!ov) return;
+    const beforeL = asgn.lakituProjectKey || asgn.lakituProjectUrl || '';
+    const beforeR = asgn.ringDashboardKey || asgn.ringDashboardUrl || '';
+    applySessionLinkOverrideGapFill(asgn, ov);
+    const team = teams.find(t => t && String(t.id) === String(asgn.teamId));
+    if (team) applySessionLinkOverrideGapFill(team, ov);
+    if ((asgn.lakituProjectKey || asgn.lakituProjectUrl || '') !== beforeL
+        || (asgn.ringDashboardKey || asgn.ringDashboardUrl || '') !== beforeR) {
+      n++;
+    }
+  });
+  return n;
+}
+
+function ingestSessionLinkOverridesFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== SESSION_LINK_OVERRIDE_SETTING_ID && id !== 'app_setting_session_links') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) {
+    applySessionLinkOverridesToState();
+    return;
+  }
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (parsed && parsed.type === 'appSetting' && parsed.key === 'sessionLinkOverrides'
+      && parsed.byAssignmentId && typeof parsed.byAssignmentId === 'object') {
+    const merged = (typeof mergeSessionLinkOverrideMaps === 'function')
+      ? mergeSessionLinkOverrideMaps(_sessionLinkOverrides, parsed.byAssignmentId)
+      : Object.assign({}, _sessionLinkOverrides, parsed.byAssignmentId);
+    cacheSessionLinkOverrides(merged);
+  }
+  applySessionLinkOverridesToState();
+}
+
+async function persistSessionLinkOverridesSetting() {
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const payload = {
+    sessionStateId: SESSION_LINK_OVERRIDE_SETTING_ID,
+    assignmentId: 'app_setting_session_links',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'sessionLinkOverrides',
+      byAssignmentId: _sessionLinkOverrides,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (typeof state !== 'undefined' && state && state.username) || 'Admin',
+    }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Session-link override write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+loadSessionLinkOverridesCache();
 
 function syncMasterAdminChrome() {
   const on = isMasterAdminUser();
@@ -20414,12 +20730,14 @@ function assignmentSyncFingerprint(assignments, teams) {
     (x.modSnapshots || []).map(s => s.orbitLoginId).join(','),
     x.odScheduleId || '', x.bookingGroupId || '', x.odStatus || '',
     x.comment || '', x.source || '',
+    x.lakituProjectKey || '', x.ringDashboardKey || '',
   ].join('|')).sort().join('~');
   const t = tms.map(x => [
     x.id, x.name,
     (x.primaryIds || []).join(','),
     ((typeof getTeamBackupIds === 'function') ? getTeamBackupIds(x) : (x.backupIds || [])).join(','),
     x.origin || '', x.bookingGroupId || '', x.odScheduleId || '',
+    x.lakituProjectKey || '', x.ringDashboardKey || '',
   ].join('|')).sort().join('~');
   return a + '##' + t;
 }
@@ -20489,6 +20807,9 @@ async function hydrateTeamSessionsFromTeamLog() {
   if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
   if (typeof applyOdTeamMaterializeToAdminState === 'function') {
     applyOdTeamMaterializeToAdminState({ persistTeamLog: true, deletedIds });
+  }
+  if (typeof applySessionLinkOverridesToState === 'function') {
+    applySessionLinkOverridesToState();
   }
 }
 
@@ -20682,6 +21003,10 @@ async function fetchAssignmentsFromPA() {
         odScheduleId: odKeys.odScheduleId || '',
         bookingGroupId: odKeys.bookingGroupId || '',
         odStatus: odKeys.odStatus || '',
+        lakituProjectKey: r.lakituProjectKey || '',
+        lakituProjectUrl: r.lakituProjectUrl || '',
+        ringDashboardKey: r.ringDashboardKey || '',
+        ringDashboardUrl: r.ringDashboardUrl || '',
       };
       grouped.set(groupKey, g);
     } else {
@@ -20769,6 +21094,10 @@ async function fetchAssignmentsFromPA() {
       if (!g.teamName && typeof assignmentTeamNameFromRecord === 'function') {
         g.teamName = assignmentTeamNameFromRecord(r) || g.teamName;
       }
+      if (!g.lakituProjectKey && r.lakituProjectKey) g.lakituProjectKey = r.lakituProjectKey;
+      if (!g.lakituProjectUrl && r.lakituProjectUrl) g.lakituProjectUrl = r.lakituProjectUrl;
+      if (!g.ringDashboardKey && r.ringDashboardKey) g.ringDashboardKey = r.ringDashboardKey;
+      if (!g.ringDashboardUrl && r.ringDashboardUrl) g.ringDashboardUrl = r.ringDashboardUrl;
     }
     // Append this mod to the assignment, but ONLY if this row is from
     // the same write (same lastActive) as the assignment's latest row.
@@ -21087,6 +21416,10 @@ async function fetchAssignmentsFromPA() {
     if (missing(r.odScheduleId)      && !missing(l.odScheduleId))      patches.odScheduleId = l.odScheduleId;
     if (missing(r.bookingGroupId)    && !missing(l.bookingGroupId))    patches.bookingGroupId = l.bookingGroupId;
     if (missing(r.odStatus)          && !missing(l.odStatus))          patches.odStatus = l.odStatus;
+    if (missing(r.lakituProjectKey)  && !missing(l.lakituProjectKey))  patches.lakituProjectKey = l.lakituProjectKey;
+    if (missing(r.lakituProjectUrl)  && !missing(l.lakituProjectUrl))  patches.lakituProjectUrl = l.lakituProjectUrl;
+    if (missing(r.ringDashboardKey)  && !missing(l.ringDashboardKey))  patches.ringDashboardKey = l.ringDashboardKey;
+    if (missing(r.ringDashboardUrl)  && !missing(l.ringDashboardUrl))  patches.ringDashboardUrl = l.ringDashboardUrl;
     // modSnapshots: empty array on remote (no mods could be reconstructed
     // because of missing orbit_login_id or empty marker rows), local
     // likely has the snapshot from when the booking was saved.
@@ -21341,6 +21674,10 @@ async function fetchAssignmentsFromPA() {
     adminState._asgnLoaded = true;
     if (typeof ensureTeamSessionAssignments === 'function') {
       ensureTeamSessionAssignments();
+      mergedAssignments = adminState.assignments;
+    }
+    if (typeof applySessionLinkOverridesToState === 'function') {
+      applySessionLinkOverridesToState();
       mergedAssignments = adminState.assignments;
     }
     info.assignmentCount = mergedAssignments.length;
@@ -23933,12 +24270,22 @@ function bookingSessionsEmptyCopy(scope, sessionFilter) {
 
 function bookingSessionListFingerprint(sessions, scope, sessionFilter) {
   return [scope || 'week', sessionFilter || 'all'].concat(
-    (sessions || []).map(a => [
-      a.id, a.date, a.startMin, a.endMin, a.status, a.teamId,
-      bookingSessionOrigin(a),
-      (a.participantData && (a.participantData.firstName || a.participantData.lastName)) || '',
-      a.teamName || '',
-    ].join('|'))
+    (sessions || []).map(a => {
+      const team = (typeof adminState !== 'undefined' && adminState && adminState.teams || [])
+        .find(t => t && String(t.id) === String(a.teamId));
+      const ov = (typeof getSessionLinkOverride === 'function') ? getSessionLinkOverride(a.id) : null;
+      const missing = (typeof assignmentMissingSessionLinks === 'function')
+        ? assignmentMissingSessionLinks(a, team, ov)
+        : { lakitu: false, ring: false };
+      return [
+        a.id, a.date, a.startMin, a.endMin, a.status, a.teamId,
+        bookingSessionOrigin(a),
+        (a.participantData && (a.participantData.firstName || a.participantData.lastName)) || '',
+        a.teamName || '',
+        a.lakituProjectKey || '', a.ringDashboardKey || '',
+        missing.lakitu ? 'L' : '', missing.ring ? 'R' : '',
+      ].join('|');
+    })
   ).join('~');
 }
 
@@ -24077,6 +24424,16 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
       contact.address || '',
       a.status || '',
     ].filter(Boolean).join(' · ');
+    const ov = (typeof getSessionLinkOverride === 'function') ? getSessionLinkOverride(a.id) : null;
+    const missing = (typeof assignmentMissingSessionLinks === 'function')
+      ? assignmentMissingSessionLinks(a, team, ov)
+      : { lakitu: false, ring: false };
+    const chipLabels = (typeof sessionLinkMissingChipLabels === 'function')
+      ? sessionLinkMissingChipLabels(missing)
+      : [];
+    const chips = chipLabels.map(label =>
+      `<span class="bk-link-chip">${escapeHTML(label)}</span>`
+    ).join('');
     return `
             <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}" data-origin="${origin}">
               <div class="bk-session-time">${escapeHTML(when)}</div>
@@ -24084,7 +24441,10 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
                 <strong>${escapeHTML(name)}</strong>
                 <span>${escapeHTML(sub)}</span>
               </div>
-              <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
+              <div class="bk-session-meta">
+                <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
+                ${chips ? `<div class="bk-link-chips">${chips}</div>` : ''}
+              </div>
             </button>`;
   }).join('');
 }
@@ -29565,6 +29925,47 @@ function openViewAssignmentModal(asgnId) {
         <label class="asgn-field-label">Saved</label>
         <div style="font-size: 13px; color: var(--text2);">${escapeHTML(new Date(a.savedAt).toLocaleString())}${a.updatedAt && a.updatedAt !== a.savedAt ? ' · updated ' + escapeHTML(new Date(a.updatedAt).toLocaleString()) : ''}</div>
       </div>
+      ${(() => {
+        const ov = (typeof getSessionLinkOverride === 'function') ? getSessionLinkOverride(a.id) : null;
+        const missing = (typeof assignmentMissingSessionLinks === 'function')
+          ? assignmentMissingSessionLinks(a, team, ov)
+          : { lakitu: false, ring: false };
+        const chipLabels = (typeof sessionLinkMissingChipLabels === 'function')
+          ? sessionLinkMissingChipLabels(missing)
+          : [];
+        const chips = chipLabels.map(label =>
+          `<span class="bk-link-chip">${escapeHTML(label)}</span>`
+        ).join('');
+        const currentLakitu = (a.lakituProjectKey || (team && team.lakituProjectKey) || (ov && ov.lakituProjectKey) || '');
+        const currentRing = (a.ringDashboardKey || (team && team.ringDashboardKey) || (ov && ov.ringDashboardKey) || '');
+        const lakituOpts = (typeof LAKITU_PROJECTS !== 'undefined' ? LAKITU_PROJECTS : []).map(p =>
+          `<option value="${escapeHTML(p.key)}" ${currentLakitu === p.key ? 'selected' : ''}>${escapeHTML(p.label)}</option>`
+        ).join('');
+        const ringOpts = (typeof RING_DASHBOARDS !== 'undefined' ? RING_DASHBOARDS : []).map(p =>
+          `<option value="${escapeHTML(p.key)}" ${currentRing === p.key ? 'selected' : ''}>${escapeHTML(p.label)}</option>`
+        ).join('');
+        return `
+      <div class="asgn-field">
+        <label class="asgn-field-label">Lakitu / Ring links</label>
+        ${chips ? `<div class="bk-link-chips" style="justify-content:flex-start;margin-bottom:8px">${chips}</div>` : ''}
+        <div class="asgn-link-assign">
+          <div class="asgn-link-assign-row">
+            <select id="asgnLakituProject" class="teams-sort" aria-label="Lakitu project">
+              <option value="" ${!currentLakitu ? 'selected' : ''}>No project assigned</option>
+              ${lakituOpts}
+            </select>
+          </div>
+          <div class="asgn-link-assign-row">
+            <select id="asgnRingDashboard" class="teams-sort" aria-label="Ring dashboard">
+              <option value="" ${!currentRing ? 'selected' : ''}>No Ring dashboard assigned</option>
+              ${ringOpts}
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary" id="asgnSaveLinksBtn">Save links</button>
+        </div>
+        <div class="asgn-field-hint">Fills this session when OD left Lakitu or Ring empty. Also fills the team if the team has no link yet · moderators then get the same Open Lakitu / Open Ring buttons.</div>
+      </div>`;
+      })()}
     </div>
     ${(() => {
       // Decide whether to render the foot at all. The × button at the
@@ -29674,7 +30075,70 @@ function openViewAssignmentModal(asgnId) {
       reassignBtn.addEventListener('click', () => openEditAssignmentModal(asgnId));
     }
   }
+  const saveLinksBtn = document.getElementById('asgnSaveLinksBtn');
+  if (saveLinksBtn) {
+    saveLinksBtn.addEventListener('click', () => {
+      if (typeof saveAssignmentSessionLinks === 'function') saveAssignmentSessionLinks(asgnId);
+    });
+  }
   showAsgnModal();
+}
+
+function saveAssignmentSessionLinks(asgnId) {
+  const a = (adminState.assignments || []).find(x => x && String(x.id) === String(asgnId));
+  if (!a) return;
+  const lakituSel = document.getElementById('asgnLakituProject');
+  const ringSel = document.getElementById('asgnRingDashboard');
+  const lakituKey = lakituSel ? String(lakituSel.value || '').trim() : '';
+  const ringKey = ringSel ? String(ringSel.value || '').trim() : '';
+  if (!lakituKey && !ringKey) {
+    if (typeof toast === 'function') toast('Pick a Lakitu project or Ring dashboard first');
+    return;
+  }
+  const entry = (typeof buildSessionLinkOverrideEntry === 'function')
+    ? buildSessionLinkOverrideEntry(a.id, lakituKey, ringKey)
+    : {
+        assignmentId: String(a.id),
+        lakituProjectKey: lakituKey,
+        ringDashboardKey: ringKey,
+      };
+  if (typeof applySessionLinkOverrideGapFill === 'function') {
+    applySessionLinkOverrideGapFill(a, entry);
+  }
+  const team = (adminState.teams || []).find(t => t && String(t.id) === String(a.teamId));
+  let teamFilled = false;
+  if (team && typeof applySessionLinkOverrideGapFill === 'function') {
+    const beforeL = team.lakituProjectKey || team.lakituProjectUrl || '';
+    const beforeR = team.ringDashboardKey || team.ringDashboardUrl || '';
+    applySessionLinkOverrideGapFill(team, entry);
+    teamFilled = (team.lakituProjectKey || team.lakituProjectUrl || '') !== beforeL
+      || (team.ringDashboardKey || team.ringDashboardUrl || '') !== beforeR;
+  }
+  if (typeof upsertSessionLinkOverride === 'function') upsertSessionLinkOverride(entry);
+  a.updatedAt = new Date().toISOString();
+  if (typeof saveAssignmentData === 'function') saveAssignmentData();
+  if (typeof persistTeamSessionAssignment === 'function') {
+    persistTeamSessionAssignment(a).catch(() => {});
+  }
+  if (teamFilled && team && typeof writeTeamToTeamLog === 'function' && !team._pending) {
+    writeTeamToTeamLog(team, 'active').catch(() => {});
+  }
+  if (typeof persistSessionLinkOverridesSetting === 'function') {
+    persistSessionLinkOverridesSetting().catch(() => {});
+  }
+  if (typeof toast === 'function') {
+    const still = (typeof assignmentMissingSessionLinks === 'function')
+      ? assignmentMissingSessionLinks(a, team, entry)
+      : { lakitu: false, ring: false };
+    if (still.lakitu && still.ring) toast('Links still missing · pick both sides');
+    else if (still.lakitu) toast('Ring saved · Lakitu still missing');
+    else if (still.ring) toast('Lakitu saved · Ring still missing');
+    else toast('Lakitu and Ring saved for this session');
+  }
+  if (typeof syncBookingDashboardFromState === 'function') {
+    syncBookingDashboardFromState({ animate: false, force: true });
+  }
+  openViewAssignmentModal(asgnId);
 }
 
 function openCancelAssignmentModal(asgnId) {
@@ -31843,6 +32307,10 @@ function buildAssignmentExcelRow(a) {
       teamId:             a.teamId,
       status:             a.status          || 'Booked',
       comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+      lakituProjectKey:   a.lakituProjectKey || '',
+      lakituProjectUrl:   a.lakituProjectUrl || '',
+      ringDashboardKey:   a.ringDashboardKey || '',
+      ringDashboardUrl:   a.ringDashboardUrl || '',
     }];
   }
   return mods.map(mod => ({
@@ -31873,6 +32341,10 @@ function buildAssignmentExcelRow(a) {
     teamId:             a.teamId,
     status:             a.status          || 'Booked',
     comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+    lakituProjectKey:   a.lakituProjectKey || '',
+    lakituProjectUrl:   a.lakituProjectUrl || '',
+    ringDashboardKey:   a.ringDashboardKey || '',
+    ringDashboardUrl:   a.ringDashboardUrl || '',
   }));
 }
 
