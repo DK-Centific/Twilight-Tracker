@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* Self-test: Booking missing Lakitu/Ring chips + URL resolution.
  * OD / TeamLog values win. Admin SessionState overrides fill gaps only.
- * Also checks Week (primary) + Month team-list CSS (1.5-row cap, hidden
- * scrollbar), Sessions-under-hero grid areas, and structured session cards.
+ * Also checks Week (1.5-row) vs Month (4.5-row) team-list CSS, hidden
+ * scrollbars, Sessions-under-hero grid areas, and structured session cards.
  */
 'use strict';
 
@@ -176,13 +176,19 @@ assert(
     && resolveRingUrlFromRecord({ ringDashboardKey: 'nighttime-centific-5' }) === context.getRingDashboardByKey('nighttime-centific-5').url
 );
 
-const teamListCss = html.includes('.bk-dash-grid.is-week .bk-team-list')
-  && html.includes('.bk-dash-grid.is-month .bk-team-list')
+const weekCap = html.includes('.bk-dash-grid.is-week .bk-team-list')
   && html.includes('1.5 * var(--bk-team-card-h)')
-  && !html.includes('4.5 * var(--bk-team-card-h)')
   && html.includes('scrollbar-width: none')
   && html.includes('.bk-dash-grid.is-week .bk-team-list::-webkit-scrollbar');
-assert('Week and Month team lists are capped to 1.5 rows with hidden scrollbars', teamListCss);
+const monthCap = html.includes('.bk-dash-grid.is-month .bk-team-list')
+  && html.includes('4.5 * var(--bk-team-card-h)')
+  && html.includes('4 * var(--bk-team-gap)');
+assert('Week team list is capped to 1.5 rows with hidden scrollbars', weekCap);
+assert('Month team list is restored to the 4.5-row cap', monthCap);
+assert(
+  'Week 1.5 cap is not applied as a shared Month+Week max-height',
+  !/is-week \.bk-team-list,\s*\n\s*\.bk-dash-grid\.is-month \.bk-team-list \{[\s\S]{0,220}1\.5 \* var\(--bk-team-card-h\)/.test(html)
+);
 
 assert(
   'Week grid parks Sessions under bk-hero (not inside .bk-right)',
@@ -205,8 +211,8 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091526i', /const APP_VERSION = '1\.3\.091526i'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091526i'));
+assert('APP_VERSION is 1.3.091526j', /const APP_VERSION = '1\.3\.091526j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091526j'));
 
 assert(
   'session cards put the date in bk-session-time and split time / team / address',
