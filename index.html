@@ -3525,20 +3525,14 @@ a.icon-btn:focus-visible {
   background: var(--bk-well);
   box-shadow: inset 4px 4px 10px var(--bk-neu-dark), inset -4px -4px 10px var(--bk-neu-light);
 }
-/* Week (primary) + Month · keep Assign-a-Team from growing past ~1.5
-   team cards so Sessions stays parked under bk-hero. Card height
-   matches .bk-team-card (12px padding + 38px avatar). Half of a 2nd
-   row peeks as a scroll hint; the scrollbar itself is hidden. */
+/* Shared Assign-a-Team scroll well. Heights are view-specific below
+   so Month is not shrunk by Week's 1.5-row cap. Card height matches
+   .bk-team-card (12px padding + 38px avatar). Scrollbar is hidden. */
 .bk-dash-grid.is-week .bk-team-list,
 .bk-dash-grid.is-month .bk-team-list {
   --bk-team-card-h: 62px;
   --bk-team-gap: 10px;
   --bk-team-list-pad: 8px;
-  max-height: calc(
-    (var(--bk-team-list-pad) * 2)
-    + (1.5 * var(--bk-team-card-h))
-    + (1 * var(--bk-team-gap))
-  );
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -3553,6 +3547,23 @@ a.icon-btn:focus-visible {
   height: 0;
   display: none;
   background: transparent;
+}
+/* Week · ~1.5 team cards. Half of a 2nd row peeks as a scroll hint
+   so Assign-a-Team cannot push Sessions off bk-hero. */
+.bk-dash-grid.is-week .bk-team-list {
+  max-height: calc(
+    (var(--bk-team-list-pad) * 2)
+    + (1.5 * var(--bk-team-card-h))
+    + (1 * var(--bk-team-gap))
+  );
+}
+/* Month · restore the PR #96 4.5-row cap. Half of a 5th row peeks. */
+.bk-dash-grid.is-month .bk-team-list {
+  max-height: calc(
+    (var(--bk-team-list-pad) * 2)
+    + (4.5 * var(--bk-team-card-h))
+    + (4 * var(--bk-team-gap))
+  );
 }
 .bk-team-list .bk-empty { color: var(--bk-text3); }
 .bk-team-card {
@@ -16734,7 +16745,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091526i" defer></script>
+<script src="twilight.js?v=twilight-1.3.091526j" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
