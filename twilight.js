@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526';
-const APP_UPDATED_AT = '09/15/2026 16:55';
+const APP_VERSION = '1.3.091526a';
+const APP_UPDATED_AT = '09/15/2026 17:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1052,9 +1052,12 @@ function prettyStatus(status) {
 
 function renderProgress() {
   const p = getOverallProgress();
-  document.getElementById('progressText').textContent = `${p.done} / ${p.total}`;
-  document.getElementById('sidebarProgressNum').textContent = p.done;
-  document.getElementById('sidebarProgressFill').style.width = `${p.pct}%`;
+  const progressText = document.getElementById('progressText');
+  if (progressText) progressText.textContent = `${p.done} / ${p.total}`;
+  const sidebarNum = document.getElementById('sidebarProgressNum');
+  if (sidebarNum) sidebarNum.textContent = p.done;
+  const sidebarFill = document.getElementById('sidebarProgressFill');
+  if (sidebarFill) sidebarFill.style.width = `${p.pct}%`;
   const totalEl = document.getElementById('sidebarProgressTotal');
   if (totalEl) totalEl.textContent = p.total;
 }
@@ -14107,6 +14110,7 @@ function ingestAppSettingsFromSessionRows(rows) {
   }
   ingestDeactivatedUsersFromSessionRows(rows);
   ingestMasterAdminsFromSessionRows(rows);
+  if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
 }
 
 loadDeactivatedUsersCache();
@@ -16409,7 +16413,7 @@ function renderModListView() {
 
   wrap.querySelectorAll('.mod-card-head').forEach(head => {
     head.addEventListener('click', (e) => {
-      if (e.target.closest('.mod-edit-btn')) return;
+      if (e.target.closest('.mod-edit-btn') || e.target.closest('.mod-fb-btn')) return;
       const card = head.closest('.mod-card');
       const idx = parseInt(card.dataset.idx, 10);
       if (adminState.expandedMods[idx]) {
@@ -16429,6 +16433,19 @@ function renderModListView() {
       const idx = parseInt(btn.getAttribute('data-mod-idx'), 10);
       const row = (adminState.moderators || [])[idx];
       if (row) openModUserModal('edit', row);
+    });
+  });
+  wrap.querySelectorAll('.mod-fb-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const login = btn.getAttribute('data-mod-login') || '';
+      const idx = parseInt(btn.getAttribute('data-mod-idx'), 10);
+      const row = (adminState.moderators || [])[idx];
+      const name = row ? ((typeof perfModName === 'function') ? perfModName(row) : '') : '';
+      if (typeof openIndividualFeedbackComposer === 'function') {
+        openIndividualFeedbackComposer({ loginId: login, name: name });
+      }
     });
   });
 
@@ -16488,6 +16505,7 @@ function renderModTableHTML(mods) {
         <td>${f.centificEmail ? `<a href="mailto:${escapeForUrl(f.centificEmail)}">${escapeHTML(f.centificEmail)}</a>` : '—'}</td>
         <td class="mod-table-actions">
           <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${idx}">Edit</button>
+          <button type="button" class="btn btn-ghost mod-fb-btn" data-mod-idx="${idx}" data-mod-login="${escapeHTML(f.orbitLoginId || '')}">Send feedback</button>
         </td>
       </tr>`;
   }).join('');
@@ -17083,7 +17101,8 @@ function renderModAssignmentView() {
   }
   wrap.innerHTML = html;
   wrap.querySelectorAll('.mod-card-head').forEach(head => {
-    head.addEventListener('click', () => {
+    head.addEventListener('click', (e) => {
+      if (e.target.closest('.mod-fb-btn') || e.target.closest('.mod-edit-btn')) return;
       const card = head.closest('.mod-card');
       const idx = parseInt(card.dataset.idx, 10);
       if (adminState.expandedMods[idx]) {
@@ -17092,6 +17111,16 @@ function renderModAssignmentView() {
       } else {
         adminState.expandedMods[idx] = true;
         card.classList.add('expanded');
+      }
+    });
+  });
+  wrap.querySelectorAll('.mod-fb-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const login = btn.getAttribute('data-mod-login') || '';
+      if (typeof openIndividualFeedbackComposer === 'function') {
+        openIndividualFeedbackComposer({ loginId: login });
       }
     });
   });
@@ -17215,6 +17244,7 @@ function modCardHTML(m, i, role) {
           </div>
           <div class="mod-card-actions">
             <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${i}">Edit</button>
+            <button type="button" class="btn btn-ghost mod-fb-btn" data-mod-idx="${i}" data-mod-login="${escapeHTML(orbitId || '')}">Send feedback</button>
           </div>
         </div>
       </div>
@@ -20028,6 +20058,8 @@ function renderPerfSectionTabsHTML() {
             <span class="subtab-count">${n || ''}</span>
           </button>
         </div>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a team announcement for every moderator">Team feedback</button>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfModFeedbackBtn" title="Send a private note to one moderator">Message a moderator</button>
       </div>
     </div>`;
 }
@@ -20044,6 +20076,18 @@ function wirePerfSectionTabs(body) {
       playAdminSubtabEnter();
     });
   });
+  const teamBtn = body.querySelector('#perfTeamFeedbackBtn');
+  if (teamBtn) {
+    teamBtn.addEventListener('click', () => {
+      if (typeof openTeamFeedbackComposer === 'function') openTeamFeedbackComposer();
+    });
+  }
+  const modBtn = body.querySelector('#perfModFeedbackBtn');
+  if (modBtn) {
+    modBtn.addEventListener('click', () => {
+      if (typeof openIndividualFeedbackComposer === 'function') openIndividualFeedbackComposer();
+    });
+  }
 }
 
 function adminIncidentPillHTML() {
@@ -34945,7 +34989,7 @@ function buildCalGuideModal() {
         </svg>
       </button>
     </div>
-    <div class="cal-guide-body">
+    <div class="cal-guide-body" id="calGuideDefaultBody">
       <div class="cal-guide-banner">
         <span class="cal-guide-banner-icon">⚠️</span>
         <span><strong>Recording rejections delay the entire study.</strong> Open and follow this guide at every station before starting any scenario recording.</span>
@@ -34967,6 +35011,7 @@ function buildCalGuideModal() {
       ${LENGTH_REMINDER_HTML}
       ${docLinkHTML}
     </div>
+    <div class="cal-guide-body tf-guide-body" id="calGuideFeedbackBody" hidden></div>
     <div class="cal-guide-footer">
       <!-- Acknowledgment row. Two visual states in one container:
             - .cal-guide-ack (no .acknowledged class): shows the button
@@ -34988,7 +35033,12 @@ function buildCalGuideModal() {
           <span id="calGuideAckPillText">Acknowledged</span>
         </span>
       </div>
-      <div class="cal-guide-footer-text">
+      <div class="cal-guide-feedback-actions" id="calGuideFeedbackActions" hidden>
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideFeedbackPreviewBtn">Preview</button>
+        <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackSendBtn">Confirm and send to Moderator</button>
+        <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackAckBtn" hidden>Got it</button>
+      </div>
+      <div class="cal-guide-footer-text" id="calGuideFooterText">
         Questions? Reach out to your study coordinator before recording. When in doubt, ask.
       </div>
     </div>
@@ -35053,6 +35103,19 @@ function buildCalGuideModal() {
       if (typeof refreshStationActionsBar === 'function') refreshStationActionsBar();
     });
   }
+
+  const sendBtn = modal.querySelector('#calGuideFeedbackSendBtn');
+  if (sendBtn) sendBtn.addEventListener('click', () => {
+    if (typeof submitTeamFeedbackFromComposer === 'function') submitTeamFeedbackFromComposer();
+  });
+  const previewBtn = modal.querySelector('#calGuideFeedbackPreviewBtn');
+  if (previewBtn) previewBtn.addEventListener('click', () => {
+    if (typeof toggleTeamFeedbackPreview === 'function') toggleTeamFeedbackPreview();
+  });
+  const fbAck = modal.querySelector('#calGuideFeedbackAckBtn');
+  if (fbAck) fbAck.addEventListener('click', () => {
+    if (typeof acknowledgeTeamFeedbackModal === 'function') acknowledgeTeamFeedbackModal();
+  });
 }
 
 // Refreshes the cal-guide modal's ack row to reflect current
@@ -35081,27 +35144,36 @@ function refreshCalGuideAckUI() {
   }
 }
 
-function openCalGuideModal() {
+function openCalGuideModal(opts) {
+  opts = opts || {};
   buildCalGuideModal();
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
   if (!overlay || !modal) return;
+  const mode = opts.mode === 'teamFeedback' ? 'teamFeedback' : 'calGuide';
+  modal.setAttribute('data-mode', mode);
   overlay.hidden = false;
   modal.hidden = false;
   modal.classList.remove('is-exiting');
 
   // Reset scroll to top each time so re-opens always land on the
   // ⚠️ banner / General Requirements (not where they left off scrolled).
-  const body = modal.querySelector('.cal-guide-body');
+  const body = modal.querySelector(mode === 'teamFeedback' ? '#calGuideFeedbackBody' : '#calGuideDefaultBody')
+    || modal.querySelector('.cal-guide-body');
   if (body) body.scrollTop = 0;
 
-  // Refresh the acknowledgment row to reflect current state. The
-  // modal is built once and reused (see buildCalGuideModal's guard),
-  // so a re-open after acknowledging won't naturally show the pill
-  // unless we re-derive it here. State could also have changed since
-  // last open (e.g., teammate sync just propagated an ack from the
-  // other mod) · this pulls those changes in.
-  if (typeof refreshCalGuideAckUI === 'function') refreshCalGuideAckUI();
+  if (mode === 'teamFeedback') {
+    if (typeof renderTeamFeedbackModal === 'function') renderTeamFeedbackModal(opts);
+  } else {
+    if (typeof restoreCalGuideModalChrome === 'function') restoreCalGuideModalChrome();
+    // Refresh the acknowledgment row to reflect current state. The
+    // modal is built once and reused (see buildCalGuideModal's guard),
+    // so a re-open after acknowledging won't naturally show the pill
+    // unless we re-derive it here. State could also have changed since
+    // last open (e.g., teammate sync just propagated an ack from the
+    // other mod) · this pulls those changes in.
+    if (typeof refreshCalGuideAckUI === 'function') refreshCalGuideAckUI();
+  }
 
   // Wire up Escape-to-close. Stored on a property so the inverse
   // (closeCalGuideModal) can remove the same handler reference.
@@ -35259,6 +35331,998 @@ document.addEventListener('DOMContentLoaded', () => {
     openCalGuideModal();
   });
 });
+
+/* FEEDBACK_INBOX_BEGIN */
+/* =====================================================================
+   FEEDBACK INBOX · Admin team broadcast + 1:1 messages (1.3.091526a)
+   ---------------------------------------------------------------------
+   Persistence: SessionState appSetting rows (existing WRITE/READ URLs).
+     - Team announcement · upsert ss_app_setting_team_feedback
+     - 1:1 message       · one row per message, ss_fb_{feedbackId}
+     - Read receipts     · upsert ss_app_setting_inbox_read_{orbitKey}
+   Optional dedicated FEEDBACK_PA_* URLs stay empty until Watchdog/PA
+   wires a SharePoint List. Do not invent live sig= secrets here.
+   Session calGuideAck is a different key and is never written by this
+   module.
+   ===================================================================== */
+
+const FEEDBACK_TOAST_INTERVAL_MS = 30 * 60 * 1000;
+const TEAM_FEEDBACK_SETTING_ID = 'ss_app_setting_team_feedback';
+const TEAM_FEEDBACK_ASSIGNMENT_ID = 'app_setting_team_feedback';
+const INBOX_READ_SETTING_PREFIX = 'ss_app_setting_inbox_read_';
+const FEEDBACK_DRAFT_LS_KEY = 'centific_twilight_team_fb_draft_v1';
+const FEEDBACK_TOAST_LS_KEY = 'centific_twilight_inbox_toast_at_v1';
+const FEEDBACK_READ_LS_KEY = 'centific_twilight_inbox_read_v1';
+const FEEDBACK_PA_WRITE_URL = '';
+const FEEDBACK_PA_READ_URL = '';
+
+const FEEDBACK_ACCENTS = {
+  ink:   '#3C3C3B',
+  sage:  '#6B8F71',
+  coral: '#C47A6A',
+  amber: '#C5A059',
+};
+
+function feedbackOrbitKey(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function feedbackAliasesForUser(user) {
+  const aliases = [];
+  const login = String((user && user.loginId) || '').trim();
+  const name = String((user && user.name) || '').trim();
+  if (login) {
+    aliases.push(login.toLowerCase());
+    aliases.push(feedbackOrbitKey(login));
+  }
+  if (name) {
+    aliases.push(name.toLowerCase());
+    aliases.push(feedbackOrbitKey(name));
+    const first = name.split(/\s+/)[0];
+    if (first) aliases.push(first.toLowerCase());
+  }
+  return Array.from(new Set(aliases.filter(Boolean)));
+}
+
+function parseFeedbackStateJson(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+
+function stripFeedbackHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sanitizeFeedbackHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript:/gi, '');
+  s = s.replace(/<\/?(?:iframe|object|embed|link|meta|form|input|button|textarea|select)[^>]*>/gi, '');
+  s = s.replace(/<(p|div|span|strong|b|em|i|u|br)(\s[^>]*)?>/gi, (full, tag, attrs) => {
+    const name = String(tag).toLowerCase();
+    if (name === 'br') return '<br>';
+    let keep = '';
+    const attrSrc = attrs || '';
+    const style = attrSrc.match(/style\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (style) {
+      const val = style[2] || style[3] || '';
+      const color = val.match(/color\s*:\s*([^;]+)/i);
+      if (color) {
+        const c = color[1].trim();
+        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) || /^(rgb|rgba)\(/i.test(c)) {
+          keep += ' style="color:' + c + '"';
+        }
+      }
+    }
+    const icon = attrSrc.match(/data-icon\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (icon) {
+      const v = (icon[2] || icon[3] || '').replace(/[^a-z0-9_-]/gi, '');
+      if (v) keep += ' data-icon="' + v + '"';
+    }
+    const cls = attrSrc.match(/class\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (cls) {
+      const allowed = String(cls[2] || cls[3] || '').split(/\s+/).filter(c =>
+        /^(tf-icon|tf-accent-[a-z]+|tf-chip)$/.test(c)
+      );
+      if (allowed.length) keep += ' class="' + allowed.join(' ') + '"';
+    }
+    return '<' + name + keep + '>';
+  });
+  s = s.replace(/<\/(p|div|span|strong|b|em|i|u)>/gi, (full, tag) => '</' + String(tag).toLowerCase() + '>');
+  return s;
+}
+
+function feedbackNewId(prefix) {
+  return String(prefix || 'FB') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function buildTeamAnnouncementRecord(draft, adminName) {
+  const bodyHtml = sanitizeFeedbackHtml((draft && draft.bodyHtml) || '');
+  return {
+    id: (draft && draft.id) || feedbackNewId('TF'),
+    title: String((draft && draft.title) || '').trim(),
+    bodyHtml: bodyHtml,
+    bodyText: String((draft && draft.bodyText) || stripFeedbackHtml(bodyHtml)).trim(),
+    icon: String((draft && draft.icon) || 'info'),
+    accent: String((draft && draft.accent) || 'sage'),
+    publishedAt: (draft && draft.publishedAt) || new Date().toISOString(),
+    publishedBy: adminName || 'Admin',
+    draft: false,
+  };
+}
+
+function buildIndividualFeedbackRecord(draft, admin) {
+  const message = String((draft && (draft.message || draft.bodyText)) || '').trim();
+  const html = sanitizeFeedbackHtml((draft && draft.messageHtml) || ('<p>' + message.replace(/</g, '&lt;') + '</p>'));
+  return {
+    feedbackId: (draft && draft.feedbackId) || feedbackNewId('FB'),
+    toLoginId: String((draft && draft.toLoginId) || '').trim(),
+    toName: String((draft && draft.toName) || '').trim(),
+    fromLoginId: String((admin && admin.loginId) || 'Admin').trim(),
+    fromName: String((admin && admin.name) || 'Admin').trim(),
+    message: message || stripFeedbackHtml(html),
+    messageHtml: html,
+    sentAt: (draft && draft.sentAt) || new Date().toISOString(),
+    audience: 'individual',
+  };
+}
+
+function buildFeedbackAppSettingPayload(sessionStateId, assignmentId, stateObj) {
+  return {
+    sessionStateId: sessionStateId,
+    assignmentId: assignmentId || 'app_setting_feedback',
+    teamId: '',
+    orbitLoginId: (stateObj && (stateObj.toLoginId || stateObj.orbitLoginId)) || '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify(stateObj || {}),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+    writeMode: 'upsert',
+  };
+}
+
+function emptyFeedbackStore() {
+  return {
+    teamAnnouncement: null,
+    messages: [],
+    readIds: new Set(),
+    lastToastAt: 0,
+  };
+}
+
+function applyPublishedTeamAnnouncement(store, announcement) {
+  const next = store || emptyFeedbackStore();
+  return {
+    teamAnnouncement: announcement || null,
+    messages: (next.messages || []).slice(),
+    readIds: new Set(next.readIds || []),
+    lastToastAt: next.lastToastAt || 0,
+  };
+}
+
+function applySentDirectMessage(store, message) {
+  const next = store || emptyFeedbackStore();
+  const messages = (next.messages || []).slice();
+  if (message) messages.push(message);
+  return {
+    teamAnnouncement: next.teamAnnouncement || null,
+    messages: messages,
+    readIds: new Set(next.readIds || []),
+    lastToastAt: next.lastToastAt || 0,
+  };
+}
+
+function applyReadReceipt(store, messageId) {
+  const next = store || emptyFeedbackStore();
+  const readIds = new Set(next.readIds || []);
+  if (messageId) readIds.add(String(messageId));
+  return {
+    teamAnnouncement: next.teamAnnouncement || null,
+    messages: (next.messages || []).slice(),
+    readIds: readIds,
+    lastToastAt: next.lastToastAt || 0,
+  };
+}
+
+function feedbackMatchesRecipient(message, aliases) {
+  if (!message) return false;
+  const set = new Set((aliases || []).map(a => String(a).toLowerCase()));
+  const login = String(message.toLoginId || '').toLowerCase();
+  const name = String(message.toName || '').toLowerCase();
+  const loginKey = feedbackOrbitKey(message.toLoginId);
+  const nameKey = feedbackOrbitKey(message.toName);
+  return set.has(login) || set.has(name) || set.has(loginKey) || set.has(nameKey);
+}
+
+function collectFeedbackFromSessionRows(rows) {
+  const out = { teamAnnouncement: null, messages: [], readMaps: {} };
+  if (!Array.isArray(rows)) return out;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const parsed = parseFeedbackStateJson(row.stateJson);
+    if (!parsed || parsed.type !== 'appSetting') continue;
+    if (parsed.key === 'teamFeedback' && parsed.announcement) {
+      const next = parsed.announcement;
+      if (!out.teamAnnouncement
+          || String(next.publishedAt || '') > String(out.teamAnnouncement.publishedAt || '')) {
+        out.teamAnnouncement = next;
+      }
+    } else if (parsed.key === 'modFeedback' && parsed.feedbackId) {
+      out.messages.push({
+        feedbackId: parsed.feedbackId,
+        toLoginId: parsed.toLoginId || '',
+        toName: parsed.toName || '',
+        fromLoginId: parsed.fromLoginId || '',
+        fromName: parsed.fromName || parsed.adminName || 'Admin',
+        message: parsed.message || parsed.bodyText || '',
+        messageHtml: parsed.messageHtml || parsed.bodyHtml || '',
+        sentAt: parsed.sentAt || row.lastActive || '',
+        audience: parsed.audience || 'individual',
+      });
+    } else if (parsed.key === 'inboxRead' && Array.isArray(parsed.ids)) {
+      const who = feedbackOrbitKey(parsed.orbitLoginId || row.orbitLoginId);
+      if (who) out.readMaps[who] = parsed.ids.map(String);
+    }
+  }
+  return out;
+}
+
+function buildInboxItems(store, user) {
+  const aliases = feedbackAliasesForUser(user || {});
+  const readIds = (store && store.readIds) || new Set();
+  const items = [];
+  const team = store && store.teamAnnouncement;
+  if (team && (team.bodyText || team.bodyHtml || team.title)) {
+    const id = String(team.id || '');
+    items.push({
+      id: id,
+      kind: 'team',
+      fromName: team.publishedBy || 'Admin',
+      title: team.title || 'Team feedback',
+      message: team.bodyText || stripFeedbackHtml(team.bodyHtml || ''),
+      messageHtml: team.bodyHtml || '',
+      sentAt: team.publishedAt || '',
+      unread: id ? !readIds.has(id) : true,
+      icon: team.icon || 'info',
+      accent: team.accent || 'sage',
+    });
+  }
+  ((store && store.messages) || []).forEach(msg => {
+    if (!feedbackMatchesRecipient(msg, aliases)) return;
+    const id = String(msg.feedbackId || '');
+    items.push({
+      id: id,
+      kind: 'direct',
+      fromName: msg.fromName || 'Admin',
+      title: '',
+      message: msg.message || '',
+      messageHtml: msg.messageHtml || '',
+      sentAt: msg.sentAt || '',
+      unread: id ? !readIds.has(id) : true,
+    });
+  });
+  items.sort((a, b) => String(b.sentAt || '').localeCompare(String(a.sentAt || '')));
+  return items;
+}
+
+function countUnreadInbox(items) {
+  return (items || []).filter(m => m && m.unread).length;
+}
+
+function inboxPillView(unreadCount) {
+  const n = Number(unreadCount) || 0;
+  if (n > 0) {
+    return { hasUnread: true, label: 'Inbox · ' + n, count: n, dot: 'unread' };
+  }
+  return { hasUnread: false, label: 'Inbox', count: 0, dot: 'idle' };
+}
+
+function shouldShowInboxToast(now, lastToastAt, unreadCount, inboxOpen) {
+  if (!(Number(unreadCount) > 0)) return false;
+  if (inboxOpen) return false;
+  const last = Number(lastToastAt) || 0;
+  if (!last) return false;
+  return (Number(now) - last) >= FEEDBACK_TOAST_INTERVAL_MS;
+}
+
+function resetInboxToastAt(now) {
+  return Number(now) || Date.now();
+}
+
+(function exportFeedbackInboxHelpers(g) {
+  if (!g) return;
+  g.FEEDBACK_TOAST_INTERVAL_MS = FEEDBACK_TOAST_INTERVAL_MS;
+  g.TEAM_FEEDBACK_SETTING_ID = TEAM_FEEDBACK_SETTING_ID;
+  g.TEAM_FEEDBACK_ASSIGNMENT_ID = TEAM_FEEDBACK_ASSIGNMENT_ID;
+  g.INBOX_READ_SETTING_PREFIX = INBOX_READ_SETTING_PREFIX;
+  g.FEEDBACK_PA_WRITE_URL = FEEDBACK_PA_WRITE_URL;
+  g.FEEDBACK_PA_READ_URL = FEEDBACK_PA_READ_URL;
+  g.FEEDBACK_ACCENTS = FEEDBACK_ACCENTS;
+  g.feedbackOrbitKey = feedbackOrbitKey;
+  g.feedbackAliasesForUser = feedbackAliasesForUser;
+  g.parseFeedbackStateJson = parseFeedbackStateJson;
+  g.stripFeedbackHtml = stripFeedbackHtml;
+  g.sanitizeFeedbackHtml = sanitizeFeedbackHtml;
+  g.buildTeamAnnouncementRecord = buildTeamAnnouncementRecord;
+  g.buildIndividualFeedbackRecord = buildIndividualFeedbackRecord;
+  g.buildFeedbackAppSettingPayload = buildFeedbackAppSettingPayload;
+  g.emptyFeedbackStore = emptyFeedbackStore;
+  g.applyPublishedTeamAnnouncement = applyPublishedTeamAnnouncement;
+  g.applySentDirectMessage = applySentDirectMessage;
+  g.applyReadReceipt = applyReadReceipt;
+  g.feedbackMatchesRecipient = feedbackMatchesRecipient;
+  g.collectFeedbackFromSessionRows = collectFeedbackFromSessionRows;
+  g.buildInboxItems = buildInboxItems;
+  g.countUnreadInbox = countUnreadInbox;
+  g.inboxPillView = inboxPillView;
+  g.shouldShowInboxToast = shouldShowInboxToast;
+  g.resetInboxToastAt = resetInboxToastAt;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+
+let _feedbackUiStore = emptyFeedbackStore();
+let _feedbackInboxOpen = false;
+let _feedbackToastTimer = null;
+let _feedbackPreviewOn = false;
+let _feedbackComposerAccent = 'sage';
+let _feedbackComposerIcon = 'info';
+
+function currentFeedbackUser() {
+  const login = (typeof state !== 'undefined' && state)
+    ? ((state.modProfile && state.modProfile.orbitLoginId) || state.username || '')
+    : '';
+  const name = (typeof state !== 'undefined' && state && state.username) || login;
+  return { loginId: login, name: name };
+}
+
+function loadFeedbackLocalReads() {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_READ_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const key = feedbackOrbitKey(currentFeedbackUser().loginId);
+    const mine = (parsed && key && Array.isArray(parsed[key])) ? parsed[key] : [];
+    return new Set(mine.map(String));
+  } catch (_) { return new Set(); }
+}
+
+function saveFeedbackLocalReads(ids) {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_READ_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const key = feedbackOrbitKey(currentFeedbackUser().loginId);
+    if (!key) return;
+    parsed[key] = Array.from(ids || []);
+    localStorage.setItem(FEEDBACK_READ_LS_KEY, JSON.stringify(parsed));
+  } catch (_) {}
+}
+
+function loadFeedbackToastAt() {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_TOAST_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const key = feedbackOrbitKey(currentFeedbackUser().loginId);
+    return Number(parsed && key && parsed[key]) || 0;
+  } catch (_) { return 0; }
+}
+
+function saveFeedbackToastAt(at) {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_TOAST_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const key = feedbackOrbitKey(currentFeedbackUser().loginId);
+    if (!key) return;
+    parsed[key] = Number(at) || Date.now();
+    localStorage.setItem(FEEDBACK_TOAST_LS_KEY, JSON.stringify(parsed));
+  } catch (_) {}
+}
+
+function currentInboxItems() {
+  return buildInboxItems(_feedbackUiStore, currentFeedbackUser());
+}
+
+function refreshInboxPill() {
+  const pill = document.getElementById('navInbox');
+  const label = document.getElementById('navInboxLabel');
+  if (!pill) return;
+  const view = inboxPillView(countUnreadInbox(currentInboxItems()));
+  pill.classList.toggle('has-unread', view.hasUnread);
+  pill.setAttribute('aria-label', view.label);
+  if (label) label.textContent = view.label;
+}
+
+function ingestFeedbackFromSessionRows(rows) {
+  const collected = collectFeedbackFromSessionRows(rows);
+  const localReads = loadFeedbackLocalReads();
+  const userKey = feedbackOrbitKey(currentFeedbackUser().loginId);
+  const cloudReads = (collected.readMaps && collected.readMaps[userKey]) || [];
+  cloudReads.forEach(id => localReads.add(String(id)));
+  _feedbackUiStore = {
+    teamAnnouncement: collected.teamAnnouncement,
+    messages: collected.messages || [],
+    readIds: localReads,
+    lastToastAt: loadFeedbackToastAt() || _feedbackUiStore.lastToastAt || 0,
+  };
+  if (_feedbackUiStore.lastToastAt) saveFeedbackToastAt(_feedbackUiStore.lastToastAt);
+  saveFeedbackLocalReads(_feedbackUiStore.readIds);
+  refreshInboxPill();
+}
+
+async function persistFeedbackSetting(payload) {
+  const url = (typeof SESSIONSTATE_PA_WRITE_URL !== 'undefined') ? SESSIONSTATE_PA_WRITE_URL : '';
+  if (!url) return { ok: false, reason: 'notconfigured' };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    if (FEEDBACK_PA_WRITE_URL) {
+      try {
+        await fetch(FEEDBACK_PA_WRITE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        console.warn('[Twilight] Optional FEEDBACK_PA_WRITE_URL failed:', e && e.message);
+      }
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Feedback write failed:', e && e.message);
+    return { ok: false, reason: 'error', error: e && e.message };
+  }
+}
+
+async function persistInboxReadIds() {
+  const user = currentFeedbackUser();
+  const key = feedbackOrbitKey(user.loginId);
+  if (!key) return { ok: false };
+  saveFeedbackLocalReads(_feedbackUiStore.readIds);
+  const payload = buildFeedbackAppSettingPayload(
+    INBOX_READ_SETTING_PREFIX + key,
+    'app_setting_inbox_read',
+    {
+      type: 'appSetting',
+      key: 'inboxRead',
+      orbitLoginId: user.loginId,
+      ids: Array.from(_feedbackUiStore.readIds || []),
+      updatedAt: new Date().toISOString(),
+    }
+  );
+  return persistFeedbackSetting(payload);
+}
+
+function markInboxItemsRead(ids) {
+  (ids || []).forEach(id => {
+    _feedbackUiStore = applyReadReceipt(_feedbackUiStore, id);
+  });
+  _feedbackUiStore.lastToastAt = resetInboxToastAt(Date.now());
+  saveFeedbackToastAt(_feedbackUiStore.lastToastAt);
+  saveFeedbackLocalReads(_feedbackUiStore.readIds);
+  refreshInboxPill();
+  persistInboxReadIds().catch(() => {});
+}
+
+function restoreCalGuideModalChrome() {
+  const modal = document.getElementById('calGuideModal');
+  if (!modal) return;
+  const title = modal.querySelector('#calGuideTitle');
+  const sub = modal.querySelector('.cal-guide-header-sub');
+  const footer = document.getElementById('calGuideFooterText');
+  const defaultBody = document.getElementById('calGuideDefaultBody');
+  const fbBody = document.getElementById('calGuideFeedbackBody');
+  const ackRow = document.getElementById('calGuideAckRow');
+  const fbActions = document.getElementById('calGuideFeedbackActions');
+  if (title) title.textContent = 'Calibration Recording Guide';
+  if (sub) sub.innerHTML = 'DOs &amp; DON\'Ts · For on-site moderators';
+  if (footer) footer.textContent = 'Questions? Reach out to your study coordinator before recording. When in doubt, ask.';
+  if (defaultBody) defaultBody.hidden = false;
+  if (fbBody) fbBody.hidden = true;
+  if (ackRow) ackRow.hidden = false;
+  if (fbActions) fbActions.hidden = true;
+}
+
+function teamFeedbackIconGlyph(icon) {
+  if (icon === 'check') return '✓';
+  if (icon === 'warn') return '!';
+  if (icon === 'star') return '★';
+  if (icon === 'pin') return '◉';
+  return 'i';
+}
+
+function renderTeamFeedbackReadOnly(announcement) {
+  if (!announcement) {
+    return `<div class="tf-draft-hint">No team announcement has been published yet.</div>`;
+  }
+  const accent = FEEDBACK_ACCENTS[announcement.accent] || FEEDBACK_ACCENTS.sage;
+  const when = announcement.publishedAt ? new Date(announcement.publishedAt) : null;
+  const whenStr = (when && !isNaN(when.getTime()))
+    ? when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  return `
+    <div class="tf-chip" style="color:${accent};border:0.5px solid ${accent}">
+      <span aria-hidden="true">${teamFeedbackIconGlyph(announcement.icon)}</span>
+      Team note
+    </div>
+    ${announcement.title ? `<h3 style="margin:12px 0 8px;font-size:20px;letter-spacing:-0.03em;">${escapeHTML(announcement.title)}</h3>` : ''}
+    <div class="inbox-msg-body">${sanitizeFeedbackHtml(announcement.bodyHtml || ('<p>' + escapeHTML(announcement.bodyText || '') + '</p>'))}</div>
+    <div class="tf-draft-hint">From ${escapeHTML(announcement.publishedBy || 'Admin')}${whenStr ? ' · ' + escapeHTML(whenStr) : ''}</div>
+  `;
+}
+
+function loadTeamFeedbackDraft() {
+  try {
+    const raw = localStorage.getItem(FEEDBACK_DRAFT_LS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+
+function saveTeamFeedbackDraft(draft) {
+  try { localStorage.setItem(FEEDBACK_DRAFT_LS_KEY, JSON.stringify(draft || {})); } catch (_) {}
+}
+
+function collectTeamFeedbackComposerDraft() {
+  const titleEl = document.getElementById('tfTitleInput');
+  const editor = document.getElementById('tfComposerEditor');
+  return {
+    title: titleEl ? titleEl.value : '',
+    bodyHtml: editor ? editor.innerHTML : '',
+    bodyText: editor ? stripFeedbackHtml(editor.innerHTML) : '',
+    icon: _feedbackComposerIcon,
+    accent: _feedbackComposerAccent,
+  };
+}
+
+function renderTeamFeedbackComposer(draft) {
+  draft = draft || loadTeamFeedbackDraft() || {};
+  _feedbackComposerAccent = draft.accent || 'sage';
+  _feedbackComposerIcon = draft.icon || 'info';
+  _feedbackPreviewOn = false;
+  return `
+    <div class="tf-composer">
+      <div class="tf-draft-hint">Draft stays on this device until you confirm and send.</div>
+      <input class="tf-title" id="tfTitleInput" maxlength="80" placeholder="Title (optional)" value="${escapeHTML(draft.title || '')}">
+      <div class="tf-toolbar" role="toolbar" aria-label="Announcement style">
+        <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'sage' ? 'is-on' : ''}" data-accent="sage" title="Sage"></button>
+        <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'coral' ? 'is-on' : ''}" data-accent="coral" title="Coral"></button>
+        <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'amber' ? 'is-on' : ''}" data-accent="amber" title="Amber"></button>
+        <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'ink' ? 'is-on' : ''}" data-accent="ink" title="Ink"></button>
+        <button type="button" class="tf-icon-btn ${_feedbackComposerIcon === 'info' ? 'is-on' : ''}" data-icon="info" title="Info">i</button>
+        <button type="button" class="tf-icon-btn ${_feedbackComposerIcon === 'check' ? 'is-on' : ''}" data-icon="check" title="Check">✓</button>
+        <button type="button" class="tf-icon-btn ${_feedbackComposerIcon === 'warn' ? 'is-on' : ''}" data-icon="warn" title="Alert">!</button>
+        <button type="button" class="tf-icon-btn ${_feedbackComposerIcon === 'star' ? 'is-on' : ''}" data-icon="star" title="Star">★</button>
+        <button type="button" class="tf-icon-btn ${_feedbackComposerIcon === 'pin' ? 'is-on' : ''}" data-icon="pin" title="Pin">◉</button>
+        <button type="button" class="tf-tool-btn" data-tf-cmd="bold" title="Bold"><strong>B</strong></button>
+        <button type="button" class="tf-tool-btn" data-tf-cmd="italic" title="Italic"><em>I</em></button>
+      </div>
+      <div class="tf-editor" id="tfComposerEditor" contenteditable="true" role="textbox" aria-label="Announcement">${sanitizeFeedbackHtml(draft.bodyHtml || '')}</div>
+      <div class="tf-preview" id="tfComposerPreview" hidden></div>
+      <div class="tf-send-error" id="tfComposerError"></div>
+    </div>
+  `;
+}
+
+function bindTeamFeedbackComposer(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-accent]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _feedbackComposerAccent = btn.getAttribute('data-accent') || 'sage';
+      root.querySelectorAll('[data-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
+      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+    });
+  });
+  root.querySelectorAll('[data-icon]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _feedbackComposerIcon = btn.getAttribute('data-icon') || 'info';
+      root.querySelectorAll('[data-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
+      const editor = document.getElementById('tfComposerEditor');
+      if (editor) {
+        const color = FEEDBACK_ACCENTS[_feedbackComposerAccent] || FEEDBACK_ACCENTS.sage;
+        const chip = `<span class="tf-chip tf-icon" data-icon="${_feedbackComposerIcon}" style="color:${color}">${teamFeedbackIconGlyph(_feedbackComposerIcon)}</span>&nbsp;`;
+        try { document.execCommand('insertHTML', false, chip); } catch (_) {
+          editor.innerHTML += chip;
+        }
+      }
+      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+    });
+  });
+  root.querySelectorAll('[data-tf-cmd]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      try { document.execCommand(btn.getAttribute('data-tf-cmd'), false, null); } catch (_) {}
+    });
+  });
+  const editor = root.querySelector('#tfComposerEditor');
+  if (editor) {
+    editor.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+  }
+  const title = root.querySelector('#tfTitleInput');
+  if (title) title.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+}
+
+function isAdminFeedbackComposer() {
+  return !!(typeof state !== 'undefined' && state && (state.isAdmin || state.isMasterAdmin)
+    && document.getElementById('adminApp')
+    && document.getElementById('adminApp').classList.contains('active'));
+}
+
+function renderTeamFeedbackModal(opts) {
+  opts = opts || {};
+  const modal = document.getElementById('calGuideModal');
+  const title = modal && modal.querySelector('#calGuideTitle');
+  const sub = modal && modal.querySelector('.cal-guide-header-sub');
+  const footer = document.getElementById('calGuideFooterText');
+  const defaultBody = document.getElementById('calGuideDefaultBody');
+  const fbBody = document.getElementById('calGuideFeedbackBody');
+  const ackRow = document.getElementById('calGuideAckRow');
+  const fbActions = document.getElementById('calGuideFeedbackActions');
+  const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
+  const previewBtn = document.getElementById('calGuideFeedbackPreviewBtn');
+  const gotBtn = document.getElementById('calGuideFeedbackAckBtn');
+  if (defaultBody) defaultBody.hidden = true;
+  if (fbBody) fbBody.hidden = false;
+  if (ackRow) ackRow.hidden = true;
+  if (fbActions) fbActions.hidden = false;
+  const admin = opts.role === 'admin' || (opts.role == null && isAdminFeedbackComposer());
+  if (admin) {
+    if (title) title.textContent = 'Team feedback';
+    if (sub) sub.textContent = 'Write a note every moderator will see';
+    if (footer) footer.textContent = 'Confirm and send publishes this note to every moderator inbox.';
+    if (fbBody) {
+      fbBody.innerHTML = renderTeamFeedbackComposer(opts.draft || loadTeamFeedbackDraft());
+      bindTeamFeedbackComposer(fbBody);
+    }
+    if (sendBtn) sendBtn.hidden = false;
+    if (previewBtn) previewBtn.hidden = false;
+    if (gotBtn) gotBtn.hidden = true;
+  } else {
+    const announcement = opts.announcement || (_feedbackUiStore && _feedbackUiStore.teamAnnouncement);
+    if (title) title.textContent = (announcement && announcement.title) || 'Team feedback';
+    if (sub) sub.textContent = 'From Admin · read only';
+    if (footer) footer.textContent = 'This note does not change your calibration-guide acknowledgment.';
+    if (fbBody) fbBody.innerHTML = renderTeamFeedbackReadOnly(announcement);
+    if (sendBtn) sendBtn.hidden = true;
+    if (previewBtn) previewBtn.hidden = true;
+    if (gotBtn) gotBtn.hidden = false;
+  }
+}
+
+function toggleTeamFeedbackPreview() {
+  const editor = document.getElementById('tfComposerEditor');
+  const preview = document.getElementById('tfComposerPreview');
+  const btn = document.getElementById('calGuideFeedbackPreviewBtn');
+  if (!editor || !preview) return;
+  _feedbackPreviewOn = !_feedbackPreviewOn;
+  if (_feedbackPreviewOn) {
+    const draft = collectTeamFeedbackComposerDraft();
+    preview.innerHTML = renderTeamFeedbackReadOnly(buildTeamAnnouncementRecord(draft, (state && state.username) || 'Admin'));
+    editor.hidden = true;
+    preview.hidden = false;
+    if (btn) btn.textContent = 'Keep editing';
+  } else {
+    editor.hidden = false;
+    preview.hidden = true;
+    if (btn) btn.textContent = 'Preview';
+  }
+}
+
+async function submitTeamFeedbackFromComposer() {
+  const err = document.getElementById('tfComposerError');
+  const draft = collectTeamFeedbackComposerDraft();
+  if (!stripFeedbackHtml(draft.bodyHtml || '') && !draft.title) {
+    if (err) err.textContent = 'Write a short note before sending.';
+    return;
+  }
+  const announcement = buildTeamAnnouncementRecord(draft, (state && state.username) || 'Admin-Twilight');
+  const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+  const payload = buildFeedbackAppSettingPayload(
+    TEAM_FEEDBACK_SETTING_ID,
+    TEAM_FEEDBACK_ASSIGNMENT_ID,
+    { type: 'appSetting', key: 'teamFeedback', announcement: announcement }
+  );
+  const result = await persistFeedbackSetting(payload);
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Confirm and send to Moderator'; }
+  if (!result.ok) {
+    if (err) err.textContent = result.reason === 'notconfigured'
+      ? 'Cloud save is not set up. Draft is still on this device.'
+      : 'Could not send. Draft is saved here — try again.';
+    saveTeamFeedbackDraft(draft);
+    return;
+  }
+  _feedbackUiStore = applyPublishedTeamAnnouncement(_feedbackUiStore, announcement);
+  try { localStorage.removeItem(FEEDBACK_DRAFT_LS_KEY); } catch (_) {}
+  if (typeof toast === 'function') toast('Team feedback sent to moderators');
+  if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
+}
+
+function acknowledgeTeamFeedbackModal() {
+  const announcement = _feedbackUiStore && _feedbackUiStore.teamAnnouncement;
+  if (announcement && announcement.id) markInboxItemsRead([announcement.id]);
+  if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
+}
+
+function openTeamFeedbackComposer() {
+  if (typeof openCalGuideModal === 'function') {
+    openCalGuideModal({ mode: 'teamFeedback', role: 'admin' });
+  }
+}
+
+function adminModeratorChoices() {
+  const rows = (typeof adminState !== 'undefined' && adminState && adminState.moderators) || [];
+  return rows.map(m => {
+    const id = (typeof perfModId === 'function') ? perfModId(m) : (m.orbitLoginId || '');
+    const name = (typeof perfModName === 'function')
+      ? perfModName(m)
+      : [m.firstName, m.lastName].filter(Boolean).join(' ') || id;
+    return { id: id, name: name || id };
+  }).filter(m => m.id);
+}
+
+function ensureIndividualFeedbackModal() {
+  if (document.getElementById('fbSendOverlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'fbSendOverlay';
+  overlay.className = 'fb-send-overlay';
+  overlay.innerHTML = `
+    <div class="fb-send-modal" role="dialog" aria-modal="true" aria-labelledby="fbSendTitle">
+      <div class="inbox-modal-title" id="fbSendTitle">Message a moderator</div>
+      <div class="inbox-modal-sub">Private note · they will see it in Inbox</div>
+      <label class="tf-draft-hint" for="fbSendTarget">Moderator</label>
+      <select class="tf-pick" id="fbSendTarget"></select>
+      <textarea class="tf-note" id="fbSendText" rows="5" placeholder="Write a short note"></textarea>
+      <div class="tf-send-error" id="fbSendError"></div>
+      <div class="fb-send-actions">
+        <button type="button" class="btn btn-ghost" id="fbSendCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="fbSendBtn">Send</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeIndividualFeedbackComposer(); });
+  overlay.querySelector('#fbSendCancel').addEventListener('click', closeIndividualFeedbackComposer);
+  overlay.querySelector('#fbSendBtn').addEventListener('click', submitIndividualFeedbackComposer);
+}
+
+function openIndividualFeedbackComposer(prefill) {
+  ensureIndividualFeedbackModal();
+  if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators)) {
+    loadModerators(false);
+  }
+  const overlay = document.getElementById('fbSendOverlay');
+  const sel = document.getElementById('fbSendTarget');
+  const text = document.getElementById('fbSendText');
+  const err = document.getElementById('fbSendError');
+  if (sel) {
+    const choices = adminModeratorChoices();
+    sel.innerHTML = '<option value="">Choose a moderator</option>' + choices.map(m =>
+      `<option value="${escapeHTML(m.id)}" ${prefill && feedbackOrbitKey(prefill.loginId) === feedbackOrbitKey(m.id) ? 'selected' : ''}>${escapeHTML(m.name)} · ${escapeHTML(m.id)}</option>`
+    ).join('');
+    if (prefill && prefill.loginId) sel.value = prefill.loginId;
+  }
+  if (text) text.value = '';
+  if (err) err.textContent = '';
+  overlay.classList.add('open');
+}
+
+function closeIndividualFeedbackComposer() {
+  const overlay = document.getElementById('fbSendOverlay');
+  if (overlay) overlay.classList.remove('open');
+}
+
+async function submitIndividualFeedbackComposer() {
+  const sel = document.getElementById('fbSendTarget');
+  const text = document.getElementById('fbSendText');
+  const err = document.getElementById('fbSendError');
+  const toLoginId = sel ? sel.value : '';
+  const message = text ? text.value.trim() : '';
+  if (!toLoginId) { if (err) err.textContent = 'Choose a moderator.'; return; }
+  if (!message) { if (err) err.textContent = 'Write a short note.'; return; }
+  const choice = adminModeratorChoices().find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(toLoginId));
+  const record = buildIndividualFeedbackRecord({
+    toLoginId: toLoginId,
+    toName: (choice && choice.name) || toLoginId,
+    message: message,
+  }, { loginId: (state && state.username) || 'Admin', name: (state && state.username) || 'Admin' });
+  const btn = document.getElementById('fbSendBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  const payload = buildFeedbackAppSettingPayload(
+    'ss_fb_' + record.feedbackId,
+    'app_setting_feedback',
+    Object.assign({ type: 'appSetting', key: 'modFeedback' }, record)
+  );
+  const result = await persistFeedbackSetting(payload);
+  if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+  if (!result.ok) {
+    if (err) err.textContent = result.reason === 'notconfigured'
+      ? 'Cloud save is not set up yet.'
+      : 'Could not send. Try again.';
+    return;
+  }
+  _feedbackUiStore = applySentDirectMessage(_feedbackUiStore, record);
+  if (typeof toast === 'function') toast('Feedback sent to ' + record.toName);
+  closeIndividualFeedbackComposer();
+}
+
+function ensureInboxModal() {
+  if (document.getElementById('inboxOverlay')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'inboxOverlay';
+  overlay.className = 'inbox-overlay';
+  overlay.innerHTML = `<div class="inbox-modal" id="inboxModal" role="dialog" aria-modal="true" aria-labelledby="inboxModalTitle"></div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeModInbox(); });
+}
+
+function inboxWhen(iso) {
+  const t = iso ? new Date(iso) : null;
+  if (!t || isNaN(t.getTime())) return '';
+  return t.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function renderInboxListView(items) {
+  if (!items.length) return `<div class="inbox-empty">No messages yet.</div>`;
+  return items.map(item => `
+    <div class="inbox-item ${item.unread ? 'unread' : ''}" data-inbox-id="${escapeHTML(item.id)}" data-inbox-kind="${escapeHTML(item.kind)}">
+      <div class="inbox-item-content">
+        <div class="inbox-item-from">${escapeHTML(item.fromName || 'Admin')}${item.kind === 'team' ? ' · Team' : ''}</div>
+        <div class="inbox-item-preview">${escapeHTML(item.title || item.message || 'Message')}</div>
+      </div>
+      <div class="inbox-item-date">${escapeHTML(inboxWhen(item.sentAt))}</div>
+    </div>
+  `).join('');
+}
+
+function renderInboxDetailView(item, showBack) {
+  if (!item) return '<div class="inbox-empty">Message not found.</div>';
+  return `
+    ${showBack ? '<button type="button" class="inbox-back" id="inboxBackBtn">← All messages</button>' : ''}
+    <div class="inbox-modal-sub">From <strong>${escapeHTML(item.fromName || 'Admin')}</strong>${item.kind === 'team' ? ' · team note' : ''}</div>
+    ${item.title ? `<div class="inbox-modal-title" style="font-size:18px">${escapeHTML(item.title)}</div>` : ''}
+    <div class="inbox-msg-body">${sanitizeFeedbackHtml(item.messageHtml || ('<p>' + escapeHTML(item.message || '') + '</p>'))}</div>
+    <div class="tf-draft-hint">${escapeHTML(inboxWhen(item.sentAt))}</div>
+    <div class="fb-send-actions">
+      <button type="button" class="btn btn-primary" id="inboxGotItBtn">Got it</button>
+    </div>
+  `;
+}
+
+function paintInboxModal(view, detailId) {
+  ensureInboxModal();
+  const modal = document.getElementById('inboxModal');
+  if (!modal) return;
+  const items = currentInboxItems();
+  const unread = countUnreadInbox(items);
+  if (view === 'detail') {
+    const item = items.find(m => m.id === detailId) || items[0];
+    modal.innerHTML = `<div class="inbox-modal-title" id="inboxModalTitle">${escapeHTML((item && item.title) || 'Inbox')}</div>` + renderInboxDetailView(item, items.length > 1);
+    const back = modal.querySelector('#inboxBackBtn');
+    if (back) back.addEventListener('click', () => paintInboxModal('list'));
+    const got = modal.querySelector('#inboxGotItBtn');
+    if (got) got.addEventListener('click', () => {
+      if (item && item.id) markInboxItemsRead([item.id]);
+      if (item && item.kind === 'team') {
+        closeModInbox();
+        openCalGuideModal({ mode: 'teamFeedback', role: 'moderator', announcement: _feedbackUiStore.teamAnnouncement });
+        return;
+      }
+      if (items.length > 1) paintInboxModal('list');
+      else closeModInbox();
+    });
+    return;
+  }
+  modal.innerHTML = `
+    <div class="inbox-modal-title" id="inboxModalTitle">Inbox</div>
+    <div class="inbox-modal-sub">${unread ? unread + ' new' : 'All caught up'}</div>
+    ${renderInboxListView(items)}
+  `;
+  modal.querySelectorAll('[data-inbox-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const id = row.getAttribute('data-inbox-id');
+      const item = items.find(m => m.id === id);
+      if (item && item.kind === 'team') {
+        markInboxItemsRead([id]);
+        closeModInbox();
+        openCalGuideModal({ mode: 'teamFeedback', role: 'moderator', announcement: _feedbackUiStore.teamAnnouncement });
+        return;
+      }
+      paintInboxModal('detail', id);
+    });
+  });
+}
+
+function openModInbox() {
+  const items = currentInboxItems();
+  _feedbackInboxOpen = true;
+  _feedbackUiStore.lastToastAt = resetInboxToastAt(Date.now());
+  saveFeedbackToastAt(_feedbackUiStore.lastToastAt);
+  if (items.length === 1 && items[0].kind === 'team') {
+    _feedbackInboxOpen = false;
+    openCalGuideModal({ mode: 'teamFeedback', role: 'moderator', announcement: _feedbackUiStore.teamAnnouncement });
+    return;
+  }
+  ensureInboxModal();
+  const overlay = document.getElementById('inboxOverlay');
+  const modal = document.getElementById('inboxModal');
+  if (overlay) overlay.classList.add('open');
+  if (modal) modal.classList.add('open');
+  if (items.length === 1) paintInboxModal('detail', items[0].id);
+  else paintInboxModal('list');
+}
+
+function closeModInbox() {
+  _feedbackInboxOpen = false;
+  const overlay = document.getElementById('inboxOverlay');
+  const modal = document.getElementById('inboxModal');
+  if (overlay) overlay.classList.remove('open');
+  if (modal) modal.classList.remove('open');
+  refreshInboxPill();
+}
+
+function tickInboxToast() {
+  const unread = countUnreadInbox(currentInboxItems());
+  if (!unread) return;
+  if (!_feedbackUiStore.lastToastAt) {
+    _feedbackUiStore.lastToastAt = resetInboxToastAt(Date.now());
+    saveFeedbackToastAt(_feedbackUiStore.lastToastAt);
+    return;
+  }
+  if (shouldShowInboxToast(Date.now(), _feedbackUiStore.lastToastAt, unread, _feedbackInboxOpen)) {
+    if (typeof toast === 'function') {
+      toast(unread === 1 ? 'You have a new Inbox message' : ('You have ' + unread + ' new Inbox messages'), 4200);
+    }
+    _feedbackUiStore.lastToastAt = resetInboxToastAt(Date.now());
+    saveFeedbackToastAt(_feedbackUiStore.lastToastAt);
+  }
+}
+
+function startInboxToastWatcher() {
+  if (_feedbackToastTimer) return;
+  _feedbackToastTimer = setInterval(tickInboxToast, 60 * 1000);
+}
+
+function startFeedbackInboxRuntime() {
+  _feedbackUiStore.readIds = loadFeedbackLocalReads();
+  _feedbackUiStore.lastToastAt = loadFeedbackToastAt();
+  refreshInboxPill();
+  const pill = document.getElementById('navInbox');
+  if (pill && pill.dataset.wired !== '1') {
+    pill.dataset.wired = '1';
+    pill.addEventListener('click', openModInbox);
+  }
+  startInboxToastWatcher();
+  if (typeof fetchSessionStateRows === 'function') {
+    fetchSessionStateRows().then(rows => {
+      if (Array.isArray(rows)) ingestFeedbackFromSessionRows(rows);
+    }).catch(() => {});
+  }
+}
+
+/* FEEDBACK_INBOX_END */
 
 
 /* =====================================================================
@@ -38618,6 +39682,7 @@ function startAppAfterLogin() {
   // setTimeout callback in doLogin without changing function signatures.
   window._orbitInitialAsgnRefresh = _initialAsgnRefresh;
   if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof startFeedbackInboxRuntime === 'function') startFeedbackInboxRuntime();
 }
 
 // Look for teammate SessionState on the current assignment. If found
