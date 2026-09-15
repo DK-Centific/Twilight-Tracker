@@ -35231,9 +35231,11 @@ function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
     return `<button type="button" class="tf-swatch" data-accent="${id}" data-cg-text-color="${id}" title="Text ${id}"></button>`;
   }).join('');
   return `
-    <div class="tf-toolbar cg-callout-tools" role="toolbar" aria-label="Icon and style">
+    <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Icon">
       ${icons}
       <input class="tf-title cg-emoji" data-cg-custom-icon maxlength="8" placeholder="🙂" value="${calGuideEscape(custom)}" title="Custom icon" aria-label="Custom icon">
+    </div>
+    <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Style">
       <span class="tf-draft-hint">Block</span>
       ${accentBtns}
       <span class="tf-draft-hint">Text</span>
