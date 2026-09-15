@@ -43,6 +43,7 @@ const {
   teamAnnouncementHasContent,
   publishedAnnouncementToComposerDraft,
   resolveTeamFeedbackComposerTab,
+  preferNewerTeamAnnouncement,
   buildIndividualFeedbackRecord,
   buildFeedbackAppSettingPayload,
   feedbackMatchesRecipient,
@@ -232,6 +233,13 @@ const samAfterEdit = buildInboxItems(editedStore, { loginId: 'Sam-tw', name: 'Sa
 assert('mod inbox shows the updated team text',
   samAfterEdit.length === 1 && /very/.test(samAfterEdit[0].message));
 assert('mod sees the edited note as unread (new id)', samAfterEdit[0].unread === true);
+
+assert('ingest keeps a local publish when cloud has no team row',
+  preferNewerTeamAnnouncement(announcement, null) === announcement);
+assert('ingest prefers the newer publishedAt',
+  preferNewerTeamAnnouncement(announcement, edited) === edited);
+assert('ingest does not invent a team note from empty',
+  preferNewerTeamAnnouncement(null, null) === null);
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

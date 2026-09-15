@@ -35470,6 +35470,16 @@ function resolveTeamFeedbackComposerTab(requested, announcement) {
   return 'new';
 }
 
+function preferNewerTeamAnnouncement(existing, incoming) {
+  const hasExisting = teamAnnouncementHasContent(existing);
+  const hasIncoming = teamAnnouncementHasContent(incoming);
+  if (!hasIncoming) return hasExisting ? existing : null;
+  if (!hasExisting) return incoming;
+  return String(existing.publishedAt || '') > String(incoming.publishedAt || '')
+    ? existing
+    : incoming;
+}
+
 function buildTeamAnnouncementRecord(draft, adminName) {
   const bodyHtml = sanitizeFeedbackHtml((draft && draft.bodyHtml) || '');
   // Edit-current re-sends overwrite the same SessionState row. A fresh
@@ -35689,6 +35699,7 @@ function resetInboxToastAt(now) {
   g.teamAnnouncementHasContent = teamAnnouncementHasContent;
   g.publishedAnnouncementToComposerDraft = publishedAnnouncementToComposerDraft;
   g.resolveTeamFeedbackComposerTab = resolveTeamFeedbackComposerTab;
+  g.preferNewerTeamAnnouncement = preferNewerTeamAnnouncement;
   g.buildIndividualFeedbackRecord = buildIndividualFeedbackRecord;
   g.buildFeedbackAppSettingPayload = buildFeedbackAppSettingPayload;
   g.emptyFeedbackStore = emptyFeedbackStore;
@@ -35781,8 +35792,9 @@ function ingestFeedbackFromSessionRows(rows) {
   const userKey = feedbackOrbitKey(currentFeedbackUser().loginId);
   const cloudReads = (collected.readMaps && collected.readMaps[userKey]) || [];
   cloudReads.forEach(id => localReads.add(String(id)));
+  const existingTeam = _feedbackUiStore && _feedbackUiStore.teamAnnouncement;
   _feedbackUiStore = {
-    teamAnnouncement: collected.teamAnnouncement,
+    teamAnnouncement: preferNewerTeamAnnouncement(existingTeam, collected.teamAnnouncement),
     messages: collected.messages || [],
     readIds: localReads,
     lastToastAt: loadFeedbackToastAt() || _feedbackUiStore.lastToastAt || 0,
