@@ -189,8 +189,51 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091526f', /const APP_VERSION = '1\.3\.091526f'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091526f'));
+assert('APP_VERSION is 1.3.091526g', /const APP_VERSION = '1\.3\.091526g'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091526g'));
+
+assert(
+  'session cards put the date in bk-session-time and the clock in the subtitle',
+  /class="bk-session-time">\$\{escapeHTML\(dateLabel\)\}/.test(src)
+    && /weekday: 'short', month: 'short', day: 'numeric'/.test(src)
+    && src.includes('const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;')
+    && /const sub = \[\s*when,/.test(src)
+);
+
+assert(
+  'missing-link chips sit on their own full-width card row',
+  html.includes('.bk-link-chips')
+    && html.includes('flex: 1 0 100%')
+    && /bk-origin-pill[\s\S]{0,180}<\/div>\s*\$\{chips \? `<div class="bk-link-chips">/.test(src)
+);
+
+assert(
+  'Assign-a-Team Booked status follows OneData, not team-session placeholders',
+  /function bookingOdStatusIsActive\(odStatus\)/.test(src)
+    && /function assignmentBelongsToBookingTeam\(a, team\)/.test(src)
+    && /function bookingAssignmentCountsAsBooked\(a\)/.test(src)
+    && /isTeamSessionAssignment\(a\)\) return false/.test(src)
+    && /assignmentIsOdOrigin\(a\)/.test(src)
+    && /bookingOdStatusIsActive\(a\.odStatus\)/.test(src)
+);
+
+const emailSlice = src.slice(
+  src.indexOf('const ORBIT_EMAIL_TEMPLATE_HTML'),
+  src.indexOf('function buildEmailTimeLabel')
+);
+assert(
+  'booking emails no longer use low-contrast grey / cyan / magenta tokens',
+  !/#9A9AA0|#5A6A72|#7A7A80|#00B4D8|#C23287|#F0F7FA|#D6E5EA|#FAF5F8|#F0E0EA/.test(emailSlice)
+);
+assert(
+  'booking emails use Helios contrast tokens',
+  emailSlice.includes('#A34B2E')
+    && emailSlice.includes('#3D4A52')
+    && emailSlice.includes('#2F3D46')
+    && emailSlice.includes('#F6F3EC')
+    && emailSlice.includes('#E4DDD0')
+    && emailSlice.includes('#001528')
+);
 
 console.log('');
 console.log(failed ? `FAILED ${failed} · passed ${passed}` : `All ${passed} checks passed`);

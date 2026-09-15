@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526f';
-const APP_UPDATED_AT = '09/15/2026 21:19';
+const APP_VERSION = '1.3.091526g';
+const APP_UPDATED_AT = '09/15/2026 22:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -18950,7 +18950,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
             <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%">
               <tr>
                 <td style="padding-bottom:8px;">
-                  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#C23287;">
+                  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#A34B2E;">
                     Project Twilight
                   </div>
                 </td>
@@ -18981,14 +18981,14 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <!-- Details card -->
         <tr>
           <td align="center" style="padding:24px 40px 8px;">
-            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#FAF5F8; border:1px solid #F0E0EA; border-radius:10px;">
+            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#F6F3EC; border:1px solid #E4DDD0; border-radius:10px;">
               <tr>
                 <td style="padding:20px 24px;">
                   <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%">
 
                     <!-- DATE row -->
                     <tr>
-                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287; white-space:nowrap;">
+                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E; white-space:nowrap;">
                         Date
                       </td>
                       <td valign="top" style="padding:6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#001528; line-height:1.4;">
@@ -18997,11 +18997,11 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     </tr>
 
                     <!-- Divider -->
-                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #F0E0EA; height:1px; line-height:1px;">&nbsp;</div></td></tr>
+                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #E4DDD0; height:1px; line-height:1px;">&nbsp;</div></td></tr>
 
                     <!-- TIME row -->
                     <tr>
-                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287; white-space:nowrap;">
+                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E; white-space:nowrap;">
                         Time
                       </td>
                       <td valign="top" style="padding:6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#001528; line-height:1.4;">
@@ -19010,11 +19010,11 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     </tr>
 
                     <!-- Divider -->
-                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #F0E0EA; height:1px; line-height:1px;">&nbsp;</div></td></tr>
+                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #E4DDD0; height:1px; line-height:1px;">&nbsp;</div></td></tr>
 
                     <!-- ADDRESS row -->
                     <tr>
-                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287; white-space:nowrap;">
+                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E; white-space:nowrap;">
                         Address
                       </td>
                       <td valign="top" style="padding:6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#001528; line-height:1.4;">
@@ -19023,11 +19023,11 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     </tr>
 
                     <!-- Divider -->
-                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #F0E0EA; height:1px; line-height:1px;">&nbsp;</div></td></tr>
+                    <tr><td colspan="2" style="font-size:0; line-height:0;"><div style="border-top:1px solid #E4DDD0; height:1px; line-height:1px;">&nbsp;</div></td></tr>
 
                     <!-- MODERATORS row -->
                     <tr>
-                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287; white-space:nowrap;">
+                      <td width="100" valign="top" style="padding:6px 16px 6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E; white-space:nowrap;">
                         Moderators
                       </td>
                       <td valign="top" style="padding:6px 0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; font-weight:600; color:#001528; line-height:1.4;">
@@ -19065,7 +19065,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                  actual <img> tag would be unreliable because email
                  clients block remote images by default. -->
             <p style="margin:0 0 14px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.6; color:#3A3A40;">
-              <a href="https://drive.google.com/file/d/1jx4BCe0izWh8mDlKsdkXz-2yuXN9V4qb/view?usp=sharing" target="_blank" rel="noopener" style="color:#0E7A8C; text-decoration:underline; font-weight:600;">
+              <a href="https://drive.google.com/file/d/1jx4BCe0izWh8mDlKsdkXz-2yuXN9V4qb/view?usp=sharing" target="_blank" rel="noopener" style="color:#A34B2E; text-decoration:underline; font-weight:600;">
                 See what to expect infographic
                 <span style="display:inline-block; margin-left:4px; vertical-align:-1px;">→</span>
               </a>
@@ -19080,10 +19080,10 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <!-- Important notes callout -->
         <tr>
           <td align="left" style="padding:24px 40px 0;">
-            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#FFFFFF; border-left:3px solid #C23287; border-radius:0 6px 6px 0;">
+            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#FFFFFF; border-left:3px solid #E57E5D; border-radius:0 6px 6px 0;">
               <tr>
                 <td style="padding:14px 18px;">
-                  <p style="margin:0 0 10px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287;">
+                  <p style="margin:0 0 10px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E;">
                     Important
                   </p>
                   <p style="margin:0 0 10px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.6; color:#1A1A1F;">
@@ -19103,7 +19103,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
              uses a bulletproof table-based layout (mso fallback included)
              so it renders consistently in Outlook desktop, Gmail web, Apple
              Mail, and mobile clients. The teal accent matches the app's
-             primary action color (#00B4D8 family) · recipients who've
+             primary action color (#A34B2E family) · recipients who've
              interacted with the app before recognize the visual language. -->
         {agreementButton}
 
@@ -19130,10 +19130,10 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <tr>
           <td align="center" style="padding:32px 40px 32px;">
             <div style="border-top:1px solid #EFEFF2; padding-top:20px;">
-              <p style="margin:0 0 6px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:1.5; color:#9A9AA0; letter-spacing:0.02em;">
+              <p style="margin:0 0 6px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:1.5; color:#3D4A52; letter-spacing:0.02em;">
                 This is an automated reminder from Project Twilight.
               </p>
-              <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; line-height:1.5; color:#9A9AA0; letter-spacing:0.04em;">
+              <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; line-height:1.5; color:#3D4A52; letter-spacing:0.04em;">
                 © Centific · Project Twilight
               </p>
             </div>
@@ -19235,7 +19235,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
               </tr>
               <tr>
                 <td align="center">
-                  <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11.5px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:#0091A6;">
+                  <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11.5px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase; color:#A34B2E;">
                     Centific · Project Twilight
                   </p>
                 </td>
@@ -19264,14 +19264,14 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <!-- Details card · participant + session info -->
         <tr>
           <td align="left" style="padding:24px 40px 0;">
-            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#F0F7FA; border:1px solid #D6E5EA; border-radius:10px;">
+            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#F6F3EC; border:1px solid #E4DDD0; border-radius:10px;">
               <tr>
                 <td style="padding:18px 22px;">
                   <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%">
                     <!-- Participant -->
                     <tr>
                       <td style="padding:4px 0; vertical-align:top; width:130px;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">Participant</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">Participant</p>
                       </td>
                       <td style="padding:4px 0; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; font-weight:600; line-height:1.5; color:#001528; letter-spacing:-0.005em;">{participantName}</p>
@@ -19280,7 +19280,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     <!-- Date -->
                     <tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">Date</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">Date</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">{bookedDate}</p>
@@ -19289,7 +19289,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     <!-- Time -->
                     <tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">Time</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">Time</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">{bookedTime}</p>
@@ -19298,7 +19298,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     <!-- Address -->
                     <tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">Address</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">Address</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">{participantAddress}</p>
@@ -19307,7 +19307,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                     <!-- Phone -->
                     <tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">Phone</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">Phone</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">{participantPhone}</p>
@@ -19342,10 +19342,10 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <!-- Important callout · equipment + pre-call reminders -->
         <tr>
           <td align="left" style="padding:24px 40px 0;">
-            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#FFFFFF; border-left:3px solid #C23287; border-radius:0 6px 6px 0;">
+            <table role="presentation" border="0" cellspacing="0" cellpadding="0" width="100%" style="background-color:#FFFFFF; border-left:3px solid #E57E5D; border-radius:0 6px 6px 0;">
               <tr>
                 <td style="padding:14px 18px;">
-                  <p style="margin:0 0 10px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#C23287;">
+                  <p style="margin:0 0 10px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.10em; text-transform:uppercase; color:#A34B2E;">
                     Before you head out
                   </p>
                   <p style="margin:0 0 8px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.6; color:#1A1A1F;">
@@ -19374,9 +19374,9 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
                 <td align="center" style="padding:0;">
                   <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center">
                     <tr>
-                      <td align="center" bgcolor="#00B4D8" style="border-radius:8px; background-color:#00B4D8;">
+                      <td align="center" bgcolor="#A34B2E" style="border-radius:8px; background-color:#A34B2E;">
                         <!--[if mso]>
-                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{orbitAppUrl}" style="height:46px;v-text-anchor:middle;width:220px;" arcsize="17%" stroke="f" fillcolor="#00B4D8">
+                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{orbitAppUrl}" style="height:46px;v-text-anchor:middle;width:220px;" arcsize="17%" stroke="f" fillcolor="#A34B2E">
                           <w:anchorlock/>
                           <center style="color:#FFFFFF;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:15px;font-weight:600;">Open Twilight App</center>
                         </v:roundrect>
@@ -19405,7 +19405,7 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
             <p style="margin:0 0 6px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:15px; line-height:1.6; color:#1A1A1F; letter-spacing:-0.005em;">
               Safe travels and thank you!
             </p>
-            <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.5; color:#5A6A72;">
+            <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14px; line-height:1.5; color:#2F3D46;">
               · The Centific Project Twilight Team
             </p>
           </td>
@@ -19415,10 +19415,10 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
         <tr>
           <td align="center" style="padding:32px 40px 32px;">
             <div style="border-top:1px solid #EFEFF2; padding-top:20px;">
-              <p style="margin:0 0 6px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:1.5; color:#9A9AA0; letter-spacing:0.02em;">
+              <p style="margin:0 0 6px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12px; line-height:1.5; color:#3D4A52; letter-spacing:0.02em;">
                 This is an automated assignment notification from Project Twilight.
               </p>
-              <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; line-height:1.5; color:#9A9AA0; letter-spacing:0.04em;">
+              <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; line-height:1.5; color:#3D4A52; letter-spacing:0.04em;">
                 © Centific · Project Twilight
               </p>
             </div>
@@ -19488,7 +19488,7 @@ function fillModEmailTemplate(template, data) {
   const teamRow = data.teamMemberLine
     ? `<tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">${data.roleNote ? 'Primary' : 'Team member'}</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">${data.roleNote ? 'Primary' : 'Team member'}</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">${safe(data.teamMemberLine)}</p>
@@ -19498,7 +19498,7 @@ function fillModEmailTemplate(template, data) {
   const backupRow = data.backupLine
     ? `<tr>
                       <td style="padding:8px 0 4px; vertical-align:top;">
-                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#5A6A72;">${data.roleNote ? 'Other backup' : 'Backup'}</p>
+                        <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:#2F3D46;">${data.roleNote ? 'Other backup' : 'Backup'}</p>
                       </td>
                       <td style="padding:8px 0 4px; vertical-align:top;">
                         <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:14.5px; line-height:1.5; color:#1A1A1F; letter-spacing:-0.005em;">${safe(data.backupLine)}</p>
@@ -19595,9 +19595,9 @@ function fillEmailTemplate(template, data) {
                 <td align="center" style="padding:0;">
                   <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center">
                     <tr>
-                      <td align="center" bgcolor="#00B4D8" style="border-radius:8px; background-color:#00B4D8;">
+                      <td align="center" bgcolor="#A34B2E" style="border-radius:8px; background-color:#A34B2E;">
                         <!--[if mso]>
-                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${url}" style="height:46px;v-text-anchor:middle;width:260px;" arcsize="17%" stroke="f" fillcolor="#00B4D8">
+                        <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${url}" style="height:46px;v-text-anchor:middle;width:260px;" arcsize="17%" stroke="f" fillcolor="#A34B2E">
                           <w:anchorlock/>
                           <center style="color:#FFFFFF;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;font-size:15px;font-weight:600;">View Participation Agreement</center>
                         </v:roundrect>
@@ -19616,7 +19616,7 @@ function fillEmailTemplate(template, data) {
               <!-- Helper caption · centered directly under the button. -->
               <tr>
                 <td align="center" style="padding:8px 0 0;">
-                  <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12.5px; line-height:1.5; color:#7A7A80;">
+                  <p style="margin:0; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:12.5px; line-height:1.5; color:#3D4A52;">
                     Opens in your browser · PDF
                   </p>
                 </td>
@@ -19629,11 +19629,11 @@ function fillEmailTemplate(template, data) {
                    visually with the button above. -->
               <tr>
                 <td align="center" style="padding:18px 0 0;">
-                  <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center" style="background-color:#F0F7FA; border:1px solid #D6E5EA; border-radius:8px;">
+                  <table role="presentation" border="0" cellspacing="0" cellpadding="0" align="center" style="background-color:#F6F3EC; border:1px solid #E4DDD0; border-radius:8px;">
                     <tr>
                       <td style="padding:11px 16px;">
-                        <span style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:13px; font-weight:500; color:#3A3A40; letter-spacing:-0.005em;">Password to open:</span>
-                        <span style="display:inline-block; margin-left:8px; padding:3px 10px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:14px; font-weight:600; color:#001528; background-color:#FFFFFF; border:1px solid #C8D8DE; border-radius:5px; letter-spacing:0.02em; vertical-align:middle;">${safe(pw)}</span>
+                        <span style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size:13px; font-weight:500; color:#2F3D46; letter-spacing:-0.005em;">Password to open:</span>
+                        <span style="display:inline-block; margin-left:8px; padding:3px 10px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:14px; font-weight:600; color:#001528; background-color:#FFFFFF; border:1px solid #E4DDD0; border-radius:5px; letter-spacing:0.02em; vertical-align:middle;">${safe(pw)}</span>
                       </td>
                     </tr>
                   </table>
@@ -23794,10 +23794,61 @@ function bookingSearchMatches() {
   return normalizeParticipants().filter(p => bookingParticipantMatches(p, q)).slice(0, 8);
 }
 
+function bookingOdStatusIsActive(odStatus) {
+  const s = (typeof bookingOdMeaningfulToken === 'function')
+    ? bookingOdMeaningfulToken(odStatus)
+    : String(odStatus == null ? '' : odStatus).trim();
+  if (!s) return true;
+  const dead = new Set([
+    'cancelled', 'canceled', 'completed', 'complete',
+    'no-show', 'noshow', 'unassigned', 'declined', 'rejected',
+  ]);
+  return !dead.has(s.toLowerCase());
+}
+
+function assignmentBelongsToBookingTeam(a, team) {
+  if (!a || !team) return false;
+  if (a.teamId != null && a.teamId !== '' && String(a.teamId) === String(team.id)) return true;
+  const aGroup = (typeof bookingOdMeaningfulToken === 'function')
+    ? bookingOdMeaningfulToken(a.bookingGroupId)
+    : String(a.bookingGroupId || '').trim();
+  const tGroup = (typeof bookingOdMeaningfulToken === 'function')
+    ? bookingOdMeaningfulToken(team.bookingGroupId)
+    : String(team.bookingGroupId || '').trim();
+  if (aGroup && tGroup && aGroup === tGroup) return true;
+  const aSched = (typeof bookingOdMeaningfulToken === 'function')
+    ? bookingOdMeaningfulToken(a.odScheduleId)
+    : String(a.odScheduleId || '').trim();
+  const tSched = (typeof bookingOdMeaningfulToken === 'function')
+    ? bookingOdMeaningfulToken(team.odScheduleId)
+    : String(team.odScheduleId || '').trim();
+  if (aSched && tSched && aSched === tSched) return true;
+  const aName = String(a.teamName || '').trim().toLowerCase();
+  const tName = String(team.name || '').trim().toLowerCase();
+  if (aName && tName && aName === tName
+      && typeof assignmentIsOdOrigin === 'function' && assignmentIsOdOrigin(a)) {
+    return true;
+  }
+  return false;
+}
+
+function bookingAssignmentCountsAsBooked(a) {
+  if (!a) return false;
+  if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+  // team-session pointers are a Twilight-only "open session" flag, not
+  // OneData booked-sessions. They must not paint Assign-a-Team as Booked.
+  if (typeof isTeamSessionAssignment === 'function' && isTeamSessionAssignment(a)) return false;
+  if (typeof assignmentIsOdOrigin === 'function' && assignmentIsOdOrigin(a)) {
+    return bookingOdStatusIsActive(a.odStatus);
+  }
+  return true;
+}
+
 function bookingTeamDayStatus(team, dateStr) {
   const booked = (adminState.assignments || []).some(a =>
-    a && String(a.teamId) === String(team.id) && a.date === dateStr
-    && a.status !== 'Cancelled' && a.status !== 'Unassigned');
+    assignmentBelongsToBookingTeam(a, team)
+    && a.date === dateStr
+    && bookingAssignmentCountsAsBooked(a));
   if (booked) return 'Booked';
   return 'Open';
 }
@@ -24412,14 +24463,14 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
     const origin = bookingSessionOrigin(a);
     const originLabel = origin === 'od' ? 'OD' : 'Twilight';
     const dayObj = a.date ? parseYMD(a.date) : null;
-    const dayLabel = (useScope === 'week' && dayObj)
+    const dateLabel = dayObj
       ? dayObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-      : '';
+      : (a.date || '');
     const contact = (typeof assignmentParticipantContact === 'function')
       ? assignmentParticipantContact(a)
       : { address: (p.address || '').trim() };
     const sub = [
-      dayLabel,
+      when,
       (team && team.name) || a.teamName || '',
       contact.address || '',
       a.status || '',
@@ -24436,15 +24487,15 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
     ).join('');
     return `
             <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}" data-origin="${origin}">
-              <div class="bk-session-time">${escapeHTML(when)}</div>
+              <div class="bk-session-time">${escapeHTML(dateLabel)}</div>
               <div class="bk-session-info">
                 <strong>${escapeHTML(name)}</strong>
                 <span>${escapeHTML(sub)}</span>
               </div>
               <div class="bk-session-meta">
                 <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
-                ${chips ? `<div class="bk-link-chips">${chips}</div>` : ''}
               </div>
+              ${chips ? `<div class="bk-link-chips">${chips}</div>` : ''}
             </button>`;
   }).join('');
 }

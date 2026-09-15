@@ -3118,9 +3118,10 @@ a.icon-btn:focus-visible {
   padding-right: 2px;
 }
 .bk-session-card {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 14px;
   width: 100%;
-  padding: 12px 16px;
+  min-height: 72px;
+  padding: 14px 16px;
   border: none;
   border-radius: 18px;
   background: var(--bg);
@@ -3136,17 +3137,27 @@ a.icon-btn:focus-visible {
 .bk-session-time {
   font-size: 12px; font-weight: 700;
   color: var(--bk-accent);
-  min-width: 92px;
+  min-width: 6.4rem;
+  max-width: 7.2rem;
+  line-height: 1.3;
+  flex-shrink: 0;
+  padding-top: 2px;
 }
-.bk-session-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.bk-session-info {
+  min-width: 0;
+  flex: 1 1 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
 .bk-session-info strong,
 .bk-session-info span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
-.bk-session-info strong { font-size: 14px; font-weight: 600; }
-.bk-session-info span { font-size: 12px; color: var(--text3); }
+.bk-session-info strong { font-size: 14px; font-weight: 600; line-height: 1.3; }
+.bk-session-info span { font-size: 12px; color: var(--text3); line-height: 1.35; }
 .bk-origin-pill {
   flex-shrink: 0;
   font-size: 9px; font-weight: 700;
@@ -3170,13 +3181,19 @@ a.icon-btn:focus-visible {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 .bk-link-chips {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  align-content: flex-start;
   gap: 4px;
+  flex: 1 0 100%;
+  width: 100%;
+  padding-top: 4px;
+  order: 5;
 }
 .bk-link-chip {
   flex-shrink: 0;
@@ -16655,7 +16672,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091526f" defer></script>
+<script src="twilight.js?v=twilight-1.3.091526g" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
