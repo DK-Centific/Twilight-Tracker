@@ -1776,6 +1776,35 @@ a.icon-btn:focus-visible {
 .cal-guide-banner-icon {
   flex-shrink: 0;
   margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; line-height: 1;
+}
+.cal-guide-banner-icon svg { display: block; }
+.cal-guide-banner-copy { min-width: 0; }
+.cal-guide-banner[data-accent="amber"] {
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  border-color: var(--amber-border);
+}
+.cal-guide-banner[data-accent="sage"] {
+  background: color-mix(in srgb, #6B8F71 16%, var(--bg2));
+  color: var(--text);
+  border-color: color-mix(in srgb, #6B8F71 45%, var(--border));
+}
+.cal-guide-banner[data-accent="coral"] {
+  background: color-mix(in srgb, #C47A6A 16%, var(--bg2));
+  color: var(--text);
+  border-color: color-mix(in srgb, #C47A6A 45%, var(--border));
+}
+.cal-guide-banner[data-accent="red"] {
+  background: rgba(239,68,68,0.13);
+  color: var(--text);
+  border-color: var(--red);
+}
+.cal-guide-banner[data-accent="ink"] {
+  background: color-mix(in srgb, #3C3C3B 12%, var(--bg2));
+  color: var(--text);
+  border-color: color-mix(in srgb, #3C3C3B 40%, var(--border));
 }
 /* Eye-popping CRITICAL reminder inside the calibration guide modal. Distinct
    from the amber .cal-guide-banner above · Motion Detection OFF is a hard rule,
@@ -1798,6 +1827,58 @@ a.icon-btn:focus-visible {
   display: flex; align-items: center; justify-content: center;
   color: var(--red);
 }
+.cal-guide-motion-icon svg { display: block; }
+.cal-guide-motion-icon .cg-icon-glyph { font-size: 22px; line-height: 1; }
+.cal-guide-motion[data-accent="red"] {
+  background: rgba(239,68,68,0.13);
+  border-color: var(--red);
+  box-shadow: 0 0 0 4px rgba(239,68,68,0.10);
+}
+.cal-guide-motion[data-accent="red"] .cal-guide-motion-icon {
+  background: rgba(239,68,68,0.18);
+  color: var(--red);
+}
+.cal-guide-motion[data-accent="red"] .cal-guide-motion-eyebrow { color: var(--red); }
+.cal-guide-motion[data-accent="amber"] {
+  background: rgba(245,158,11,0.12);
+  border-color: var(--amber);
+  box-shadow: 0 0 0 4px rgba(245,158,11,0.10);
+}
+.cal-guide-motion[data-accent="amber"] .cal-guide-motion-icon {
+  background: rgba(245,158,11,0.18);
+  color: var(--amber);
+}
+.cal-guide-motion[data-accent="amber"] .cal-guide-motion-eyebrow { color: var(--amber); }
+.cal-guide-motion[data-accent="sage"] {
+  background: color-mix(in srgb, #6B8F71 16%, var(--bg2));
+  border-color: #6B8F71;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #6B8F71 18%, transparent);
+}
+.cal-guide-motion[data-accent="sage"] .cal-guide-motion-icon {
+  background: color-mix(in srgb, #6B8F71 22%, var(--bg2));
+  color: #6B8F71;
+}
+.cal-guide-motion[data-accent="sage"] .cal-guide-motion-eyebrow { color: #6B8F71; }
+.cal-guide-motion[data-accent="coral"] {
+  background: color-mix(in srgb, #C47A6A 16%, var(--bg2));
+  border-color: #C47A6A;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #C47A6A 18%, transparent);
+}
+.cal-guide-motion[data-accent="coral"] .cal-guide-motion-icon {
+  background: color-mix(in srgb, #C47A6A 22%, var(--bg2));
+  color: #C47A6A;
+}
+.cal-guide-motion[data-accent="coral"] .cal-guide-motion-eyebrow { color: #C47A6A; }
+.cal-guide-motion[data-accent="ink"] {
+  background: color-mix(in srgb, #3C3C3B 12%, var(--bg2));
+  border-color: #3C3C3B;
+  box-shadow: 0 0 0 4px color-mix(in srgb, #3C3C3B 14%, transparent);
+}
+.cal-guide-motion[data-accent="ink"] .cal-guide-motion-icon {
+  background: color-mix(in srgb, #3C3C3B 18%, var(--bg2));
+  color: var(--text);
+}
+.cal-guide-motion[data-accent="ink"] .cal-guide-motion-eyebrow { color: var(--text); }
 .cal-guide-motion-eyebrow {
   font-family: var(--font-num);
   font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
@@ -1873,6 +1954,65 @@ a.icon-btn:focus-visible {
   padding: 14px 16px;
   text-align: left;
 }
+.len-reminder.has-icon {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+}
+.len-reminder-main { min-width: 0; flex: 1; }
+.len-reminder-icon {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 11px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(245,158,11,0.18);
+  color: var(--amber);
+}
+.len-reminder-icon svg { display: block; }
+.len-reminder-icon .cg-icon-glyph { font-size: 22px; line-height: 1; }
+.len-reminder[data-accent="amber"] {
+  border-color: var(--amber);
+  background: rgba(245,158,11,0.10);
+}
+.len-reminder[data-accent="amber"] .len-reminder-eyebrow { color: var(--amber); }
+.len-reminder[data-accent="amber"] .len-reminder-icon {
+  background: rgba(245,158,11,0.18);
+  color: var(--amber);
+}
+.len-reminder[data-accent="red"] {
+  border-color: var(--red);
+  background: rgba(239,68,68,0.10);
+}
+.len-reminder[data-accent="red"] .len-reminder-eyebrow { color: var(--red); }
+.len-reminder[data-accent="red"] .len-reminder-icon {
+  background: rgba(239,68,68,0.18);
+  color: var(--red);
+}
+.len-reminder[data-accent="sage"] {
+  border-color: #6B8F71;
+  background: color-mix(in srgb, #6B8F71 14%, var(--bg2));
+}
+.len-reminder[data-accent="sage"] .len-reminder-eyebrow { color: #6B8F71; }
+.len-reminder[data-accent="sage"] .len-reminder-icon {
+  background: color-mix(in srgb, #6B8F71 22%, var(--bg2));
+  color: #6B8F71;
+}
+.len-reminder[data-accent="coral"] {
+  border-color: #C47A6A;
+  background: color-mix(in srgb, #C47A6A 14%, var(--bg2));
+}
+.len-reminder[data-accent="coral"] .len-reminder-eyebrow { color: #C47A6A; }
+.len-reminder[data-accent="coral"] .len-reminder-icon {
+  background: color-mix(in srgb, #C47A6A 22%, var(--bg2));
+  color: #C47A6A;
+}
+.len-reminder[data-accent="ink"] {
+  border-color: #3C3C3B;
+  background: color-mix(in srgb, #3C3C3B 10%, var(--bg2));
+}
+.len-reminder[data-accent="ink"] .len-reminder-eyebrow { color: var(--text); }
+.len-reminder[data-accent="ink"] .len-reminder-icon {
+  background: color-mix(in srgb, #3C3C3B 16%, var(--bg2));
+  color: var(--text);
+}
 .len-reminder-eyebrow {
   font-family: var(--font-num);
   font-size: 10px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
@@ -1885,6 +2025,10 @@ a.icon-btn:focus-visible {
 .len-reminder-applies { font-size: 12.5px; font-weight: 600; color: var(--text2); margin-bottom: 4px; }
 .len-reminder-list { margin: 0 0 11px; padding-left: 18px; }
 .len-reminder-list li { font-size: 12.5px; color: var(--text2); line-height: 1.55; }
+.len-reminder-body .len-reminder-title { margin-top: 12px; }
+.len-reminder-body .len-reminder-title:first-child { margin-top: 0; }
+.len-reminder-body .len-reminder-warn { margin: 0 0 11px; }
+.len-reminder-body .len-reminder-list { margin-bottom: 0; }
 .len-reminder-warn {
   font-size: 12.5px; font-weight: 600; line-height: 1.4;
   color: var(--red);
@@ -2213,6 +2357,19 @@ a.icon-btn:focus-visible {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
 }
 .cg-editor { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.cg-callout-editor {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 0 14px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border);
+  background: var(--bg2);
+}
+.cg-callout-tools { row-gap: 8px; }
+.cg-rich { min-height: 72px; }
+.cg-rich-sm { min-height: 40px; padding-top: 8px; padding-bottom: 8px; }
+.cg-rich-lg { min-height: 140px; }
+.cg-icon-glyph { font-size: 18px; line-height: 1; }
 .cg-edit-section {
   display: flex; flex-direction: column; gap: 8px;
   padding: 12px; border-radius: 12px;
@@ -2270,6 +2427,7 @@ a.icon-btn:focus-visible {
 .tf-swatch[data-accent="sage"] { background: #6B8F71; }
 .tf-swatch[data-accent="coral"] { background: #C47A6A; }
 .tf-swatch[data-accent="amber"] { background: #C5A059; }
+.tf-swatch[data-accent="red"] { background: #ef4444; }
 .tf-swatch[data-accent="ink"] { background: #3C3C3B; }
 .tf-swatch.is-on, .tf-icon-btn.is-on, .tf-tool-btn.is-on {
   box-shadow: 0 0 0 2px color-mix(in srgb, #6B8F71 55%, transparent);
@@ -16331,7 +16489,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091526c" defer></script>
+<script src="twilight.js?v=twilight-1.3.091526d" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526c';
-const APP_UPDATED_AT = '09/15/2026 19:45';
+const APP_VERSION = '1.3.091526d';
+const APP_UPDATED_AT = '09/15/2026 20:10';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -34838,9 +34838,11 @@ const CAL_GUIDE_CHECKLIST = [
    CAL GUIDE CONTENT · built-in DOs/DON'Ts + optional SessionState publish
    ---------------------------------------------------------------------
    Moderators always see the current guide in calGuideModal. Built-in
-   CAL_GUIDE_SECTIONS / CAL_GUIDE_CHECKLIST are the fallback. Admin can
-   edit the same structure and upsert ss_app_setting_cal_guide (same
-   SessionState write as team feedback · no new PA sig= URL).
+   CAL_GUIDE_SECTIONS / CAL_GUIDE_CHECKLIST plus the warning banner,
+   Motion Detection block, and length reminder are the fallback. Admin
+   can edit those blocks (text, color, icons) and the DO/DON'T sections,
+   then upsert ss_app_setting_cal_guide (same SessionState write as team
+   feedback · no new PA sig= URL).
    Team feedback (ss_app_setting_team_feedback) is a different row.
    Session calGuideAck is never written here.
    ===================================================================== */
@@ -34863,6 +34865,134 @@ function calGuideLineList(raw) {
   return String(raw || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
 }
 
+const CAL_GUIDE_ACCENTS = {
+  sage: '#6B8F71',
+  coral: '#C47A6A',
+  amber: '#C5A059',
+  red: '#ef4444',
+  ink: '#3C3C3B',
+};
+
+const CAL_GUIDE_ICON_ORDER = ['warn', 'alert', 'info', 'check', 'star', 'pin', 'camera', 'clock', 'motion', 'board'];
+
+const CAL_GUIDE_ICON_PRESETS = {
+  warn:   { glyph: '⚠️', label: 'Warning' },
+  alert:  { glyph: '❗', label: 'Alert' },
+  info:   { glyph: 'ℹ️', label: 'Info' },
+  check:  { glyph: '✅', label: 'Check' },
+  star:   { glyph: '★', label: 'Star' },
+  pin:    { glyph: '◉', label: 'Pin' },
+  camera: { glyph: '📷', label: 'Camera' },
+  clock:  { glyph: '⏱', label: 'Timer', svg: '<svg width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
+  motion: { glyph: '🚫', label: 'Motion off', svg: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M7.5 7.5a6.5 6.5 0 000 9M16.5 16.5a6.5 6.5 0 000-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="4" y1="20" x2="20" y2="4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>' },
+  board:  { glyph: '🏁', label: 'Board' },
+};
+
+const CAL_GUIDE_DEFAULT_LENGTH_BODY = [
+  '<div class="len-reminder-title">All calibration recordings must be a minimum of 90 seconds long</div>',
+  '<div class="len-reminder-warn">⚠️ Calibration recordings shorter than 60 seconds do not meet the project requirements and will be rejected by the client.</div>',
+  '<div class="len-reminder-title">All scenario recordings must be a minimum of 60 seconds long</div>',
+  '<div class="len-reminder-title">Speed reminders</div>',
+  '<ul class="len-reminder-list">',
+  '<li><strong>Vehicles:</strong> Drive very slowly · approximately 2 mph.</li>',
+  '<li><strong>People:</strong> Walk significantly slower than your normal pace. Think "slow-motion stroll."</li>',
+  '</ul>',
+].join('');
+
+function calGuideStripHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function calGuideSanitizeHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript:/gi, '');
+  s = s.replace(/<\/?(?:iframe|object|embed|link|meta|form|input|button|textarea|select)[^>]*>/gi, '');
+  s = s.replace(/<(p|div|span|strong|b|em|i|u|br|ul|ol|li)(\s[^>]*)?>/gi, (full, tag, attrs) => {
+    const name = String(tag).toLowerCase();
+    if (name === 'br') return '<br>';
+    let keep = '';
+    const attrSrc = attrs || '';
+    const style = attrSrc.match(/style\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (style) {
+      const val = style[2] || style[3] || '';
+      const color = val.match(/color\s*:\s*([^;]+)/i);
+      if (color) {
+        const c = color[1].trim();
+        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) || /^(rgb|rgba)\(/i.test(c)) {
+          keep += ' style="color:' + c + '"';
+        }
+      }
+    }
+    const cls = attrSrc.match(/class\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (cls) {
+      const allowed = String(cls[2] || cls[3] || '').split(/\s+/).filter(c =>
+        /^(tf-icon|tf-accent-[a-z]+|tf-chip|len-reminder-[a-z]+|cal-guide-[a-z-]+|cg-icon-glyph)$/.test(c)
+      );
+      if (allowed.length) keep += ' class="' + allowed.join(' ') + '"';
+    }
+    return '<' + name + keep + '>';
+  });
+  s = s.replace(/<\/(p|div|span|strong|b|em|i|u|ul|ol|li)>/gi, (full, tag) => '</' + String(tag).toLowerCase() + '>');
+  s = s.replace(/<\/?(?!p|div|span|strong|b|em|i|u|br|ul|ol|li)([a-z][a-z0-9]*)\b[^>]*>/gi, '');
+  return s;
+}
+
+function calGuideNormalizeAccent(raw, fallback) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (CAL_GUIDE_ACCENTS[s]) return s;
+  return fallback || 'amber';
+}
+
+function calGuideNormalizeIcon(raw, fallback) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return fallback || '';
+  if (CAL_GUIDE_ICON_PRESETS[s]) return s;
+  return s.slice(0, 12);
+}
+
+function renderCalGuideIconHtml(icon) {
+  const key = String(icon || '').trim();
+  if (!key) return '';
+  const preset = CAL_GUIDE_ICON_PRESETS[key];
+  if (preset && preset.svg) return preset.svg;
+  const glyph = (preset && preset.glyph) ? preset.glyph : key;
+  return '<span class="cg-icon-glyph">' + calGuideEscape(glyph) + '</span>';
+}
+
+function cloneCalGuideIntroDefaults() {
+  return {
+    banner: {
+      icon: 'warn',
+      accent: 'amber',
+      bodyHtml: '<strong>Recording rejections delay the entire study.</strong> Open and follow this guide at every station before starting any scenario recording.',
+    },
+    motion: {
+      icon: 'motion',
+      accent: 'red',
+      eyebrowHtml: 'Critical · every camera',
+      titleHtml: 'Motion Detection must be OFF',
+      subHtml: 'Turn it off on every camera and keep it off for the entire session.',
+    },
+    length: {
+      icon: '',
+      accent: 'amber',
+      eyebrowHtml: 'Minimum recording length',
+      bodyHtml: CAL_GUIDE_DEFAULT_LENGTH_BODY,
+    },
+  };
+}
+
 function cloneCalGuideDefaults() {
   const sectionsSrc = (typeof CAL_GUIDE_SECTIONS !== 'undefined' && Array.isArray(CAL_GUIDE_SECTIONS))
     ? CAL_GUIDE_SECTIONS
@@ -34870,6 +35000,7 @@ function cloneCalGuideDefaults() {
   const checkSrc = (typeof CAL_GUIDE_CHECKLIST !== 'undefined' && Array.isArray(CAL_GUIDE_CHECKLIST))
     ? CAL_GUIDE_CHECKLIST
     : [];
+  const intro = cloneCalGuideIntroDefaults();
   return {
     sections: sectionsSrc.map(sec => ({
       emoji: String((sec && sec.emoji) || ''),
@@ -34879,7 +35010,49 @@ function cloneCalGuideDefaults() {
       donts: calGuideLineList(sec && sec.donts),
     })),
     checklist: calGuideLineList(checkSrc),
+    banner: intro.banner,
+    motion: intro.motion,
+    length: intro.length,
   };
+}
+
+function normalizeCalGuideBanner(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'string') raw = { bodyHtml: raw };
+  if (typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, 'warn'),
+    accent: calGuideNormalizeAccent(raw.accent, 'amber'),
+    bodyHtml: calGuideSanitizeHtml(raw.bodyHtml || raw.html || ''),
+  };
+}
+
+function normalizeCalGuideMotion(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, 'motion'),
+    accent: calGuideNormalizeAccent(raw.accent, 'red'),
+    eyebrowHtml: calGuideSanitizeHtml(raw.eyebrowHtml || raw.eyebrow || ''),
+    titleHtml: calGuideSanitizeHtml(raw.titleHtml || raw.title || ''),
+    subHtml: calGuideSanitizeHtml(raw.subHtml || raw.sub || ''),
+  };
+}
+
+function normalizeCalGuideLength(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, ''),
+    accent: calGuideNormalizeAccent(raw.accent, 'amber'),
+    eyebrowHtml: calGuideSanitizeHtml(raw.eyebrowHtml || raw.eyebrow || ''),
+    bodyHtml: calGuideSanitizeHtml(raw.bodyHtml || raw.html || ''),
+  };
+}
+
+function pickCalGuideIntro(src, key, normalizeFn, fallback) {
+  if (src && Object.prototype.hasOwnProperty.call(src, key) && src[key] != null) {
+    return normalizeFn(src[key]) || fallback;
+  }
+  return fallback;
 }
 
 function normalizeCalGuideContent(raw) {
@@ -34895,9 +35068,13 @@ function normalizeCalGuideContent(raw) {
     donts: calGuideLineList(sec && sec.donts),
   })).filter(sec => sec.title || sec.dos.length || sec.donts.length);
   if (!sections.length) return null;
+  const intro = cloneCalGuideIntroDefaults();
   return {
     sections: sections,
     checklist: calGuideLineList(src.checklist),
+    banner: pickCalGuideIntro(src, 'banner', normalizeCalGuideBanner, intro.banner),
+    motion: pickCalGuideIntro(src, 'motion', normalizeCalGuideMotion, intro.motion),
+    length: pickCalGuideIntro(src, 'length', normalizeCalGuideLength, intro.length),
     publishedAt: src.publishedAt || '',
     publishedBy: src.publishedBy || '',
   };
@@ -34920,6 +35097,9 @@ function buildCalGuideRecord(draft, adminName) {
   return {
     sections: normalized.sections,
     checklist: normalized.checklist,
+    banner: normalized.banner,
+    motion: normalized.motion,
+    length: normalized.length,
     publishedAt: new Date().toISOString(),
     publishedBy: adminName || 'Admin',
   };
@@ -34962,6 +35142,43 @@ function collectCalGuideFromSessionRows(rows) {
   return best;
 }
 
+function renderCalGuideBannerHtml(banner) {
+  const b = normalizeCalGuideBanner(banner) || cloneCalGuideIntroDefaults().banner;
+  if (!calGuideStripHtml(b.bodyHtml)) return '';
+  const icon = renderCalGuideIconHtml(b.icon);
+  return `<div class="cal-guide-banner" data-accent="${calGuideEscape(b.accent)}">
+    ${icon ? `<span class="cal-guide-banner-icon" aria-hidden="true">${icon}</span>` : ''}
+    <span class="cal-guide-banner-copy">${calGuideSanitizeHtml(b.bodyHtml)}</span>
+  </div>`;
+}
+
+function renderCalGuideMotionHtml(motion) {
+  const m = normalizeCalGuideMotion(motion) || cloneCalGuideIntroDefaults().motion;
+  if (!calGuideStripHtml((m.eyebrowHtml || '') + (m.titleHtml || '') + (m.subHtml || ''))) return '';
+  const icon = renderCalGuideIconHtml(m.icon);
+  return `<div class="cal-guide-motion" role="note" data-accent="${calGuideEscape(m.accent)}">
+    ${icon ? `<div class="cal-guide-motion-icon" aria-hidden="true">${icon}</div>` : ''}
+    <div style="min-width: 0;">
+      ${m.eyebrowHtml ? `<div class="cal-guide-motion-eyebrow">${calGuideSanitizeHtml(m.eyebrowHtml)}</div>` : ''}
+      ${m.titleHtml ? `<div class="cal-guide-motion-title">${calGuideSanitizeHtml(m.titleHtml)}</div>` : ''}
+      ${m.subHtml ? `<div class="cal-guide-motion-sub">${calGuideSanitizeHtml(m.subHtml)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderCalGuideLengthHtml(length) {
+  const L = normalizeCalGuideLength(length) || cloneCalGuideIntroDefaults().length;
+  if (!calGuideStripHtml((L.eyebrowHtml || '') + (L.bodyHtml || ''))) return '';
+  const icon = L.icon ? renderCalGuideIconHtml(L.icon) : '';
+  return `<div class="len-reminder${icon ? ' has-icon' : ''}" data-accent="${calGuideEscape(L.accent)}">
+    ${icon ? `<div class="len-reminder-icon" aria-hidden="true">${icon}</div>` : ''}
+    <div class="len-reminder-main">
+      ${L.eyebrowHtml ? `<div class="len-reminder-eyebrow">${calGuideSanitizeHtml(L.eyebrowHtml)}</div>` : ''}
+      <div class="len-reminder-body">${calGuideSanitizeHtml(L.bodyHtml)}</div>
+    </div>
+  </div>`;
+}
+
 function renderCalGuideSectionsHtml(content) {
   const guide = currentCalGuideContent(content);
   const sections = (guide.sections || []).map(sec => `
@@ -34997,6 +35214,97 @@ function renderCalGuideSectionsHtml(content) {
   return stamp + sections + checklist;
 }
 
+function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
+  const noneOn = selectedIcon ? '' : ' is-on';
+  const noneBtn = `<button type="button" class="tf-icon-btn${noneOn}" data-cg-icon="" title="No icon">–</button>`;
+  const icons = noneBtn + CAL_GUIDE_ICON_ORDER.map(id => {
+    const p = CAL_GUIDE_ICON_PRESETS[id];
+    const on = selectedIcon === id ? ' is-on' : '';
+    return `<button type="button" class="tf-icon-btn${on}" data-cg-icon="${id}" title="${calGuideEscape(p.label)}">${p.glyph}</button>`;
+  }).join('');
+  const custom = CAL_GUIDE_ICON_PRESETS[selectedIcon] ? '' : (selectedIcon || '');
+  const accentBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
+    const on = selectedAccent === id ? ' is-on' : '';
+    return `<button type="button" class="tf-swatch${on}" data-accent="${id}" data-cg-block-accent="${id}" title="Block ${id}"></button>`;
+  }).join('');
+  const textBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
+    return `<button type="button" class="tf-swatch" data-accent="${id}" data-cg-text-color="${id}" title="Text ${id}"></button>`;
+  }).join('');
+  return `
+    <div class="tf-toolbar cg-callout-tools" role="toolbar" aria-label="Icon and style">
+      ${icons}
+      <input class="tf-title cg-emoji" data-cg-custom-icon maxlength="8" placeholder="🙂" value="${calGuideEscape(custom)}" title="Custom icon" aria-label="Custom icon">
+      <span class="tf-draft-hint">Block</span>
+      ${accentBtns}
+      <span class="tf-draft-hint">Text</span>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="italic" title="Italic"><em>I</em></button>
+      ${textBtns}
+    </div>`;
+}
+
+function renderCalGuideBannerEditorHtml(banner) {
+  const b = normalizeCalGuideBanner(banner) || cloneCalGuideIntroDefaults().banner;
+  return `<div class="cg-callout-editor" data-cg-callout="banner" data-icon="${calGuideEscape(b.icon)}" data-accent="${calGuideEscape(b.accent)}">
+    <div class="tf-draft-hint">Warning banner · first thing moderators see</div>
+    ${renderCalGuideCalloutToolbar(b.icon, b.accent)}
+    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="bannerBody" aria-label="Warning banner">${calGuideSanitizeHtml(b.bodyHtml)}</div>
+  </div>`;
+}
+
+function renderCalGuideMotionEditorHtml(motion) {
+  const m = normalizeCalGuideMotion(motion) || cloneCalGuideIntroDefaults().motion;
+  return `<div class="cg-callout-editor" data-cg-callout="motion" data-icon="${calGuideEscape(m.icon)}" data-accent="${calGuideEscape(m.accent)}">
+    <div class="tf-draft-hint">Motion Detection reminder</div>
+    ${renderCalGuideCalloutToolbar(m.icon, m.accent)}
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="motionEyebrow" aria-label="Motion eyebrow">${calGuideSanitizeHtml(m.eyebrowHtml)}</div>
+    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="motionTitle" aria-label="Motion title">${calGuideSanitizeHtml(m.titleHtml)}</div>
+    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="motionSub" aria-label="Motion details">${calGuideSanitizeHtml(m.subHtml)}</div>
+  </div>`;
+}
+
+function renderCalGuideLengthEditorHtml(length) {
+  const L = normalizeCalGuideLength(length) || cloneCalGuideIntroDefaults().length;
+  return `<div class="cg-callout-editor" data-cg-callout="length" data-icon="${calGuideEscape(L.icon)}" data-accent="${calGuideEscape(L.accent)}">
+    <div class="tf-draft-hint">Length reminder · also used when a moderator taps ≥90s</div>
+    ${renderCalGuideCalloutToolbar(L.icon, L.accent)}
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="lengthEyebrow" aria-label="Length eyebrow">${calGuideSanitizeHtml(L.eyebrowHtml)}</div>
+    <div class="tf-editor cg-rich cg-rich-lg" contenteditable="true" role="textbox" data-cg-field="lengthBody" aria-label="Length reminder">${calGuideSanitizeHtml(L.bodyHtml)}</div>
+  </div>`;
+}
+
+function collectCalGuideCalloutDraft(block) {
+  if (!block) return null;
+  const name = block.getAttribute('data-cg-callout');
+  const icon = block.getAttribute('data-icon') || '';
+  const accent = block.getAttribute('data-accent') || '';
+  const htmlOf = (sel) => {
+    const el = block.querySelector('[data-cg-field="' + sel + '"]');
+    return el ? el.innerHTML : '';
+  };
+  if (name === 'banner') {
+    return { icon: icon, accent: accent, bodyHtml: htmlOf('bannerBody') };
+  }
+  if (name === 'motion') {
+    return {
+      icon: icon,
+      accent: accent,
+      eyebrowHtml: htmlOf('motionEyebrow'),
+      titleHtml: htmlOf('motionTitle'),
+      subHtml: htmlOf('motionSub'),
+    };
+  }
+  if (name === 'length') {
+    return {
+      icon: icon,
+      accent: accent,
+      eyebrowHtml: htmlOf('lengthEyebrow'),
+      bodyHtml: htmlOf('lengthBody'),
+    };
+  }
+  return null;
+}
+
 function renderCalGuideEditorHtml(content) {
   const guide = currentCalGuideContent(content);
   const sections = (guide.sections || []).map((sec, i) => `
@@ -35015,7 +35323,7 @@ function renderCalGuideEditorHtml(content) {
   `).join('');
   return `
     <div class="cg-editor" id="cgEditor">
-      <div class="tf-draft-hint">This is the live calibration guide. Confirm publish overwrites it — moderators will see the update the next time they open the book icon. Team feedback stays a separate note.</div>
+      <div class="tf-draft-hint">DO / DON'T sections below. The warning, motion, and length boxes above are also part of this publish.</div>
       ${sections}
       <button type="button" class="cal-guide-ack-btn tf-secondary" id="cgAddSectionBtn">Add section</button>
       <label class="tf-draft-hint" for="cgChecklist">Pre-recording checklist · one per line</label>
@@ -35026,10 +35334,15 @@ function renderCalGuideEditorHtml(content) {
 }
 
 function collectCalGuideEditorDraft(root) {
-  const host = root || (typeof document !== 'undefined' ? document.getElementById('calGuideSectionsHost') : null);
+  const host = root
+    || (typeof document !== 'undefined' ? document.getElementById('calGuideDefaultBody') : null)
+    || (typeof document !== 'undefined' ? document.getElementById('calGuideSectionsHost') : null);
   if (!host) return null;
+  const scope = (host.id === 'calGuideDefaultBody' || (host.querySelector && host.querySelector('[data-cg-callout]')))
+    ? host
+    : ((typeof document !== 'undefined' && document.getElementById('calGuideDefaultBody')) || host);
   const sections = [];
-  host.querySelectorAll('.cg-edit-section').forEach(block => {
+  scope.querySelectorAll('.cg-edit-section').forEach(block => {
     const val = (field) => {
       const el = block.querySelector('[data-cg-field="' + field + '"]');
       return el ? el.value : '';
@@ -35042,10 +35355,16 @@ function collectCalGuideEditorDraft(root) {
       donts: calGuideLineList(val('donts')),
     });
   });
-  const checkEl = host.querySelector('#cgChecklist');
+  const checkEl = scope.querySelector('#cgChecklist');
+  const bannerEl = scope.querySelector('[data-cg-callout="banner"]');
+  const motionEl = scope.querySelector('[data-cg-callout="motion"]');
+  const lengthEl = scope.querySelector('[data-cg-callout="length"]');
   return normalizeCalGuideContent({
     sections: sections,
     checklist: checkEl ? checkEl.value : '',
+    banner: collectCalGuideCalloutDraft(bannerEl),
+    motion: collectCalGuideCalloutDraft(motionEl),
+    length: collectCalGuideCalloutDraft(lengthEl),
   });
 }
 
@@ -35055,14 +35374,26 @@ function collectCalGuideEditorDraft(root) {
   if (typeof CAL_GUIDE_CHECKLIST !== 'undefined') g.CAL_GUIDE_CHECKLIST = CAL_GUIDE_CHECKLIST;
   g.CAL_GUIDE_SETTING_ID = CAL_GUIDE_SETTING_ID;
   g.CAL_GUIDE_ASSIGNMENT_ID = CAL_GUIDE_ASSIGNMENT_ID;
+  g.CAL_GUIDE_ACCENTS = CAL_GUIDE_ACCENTS;
+  g.CAL_GUIDE_ICON_PRESETS = CAL_GUIDE_ICON_PRESETS;
   g.calGuideLineList = calGuideLineList;
+  g.calGuideSanitizeHtml = calGuideSanitizeHtml;
+  g.calGuideStripHtml = calGuideStripHtml;
   g.cloneCalGuideDefaults = cloneCalGuideDefaults;
+  g.cloneCalGuideIntroDefaults = cloneCalGuideIntroDefaults;
   g.normalizeCalGuideContent = normalizeCalGuideContent;
+  g.normalizeCalGuideBanner = normalizeCalGuideBanner;
+  g.normalizeCalGuideMotion = normalizeCalGuideMotion;
+  g.normalizeCalGuideLength = normalizeCalGuideLength;
   g.currentCalGuideContent = currentCalGuideContent;
   g.preferNewerCalGuide = preferNewerCalGuide;
   g.buildCalGuideRecord = buildCalGuideRecord;
   g.buildCalGuideAppSettingPayload = buildCalGuideAppSettingPayload;
   g.collectCalGuideFromSessionRows = collectCalGuideFromSessionRows;
+  g.renderCalGuideIconHtml = renderCalGuideIconHtml;
+  g.renderCalGuideBannerHtml = renderCalGuideBannerHtml;
+  g.renderCalGuideMotionHtml = renderCalGuideMotionHtml;
+  g.renderCalGuideLengthHtml = renderCalGuideLengthHtml;
   g.renderCalGuideSectionsHtml = renderCalGuideSectionsHtml;
   g.renderCalGuideEditorHtml = renderCalGuideEditorHtml;
   g.collectCalGuideEditorDraft = collectCalGuideEditorDraft;
@@ -35083,18 +35414,9 @@ function ingestCalGuideFromSessionRows(rows) {
 // The 90-second recording-length reminder (added 7/8). Defined once and used
 // both inside the calibration guide modal and in the pop-up shown when the
 // clickable "≥90s" pill is tapped.
-const LENGTH_REMINDER_HTML = `
-  <div class="len-reminder">
-    <div class="len-reminder-eyebrow">Minimum recording length</div>
-    <div class="len-reminder-title">All calibration recordings must be a minimum of 90 seconds long</div>
-    <div class="len-reminder-warn">⚠️ Calibration recordings shorter than 60 seconds do not meet the project requirements and will be rejected by the client.</div>
-    <div class="len-reminder-title" style="margin-top:12px;">All scenario recordings must be a minimum of 60 seconds long</div>
-    <div class="len-reminder-title" style="margin-top:12px;">Speed reminders</div>
-    <ul class="len-reminder-list">
-      <li><strong>Vehicles:</strong> Drive very slowly · approximately 2 mph.</li>
-      <li><strong>People:</strong> Walk significantly slower than your normal pace. Think "slow-motion stroll."</li>
-    </ul>
-  </div>`;
+const LENGTH_REMINDER_HTML = (typeof renderCalGuideLengthHtml === 'function')
+  ? renderCalGuideLengthHtml((typeof cloneCalGuideIntroDefaults === 'function' ? cloneCalGuideIntroDefaults() : {}).length)
+  : '';
 
 // Clickable "≥90s" pill placed next to the motion badge on the camera stations.
 // onclick uses stopPropagation because in the accordion it lives inside the
@@ -35105,7 +35427,14 @@ const LENGTH_BADGE_HTML = `<span class="acc-length-badge" role="button" tabindex
 // which renders the HTML message when html:true). Global so the inline pill
 // onclick can reach it.
 function showLengthReminder() {
-  appAlert({ title: 'Recording length requirement', message: LENGTH_REMINDER_HTML, html: true, okLabel: 'Got it' });
+  let html = '';
+  try {
+    if (typeof currentCalGuideContent === 'function' && typeof renderCalGuideLengthHtml === 'function') {
+      html = renderCalGuideLengthHtml(currentCalGuideContent(_publishedCalGuide).length);
+    }
+  } catch (_) {}
+  if (!html) html = LENGTH_REMINDER_HTML;
+  appAlert({ title: 'Recording length requirement', message: html, html: true, okLabel: 'Got it' });
 }
 
 // ── Vehicle-scenario "drive slowly" reminder (Stations 1 & 2) ───────────────
@@ -35244,25 +35573,9 @@ function buildCalGuideModal() {
       </button>
     </div>
     <div class="cal-guide-body" id="calGuideDefaultBody">
-      <div class="cal-guide-banner">
-        <span class="cal-guide-banner-icon">⚠️</span>
-        <span><strong>Recording rejections delay the entire study.</strong> Open and follow this guide at every station before starting any scenario recording.</span>
-      </div>
-      <div class="cal-guide-motion" role="note">
-        <div class="cal-guide-motion-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
-            <path d="M7.5 7.5a6.5 6.5 0 000 9M16.5 16.5a6.5 6.5 0 000-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-            <line x1="4" y1="20" x2="20" y2="4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <div style="min-width: 0;">
-          <div class="cal-guide-motion-eyebrow">Critical · every camera</div>
-          <div class="cal-guide-motion-title">Motion Detection must be OFF</div>
-          <div class="cal-guide-motion-sub">Turn it off on every camera and keep it off for the entire session.</div>
-        </div>
-      </div>
-      ${LENGTH_REMINDER_HTML}
+      <div id="calGuideBannerHost"></div>
+      <div id="calGuideMotionHost"></div>
+      <div id="calGuideLengthHost"></div>
       <div id="calGuideSectionsHost"></div>
       ${docLinkHTML}
     </div>
@@ -35426,15 +35739,74 @@ function isCalGuideAdminEditor(opts) {
 }
 
 function paintCalGuideDefaultBody() {
-  const host = document.getElementById('calGuideSectionsHost');
-  if (!host) return;
   const content = currentCalGuideContent(_publishedCalGuide);
+  const bannerHost = document.getElementById('calGuideBannerHost');
+  const motionHost = document.getElementById('calGuideMotionHost');
+  const lengthHost = document.getElementById('calGuideLengthHost');
+  const host = document.getElementById('calGuideSectionsHost');
   if (_calGuideEditing) {
-    host.innerHTML = renderCalGuideEditorHtml(content);
-    bindCalGuideEditor(host);
+    if (bannerHost) bannerHost.innerHTML = renderCalGuideBannerEditorHtml(content.banner);
+    if (motionHost) motionHost.innerHTML = renderCalGuideMotionEditorHtml(content.motion);
+    if (lengthHost) lengthHost.innerHTML = renderCalGuideLengthEditorHtml(content.length);
+    if (host) {
+      host.innerHTML = renderCalGuideEditorHtml(content);
+      bindCalGuideEditor(host);
+    }
+    const body = document.getElementById('calGuideDefaultBody');
+    if (body) bindCalGuideIntroEditors(body);
   } else {
-    host.innerHTML = renderCalGuideSectionsHtml(content);
+    if (bannerHost) bannerHost.innerHTML = renderCalGuideBannerHtml(content.banner);
+    if (motionHost) motionHost.innerHTML = renderCalGuideMotionHtml(content.motion);
+    if (lengthHost) lengthHost.innerHTML = renderCalGuideLengthHtml(content.length);
+    if (host) host.innerHTML = renderCalGuideSectionsHtml(content);
   }
+}
+
+function bindCalGuideIntroEditors(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-cg-callout]').forEach(block => {
+    let lastEdit = block.querySelector('[contenteditable="true"]');
+    block.querySelectorAll('[contenteditable="true"]').forEach(ed => {
+      ed.addEventListener('focus', () => { lastEdit = ed; });
+    });
+    block.querySelectorAll('[data-cg-icon]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        block.setAttribute('data-icon', btn.getAttribute('data-cg-icon') || '');
+        block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
+        const custom = block.querySelector('[data-cg-custom-icon]');
+        if (custom) custom.value = '';
+      });
+    });
+    const custom = block.querySelector('[data-cg-custom-icon]');
+    if (custom) {
+      custom.addEventListener('input', () => {
+        const v = custom.value.trim();
+        if (!v) return;
+        block.setAttribute('data-icon', v);
+        block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.remove('is-on'));
+      });
+    }
+    block.querySelectorAll('[data-cg-block-accent]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        block.setAttribute('data-accent', btn.getAttribute('data-cg-block-accent') || 'amber');
+        block.querySelectorAll('[data-cg-block-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
+      });
+    });
+    block.querySelectorAll('[data-cg-cmd]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (lastEdit) lastEdit.focus();
+        try { document.execCommand(btn.getAttribute('data-cg-cmd'), false, null); } catch (_) {}
+      });
+    });
+    block.querySelectorAll('[data-cg-text-color]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-cg-text-color');
+        const color = (CAL_GUIDE_ACCENTS && CAL_GUIDE_ACCENTS[id]) || '#6B8F71';
+        if (lastEdit) lastEdit.focus();
+        try { document.execCommand('foreColor', false, color); } catch (_) {}
+      });
+    });
+  });
 }
 
 function bindCalGuideEditor(root) {
@@ -35442,7 +35814,7 @@ function bindCalGuideEditor(root) {
   const addBtn = root.querySelector('#cgAddSectionBtn');
   if (addBtn) {
     addBtn.addEventListener('click', () => {
-      const draft = collectCalGuideEditorDraft(root) || cloneCalGuideDefaults();
+      const draft = collectCalGuideEditorDraft() || cloneCalGuideDefaults();
       draft.sections.push({ emoji: '📋', title: 'New section', note: '', dos: [], donts: [] });
       root.innerHTML = renderCalGuideEditorHtml(draft);
       bindCalGuideEditor(root);
@@ -35452,7 +35824,7 @@ function bindCalGuideEditor(root) {
     btn.addEventListener('click', () => {
       const blocks = root.querySelectorAll('.cg-edit-section');
       if (blocks.length <= 1) {
-        const err = root.querySelector('#cgEditorError');
+        const err = root.querySelector('#cgEditorError') || document.getElementById('cgEditorError');
         if (err) err.textContent = 'Keep at least one section.';
         return;
       }
@@ -35478,8 +35850,8 @@ function syncCalGuideAdminActions() {
   if (saveBtn) saveBtn.hidden = !admin || !_calGuideEditing;
   if (footer && admin) {
     footer.textContent = _calGuideEditing
-      ? 'Save and publish overwrites the live calibration guide. Moderators will see it the next time they open this book.'
-      : 'Edit guide changes the DOs & DON’Ts every moderator sees. Team feedback is a separate note.';
+      ? 'Save and publish overwrites the live calibration guide, including the warning, Motion Detection, and length reminder. Moderators will see it the next time they open this book.'
+      : 'Edit guide changes the warning, Motion Detection, length reminder, and DOs & DON’Ts every moderator sees. Team feedback is a separate note.';
   }
 }
 

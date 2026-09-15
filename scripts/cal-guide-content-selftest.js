@@ -34,6 +34,10 @@ const {
   buildCalGuideAppSettingPayload,
   collectCalGuideFromSessionRows,
   renderCalGuideSectionsHtml,
+  renderCalGuideBannerHtml,
+  renderCalGuideMotionHtml,
+  renderCalGuideLengthHtml,
+  renderCalGuideIconHtml,
   calGuideLineList,
 } = context;
 
@@ -127,6 +131,75 @@ assert('invalid payload falls back to built-in',
 assert('line list splits textarea input',
   calGuideLineList('a\n\nb\n').join('|') === 'a|b');
 assert('normalize rejects empty guide', normalizeCalGuideContent({ sections: [] }) === null);
+
+assert('defaults include live warning banner',
+  /Recording rejections delay the entire study/.test(defaults.banner.bodyHtml));
+assert('defaults include motion-off title',
+  /Motion Detection must be OFF/.test(defaults.motion.titleHtml));
+assert('defaults include 90-second length copy',
+  /minimum of 90 seconds/.test(defaults.length.bodyHtml));
+assert('default length has no extra icon', defaults.length.icon === '');
+assert('default motion icon is the motion preset', defaults.motion.icon === 'motion');
+
+const bannerHtml = renderCalGuideBannerHtml(defaults.banner);
+assert('banner render uses warning class', /cal-guide-banner/.test(bannerHtml));
+assert('banner render shows live warning copy', /Recording rejections delay the entire study/.test(bannerHtml));
+assert('motion render shows OFF title', /Motion Detection must be OFF/.test(renderCalGuideMotionHtml(defaults.motion)));
+assert('motion preset uses svg icon', /<svg/.test(renderCalGuideMotionHtml(defaults.motion)));
+assert('length render shows 90 seconds', /90 seconds/.test(renderCalGuideLengthHtml(defaults.length)));
+assert('length default has no extra icon well', !/len-reminder-icon/.test(renderCalGuideLengthHtml(defaults.length)));
+
+assert('old payload without intro keeps default banner',
+  /Recording rejections/.test(normalizeCalGuideContent({
+    sections: [{ title: 'General Requirements', dos: ['x'], donts: [] }],
+    checklist: ['Timestamp is visible'],
+  }).banner.bodyHtml));
+
+const introEdited = buildCalGuideRecord({
+  sections: defaults.sections,
+  checklist: defaults.checklist,
+  banner: { icon: '📷', accent: 'red', bodyHtml: '<strong>Stop</strong> if cameras fail.<script>x</script>' },
+  motion: {
+    icon: 'clock',
+    accent: 'amber',
+    eyebrowHtml: 'Every camera',
+    titleHtml: 'Motion stays <em>off</em>',
+    subHtml: 'Keep it off.',
+  },
+  length: {
+    icon: 'clock',
+    accent: 'coral',
+    eyebrowHtml: 'Length',
+    bodyHtml: '<div class="len-reminder-title">120 seconds minimum</div>',
+  },
+}, 'Admin-Twilight');
+assert('banner keeps custom emoji icon', introEdited.banner.icon === '📷');
+assert('banner accent is red', introEdited.banner.accent === 'red');
+assert('banner sanitizes script but keeps bold',
+  /<strong>Stop<\/strong>/.test(introEdited.banner.bodyHtml) && !/<script/i.test(introEdited.banner.bodyHtml));
+assert('motion icon can switch to clock', introEdited.motion.icon === 'clock');
+assert('motion keeps italic', /<em>off<\/em>/.test(introEdited.motion.titleHtml));
+assert('length icon can be set', introEdited.length.icon === 'clock');
+assert('length body keeps title class', /len-reminder-title/.test(introEdited.length.bodyHtml));
+
+assert('published banner uses red accent',
+  /data-accent="red"/.test(renderCalGuideBannerHtml(introEdited.banner)));
+assert('published length shows clock icon well',
+  /len-reminder-icon/.test(renderCalGuideLengthHtml(introEdited.length)));
+assert('published length shows 120 seconds',
+  /120 seconds/.test(renderCalGuideLengthHtml(introEdited.length)));
+assert('custom emoji is not treated as a preset svg',
+  /cg-icon-glyph/.test(renderCalGuideIconHtml('🎯')) && !/<svg/.test(renderCalGuideIconHtml('🎯')));
+assert('guide payload still includes intro blocks',
+  JSON.parse(buildCalGuideAppSettingPayload(introEdited).stateJson).guide.banner.accent === 'red');
+
+const introRows = [{
+  sessionStateId: 'ss_app_setting_cal_guide',
+  stateJson: JSON.stringify({ type: 'appSetting', key: 'calGuide', guide: introEdited }),
+}];
+const introCollected = collectCalGuideFromSessionRows(introRows);
+assert('ingest restores custom banner icon', introCollected && introCollected.banner.icon === '📷');
+assert('ingest restores length body', /120 seconds/.test(introCollected.length.bodyHtml));
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

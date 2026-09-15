@@ -25,7 +25,7 @@ Do **not** rely on localStorage alone for Admin→Mod delivery.
 
 Session **calibration-guide acknowledgment** stays on the assignment SessionState row (`calGuideAck`). Team feedback and calibration-guide **content** never write that key.
 
-Admin **Team feedback** (Performance → Team feedback) publishes the inbox announcement. Admin **Calibration guide** (Performance → Calibration guide) publishes DOs & DON'Ts into `ss_app_setting_cal_guide`. Those are two different rows.
+Admin **Team feedback** (Performance → Team feedback) publishes the inbox announcement. Admin **Calibration guide** (Performance → Calibration guide) publishes the warning banner, Motion Detection block, length reminder, and DOs & DON'Ts into `ss_app_setting_cal_guide`. Those are two different rows.
 
 ## Exact write envelope
 
