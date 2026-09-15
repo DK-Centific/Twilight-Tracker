@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091426b';
-const APP_UPDATED_AT = '09/14/2026 20:10';
+const APP_VERSION = '1.3.091526';
+const APP_UPDATED_AT = '09/15/2026 16:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2255,25 +2255,51 @@ function recordFlowControlsHTML(station, sd, scenarioNum) {
     </div>`;
 }
 
-// Desktop popup chrome for Lakitu / Ring. Mobile browsers ignore features
+// Desktop window chrome for Lakitu / Ring. Mobile browsers ignore features
 // and open a normal tab. Iframes are not used: Lakitu sends
 // X-Frame-Options: DENY + CSP frame-ancestors 'none'; Ring account sends
-// X-Frame-Options: SAMEORIGIN.
-function desktopPopupFeatures(opts) {
+// X-Frame-Options: SAMEORIGIN. GitHub Pages cannot use the Chrome Side
+// Panel API (extension-only), so layout: 'sidePanel' is a tall window
+// docked to the right of the screen — the closest in-browser analogue.
+function desktopWindowGeometry(opts) {
   const availW = (window.screen && window.screen.availWidth) || 1024;
   const availH = (window.screen && window.screen.availHeight) || 768;
+  const availLeft = (window.screen && typeof window.screen.availLeft === 'number')
+    ? window.screen.availLeft : 0;
+  const availTop = (window.screen && typeof window.screen.availTop === 'number')
+    ? window.screen.availTop : 0;
+  if (opts && opts.layout === 'sidePanel') {
+    const w = Math.min(560, Math.max(420, Math.floor(availW * 0.34)));
+    const h = Math.max(560, availH);
+    const left = Math.max(availLeft, availLeft + availW - w);
+    const top = Math.max(0, availTop);
+    return { w: w, h: h, left: left, top: top };
+  }
   const w = Math.min(1100, Math.max(420, Math.floor(availW * 0.7)));
   const h = Math.min(900, Math.max(560, Math.floor(availH * 0.85)));
-  const left = Math.max(0, Math.floor((availW - w) / 2));
-  const top = Math.max(0, Math.floor((availH - h) / 2));
-  const opener = (opts && opts.allowOpener) ? ',noopener=no' : '';
-  return `popup=yes,width=${w},height=${h},left=${left},top=${top}${opener}`;
+  const left = Math.max(availLeft, Math.floor(availLeft + (availW - w) / 2));
+  const top = Math.max(availTop, Math.floor(availTop + (availH - h) / 2));
+  return { w: w, h: h, left: left, top: top };
 }
 
-// Named popup (repeat clicks reuse / focus the same window). If the
-// popup is blocked, fall back to a normal new tab so the action never
-// fails silently. Approval does not need window.opener / return-watch;
+function desktopPopupFeatures(opts) {
+  const geo = desktopWindowGeometry(opts);
+  const opener = (opts && opts.allowOpener) ? ',noopener=no' : '';
+  return `popup=yes,width=${geo.w},height=${geo.h},left=${geo.left},top=${geo.top},screenX=${geo.left},screenY=${geo.top}${opener}`;
+}
+
+function applyDesktopWindowGeometry(win, opts) {
+  if (!win || win.closed) return;
+  const geo = desktopWindowGeometry(opts);
+  try { if (typeof win.resizeTo === 'function') win.resizeTo(geo.w, geo.h); } catch (e) { /* ignore */ }
+  try { if (typeof win.moveTo === 'function') win.moveTo(geo.left, geo.top); } catch (e) { /* ignore */ }
+}
+
+// Named window (repeat clicks reuse / focus the same one). If the
+// popup/panel is blocked, fall back to a normal new tab so the action
+// never fails silently. Approval does not need window.opener / return-watch;
 // pass { allowOpener: true } only for record-flow, which polls win.closed.
+// Pass { layout: 'sidePanel' } for Approval Lakitu / Ring.
 function openExternalAppWindow(url, windowName, opts) {
   const dest = (url == null ? '' : String(url)).trim();
   if (!dest) return null;
@@ -2284,8 +2310,11 @@ function openExternalAppWindow(url, windowName, opts) {
   } catch (e) { win = null; }
   if (!win) {
     try { win = window.open(dest, '_blank'); } catch (e) { win = null; }
-  } else if (!(opts && opts.allowOpener)) {
-    try { win.opener = null; } catch (e) { /* ignore */ }
+  } else {
+    applyDesktopWindowGeometry(win, opts);
+    if (!(opts && opts.allowOpener)) {
+      try { win.opener = null; } catch (e) { /* ignore */ }
+    }
   }
   return win;
 }
@@ -12371,6 +12400,7 @@ const APPROVAL_RING_WINDOW = 'twilightApprovalRing';
 function approvalExternalOpenBtnHTML(kind, url) {
   const isLakitu = kind === 'lakitu';
   const label = isLakitu ? 'Open Lakitu' : 'Open Ring';
+  const title = isLakitu ? 'Open Lakitu in a side panel' : 'Open Ring in a side panel';
   const win = isLakitu ? APPROVAL_LAKITU_WINDOW : APPROVAL_RING_WINDOW;
   const icon = isLakitu ? '↗' : '◎';
   const safe = url && (isLakitu
@@ -12379,7 +12409,7 @@ function approvalExternalOpenBtnHTML(kind, url) {
   if (!safe) {
     return `<span class="appr-icon-btn disabled" title="No ${isLakitu ? 'Lakitu' : 'Ring'} URL available">${icon} ${label}</span>`;
   }
-  return `<a class="appr-icon-btn" href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" data-appr-ext="${kind}" data-appr-win="${win}" aria-label="${label}" title="${label}">${icon} ${label}</a>`;
+  return `<a class="appr-icon-btn" href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer" data-appr-ext="${kind}" data-appr-win="${win}" aria-label="${title}" title="${title}">${icon} ${label}</a>`;
 }
 
 function approvalExternalOpenRowHTML(lakituUrl, ringUrl) {
@@ -12399,7 +12429,7 @@ function onApprovalExternalOpenClick(e) {
   if (!href) return;
   e.preventDefault();
   if (typeof openExternalAppWindow === 'function') {
-    openExternalAppWindow(href, a.getAttribute('data-appr-win') || '_blank');
+    openExternalAppWindow(href, a.getAttribute('data-appr-win') || '_blank', { layout: 'sidePanel' });
   } else {
     try { window.open(href, '_blank'); } catch (err) { /* ignore */ }
   }
