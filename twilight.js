@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526b';
-const APP_UPDATED_AT = '09/15/2026 19:20';
+const APP_VERSION = '1.3.091526c';
+const APP_UPDATED_AT = '09/15/2026 19:45';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -14111,6 +14111,7 @@ function ingestAppSettingsFromSessionRows(rows) {
   ingestDeactivatedUsersFromSessionRows(rows);
   ingestMasterAdminsFromSessionRows(rows);
   if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
+  if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
 }
 
 loadDeactivatedUsersCache();
@@ -20059,6 +20060,7 @@ function renderPerfSectionTabsHTML() {
           </button>
         </div>
         <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a new team announcement or edit the live one">Team feedback</button>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfCalGuideBtn" title="Open and edit the calibration recording guide">Calibration guide</button>
         <button type="button" class="subtab-btn tf-perf-btn" id="perfModFeedbackBtn" title="Send a private note to one moderator">Message a moderator</button>
       </div>
     </div>`;
@@ -20080,6 +20082,14 @@ function wirePerfSectionTabs(body) {
   if (teamBtn) {
     teamBtn.addEventListener('click', () => {
       if (typeof openTeamFeedbackComposer === 'function') openTeamFeedbackComposer();
+    });
+  }
+  const guideBtn = body.querySelector('#perfCalGuideBtn');
+  if (guideBtn) {
+    guideBtn.addEventListener('click', () => {
+      if (typeof openCalGuideModal === 'function') {
+        openCalGuideModal({ mode: 'calGuide', role: 'admin' });
+      }
     });
   }
   const modBtn = body.querySelector('#perfModFeedbackBtn');
@@ -34707,10 +34717,9 @@ function addReminderShown(hourMark) {
      Pre-Recording Checklist.
    ===================================================================== */
 
-// Calibration DOs & DON'Ts now live in a maintained SharePoint Word doc;
-// the modal links out to it (opens in a new tab · SharePoint docs can't be
-// reliably embedded due to auth + X-Frame-Options). The acknowledgment flow
-// below is unchanged: the mod opens the doc, reviews it, then acknowledges.
+// Calibration DOs & DON'Ts render inline from CAL_GUIDE_SECTIONS (and any
+// Admin-published SessionState overwrite). The onboarding doc link stays
+// as a secondary "open full document" action. Acknowledgment is unchanged.
 const CAL_GUIDE_DOC_URL = 'https://centifictd.github.io/twilight-onboarding/?utm_source=chatgpt.com';
 
 // Data · kept as a top-level const inside the function's closure so the
@@ -34823,6 +34832,251 @@ const CAL_GUIDE_CHECKLIST = [
   'SCENARIO 20 ONLY: Floor markings placed every 3 ft from rig base',
   'SCENARIO 20 ONLY: Blue dot markers and tape from kit are used',
 ];
+
+/* CAL_GUIDE_CONTENT_BEGIN */
+/* =====================================================================
+   CAL GUIDE CONTENT · built-in DOs/DON'Ts + optional SessionState publish
+   ---------------------------------------------------------------------
+   Moderators always see the current guide in calGuideModal. Built-in
+   CAL_GUIDE_SECTIONS / CAL_GUIDE_CHECKLIST are the fallback. Admin can
+   edit the same structure and upsert ss_app_setting_cal_guide (same
+   SessionState write as team feedback · no new PA sig= URL).
+   Team feedback (ss_app_setting_team_feedback) is a different row.
+   Session calGuideAck is never written here.
+   ===================================================================== */
+const CAL_GUIDE_SETTING_ID = 'ss_app_setting_cal_guide';
+const CAL_GUIDE_ASSIGNMENT_ID = 'app_setting_cal_guide';
+
+function calGuideEscape(s) {
+  if (typeof escapeHTML === 'function') return escapeHTML(s);
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function calGuideLineList(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(x => String(x || '').trim()).filter(Boolean);
+  }
+  return String(raw || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+}
+
+function cloneCalGuideDefaults() {
+  const sectionsSrc = (typeof CAL_GUIDE_SECTIONS !== 'undefined' && Array.isArray(CAL_GUIDE_SECTIONS))
+    ? CAL_GUIDE_SECTIONS
+    : [];
+  const checkSrc = (typeof CAL_GUIDE_CHECKLIST !== 'undefined' && Array.isArray(CAL_GUIDE_CHECKLIST))
+    ? CAL_GUIDE_CHECKLIST
+    : [];
+  return {
+    sections: sectionsSrc.map(sec => ({
+      emoji: String((sec && sec.emoji) || ''),
+      title: String((sec && sec.title) || ''),
+      note: String((sec && sec.note) || ''),
+      dos: calGuideLineList(sec && sec.dos),
+      donts: calGuideLineList(sec && sec.donts),
+    })),
+    checklist: calGuideLineList(checkSrc),
+  };
+}
+
+function normalizeCalGuideContent(raw) {
+  const src = raw && raw.guide ? raw.guide : raw;
+  if (!src || typeof src !== 'object') return null;
+  const sectionsIn = Array.isArray(src.sections) ? src.sections : null;
+  if (!sectionsIn) return null;
+  const sections = sectionsIn.map(sec => ({
+    emoji: String((sec && sec.emoji) || '').slice(0, 8),
+    title: String((sec && sec.title) || '').trim(),
+    note: String((sec && sec.note) || '').trim(),
+    dos: calGuideLineList(sec && sec.dos),
+    donts: calGuideLineList(sec && sec.donts),
+  })).filter(sec => sec.title || sec.dos.length || sec.donts.length);
+  if (!sections.length) return null;
+  return {
+    sections: sections,
+    checklist: calGuideLineList(src.checklist),
+    publishedAt: src.publishedAt || '',
+    publishedBy: src.publishedBy || '',
+  };
+}
+
+function currentCalGuideContent(published) {
+  return normalizeCalGuideContent(published) || cloneCalGuideDefaults();
+}
+
+function preferNewerCalGuide(existing, incoming) {
+  const a = normalizeCalGuideContent(existing);
+  const b = normalizeCalGuideContent(incoming);
+  if (!b) return a;
+  if (!a) return b;
+  return String(a.publishedAt || '') > String(b.publishedAt || '') ? a : b;
+}
+
+function buildCalGuideRecord(draft, adminName) {
+  const normalized = normalizeCalGuideContent(draft) || cloneCalGuideDefaults();
+  return {
+    sections: normalized.sections,
+    checklist: normalized.checklist,
+    publishedAt: new Date().toISOString(),
+    publishedBy: adminName || 'Admin',
+  };
+}
+
+function buildCalGuideAppSettingPayload(guide) {
+  return {
+    sessionStateId: CAL_GUIDE_SETTING_ID,
+    assignmentId: CAL_GUIDE_ASSIGNMENT_ID,
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({ type: 'appSetting', key: 'calGuide', guide: guide || {} }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+    writeMode: 'upsert',
+  };
+}
+
+function collectCalGuideFromSessionRows(rows) {
+  let best = null;
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const id = String(row.sessionStateId || row.assignmentId || '');
+    let parsed = row.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+    }
+    if (!parsed || parsed.type !== 'appSetting' || parsed.key !== 'calGuide') {
+      if (id !== CAL_GUIDE_SETTING_ID && id !== CAL_GUIDE_ASSIGNMENT_ID) continue;
+    }
+    const next = normalizeCalGuideContent(parsed);
+    if (!next) continue;
+    if (!best || String(next.publishedAt || '') > String(best.publishedAt || '')) best = next;
+  }
+  return best;
+}
+
+function renderCalGuideSectionsHtml(content) {
+  const guide = currentCalGuideContent(content);
+  const sections = (guide.sections || []).map(sec => `
+    <section class="cal-guide-section">
+      <h3 class="cal-guide-section-title"><span class="emoji">${calGuideEscape(sec.emoji || '')}</span> ${calGuideEscape(sec.title || '')}</h3>
+      <div class="cal-guide-grid">
+        <div class="cal-guide-col do">
+          <div class="cal-guide-col-head">DO</div>
+          <ul class="cal-guide-list">${(sec.dos || []).map(d => `<li class="cal-guide-item">${calGuideEscape(d)}</li>`).join('')}</ul>
+        </div>
+        <div class="cal-guide-col dont">
+          <div class="cal-guide-col-head">DON'T</div>
+          <ul class="cal-guide-list">${(sec.donts || []).map(d => `<li class="cal-guide-item">${calGuideEscape(d)}</li>`).join('')}</ul>
+        </div>
+      </div>
+      ${sec.note ? `<div class="cal-guide-note">${calGuideEscape(sec.note)}</div>` : ''}
+    </section>
+  `).join('');
+  const checklist = `
+    <section class="cal-guide-section">
+      <h3 class="cal-guide-section-title"><span class="emoji">✅</span> Pre-recording checklist</h3>
+      <ul class="cal-guide-checklist">
+        ${(guide.checklist || []).map(i => `<li class="cal-guide-checklist-item">${calGuideEscape(i)}</li>`).join('')}
+      </ul>
+    </section>`;
+  const when = guide.publishedAt ? new Date(guide.publishedAt) : null;
+  const whenStr = (when && !isNaN(when.getTime()))
+    ? when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  const stamp = (guide.publishedBy || whenStr)
+    ? `<div class="tf-draft-hint" id="cgPublishedStamp">Live guide${guide.publishedBy ? ' · ' + calGuideEscape(guide.publishedBy) : ''}${whenStr ? ' · ' + calGuideEscape(whenStr) : ''}</div>`
+    : '';
+  return stamp + sections + checklist;
+}
+
+function renderCalGuideEditorHtml(content) {
+  const guide = currentCalGuideContent(content);
+  const sections = (guide.sections || []).map((sec, i) => `
+    <div class="cg-edit-section" data-cg-index="${i}">
+      <div class="cg-edit-head">
+        <input class="tf-title cg-emoji" data-cg-field="emoji" maxlength="8" aria-label="Section icon" value="${calGuideEscape(sec.emoji || '')}">
+        <input class="tf-title" data-cg-field="title" maxlength="120" aria-label="Section title" value="${calGuideEscape(sec.title || '')}">
+        <button type="button" class="tf-tool-btn cg-remove-sec" data-cg-remove-section title="Remove section">✕</button>
+      </div>
+      <textarea class="tf-note" data-cg-field="note" rows="2" placeholder="Optional note">${calGuideEscape(sec.note || '')}</textarea>
+      <label class="tf-draft-hint">DO · one per line</label>
+      <textarea class="tf-note" data-cg-field="dos" rows="5">${calGuideEscape((sec.dos || []).join('\n'))}</textarea>
+      <label class="tf-draft-hint">DON'T · one per line</label>
+      <textarea class="tf-note" data-cg-field="donts" rows="5">${calGuideEscape((sec.donts || []).join('\n'))}</textarea>
+    </div>
+  `).join('');
+  return `
+    <div class="cg-editor" id="cgEditor">
+      <div class="tf-draft-hint">This is the live calibration guide. Confirm publish overwrites it — moderators will see the update the next time they open the book icon. Team feedback stays a separate note.</div>
+      ${sections}
+      <button type="button" class="cal-guide-ack-btn tf-secondary" id="cgAddSectionBtn">Add section</button>
+      <label class="tf-draft-hint" for="cgChecklist">Pre-recording checklist · one per line</label>
+      <textarea class="tf-note" id="cgChecklist" rows="8">${calGuideEscape((guide.checklist || []).join('\n'))}</textarea>
+      <div class="tf-send-error" id="cgEditorError"></div>
+    </div>
+  `;
+}
+
+function collectCalGuideEditorDraft(root) {
+  const host = root || (typeof document !== 'undefined' ? document.getElementById('calGuideSectionsHost') : null);
+  if (!host) return null;
+  const sections = [];
+  host.querySelectorAll('.cg-edit-section').forEach(block => {
+    const val = (field) => {
+      const el = block.querySelector('[data-cg-field="' + field + '"]');
+      return el ? el.value : '';
+    };
+    sections.push({
+      emoji: val('emoji'),
+      title: val('title'),
+      note: val('note'),
+      dos: calGuideLineList(val('dos')),
+      donts: calGuideLineList(val('donts')),
+    });
+  });
+  const checkEl = host.querySelector('#cgChecklist');
+  return normalizeCalGuideContent({
+    sections: sections,
+    checklist: checkEl ? checkEl.value : '',
+  });
+}
+
+(function exportCalGuideContentHelpers(g) {
+  if (!g) return;
+  if (typeof CAL_GUIDE_SECTIONS !== 'undefined') g.CAL_GUIDE_SECTIONS = CAL_GUIDE_SECTIONS;
+  if (typeof CAL_GUIDE_CHECKLIST !== 'undefined') g.CAL_GUIDE_CHECKLIST = CAL_GUIDE_CHECKLIST;
+  g.CAL_GUIDE_SETTING_ID = CAL_GUIDE_SETTING_ID;
+  g.CAL_GUIDE_ASSIGNMENT_ID = CAL_GUIDE_ASSIGNMENT_ID;
+  g.calGuideLineList = calGuideLineList;
+  g.cloneCalGuideDefaults = cloneCalGuideDefaults;
+  g.normalizeCalGuideContent = normalizeCalGuideContent;
+  g.currentCalGuideContent = currentCalGuideContent;
+  g.preferNewerCalGuide = preferNewerCalGuide;
+  g.buildCalGuideRecord = buildCalGuideRecord;
+  g.buildCalGuideAppSettingPayload = buildCalGuideAppSettingPayload;
+  g.collectCalGuideFromSessionRows = collectCalGuideFromSessionRows;
+  g.renderCalGuideSectionsHtml = renderCalGuideSectionsHtml;
+  g.renderCalGuideEditorHtml = renderCalGuideEditorHtml;
+  g.collectCalGuideEditorDraft = collectCalGuideEditorDraft;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+/* CAL_GUIDE_CONTENT_END */
+
+let _publishedCalGuide = null;
+let _calGuideEditing = false;
+
+function ingestCalGuideFromSessionRows(rows) {
+  const incoming = collectCalGuideFromSessionRows(rows);
+  _publishedCalGuide = preferNewerCalGuide(_publishedCalGuide, incoming);
+  return _publishedCalGuide;
+}
 
 // Builds the modal DOM once. Cached on window so subsequent opens are
 // just a class toggle.
@@ -34945,8 +35199,8 @@ function buildCalGuideModal() {
   modal.setAttribute('aria-labelledby', 'calGuideTitle');
 
   // --- Header ---
-  // The DOs & DON'Ts content now lives in a SharePoint Word doc · render a
-  // prominent click-to-open link instead of the inline grid/checklist.
+  // DOs & DON'Ts render into #calGuideSectionsHost. The onboarding doc
+  // link stays as a secondary "open full document" action.
   const docLinkHTML = `
     <a class="cal-guide-doclink" href="${CAL_GUIDE_DOC_URL.replace(/&/g, '&amp;')}" target="_blank" rel="noopener noreferrer">
       <span class="cal-guide-doclink-icon" aria-hidden="true">
@@ -34958,7 +35212,7 @@ function buildCalGuideModal() {
       </span>
       <span class="cal-guide-doclink-label">
         <span class="cal-guide-doclink-title">Open the Project Twilight Onboarding Document</span>
-        <span class="cal-guide-doclink-sub">Opens the full onboarding guide in a new tab · review it, then acknowledge below.</span>
+        <span class="cal-guide-doclink-sub">Optional · full onboarding document in a new tab.</span>
       </span>
       <span class="cal-guide-doclink-ext" aria-hidden="true">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
@@ -35009,6 +35263,7 @@ function buildCalGuideModal() {
         </div>
       </div>
       ${LENGTH_REMINDER_HTML}
+      <div id="calGuideSectionsHost"></div>
       ${docLinkHTML}
     </div>
     <div class="cal-guide-body tf-guide-body" id="calGuideFeedbackBody" hidden></div>
@@ -35037,6 +35292,11 @@ function buildCalGuideModal() {
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideFeedbackPreviewBtn">Preview</button>
         <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackSendBtn">Confirm and send to Moderator</button>
         <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackAckBtn" hidden>Got it</button>
+      </div>
+      <div class="cal-guide-admin-actions" id="calGuideAdminActions" hidden>
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideEditBtn">Edit guide</button>
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideCancelEditBtn" hidden>Cancel</button>
+        <button type="button" class="cal-guide-ack-btn" id="calGuideSaveBtn" hidden>Save and publish</button>
       </div>
       <div class="cal-guide-footer-text" id="calGuideFooterText">
         Questions? Reach out to your study coordinator before recording. When in doubt, ask.
@@ -35116,6 +35376,18 @@ function buildCalGuideModal() {
   if (fbAck) fbAck.addEventListener('click', () => {
     if (typeof acknowledgeTeamFeedbackModal === 'function') acknowledgeTeamFeedbackModal();
   });
+  const editBtn = modal.querySelector('#calGuideEditBtn');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    if (typeof setCalGuideEditing === 'function') setCalGuideEditing(true);
+  });
+  const cancelEdit = modal.querySelector('#calGuideCancelEditBtn');
+  if (cancelEdit) cancelEdit.addEventListener('click', () => {
+    if (typeof setCalGuideEditing === 'function') setCalGuideEditing(false);
+  });
+  const saveBtn = modal.querySelector('#calGuideSaveBtn');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    if (typeof submitCalGuideFromEditor === 'function') submitCalGuideFromEditor();
+  });
 }
 
 // Refreshes the cal-guide modal's ack row to reflect current
@@ -35144,6 +35416,108 @@ function refreshCalGuideAckUI() {
   }
 }
 
+function isCalGuideAdminEditor(opts) {
+  opts = opts || {};
+  if (opts.role === 'admin') return true;
+  if (opts.role === 'moderator') return false;
+  return !!(typeof state !== 'undefined' && state && (state.isAdmin || state.isMasterAdmin)
+    && document.getElementById('adminApp')
+    && document.getElementById('adminApp').classList.contains('active'));
+}
+
+function paintCalGuideDefaultBody() {
+  const host = document.getElementById('calGuideSectionsHost');
+  if (!host) return;
+  const content = currentCalGuideContent(_publishedCalGuide);
+  if (_calGuideEditing) {
+    host.innerHTML = renderCalGuideEditorHtml(content);
+    bindCalGuideEditor(host);
+  } else {
+    host.innerHTML = renderCalGuideSectionsHtml(content);
+  }
+}
+
+function bindCalGuideEditor(root) {
+  if (!root) return;
+  const addBtn = root.querySelector('#cgAddSectionBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      const draft = collectCalGuideEditorDraft(root) || cloneCalGuideDefaults();
+      draft.sections.push({ emoji: '📋', title: 'New section', note: '', dos: [], donts: [] });
+      root.innerHTML = renderCalGuideEditorHtml(draft);
+      bindCalGuideEditor(root);
+    });
+  }
+  root.querySelectorAll('[data-cg-remove-section]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const blocks = root.querySelectorAll('.cg-edit-section');
+      if (blocks.length <= 1) {
+        const err = root.querySelector('#cgEditorError');
+        if (err) err.textContent = 'Keep at least one section.';
+        return;
+      }
+      const block = btn.closest('.cg-edit-section');
+      if (block) block.remove();
+    });
+  });
+}
+
+function syncCalGuideAdminActions() {
+  const modal = document.getElementById('calGuideModal');
+  const admin = modal && modal.getAttribute('data-role') === 'admin';
+  const actions = document.getElementById('calGuideAdminActions');
+  const editBtn = document.getElementById('calGuideEditBtn');
+  const cancelBtn = document.getElementById('calGuideCancelEditBtn');
+  const saveBtn = document.getElementById('calGuideSaveBtn');
+  const ackRow = document.getElementById('calGuideAckRow');
+  const footer = document.getElementById('calGuideFooterText');
+  if (actions) actions.hidden = !admin;
+  if (ackRow) ackRow.hidden = !!admin;
+  if (editBtn) editBtn.hidden = !admin || _calGuideEditing;
+  if (cancelBtn) cancelBtn.hidden = !admin || !_calGuideEditing;
+  if (saveBtn) saveBtn.hidden = !admin || !_calGuideEditing;
+  if (footer && admin) {
+    footer.textContent = _calGuideEditing
+      ? 'Save and publish overwrites the live calibration guide. Moderators will see it the next time they open this book.'
+      : 'Edit guide changes the DOs & DON’Ts every moderator sees. Team feedback is a separate note.';
+  }
+}
+
+function setCalGuideEditing(on) {
+  _calGuideEditing = !!on;
+  paintCalGuideDefaultBody();
+  syncCalGuideAdminActions();
+}
+
+async function submitCalGuideFromEditor() {
+  const err = document.getElementById('cgEditorError');
+  const draft = collectCalGuideEditorDraft();
+  if (!draft) {
+    if (err) err.textContent = 'Could not read the guide editor.';
+    return;
+  }
+  const record = buildCalGuideRecord(draft, (typeof state !== 'undefined' && state && state.username) || 'Admin-Twilight');
+  const saveBtn = document.getElementById('calGuideSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Publishing…'; }
+  const payload = buildCalGuideAppSettingPayload(record);
+  let result = { ok: false, reason: 'notconfigured' };
+  if (typeof persistFeedbackSetting === 'function') {
+    result = await persistFeedbackSetting(payload);
+  }
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save and publish'; }
+  if (!result.ok) {
+    if (err) err.textContent = result.reason === 'notconfigured'
+      ? 'Cloud save is not set up. The built-in guide is still shown until publish works.'
+      : 'Could not publish. Try again.';
+    return;
+  }
+  _publishedCalGuide = record;
+  _calGuideEditing = false;
+  paintCalGuideDefaultBody();
+  syncCalGuideAdminActions();
+  if (typeof toast === 'function') toast('Calibration guide updated for moderators');
+}
+
 function openCalGuideModal(opts) {
   opts = opts || {};
   buildCalGuideModal();
@@ -35163,9 +35537,16 @@ function openCalGuideModal(opts) {
   if (body) body.scrollTop = 0;
 
   if (mode === 'teamFeedback') {
+    _calGuideEditing = false;
+    modal.removeAttribute('data-role');
     if (typeof renderTeamFeedbackModal === 'function') renderTeamFeedbackModal(opts);
   } else {
+    const admin = isCalGuideAdminEditor(opts);
+    modal.setAttribute('data-role', admin ? 'admin' : 'moderator');
+    _calGuideEditing = false;
     if (typeof restoreCalGuideModalChrome === 'function') restoreCalGuideModalChrome();
+    paintCalGuideDefaultBody();
+    syncCalGuideAdminActions();
     // Refresh the acknowledgment row to reflect current state. The
     // modal is built once and reused (see buildCalGuideModal's guard),
     // so a re-open after acknowledging won't naturally show the pill
@@ -35173,6 +35554,16 @@ function openCalGuideModal(opts) {
     // last open (e.g., teammate sync just propagated an ack from the
     // other mod) · this pulls those changes in.
     if (typeof refreshCalGuideAckUI === 'function') refreshCalGuideAckUI();
+    if (typeof fetchSessionStateRows === 'function') {
+      fetchSessionStateRows().then(rows => {
+        if (!Array.isArray(rows)) return;
+        if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
+        const live = document.getElementById('calGuideModal');
+        if (!live || !live.classList.contains('open') || live.getAttribute('data-mode') !== 'calGuide') return;
+        if (_calGuideEditing) return;
+        paintCalGuideDefaultBody();
+      }).catch(() => {});
+    }
   }
 
   // Wire up Escape-to-close. Stored on a property so the inverse
@@ -35194,6 +35585,7 @@ function openCalGuideModal(opts) {
 }
 
 function closeCalGuideModal() {
+  _calGuideEditing = false;
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
   if (!overlay || !modal) return;
@@ -35882,6 +36274,7 @@ function restoreCalGuideModalChrome() {
   const fbBody = document.getElementById('calGuideFeedbackBody');
   const ackRow = document.getElementById('calGuideAckRow');
   const fbActions = document.getElementById('calGuideFeedbackActions');
+  const adminActions = document.getElementById('calGuideAdminActions');
   if (title) title.textContent = 'Calibration Recording Guide';
   if (sub) sub.innerHTML = 'DOs &amp; DON\'Ts · For on-site moderators';
   if (footer) footer.textContent = 'Questions? Reach out to your study coordinator before recording. When in doubt, ask.';
@@ -35889,6 +36282,7 @@ function restoreCalGuideModalChrome() {
   if (fbBody) fbBody.hidden = true;
   if (ackRow) ackRow.hidden = false;
   if (fbActions) fbActions.hidden = true;
+  if (adminActions) adminActions.hidden = true;
 }
 
 function teamFeedbackIconGlyph(icon) {

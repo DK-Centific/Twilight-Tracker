@@ -2195,14 +2195,33 @@ a.icon-btn:focus-visible {
 .cal-guide-ack[data-state="ack"]     .cal-guide-ack-btn  { display: none; }
 
 #calGuideModal[data-mode="teamFeedback"] #calGuideDefaultBody,
-#calGuideModal[data-mode="teamFeedback"] #calGuideAckRow { display: none !important; }
+#calGuideModal[data-mode="teamFeedback"] #calGuideAckRow,
+#calGuideModal[data-mode="teamFeedback"] #calGuideAdminActions { display: none !important; }
 #calGuideModal[data-mode="calGuide"] #calGuideFeedbackBody,
 #calGuideModal[data-mode="calGuide"] #calGuideFeedbackActions { display: none !important; }
+#calGuideModal[data-mode="calGuide"][data-role="admin"] #calGuideAckRow { display: none !important; }
+#calGuideModal[data-mode="calGuide"][data-role="moderator"] #calGuideAdminActions { display: none !important; }
 #calGuideModal[data-mode="teamFeedback"] #calGuideFeedbackBody,
 #calGuideModal[data-mode="teamFeedback"] #calGuideFeedbackActions { display: block; }
 #calGuideModal[data-mode="teamFeedback"] #calGuideFeedbackActions [hidden] {
   display: none !important;
 }
+#calGuideModal[data-mode="calGuide"] #calGuideAdminActions [hidden] {
+  display: none !important;
+}
+.cal-guide-admin-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
+}
+.cg-editor { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+.cg-edit-section {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: 12px;
+  border: 0.5px solid var(--border);
+  background: var(--bg2);
+}
+.cg-edit-head { display: flex; align-items: center; gap: 8px; }
+.cg-emoji { max-width: 72px; text-align: center; }
+.cg-remove-sec { flex-shrink: 0; }
 
 .tf-perf-btn {
   border: 0.5px solid var(--border-strong);
@@ -16312,7 +16331,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091526b" defer></script>
+<script src="twilight.js?v=twilight-1.3.091526c" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

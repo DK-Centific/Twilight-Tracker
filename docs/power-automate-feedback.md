@@ -17,12 +17,15 @@ Do **not** rely on localStorage alone for Admin→Mod delivery.
 | What | `sessionStateId` | `assignmentId` | `stateJson` |
 | --- | --- | --- | --- |
 | Last team announcement | `ss_app_setting_team_feedback` | `app_setting_team_feedback` | `{ type: "appSetting", key: "teamFeedback", announcement }` |
+| Live calibration guide | `ss_app_setting_cal_guide` | `app_setting_cal_guide` | `{ type: "appSetting", key: "calGuide", guide }` |
 | One 1:1 message | `ss_fb_{feedbackId}` | `app_setting_feedback` | `{ type: "appSetting", key: "modFeedback", feedbackId, toLoginId, toName, fromName, message, messageHtml, sentAt }` |
 | That moderator's read ids | `ss_app_setting_inbox_read_{orbitKey}` | `app_setting_inbox_read` | `{ type: "appSetting", key: "inboxRead", orbitLoginId, ids: ["TF-…", "FB-…"] }` |
 
 `orbitKey` is the login with spaces removed and letters lowercased (`Alex-tw` → `alextw`).
 
-Session **calibration-guide** progress stays on the assignment SessionState row (`calGuideAck`). Team feedback never writes that key.
+Session **calibration-guide acknowledgment** stays on the assignment SessionState row (`calGuideAck`). Team feedback and calibration-guide **content** never write that key.
+
+Admin **Team feedback** (Performance → Team feedback) publishes the inbox announcement. Admin **Calibration guide** (Performance → Calibration guide) publishes DOs & DON'Ts into `ss_app_setting_cal_guide`. Those are two different rows.
 
 ## Exact write envelope
 
