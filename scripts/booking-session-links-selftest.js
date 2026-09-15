@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /* Self-test: Booking missing Lakitu/Ring chips + URL resolution.
  * OD / TeamLog values win. Admin SessionState overrides fill gaps only.
- * Also checks Week/Month team-list CSS (1.5-row cap, hidden scrollbar)
- * and structured session-card lines (time / team+status / address).
+ * Also checks Week (primary) + Month team-list CSS (1.5-row cap, hidden
+ * scrollbar), Sessions-under-hero grid areas, and structured session cards.
  */
 'use strict';
 
@@ -176,17 +176,27 @@ assert(
     && resolveRingUrlFromRecord({ ringDashboardKey: 'nighttime-centific-5' }) === context.getRingDashboardByKey('nighttime-centific-5').url
 );
 
-const teamListCss = html.includes('.bk-dash-grid .bk-team-list')
+const teamListCss = html.includes('.bk-dash-grid.is-week .bk-team-list')
+  && html.includes('.bk-dash-grid.is-month .bk-team-list')
   && html.includes('1.5 * var(--bk-team-card-h)')
   && !html.includes('4.5 * var(--bk-team-card-h)')
   && html.includes('scrollbar-width: none')
-  && html.includes('.bk-dash-grid .bk-team-list::-webkit-scrollbar');
+  && html.includes('.bk-dash-grid.is-week .bk-team-list::-webkit-scrollbar');
 assert('Week and Month team lists are capped to 1.5 rows with hidden scrollbars', teamListCss);
 
 assert(
-  'team-list cap is shared (not Month-only)',
-  !html.includes('.bk-dash-grid.is-month .bk-team-list')
-    && !html.includes('.bk-dash-grid.is-week .bk-team-list {\n  --bk-team-card-h')
+  'Week grid parks Sessions under bk-hero (not inside .bk-right)',
+  html.includes('grid-template-areas:')
+    && html.includes('"hero slot"')
+    && html.includes('"sessions sessions"')
+    && /<\/div>\s*<\/div>\s*<section class="bk-sessions"/.test(src)
+    && !html.includes('is-assign-collapsed .bk-sessions')
+    && !html.includes('is-assign-open .bk-right { display: contents')
+);
+assert(
+  'Week Assign-a-Team starts open so the 1.5-row list is visible',
+  /bookingAssignOpen:\s*true/.test(src)
+    && src.includes('adminState.bookingAssignOpen = true;')
 );
 assert('session cards render missing-link chips', /bk-link-chip/.test(src) && /Missing Lakitu/.test(src));
 assert('assignment modal can save session links', /function saveAssignmentSessionLinks\(asgnId\)/.test(src));
@@ -195,8 +205,8 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091526h', /const APP_VERSION = '1\.3\.091526h'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091526h'));
+assert('APP_VERSION is 1.3.091526i', /const APP_VERSION = '1\.3\.091526i'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091526i'));
 
 assert(
   'session cards put the date in bk-session-time and split time / team / address',
