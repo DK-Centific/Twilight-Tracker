@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526a';
-const APP_UPDATED_AT = '09/15/2026 17:25';
+const APP_VERSION = '1.3.091526b';
+const APP_UPDATED_AT = '09/15/2026 19:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -20058,7 +20058,7 @@ function renderPerfSectionTabsHTML() {
             <span class="subtab-count">${n || ''}</span>
           </button>
         </div>
-        <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a team announcement for every moderator">Team feedback</button>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a new team announcement or edit the live one">Team feedback</button>
         <button type="button" class="subtab-btn tf-perf-btn" id="perfModFeedbackBtn" title="Send a private note to one moderator">Message a moderator</button>
       </div>
     </div>`;
@@ -35334,7 +35334,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* FEEDBACK_INBOX_BEGIN */
 /* =====================================================================
-   FEEDBACK INBOX · Admin team broadcast + 1:1 messages (1.3.091526a)
+   FEEDBACK INBOX · Admin team broadcast + 1:1 messages (1.3.091526b)
    ---------------------------------------------------------------------
    Persistence: SessionState appSetting rows (existing WRITE/READ URLs).
      - Team announcement · upsert ss_app_setting_team_feedback
@@ -35447,8 +35447,35 @@ function feedbackNewId(prefix) {
   return String(prefix || 'FB') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+function teamAnnouncementHasContent(announcement) {
+  return !!(announcement && (announcement.title || announcement.bodyText || announcement.bodyHtml));
+}
+
+function publishedAnnouncementToComposerDraft(announcement) {
+  if (!announcement) return null;
+  const bodyHtml = String(announcement.bodyHtml || '');
+  return {
+    title: String(announcement.title || ''),
+    bodyHtml: bodyHtml,
+    bodyText: String(announcement.bodyText || stripFeedbackHtml(bodyHtml)).trim(),
+    icon: String(announcement.icon || 'info'),
+    accent: String(announcement.accent || 'sage'),
+    sourceId: String(announcement.id || ''),
+    editingPublished: true,
+  };
+}
+
+function resolveTeamFeedbackComposerTab(requested, announcement) {
+  if (requested === 'edit' && teamAnnouncementHasContent(announcement)) return 'edit';
+  return 'new';
+}
+
 function buildTeamAnnouncementRecord(draft, adminName) {
   const bodyHtml = sanitizeFeedbackHtml((draft && draft.bodyHtml) || '');
+  // Edit-current re-sends overwrite the same SessionState row. A fresh
+  // announcement id makes the update unread again for mods who already
+  // opened the previous version. Pass draft.id only when the caller is
+  // explicitly preserving identity (tests / replay).
   return {
     id: (draft && draft.id) || feedbackNewId('TF'),
     title: String((draft && draft.title) || '').trim(),
@@ -35456,9 +35483,10 @@ function buildTeamAnnouncementRecord(draft, adminName) {
     bodyText: String((draft && draft.bodyText) || stripFeedbackHtml(bodyHtml)).trim(),
     icon: String((draft && draft.icon) || 'info'),
     accent: String((draft && draft.accent) || 'sage'),
-    publishedAt: (draft && draft.publishedAt) || new Date().toISOString(),
+    publishedAt: new Date().toISOString(),
     publishedBy: adminName || 'Admin',
     draft: false,
+    replacedId: (draft && draft.editingPublished && draft.sourceId) ? String(draft.sourceId) : '',
   };
 }
 
@@ -35658,6 +35686,9 @@ function resetInboxToastAt(now) {
   g.stripFeedbackHtml = stripFeedbackHtml;
   g.sanitizeFeedbackHtml = sanitizeFeedbackHtml;
   g.buildTeamAnnouncementRecord = buildTeamAnnouncementRecord;
+  g.teamAnnouncementHasContent = teamAnnouncementHasContent;
+  g.publishedAnnouncementToComposerDraft = publishedAnnouncementToComposerDraft;
+  g.resolveTeamFeedbackComposerTab = resolveTeamFeedbackComposerTab;
   g.buildIndividualFeedbackRecord = buildIndividualFeedbackRecord;
   g.buildFeedbackAppSettingPayload = buildFeedbackAppSettingPayload;
   g.emptyFeedbackStore = emptyFeedbackStore;
@@ -35679,6 +35710,7 @@ let _feedbackToastTimer = null;
 let _feedbackPreviewOn = false;
 let _feedbackComposerAccent = 'sage';
 let _feedbackComposerIcon = 'info';
+let _feedbackComposerTab = 'new';
 
 function currentFeedbackUser() {
   const login = (typeof state !== 'undefined' && state)
@@ -35875,6 +35907,10 @@ function renderTeamFeedbackReadOnly(announcement) {
   `;
 }
 
+function currentPublishedTeamAnnouncement() {
+  return (_feedbackUiStore && _feedbackUiStore.teamAnnouncement) || null;
+}
+
 function loadTeamFeedbackDraft() {
   try {
     const raw = localStorage.getItem(FEEDBACK_DRAFT_LS_KEY);
@@ -35883,29 +35919,69 @@ function loadTeamFeedbackDraft() {
 }
 
 function saveTeamFeedbackDraft(draft) {
+  if (draft && draft.editingPublished) return;
   try { localStorage.setItem(FEEDBACK_DRAFT_LS_KEY, JSON.stringify(draft || {})); } catch (_) {}
 }
 
 function collectTeamFeedbackComposerDraft() {
   const titleEl = document.getElementById('tfTitleInput');
   const editor = document.getElementById('tfComposerEditor');
+  const published = currentPublishedTeamAnnouncement();
+  const tab = resolveTeamFeedbackComposerTab(_feedbackComposerTab, published);
   return {
     title: titleEl ? titleEl.value : '',
     bodyHtml: editor ? editor.innerHTML : '',
     bodyText: editor ? stripFeedbackHtml(editor.innerHTML) : '',
     icon: _feedbackComposerIcon,
     accent: _feedbackComposerAccent,
+    editingPublished: tab === 'edit',
+    sourceId: (tab === 'edit' && published && published.id) ? String(published.id) : '',
   };
 }
 
-function renderTeamFeedbackComposer(draft) {
-  draft = draft || loadTeamFeedbackDraft() || {};
+function teamFeedbackLiveWhen(announcement) {
+  if (!announcement || !announcement.publishedAt) return '';
+  const when = new Date(announcement.publishedAt);
+  if (isNaN(when.getTime())) return '';
+  return when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function teamFeedbackLiveSummary(announcement) {
+  if (!teamAnnouncementHasContent(announcement)) return '';
+  const title = String(announcement.title || announcement.bodyText || 'Team note').trim();
+  const clipped = title.length > 52 ? title.slice(0, 49) + '…' : title;
+  const when = teamFeedbackLiveWhen(announcement);
+  return 'Live now: <strong>' + escapeHTML(clipped) + '</strong>' + (when ? ' · ' + escapeHTML(when) : '');
+}
+
+function persistTeamFeedbackComposerIfNew() {
+  const draft = collectTeamFeedbackComposerDraft();
+  if (!draft.editingPublished) saveTeamFeedbackDraft(draft);
+}
+
+function renderTeamFeedbackComposer(draft, opts) {
+  opts = opts || {};
+  const published = opts.published !== undefined ? opts.published : currentPublishedTeamAnnouncement();
+  const hasLive = teamAnnouncementHasContent(published);
+  const tab = resolveTeamFeedbackComposerTab(opts.tab || _feedbackComposerTab, published);
+  _feedbackComposerTab = tab;
+  draft = draft || (tab === 'edit'
+    ? publishedAnnouncementToComposerDraft(published)
+    : (loadTeamFeedbackDraft() || {})) || {};
   _feedbackComposerAccent = draft.accent || 'sage';
   _feedbackComposerIcon = draft.icon || 'info';
   _feedbackPreviewOn = false;
+  const liveSummary = teamFeedbackLiveSummary(published);
   return `
-    <div class="tf-composer">
-      <div class="tf-draft-hint">Draft stays on this device until you confirm and send.</div>
+    <div class="tf-composer" data-tf-tab="${tab}">
+      <div class="tf-mode-toggle" role="tablist" aria-label="Team feedback mode">
+        <button type="button" class="tf-mode-tab ${tab === 'new' ? 'is-on' : ''}" data-tf-tab="new" role="tab" aria-selected="${tab === 'new'}" id="tfTabNew">New</button>
+        <button type="button" class="tf-mode-tab ${tab === 'edit' ? 'is-on' : ''}" data-tf-tab="edit" role="tab" aria-selected="${tab === 'edit'}" id="tfTabEdit" ${hasLive ? '' : 'disabled'} title="${hasLive ? 'Load the live note moderators currently see' : 'No live team note yet'}">Edit current</button>
+      </div>
+      <div class="tf-live-banner" id="tfLiveBanner" ${hasLive ? '' : 'hidden'}>${liveSummary}</div>
+      <div class="tf-draft-hint">${tab === 'edit'
+        ? 'This is the live note moderators currently see. Confirm send overwrites it — they will get the update.'
+        : 'Draft stays on this device until you confirm and send.'}</div>
       <input class="tf-title" id="tfTitleInput" maxlength="80" placeholder="Title (optional)" value="${escapeHTML(draft.title || '')}">
       <div class="tf-toolbar" role="toolbar" aria-label="Announcement style">
         <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'sage' ? 'is-on' : ''}" data-accent="sage" title="Sage"></button>
@@ -35927,19 +36003,81 @@ function renderTeamFeedbackComposer(draft) {
   `;
 }
 
+function updateTeamFeedbackAdminChrome() {
+  const modal = document.getElementById('calGuideModal');
+  if (!modal || modal.getAttribute('data-mode') !== 'teamFeedback') return;
+  const title = modal.querySelector('#calGuideTitle');
+  const sub = modal.querySelector('.cal-guide-header-sub');
+  const footer = document.getElementById('calGuideFooterText');
+  const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
+  const previewBtn = document.getElementById('calGuideFeedbackPreviewBtn');
+  if (_feedbackComposerTab === 'edit') {
+    if (title) title.textContent = 'Team feedback';
+    if (sub) sub.textContent = 'Change the live note every moderator currently sees';
+    if (footer) footer.textContent = 'Confirm send overwrites the live team note. Moderators will see the update.';
+    if (sendBtn) sendBtn.textContent = 'Confirm and send update';
+  } else {
+    if (title) title.textContent = 'Team feedback';
+    if (sub) sub.textContent = 'Write a note every moderator will see';
+    if (footer) footer.textContent = 'Confirm and send publishes this note to every moderator inbox.';
+    if (sendBtn) sendBtn.textContent = 'Confirm and send to Moderator';
+  }
+  if (previewBtn) previewBtn.textContent = _feedbackPreviewOn ? 'Keep editing' : 'Preview';
+}
+
+function refreshTeamFeedbackLiveBanner() {
+  const banner = document.getElementById('tfLiveBanner');
+  const editTab = document.getElementById('tfTabEdit');
+  const published = currentPublishedTeamAnnouncement();
+  const hasLive = teamAnnouncementHasContent(published);
+  if (editTab) {
+    editTab.disabled = !hasLive;
+    editTab.title = hasLive ? 'Load the live note moderators currently see' : 'No live team note yet';
+  }
+  if (banner) {
+    banner.hidden = !hasLive;
+    if (hasLive) banner.innerHTML = teamFeedbackLiveSummary(published);
+  }
+}
+
+function setTeamFeedbackComposerTab(tab) {
+  const published = currentPublishedTeamAnnouncement();
+  const next = resolveTeamFeedbackComposerTab(tab, published);
+  if (next === _feedbackComposerTab && document.getElementById('tfComposerEditor')) {
+    updateTeamFeedbackAdminChrome();
+    return;
+  }
+  if (_feedbackComposerTab === 'new') persistTeamFeedbackComposerIfNew();
+  _feedbackComposerTab = next;
+  const fbBody = document.getElementById('calGuideFeedbackBody');
+  if (!fbBody) return;
+  const draft = next === 'edit'
+    ? publishedAnnouncementToComposerDraft(published)
+    : (loadTeamFeedbackDraft() || {});
+  fbBody.innerHTML = renderTeamFeedbackComposer(draft, { tab: next, published: published });
+  bindTeamFeedbackComposer(fbBody);
+  updateTeamFeedbackAdminChrome();
+}
+
 function bindTeamFeedbackComposer(root) {
   if (!root) return;
+  root.querySelectorAll('button[data-tf-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      setTeamFeedbackComposerTab(btn.getAttribute('data-tf-tab') || 'new');
+    });
+  });
   root.querySelectorAll('[data-accent]').forEach(btn => {
     btn.addEventListener('click', () => {
       _feedbackComposerAccent = btn.getAttribute('data-accent') || 'sage';
       root.querySelectorAll('[data-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
-      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+      persistTeamFeedbackComposerIfNew();
     });
   });
-  root.querySelectorAll('[data-icon]').forEach(btn => {
+  root.querySelectorAll('.tf-icon-btn[data-icon]').forEach(btn => {
     btn.addEventListener('click', () => {
       _feedbackComposerIcon = btn.getAttribute('data-icon') || 'info';
-      root.querySelectorAll('[data-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
+      root.querySelectorAll('.tf-icon-btn[data-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
       const editor = document.getElementById('tfComposerEditor');
       if (editor) {
         const color = FEEDBACK_ACCENTS[_feedbackComposerAccent] || FEEDBACK_ACCENTS.sage;
@@ -35948,7 +36086,7 @@ function bindTeamFeedbackComposer(root) {
           editor.innerHTML += chip;
         }
       }
-      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+      persistTeamFeedbackComposerIfNew();
     });
   });
   root.querySelectorAll('[data-tf-cmd]').forEach(btn => {
@@ -35958,10 +36096,10 @@ function bindTeamFeedbackComposer(root) {
   });
   const editor = root.querySelector('#tfComposerEditor');
   if (editor) {
-    editor.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+    editor.addEventListener('input', persistTeamFeedbackComposerIfNew);
   }
   const title = root.querySelector('#tfTitleInput');
-  if (title) title.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+  if (title) title.addEventListener('input', persistTeamFeedbackComposerIfNew);
 }
 
 function isAdminFeedbackComposer() {
@@ -35989,16 +36127,19 @@ function renderTeamFeedbackModal(opts) {
   if (fbActions) fbActions.hidden = false;
   const admin = opts.role === 'admin' || (opts.role == null && isAdminFeedbackComposer());
   if (admin) {
-    if (title) title.textContent = 'Team feedback';
-    if (sub) sub.textContent = 'Write a note every moderator will see';
-    if (footer) footer.textContent = 'Confirm and send publishes this note to every moderator inbox.';
+    const published = currentPublishedTeamAnnouncement();
+    _feedbackComposerTab = resolveTeamFeedbackComposerTab(opts.composerTab || opts.tab || 'new', published);
+    const draft = _feedbackComposerTab === 'edit'
+      ? publishedAnnouncementToComposerDraft(published)
+      : (opts.draft || loadTeamFeedbackDraft());
     if (fbBody) {
-      fbBody.innerHTML = renderTeamFeedbackComposer(opts.draft || loadTeamFeedbackDraft());
+      fbBody.innerHTML = renderTeamFeedbackComposer(draft, { tab: _feedbackComposerTab, published: published });
       bindTeamFeedbackComposer(fbBody);
     }
     if (sendBtn) sendBtn.hidden = false;
     if (previewBtn) previewBtn.hidden = false;
     if (gotBtn) gotBtn.hidden = true;
+    updateTeamFeedbackAdminChrome();
   } else {
     const announcement = opts.announcement || (_feedbackUiStore && _feedbackUiStore.teamAnnouncement);
     if (title) title.textContent = (announcement && announcement.title) || 'Team feedback';
@@ -36039,24 +36180,29 @@ async function submitTeamFeedbackFromComposer() {
   }
   const announcement = buildTeamAnnouncementRecord(draft, (state && state.username) || 'Admin-Twilight');
   const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
-  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+  const sendLabel = draft.editingPublished ? 'Confirm and send update' : 'Confirm and send to Moderator';
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = draft.editingPublished ? 'Updating…' : 'Sending…'; }
   const payload = buildFeedbackAppSettingPayload(
     TEAM_FEEDBACK_SETTING_ID,
     TEAM_FEEDBACK_ASSIGNMENT_ID,
     { type: 'appSetting', key: 'teamFeedback', announcement: announcement }
   );
   const result = await persistFeedbackSetting(payload);
-  if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Confirm and send to Moderator'; }
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = sendLabel; }
   if (!result.ok) {
     if (err) err.textContent = result.reason === 'notconfigured'
       ? 'Cloud save is not set up. Draft is still on this device.'
       : 'Could not send. Draft is saved here — try again.';
-    saveTeamFeedbackDraft(draft);
+    if (!draft.editingPublished) saveTeamFeedbackDraft(draft);
     return;
   }
   _feedbackUiStore = applyPublishedTeamAnnouncement(_feedbackUiStore, announcement);
   try { localStorage.removeItem(FEEDBACK_DRAFT_LS_KEY); } catch (_) {}
-  if (typeof toast === 'function') toast('Team feedback sent to moderators');
+  if (typeof toast === 'function') {
+    toast(draft.editingPublished
+      ? 'Team feedback updated for moderators'
+      : 'Team feedback sent to moderators');
+  }
   if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
 }
 
@@ -36067,8 +36213,18 @@ function acknowledgeTeamFeedbackModal() {
 }
 
 function openTeamFeedbackComposer() {
+  _feedbackComposerTab = 'new';
   if (typeof openCalGuideModal === 'function') {
-    openCalGuideModal({ mode: 'teamFeedback', role: 'admin' });
+    openCalGuideModal({ mode: 'teamFeedback', role: 'admin', composerTab: 'new' });
+  }
+  if (typeof fetchSessionStateRows === 'function') {
+    fetchSessionStateRows().then(rows => {
+      if (!Array.isArray(rows) || typeof ingestFeedbackFromSessionRows !== 'function') return;
+      ingestFeedbackFromSessionRows(rows);
+      const modal = document.getElementById('calGuideModal');
+      if (!modal || !modal.classList.contains('open') || modal.getAttribute('data-mode') !== 'teamFeedback') return;
+      refreshTeamFeedbackLiveBanner();
+    }).catch(() => {});
   }
 }
 

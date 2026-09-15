@@ -38,7 +38,7 @@ Same shape as other SessionState upserts:
   "milesFromHq": "",
   "stateJson": "{\"type\":\"appSetting\",\"key\":\"teamFeedback\",\"announcement\":{}}",
   "lastActive": "2026-09-15T17:25:00.000Z",
-  "appVersion": "1.3.091526a",
+  "appVersion": "1.3.091526b",
   "overwrite": true,
   "writeMode": "upsert"
 }
@@ -69,3 +69,10 @@ Same shape as other SessionState upserts:
 ```
 
 Drafts stay in the Admin browser (`centific_twilight_team_fb_draft_v1`) until Confirm and send.
+
+Admin Team feedback has two tabs:
+
+- **New** — blank / local draft composer (same as the first slice).
+- **Edit current** — loads title, body, color, and icon from the live `ss_app_setting_team_feedback` row. Confirm send **upserts that same `sessionStateId`** (overwrite). It does not create a second current team note.
+
+A re-send mints a new announcement `id` and `publishedAt` so moderators who already opened the previous version see the update as unread. The SessionState row id stays `ss_app_setting_team_feedback`.

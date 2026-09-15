@@ -2209,6 +2209,32 @@ a.icon-btn:focus-visible {
 }
 .tf-perf-btn:hover { color: var(--text); background: color-mix(in srgb, #6B8F71 20%, var(--bg2)); }
 .tf-composer { display: flex; flex-direction: column; gap: 12px; }
+.tf-mode-toggle {
+  display: inline-flex; gap: 3px;
+  background: var(--bg3); border: 0.5px solid var(--border);
+  border-radius: 11px; padding: 3px;
+  align-self: flex-start;
+}
+.tf-mode-tab {
+  font-family: inherit; font-size: 13px; font-weight: 500;
+  color: var(--text2); background: transparent; border: none;
+  border-radius: 8px; padding: 7px 14px; cursor: pointer;
+  letter-spacing: -0.01em;
+}
+.tf-mode-tab:hover:not(:disabled) { color: var(--text); }
+.tf-mode-tab.is-on {
+  background: color-mix(in srgb, #6B8F71 18%, var(--bg2));
+  color: var(--text); font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.tf-mode-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.tf-live-banner {
+  font-size: 12.5px; color: var(--text2); line-height: 1.4;
+  padding: 8px 10px; border-radius: 10px;
+  background: color-mix(in srgb, #6B8F71 12%, var(--bg2));
+  border: 0.5px solid color-mix(in srgb, #6B8F71 28%, var(--border));
+}
+.tf-live-banner[hidden] { display: none !important; }
 .tf-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
 }
@@ -16283,7 +16309,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091526a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091526b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -40,6 +40,9 @@ const {
   sanitizeFeedbackHtml,
   stripFeedbackHtml,
   buildTeamAnnouncementRecord,
+  teamAnnouncementHasContent,
+  publishedAnnouncementToComposerDraft,
+  resolveTeamFeedbackComposerTab,
   buildIndividualFeedbackRecord,
   buildFeedbackAppSettingPayload,
   feedbackMatchesRecipient,
@@ -171,6 +174,64 @@ assert('publish → any mod can read the team announcement',
 const afterAck = applyReadReceipt(afterPublish, announcement.id);
 assert('mod read does not drop the announcement, only unread',
   buildInboxItems(afterAck, { loginId: 'Sam-tw', name: 'Sam Ortiz' })[0].unread === false);
+
+const loadedDraft = publishedAnnouncementToComposerDraft(announcement);
+assert('edit draft prefills title', loadedDraft && loadedDraft.title === 'Tonight');
+assert('edit draft prefills body text', loadedDraft.bodyText.indexOf('Drive') !== -1);
+assert('edit draft prefills coral accent', loadedDraft.accent === 'coral');
+assert('edit draft prefills warn icon', loadedDraft.icon === 'warn');
+assert('edit draft marks editingPublished', loadedDraft.editingPublished === true);
+assert('edit draft keeps sourceId', loadedDraft.sourceId === announcement.id);
+assert('empty announcement is not editable', teamAnnouncementHasContent(null) === false);
+assert('edit tab needs a published note', resolveTeamFeedbackComposerTab('edit', null) === 'new');
+assert('edit tab is allowed when published', resolveTeamFeedbackComposerTab('edit', announcement) === 'edit');
+assert('new tab stays new even if published', resolveTeamFeedbackComposerTab('new', announcement) === 'new');
+
+const edited = buildTeamAnnouncementRecord({
+  title: 'Tonight · updated',
+  bodyHtml: '<p>Drive <strong>very</strong> slowly</p>',
+  icon: 'warn',
+  accent: 'amber',
+  editingPublished: true,
+  sourceId: announcement.id,
+}, 'Admin-Twilight');
+assert('edit mint a new announcement id so mods see unread', edited.id && edited.id !== announcement.id);
+assert('edit stamps replacedId to the previous announcement', edited.replacedId === announcement.id);
+assert('edit body text includes the new wording', edited.bodyText.indexOf('very') !== -1);
+assert('edit keeps warn icon and switches accent', edited.icon === 'warn' && edited.accent === 'amber');
+
+const editedPayload = buildFeedbackAppSettingPayload(
+  'ss_app_setting_team_feedback',
+  'app_setting_team_feedback',
+  { type: 'appSetting', key: 'teamFeedback', announcement: edited }
+);
+assert('edit upsert keeps the same sessionStateId', editedPayload.sessionStateId === 'ss_app_setting_team_feedback');
+assert('edit upsert still overwrite/upsert', editedPayload.writeMode === 'upsert' && editedPayload.overwrite === true);
+
+let editedStore = applyPublishedTeamAnnouncement(emptyFeedbackStore(), announcement);
+editedStore = applyPublishedTeamAnnouncement(editedStore, edited);
+assert('store keeps a single current team note after edit', editedStore.teamAnnouncement.id === edited.id);
+assert('store body is the edited text', /very/.test(editedStore.teamAnnouncement.bodyText));
+
+const rowsAfterEdit = [
+  {
+    sessionStateId: 'ss_app_setting_team_feedback',
+    orbitLoginId: '_app_setting',
+    lastActive: '2026-09-15T19:00:00.000Z',
+    stateJson: JSON.stringify({ type: 'appSetting', key: 'teamFeedback', announcement: edited }),
+  },
+  rows[1],
+  rows[2],
+];
+const collectedAfterEdit = collectFeedbackFromSessionRows(rowsAfterEdit);
+assert('ingest after edit has updated title', collectedAfterEdit.teamAnnouncement.title === 'Tonight · updated');
+assert('ingest after edit still one team note', collectedAfterEdit.teamAnnouncement.id === edited.id);
+assert('ingest after edit still ignores calGuideAck', !collectedAfterEdit.messages.some(m => m.calGuideAck));
+
+const samAfterEdit = buildInboxItems(editedStore, { loginId: 'Sam-tw', name: 'Sam Ortiz' });
+assert('mod inbox shows the updated team text',
+  samAfterEdit.length === 1 && /very/.test(samAfterEdit[0].message));
+assert('mod sees the edited note as unread (new id)', samAfterEdit[0].unread === true);
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');
