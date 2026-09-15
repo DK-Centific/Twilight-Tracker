@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* Self-test: Booking missing Lakitu/Ring chips + URL resolution.
  * OD / TeamLog values win. Admin SessionState overrides fill gaps only.
- * Also checks Month-view team-list CSS (4.5-row cap, hidden scrollbar).
+ * Also checks Week (primary) + Month team-list CSS (1.5-row cap, hidden
+ * scrollbar), Sessions-under-hero grid areas, and structured session cards.
  */
 'use strict';
 
@@ -175,13 +176,28 @@ assert(
     && resolveRingUrlFromRecord({ ringDashboardKey: 'nighttime-centific-5' }) === context.getRingDashboardByKey('nighttime-centific-5').url
 );
 
-const monthCss = html.includes('.bk-dash-grid.is-month .bk-team-list')
-  && html.includes('4.5 * var(--bk-team-card-h)')
+const teamListCss = html.includes('.bk-dash-grid.is-week .bk-team-list')
+  && html.includes('.bk-dash-grid.is-month .bk-team-list')
+  && html.includes('1.5 * var(--bk-team-card-h)')
+  && !html.includes('4.5 * var(--bk-team-card-h)')
   && html.includes('scrollbar-width: none')
-  && html.includes('.bk-dash-grid.is-month .bk-team-list::-webkit-scrollbar');
-assert('Month team list is capped to 4.5 rows with hidden scrollbars', monthCss);
+  && html.includes('.bk-dash-grid.is-week .bk-team-list::-webkit-scrollbar');
+assert('Week and Month team lists are capped to 1.5 rows with hidden scrollbars', teamListCss);
 
-assert('Week view is not given the Month team-list cap', !html.includes('.bk-dash-grid.is-week .bk-team-list {\n  --bk-team-card-h'));
+assert(
+  'Week grid parks Sessions under bk-hero (not inside .bk-right)',
+  html.includes('grid-template-areas:')
+    && html.includes('"hero slot"')
+    && html.includes('"sessions sessions"')
+    && /<\/div>\s*<\/div>\s*<section class="bk-sessions"/.test(src)
+    && !html.includes('is-assign-collapsed .bk-sessions')
+    && !html.includes('is-assign-open .bk-right { display: contents')
+);
+assert(
+  'Week Assign-a-Team starts open so the 1.5-row list is visible',
+  /bookingAssignOpen:\s*true/.test(src)
+    && src.includes('adminState.bookingAssignOpen = true;')
+);
 assert('session cards render missing-link chips', /bk-link-chip/.test(src) && /Missing Lakitu/.test(src));
 assert('assignment modal can save session links', /function saveAssignmentSessionLinks\(asgnId\)/.test(src));
 assert('SessionState override setting id exists', /ss_app_setting_session_links/.test(src));
@@ -189,15 +205,29 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091526g', /const APP_VERSION = '1\.3\.091526g'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091526g'));
+assert('APP_VERSION is 1.3.091526i', /const APP_VERSION = '1\.3\.091526i'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091526i'));
 
 assert(
-  'session cards put the date in bk-session-time and the clock in the subtitle',
+  'session cards put the date in bk-session-time and split time / team / address',
   /class="bk-session-time">\$\{escapeHTML\(dateLabel\)\}/.test(src)
     && /weekday: 'short', month: 'short', day: 'numeric'/.test(src)
     && src.includes('const when = `${fmtBookingClock(a.startMin || 0)} – ${fmtBookingClock(a.endMin || 0)}`;')
-    && /const sub = \[\s*when,/.test(src)
+    && src.includes('class="bk-session-when"')
+    && src.includes('class="bk-session-teamline"')
+    && src.includes('class="bk-session-addr"')
+    && src.includes('class="bk-status-pill"')
+    && !/const sub = \[\s*when,/.test(src)
+);
+
+assert(
+  'session-card CSS uses structured lines and 2-line address clamp',
+  html.includes('.bk-session-when')
+    && html.includes('.bk-session-teamline')
+    && html.includes('.bk-session-addr')
+    && html.includes('-webkit-line-clamp: 2')
+    && html.includes('overflow-wrap: break-word')
+    && html.includes('word-break: normal')
 );
 
 assert(
