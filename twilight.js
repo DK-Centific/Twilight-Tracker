@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526g';
-const APP_UPDATED_AT = '09/15/2026 22:20';
+const APP_VERSION = '1.3.091526h';
+const APP_UPDATED_AT = '09/15/2026 22:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -24469,12 +24469,13 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
     const contact = (typeof assignmentParticipantContact === 'function')
       ? assignmentParticipantContact(a)
       : { address: (p.address || '').trim() };
-    const sub = [
-      when,
-      (team && team.name) || a.teamName || '',
-      contact.address || '',
-      a.status || '',
-    ].filter(Boolean).join(' · ');
+    const teamLabel = (team && team.name) || a.teamName || '';
+    const statusLabel = String(a.status || '').trim();
+    const address = String((contact && contact.address) || '').trim();
+    const teamLine = [
+      teamLabel ? `<span class="bk-session-team">${escapeHTML(teamLabel)}</span>` : '',
+      statusLabel ? `<span class="bk-status-pill">${escapeHTML(statusLabel)}</span>` : '',
+    ].filter(Boolean).join('');
     const ov = (typeof getSessionLinkOverride === 'function') ? getSessionLinkOverride(a.id) : null;
     const missing = (typeof assignmentMissingSessionLinks === 'function')
       ? assignmentMissingSessionLinks(a, team, ov)
@@ -24489,8 +24490,10 @@ function renderBookingSessionListHTML(sessions, sessionFilter, scope) {
             <button type="button" class="bk-session-card" data-asgn-id="${escapeHTML(String(a.id))}" data-origin="${origin}">
               <div class="bk-session-time">${escapeHTML(dateLabel)}</div>
               <div class="bk-session-info">
-                <strong>${escapeHTML(name)}</strong>
-                <span>${escapeHTML(sub)}</span>
+                <strong class="bk-session-name">${escapeHTML(name)}</strong>
+                <span class="bk-session-when">${escapeHTML(when)}</span>
+                ${teamLine ? `<span class="bk-session-teamline">${teamLine}</span>` : ''}
+                ${address ? `<span class="bk-session-addr" title="${escapeHTML(address)}">${escapeHTML(address)}</span>` : ''}
               </div>
               <div class="bk-session-meta">
                 <span class="bk-origin-pill ${origin === 'od' ? 'is-od' : 'is-twilight'}">${originLabel}</span>
