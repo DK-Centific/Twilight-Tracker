@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526a';
-const APP_UPDATED_AT = '09/15/2026 17:25';
+const APP_VERSION = '1.3.091526e';
+const APP_UPDATED_AT = '09/15/2026 20:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -14111,6 +14111,7 @@ function ingestAppSettingsFromSessionRows(rows) {
   ingestDeactivatedUsersFromSessionRows(rows);
   ingestMasterAdminsFromSessionRows(rows);
   if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
+  if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
 }
 
 loadDeactivatedUsersCache();
@@ -20058,7 +20059,8 @@ function renderPerfSectionTabsHTML() {
             <span class="subtab-count">${n || ''}</span>
           </button>
         </div>
-        <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a team announcement for every moderator">Team feedback</button>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfTeamFeedbackBtn" title="Write a new team announcement or edit the live one">Team feedback</button>
+        <button type="button" class="subtab-btn tf-perf-btn" id="perfCalGuideBtn" title="Open and edit the calibration recording guide">Calibration guide</button>
         <button type="button" class="subtab-btn tf-perf-btn" id="perfModFeedbackBtn" title="Send a private note to one moderator">Message a moderator</button>
       </div>
     </div>`;
@@ -20080,6 +20082,14 @@ function wirePerfSectionTabs(body) {
   if (teamBtn) {
     teamBtn.addEventListener('click', () => {
       if (typeof openTeamFeedbackComposer === 'function') openTeamFeedbackComposer();
+    });
+  }
+  const guideBtn = body.querySelector('#perfCalGuideBtn');
+  if (guideBtn) {
+    guideBtn.addEventListener('click', () => {
+      if (typeof openCalGuideModal === 'function') {
+        openCalGuideModal({ mode: 'calGuide', role: 'admin' });
+      }
     });
   }
   const modBtn = body.querySelector('#perfModFeedbackBtn');
@@ -34707,10 +34717,9 @@ function addReminderShown(hourMark) {
      Pre-Recording Checklist.
    ===================================================================== */
 
-// Calibration DOs & DON'Ts now live in a maintained SharePoint Word doc;
-// the modal links out to it (opens in a new tab · SharePoint docs can't be
-// reliably embedded due to auth + X-Frame-Options). The acknowledgment flow
-// below is unchanged: the mod opens the doc, reviews it, then acknowledges.
+// Calibration DOs & DON'Ts render inline from CAL_GUIDE_SECTIONS (and any
+// Admin-published SessionState overwrite). The onboarding doc link stays
+// as a secondary "open full document" action. Acknowledgment is unchanged.
 const CAL_GUIDE_DOC_URL = 'https://centifictd.github.io/twilight-onboarding/?utm_source=chatgpt.com';
 
 // Data · kept as a top-level const inside the function's closure so the
@@ -34824,23 +34833,624 @@ const CAL_GUIDE_CHECKLIST = [
   'SCENARIO 20 ONLY: Blue dot markers and tape from kit are used',
 ];
 
+/* CAL_GUIDE_CONTENT_BEGIN */
+/* =====================================================================
+   CAL GUIDE CONTENT · built-in DOs/DON'Ts + optional SessionState publish
+   ---------------------------------------------------------------------
+   Moderators always see the current guide in calGuideModal. Built-in
+   CAL_GUIDE_SECTIONS / CAL_GUIDE_CHECKLIST plus the warning banner,
+   Motion Detection block, and length reminder are the fallback. Admin
+   can edit those blocks (text, color, icons) and the DO/DON'T sections,
+   then upsert ss_app_setting_cal_guide (same SessionState write as team
+   feedback · no new PA sig= URL).
+   Team feedback (ss_app_setting_team_feedback) is a different row.
+   Session calGuideAck is never written here.
+   ===================================================================== */
+const CAL_GUIDE_SETTING_ID = 'ss_app_setting_cal_guide';
+const CAL_GUIDE_ASSIGNMENT_ID = 'app_setting_cal_guide';
+
+function calGuideEscape(s) {
+  if (typeof escapeHTML === 'function') return escapeHTML(s);
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function calGuideLineList(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map(x => String(x || '').trim()).filter(Boolean);
+  }
+  return String(raw || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+}
+
+const CAL_GUIDE_ACCENTS = {
+  sage: '#6B8F71',
+  coral: '#C47A6A',
+  amber: '#C5A059',
+  red: '#ef4444',
+  ink: '#3C3C3B',
+};
+
+const CAL_GUIDE_ICON_ORDER = ['warn', 'alert', 'info', 'check', 'star', 'pin', 'camera', 'clock', 'motion', 'board'];
+
+const CAL_GUIDE_ICON_PRESETS = {
+  warn:   { glyph: '⚠️', label: 'Warning' },
+  alert:  { glyph: '❗', label: 'Alert' },
+  info:   { glyph: 'ℹ️', label: 'Info' },
+  check:  { glyph: '✅', label: 'Check' },
+  star:   { glyph: '★', label: 'Star' },
+  pin:    { glyph: '◉', label: 'Pin' },
+  camera: { glyph: '📷', label: 'Camera' },
+  clock:  { glyph: '⏱', label: 'Timer', svg: '<svg width="22" height="22" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
+  motion: { glyph: '🚫', label: 'Motion off', svg: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="currentColor"/><path d="M7.5 7.5a6.5 6.5 0 000 9M16.5 16.5a6.5 6.5 0 000-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="4" y1="20" x2="20" y2="4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>' },
+  board:  { glyph: '🏁', label: 'Board' },
+};
+
+const CAL_GUIDE_DEFAULT_LENGTH_BODY = [
+  '<div class="len-reminder-title">All calibration recordings must be a minimum of 90 seconds long</div>',
+  '<div class="len-reminder-warn">⚠️ Calibration recordings shorter than 60 seconds do not meet the project requirements and will be rejected by the client.</div>',
+  '<div class="len-reminder-title">All scenario recordings must be a minimum of 60 seconds long</div>',
+  '<div class="len-reminder-title">Speed reminders</div>',
+  '<ul class="len-reminder-list">',
+  '<li><strong>Vehicles:</strong> Drive very slowly · approximately 2 mph.</li>',
+  '<li><strong>People:</strong> Walk significantly slower than your normal pace. Think "slow-motion stroll."</li>',
+  '</ul>',
+].join('');
+
+function calGuideStripHtml(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function calGuideSanitizeHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript:/gi, '');
+  s = s.replace(/<\/?(?:iframe|object|embed|link|meta|form|input|button|textarea|select)[^>]*>/gi, '');
+  s = s.replace(/<(p|div|span|strong|b|em|i|u|br|ul|ol|li)(\s[^>]*)?>/gi, (full, tag, attrs) => {
+    const name = String(tag).toLowerCase();
+    if (name === 'br') return '<br>';
+    let keep = '';
+    const attrSrc = attrs || '';
+    const style = attrSrc.match(/style\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (style) {
+      const val = style[2] || style[3] || '';
+      const color = val.match(/color\s*:\s*([^;]+)/i);
+      if (color) {
+        const c = color[1].trim();
+        if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) || /^(rgb|rgba)\(/i.test(c)) {
+          keep += ' style="color:' + c + '"';
+        }
+      }
+    }
+    const cls = attrSrc.match(/class\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (cls) {
+      const allowed = String(cls[2] || cls[3] || '').split(/\s+/).filter(c =>
+        /^(tf-icon|tf-accent-[a-z]+|tf-chip|len-reminder-[a-z]+|cal-guide-[a-z-]+|cg-icon-glyph)$/.test(c)
+      );
+      if (allowed.length) keep += ' class="' + allowed.join(' ') + '"';
+    }
+    return '<' + name + keep + '>';
+  });
+  s = s.replace(/<\/(p|div|span|strong|b|em|i|u|ul|ol|li)>/gi, (full, tag) => '</' + String(tag).toLowerCase() + '>');
+  s = s.replace(/<\/?(?!p|div|span|strong|b|em|i|u|br|ul|ol|li)([a-z][a-z0-9]*)\b[^>]*>/gi, '');
+  return s;
+}
+
+function calGuideNormalizeAccent(raw, fallback) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (CAL_GUIDE_ACCENTS[s]) return s;
+  return fallback || 'amber';
+}
+
+function calGuideNormalizeIcon(raw, fallback) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return fallback || '';
+  if (CAL_GUIDE_ICON_PRESETS[s]) return s;
+  return s.slice(0, 12);
+}
+
+function renderCalGuideIconHtml(icon) {
+  const key = String(icon || '').trim();
+  if (!key) return '';
+  const preset = CAL_GUIDE_ICON_PRESETS[key];
+  if (preset && preset.svg) return preset.svg;
+  const glyph = (preset && preset.glyph) ? preset.glyph : key;
+  return '<span class="cg-icon-glyph">' + calGuideEscape(glyph) + '</span>';
+}
+
+function cloneCalGuideIntroDefaults() {
+  return {
+    banner: {
+      icon: 'warn',
+      accent: 'amber',
+      bodyHtml: '<strong>Recording rejections delay the entire study.</strong> Open and follow this guide at every station before starting any scenario recording.',
+    },
+    motion: {
+      icon: 'motion',
+      accent: 'red',
+      eyebrowHtml: 'Critical · every camera',
+      titleHtml: 'Motion Detection must be OFF',
+      subHtml: 'Turn it off on every camera and keep it off for the entire session.',
+    },
+    length: {
+      icon: '',
+      accent: 'amber',
+      eyebrowHtml: 'Minimum recording length',
+      bodyHtml: CAL_GUIDE_DEFAULT_LENGTH_BODY,
+    },
+  };
+}
+
+function cloneCalGuideDefaults() {
+  const sectionsSrc = (typeof CAL_GUIDE_SECTIONS !== 'undefined' && Array.isArray(CAL_GUIDE_SECTIONS))
+    ? CAL_GUIDE_SECTIONS
+    : [];
+  const checkSrc = (typeof CAL_GUIDE_CHECKLIST !== 'undefined' && Array.isArray(CAL_GUIDE_CHECKLIST))
+    ? CAL_GUIDE_CHECKLIST
+    : [];
+  const intro = cloneCalGuideIntroDefaults();
+  return {
+    sections: sectionsSrc.map(sec => ({
+      emoji: String((sec && sec.emoji) || ''),
+      title: String((sec && sec.title) || ''),
+      note: String((sec && sec.note) || ''),
+      dos: calGuideLineList(sec && sec.dos),
+      donts: calGuideLineList(sec && sec.donts),
+    })),
+    checklist: calGuideLineList(checkSrc),
+    banner: intro.banner,
+    motion: intro.motion,
+    length: intro.length,
+  };
+}
+
+function normalizeCalGuideBanner(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'string') raw = { bodyHtml: raw };
+  if (typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, 'warn'),
+    accent: calGuideNormalizeAccent(raw.accent, 'amber'),
+    bodyHtml: calGuideSanitizeHtml(raw.bodyHtml || raw.html || ''),
+  };
+}
+
+function normalizeCalGuideMotion(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, 'motion'),
+    accent: calGuideNormalizeAccent(raw.accent, 'red'),
+    eyebrowHtml: calGuideSanitizeHtml(raw.eyebrowHtml || raw.eyebrow || ''),
+    titleHtml: calGuideSanitizeHtml(raw.titleHtml || raw.title || ''),
+    subHtml: calGuideSanitizeHtml(raw.subHtml || raw.sub || ''),
+  };
+}
+
+function normalizeCalGuideLength(raw) {
+  if (raw == null || typeof raw !== 'object') return null;
+  return {
+    icon: calGuideNormalizeIcon(raw.icon, ''),
+    accent: calGuideNormalizeAccent(raw.accent, 'amber'),
+    eyebrowHtml: calGuideSanitizeHtml(raw.eyebrowHtml || raw.eyebrow || ''),
+    bodyHtml: calGuideSanitizeHtml(raw.bodyHtml || raw.html || ''),
+  };
+}
+
+function pickCalGuideIntro(src, key, normalizeFn, fallback) {
+  if (src && Object.prototype.hasOwnProperty.call(src, key) && src[key] != null) {
+    return normalizeFn(src[key]) || fallback;
+  }
+  return fallback;
+}
+
+function normalizeCalGuideContent(raw) {
+  const src = raw && raw.guide ? raw.guide : raw;
+  if (!src || typeof src !== 'object') return null;
+  const sectionsIn = Array.isArray(src.sections) ? src.sections : null;
+  if (!sectionsIn) return null;
+  const sections = sectionsIn.map(sec => ({
+    emoji: String((sec && sec.emoji) || '').slice(0, 8),
+    title: String((sec && sec.title) || '').trim(),
+    note: String((sec && sec.note) || '').trim(),
+    dos: calGuideLineList(sec && sec.dos),
+    donts: calGuideLineList(sec && sec.donts),
+  })).filter(sec => sec.title || sec.dos.length || sec.donts.length);
+  if (!sections.length) return null;
+  const intro = cloneCalGuideIntroDefaults();
+  return {
+    sections: sections,
+    checklist: calGuideLineList(src.checklist),
+    banner: pickCalGuideIntro(src, 'banner', normalizeCalGuideBanner, intro.banner),
+    motion: pickCalGuideIntro(src, 'motion', normalizeCalGuideMotion, intro.motion),
+    length: pickCalGuideIntro(src, 'length', normalizeCalGuideLength, intro.length),
+    publishedAt: src.publishedAt || '',
+    publishedBy: src.publishedBy || '',
+  };
+}
+
+function currentCalGuideContent(published) {
+  return normalizeCalGuideContent(published) || cloneCalGuideDefaults();
+}
+
+function preferNewerCalGuide(existing, incoming) {
+  const a = normalizeCalGuideContent(existing);
+  const b = normalizeCalGuideContent(incoming);
+  if (!b) return a;
+  if (!a) return b;
+  return String(a.publishedAt || '') > String(b.publishedAt || '') ? a : b;
+}
+
+function buildCalGuideRecord(draft, adminName) {
+  const normalized = normalizeCalGuideContent(draft) || cloneCalGuideDefaults();
+  return {
+    sections: normalized.sections,
+    checklist: normalized.checklist,
+    banner: normalized.banner,
+    motion: normalized.motion,
+    length: normalized.length,
+    publishedAt: new Date().toISOString(),
+    publishedBy: adminName || 'Admin',
+  };
+}
+
+function buildCalGuideAppSettingPayload(guide) {
+  return {
+    sessionStateId: CAL_GUIDE_SETTING_ID,
+    assignmentId: CAL_GUIDE_ASSIGNMENT_ID,
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({ type: 'appSetting', key: 'calGuide', guide: guide || {} }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+    writeMode: 'upsert',
+  };
+}
+
+function collectCalGuideFromSessionRows(rows) {
+  let best = null;
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const id = String(row.sessionStateId || row.assignmentId || '');
+    let parsed = row.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+    }
+    if (!parsed || parsed.type !== 'appSetting' || parsed.key !== 'calGuide') {
+      if (id !== CAL_GUIDE_SETTING_ID && id !== CAL_GUIDE_ASSIGNMENT_ID) continue;
+    }
+    const next = normalizeCalGuideContent(parsed);
+    if (!next) continue;
+    if (!best || String(next.publishedAt || '') > String(best.publishedAt || '')) best = next;
+  }
+  return best;
+}
+
+function renderCalGuideBannerHtml(banner) {
+  const b = normalizeCalGuideBanner(banner) || cloneCalGuideIntroDefaults().banner;
+  if (!calGuideStripHtml(b.bodyHtml)) return '';
+  const icon = renderCalGuideIconHtml(b.icon);
+  return `<div class="cal-guide-banner" data-accent="${calGuideEscape(b.accent)}">
+    ${icon ? `<span class="cal-guide-banner-icon" aria-hidden="true">${icon}</span>` : ''}
+    <span class="cal-guide-banner-copy">${calGuideSanitizeHtml(b.bodyHtml)}</span>
+  </div>`;
+}
+
+function renderCalGuideMotionHtml(motion) {
+  const m = normalizeCalGuideMotion(motion) || cloneCalGuideIntroDefaults().motion;
+  if (!calGuideStripHtml((m.eyebrowHtml || '') + (m.titleHtml || '') + (m.subHtml || ''))) return '';
+  const icon = renderCalGuideIconHtml(m.icon);
+  return `<div class="cal-guide-motion" role="note" data-accent="${calGuideEscape(m.accent)}">
+    ${icon ? `<div class="cal-guide-motion-icon" aria-hidden="true">${icon}</div>` : ''}
+    <div style="min-width: 0;">
+      ${m.eyebrowHtml ? `<div class="cal-guide-motion-eyebrow">${calGuideSanitizeHtml(m.eyebrowHtml)}</div>` : ''}
+      ${m.titleHtml ? `<div class="cal-guide-motion-title">${calGuideSanitizeHtml(m.titleHtml)}</div>` : ''}
+      ${m.subHtml ? `<div class="cal-guide-motion-sub">${calGuideSanitizeHtml(m.subHtml)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderCalGuideLengthHtml(length) {
+  const L = normalizeCalGuideLength(length) || cloneCalGuideIntroDefaults().length;
+  if (!calGuideStripHtml((L.eyebrowHtml || '') + (L.bodyHtml || ''))) return '';
+  const icon = L.icon ? renderCalGuideIconHtml(L.icon) : '';
+  return `<div class="len-reminder${icon ? ' has-icon' : ''}" data-accent="${calGuideEscape(L.accent)}">
+    ${icon ? `<div class="len-reminder-icon" aria-hidden="true">${icon}</div>` : ''}
+    <div class="len-reminder-main">
+      ${L.eyebrowHtml ? `<div class="len-reminder-eyebrow">${calGuideSanitizeHtml(L.eyebrowHtml)}</div>` : ''}
+      <div class="len-reminder-body">${calGuideSanitizeHtml(L.bodyHtml)}</div>
+    </div>
+  </div>`;
+}
+
+function renderCalGuideSectionsHtml(content) {
+  const guide = currentCalGuideContent(content);
+  const sections = (guide.sections || []).map(sec => `
+    <section class="cal-guide-section">
+      <h3 class="cal-guide-section-title"><span class="emoji">${calGuideEscape(sec.emoji || '')}</span> ${calGuideEscape(sec.title || '')}</h3>
+      <div class="cal-guide-grid">
+        <div class="cal-guide-col do">
+          <div class="cal-guide-col-head">DO</div>
+          <ul class="cal-guide-list">${(sec.dos || []).map(d => `<li class="cal-guide-item">${calGuideEscape(d)}</li>`).join('')}</ul>
+        </div>
+        <div class="cal-guide-col dont">
+          <div class="cal-guide-col-head">DON'T</div>
+          <ul class="cal-guide-list">${(sec.donts || []).map(d => `<li class="cal-guide-item">${calGuideEscape(d)}</li>`).join('')}</ul>
+        </div>
+      </div>
+      ${sec.note ? `<div class="cal-guide-note">${calGuideEscape(sec.note)}</div>` : ''}
+    </section>
+  `).join('');
+  const checklist = `
+    <section class="cal-guide-section">
+      <h3 class="cal-guide-section-title"><span class="emoji">✅</span> Pre-recording checklist</h3>
+      <ul class="cal-guide-checklist">
+        ${(guide.checklist || []).map(i => `<li class="cal-guide-checklist-item">${calGuideEscape(i)}</li>`).join('')}
+      </ul>
+    </section>`;
+  const when = guide.publishedAt ? new Date(guide.publishedAt) : null;
+  const whenStr = (when && !isNaN(when.getTime()))
+    ? when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  const stamp = (guide.publishedBy || whenStr)
+    ? `<div class="tf-draft-hint" id="cgPublishedStamp">Live guide${guide.publishedBy ? ' · ' + calGuideEscape(guide.publishedBy) : ''}${whenStr ? ' · ' + calGuideEscape(whenStr) : ''}</div>`
+    : '';
+  return stamp + sections + checklist;
+}
+
+function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
+  const noneOn = selectedIcon ? '' : ' is-on';
+  const noneBtn = `<button type="button" class="tf-icon-btn${noneOn}" data-cg-icon="" title="No icon">–</button>`;
+  const icons = noneBtn + CAL_GUIDE_ICON_ORDER.map(id => {
+    const p = CAL_GUIDE_ICON_PRESETS[id];
+    const on = selectedIcon === id ? ' is-on' : '';
+    return `<button type="button" class="tf-icon-btn${on}" data-cg-icon="${id}" title="${calGuideEscape(p.label)}">${p.glyph}</button>`;
+  }).join('');
+  const custom = CAL_GUIDE_ICON_PRESETS[selectedIcon] ? '' : (selectedIcon || '');
+  const accentBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
+    const on = selectedAccent === id ? ' is-on' : '';
+    return `<button type="button" class="tf-swatch${on}" data-accent="${id}" data-cg-block-accent="${id}" title="Block ${id}"></button>`;
+  }).join('');
+  const textBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
+    return `<button type="button" class="tf-swatch" data-accent="${id}" data-cg-text-color="${id}" title="Text ${id}"></button>`;
+  }).join('');
+  return `
+    <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Icon">
+      ${icons}
+      <input class="tf-title cg-emoji" data-cg-custom-icon maxlength="8" placeholder="🙂" value="${calGuideEscape(custom)}" title="Custom icon" aria-label="Custom icon">
+    </div>
+    <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Style">
+      <span class="tf-draft-hint">Block</span>
+      ${accentBtns}
+      <span class="tf-draft-hint">Text</span>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="italic" title="Italic"><em>I</em></button>
+      ${textBtns}
+    </div>`;
+}
+
+function calGuideCalloutPreviewText(kind, data) {
+  data = data || {};
+  if (kind === 'banner') return calGuideStripHtml(data.bodyHtml || '').slice(0, 110);
+  if (kind === 'motion') {
+    return calGuideStripHtml([data.eyebrowHtml, data.titleHtml, data.subHtml].filter(Boolean).join(' · ')).slice(0, 110);
+  }
+  if (kind === 'length') {
+    return calGuideStripHtml([data.eyebrowHtml, data.bodyHtml].filter(Boolean).join(' · ')).slice(0, 110);
+  }
+  return '';
+}
+
+function wrapCalGuideCalloutEditor(kind, label, data, icon, accent, innerHtml) {
+  const preview = calGuideCalloutPreviewText(kind, data) || 'Click to edit';
+  const iconHtml = renderCalGuideIconHtml(icon) || '<span class="cg-icon-glyph">–</span>';
+  return `<div class="cg-callout-card" data-cg-callout="${calGuideEscape(kind)}" data-icon="${calGuideEscape(icon || '')}" data-accent="${calGuideEscape(accent || 'amber')}" data-open="false">
+    <button type="button" class="cg-callout-summary" aria-expanded="false">
+      <span class="cg-callout-summary-icon" aria-hidden="true">${iconHtml}</span>
+      <span class="cg-callout-summary-copy">
+        <span class="cg-callout-summary-label">${calGuideEscape(label)}</span>
+        <span class="cg-callout-summary-preview">${calGuideEscape(preview)}</span>
+      </span>
+      <span class="cg-callout-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="cg-callout-editor-body">
+      ${innerHtml}
+    </div>
+  </div>`;
+}
+
+function renderCalGuideBannerEditorHtml(banner) {
+  const b = normalizeCalGuideBanner(banner) || cloneCalGuideIntroDefaults().banner;
+  return wrapCalGuideCalloutEditor('banner', 'Warning banner', b, b.icon, b.accent, `
+    <div class="tf-draft-hint">First thing moderators see</div>
+    ${renderCalGuideCalloutToolbar(b.icon, b.accent)}
+    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="bannerBody" aria-label="Warning banner">${calGuideSanitizeHtml(b.bodyHtml)}</div>
+  `);
+}
+
+function renderCalGuideMotionEditorHtml(motion) {
+  const m = normalizeCalGuideMotion(motion) || cloneCalGuideIntroDefaults().motion;
+  return wrapCalGuideCalloutEditor('motion', 'Motion Detection reminder', m, m.icon, m.accent, `
+    <div class="tf-draft-hint">Motion Detection reminder</div>
+    ${renderCalGuideCalloutToolbar(m.icon, m.accent)}
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="motionEyebrow" aria-label="Motion eyebrow">${calGuideSanitizeHtml(m.eyebrowHtml)}</div>
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="motionTitle" aria-label="Motion title">${calGuideSanitizeHtml(m.titleHtml)}</div>
+    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="motionSub" aria-label="Motion details">${calGuideSanitizeHtml(m.subHtml)}</div>
+  `);
+}
+
+function renderCalGuideLengthEditorHtml(length) {
+  const L = normalizeCalGuideLength(length) || cloneCalGuideIntroDefaults().length;
+  return wrapCalGuideCalloutEditor('length', 'Length reminder', L, L.icon, L.accent, `
+    <div class="tf-draft-hint">Also used when a moderator taps ≥90s</div>
+    ${renderCalGuideCalloutToolbar(L.icon, L.accent)}
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="lengthEyebrow" aria-label="Length eyebrow">${calGuideSanitizeHtml(L.eyebrowHtml)}</div>
+    <div class="tf-editor cg-rich cg-rich-lg" contenteditable="true" role="textbox" data-cg-field="lengthBody" aria-label="Length reminder">${calGuideSanitizeHtml(L.bodyHtml)}</div>
+  `);
+}
+
+function collectCalGuideCalloutDraft(block) {
+  if (!block) return null;
+  const name = block.getAttribute('data-cg-callout');
+  const icon = block.getAttribute('data-icon') || '';
+  const accent = block.getAttribute('data-accent') || '';
+  const htmlOf = (sel) => {
+    const el = block.querySelector('[data-cg-field="' + sel + '"]');
+    return el ? el.innerHTML : '';
+  };
+  if (name === 'banner') {
+    return { icon: icon, accent: accent, bodyHtml: htmlOf('bannerBody') };
+  }
+  if (name === 'motion') {
+    return {
+      icon: icon,
+      accent: accent,
+      eyebrowHtml: htmlOf('motionEyebrow'),
+      titleHtml: htmlOf('motionTitle'),
+      subHtml: htmlOf('motionSub'),
+    };
+  }
+  if (name === 'length') {
+    return {
+      icon: icon,
+      accent: accent,
+      eyebrowHtml: htmlOf('lengthEyebrow'),
+      bodyHtml: htmlOf('lengthBody'),
+    };
+  }
+  return null;
+}
+
+function renderCalGuideEditorHtml(content) {
+  const guide = currentCalGuideContent(content);
+  const sections = (guide.sections || []).map((sec, i) => `
+    <div class="cg-edit-section" data-cg-index="${i}">
+      <div class="cg-edit-head">
+        <input class="tf-title cg-emoji" data-cg-field="emoji" maxlength="8" aria-label="Section icon" value="${calGuideEscape(sec.emoji || '')}">
+        <input class="tf-title" data-cg-field="title" maxlength="120" aria-label="Section title" value="${calGuideEscape(sec.title || '')}">
+        <button type="button" class="tf-tool-btn cg-remove-sec" data-cg-remove-section title="Remove section">✕</button>
+      </div>
+      <textarea class="tf-note" data-cg-field="note" rows="2" placeholder="Optional note">${calGuideEscape(sec.note || '')}</textarea>
+      <label class="tf-draft-hint">DO · one per line</label>
+      <textarea class="tf-note" data-cg-field="dos" rows="5">${calGuideEscape((sec.dos || []).join('\n'))}</textarea>
+      <label class="tf-draft-hint">DON'T · one per line</label>
+      <textarea class="tf-note" data-cg-field="donts" rows="5">${calGuideEscape((sec.donts || []).join('\n'))}</textarea>
+    </div>
+  `).join('');
+  return `
+    <div class="cg-editor" id="cgEditor">
+      <div class="tf-draft-hint">DO / DON'T sections below. The warning, motion, and length boxes above are also part of this publish.</div>
+      ${sections}
+      <button type="button" class="cal-guide-ack-btn tf-secondary" id="cgAddSectionBtn">Add section</button>
+      <label class="tf-draft-hint" for="cgChecklist">Pre-recording checklist · one per line</label>
+      <textarea class="tf-note" id="cgChecklist" rows="8">${calGuideEscape((guide.checklist || []).join('\n'))}</textarea>
+      <div class="tf-send-error" id="cgEditorError"></div>
+    </div>
+  `;
+}
+
+function collectCalGuideEditorDraft(root) {
+  const host = root
+    || (typeof document !== 'undefined' ? document.getElementById('calGuideDefaultBody') : null)
+    || (typeof document !== 'undefined' ? document.getElementById('calGuideSectionsHost') : null);
+  if (!host) return null;
+  const scope = (host.id === 'calGuideDefaultBody' || (host.querySelector && host.querySelector('[data-cg-callout]')))
+    ? host
+    : ((typeof document !== 'undefined' && document.getElementById('calGuideDefaultBody')) || host);
+  const sections = [];
+  scope.querySelectorAll('.cg-edit-section').forEach(block => {
+    const val = (field) => {
+      const el = block.querySelector('[data-cg-field="' + field + '"]');
+      return el ? el.value : '';
+    };
+    sections.push({
+      emoji: val('emoji'),
+      title: val('title'),
+      note: val('note'),
+      dos: calGuideLineList(val('dos')),
+      donts: calGuideLineList(val('donts')),
+    });
+  });
+  const checkEl = scope.querySelector('#cgChecklist');
+  const bannerEl = scope.querySelector('[data-cg-callout="banner"]');
+  const motionEl = scope.querySelector('[data-cg-callout="motion"]');
+  const lengthEl = scope.querySelector('[data-cg-callout="length"]');
+  return normalizeCalGuideContent({
+    sections: sections,
+    checklist: checkEl ? checkEl.value : '',
+    banner: collectCalGuideCalloutDraft(bannerEl),
+    motion: collectCalGuideCalloutDraft(motionEl),
+    length: collectCalGuideCalloutDraft(lengthEl),
+  });
+}
+
+(function exportCalGuideContentHelpers(g) {
+  if (!g) return;
+  if (typeof CAL_GUIDE_SECTIONS !== 'undefined') g.CAL_GUIDE_SECTIONS = CAL_GUIDE_SECTIONS;
+  if (typeof CAL_GUIDE_CHECKLIST !== 'undefined') g.CAL_GUIDE_CHECKLIST = CAL_GUIDE_CHECKLIST;
+  g.CAL_GUIDE_SETTING_ID = CAL_GUIDE_SETTING_ID;
+  g.CAL_GUIDE_ASSIGNMENT_ID = CAL_GUIDE_ASSIGNMENT_ID;
+  g.CAL_GUIDE_ACCENTS = CAL_GUIDE_ACCENTS;
+  g.CAL_GUIDE_ICON_PRESETS = CAL_GUIDE_ICON_PRESETS;
+  g.calGuideLineList = calGuideLineList;
+  g.calGuideSanitizeHtml = calGuideSanitizeHtml;
+  g.calGuideStripHtml = calGuideStripHtml;
+  g.cloneCalGuideDefaults = cloneCalGuideDefaults;
+  g.cloneCalGuideIntroDefaults = cloneCalGuideIntroDefaults;
+  g.normalizeCalGuideContent = normalizeCalGuideContent;
+  g.normalizeCalGuideBanner = normalizeCalGuideBanner;
+  g.normalizeCalGuideMotion = normalizeCalGuideMotion;
+  g.normalizeCalGuideLength = normalizeCalGuideLength;
+  g.currentCalGuideContent = currentCalGuideContent;
+  g.preferNewerCalGuide = preferNewerCalGuide;
+  g.buildCalGuideRecord = buildCalGuideRecord;
+  g.buildCalGuideAppSettingPayload = buildCalGuideAppSettingPayload;
+  g.collectCalGuideFromSessionRows = collectCalGuideFromSessionRows;
+  g.renderCalGuideIconHtml = renderCalGuideIconHtml;
+  g.renderCalGuideBannerHtml = renderCalGuideBannerHtml;
+  g.renderCalGuideMotionHtml = renderCalGuideMotionHtml;
+  g.renderCalGuideLengthHtml = renderCalGuideLengthHtml;
+  g.renderCalGuideSectionsHtml = renderCalGuideSectionsHtml;
+  g.renderCalGuideEditorHtml = renderCalGuideEditorHtml;
+  g.collectCalGuideEditorDraft = collectCalGuideEditorDraft;
+  g.calGuideCalloutPreviewText = calGuideCalloutPreviewText;
+  g.wrapCalGuideCalloutEditor = wrapCalGuideCalloutEditor;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+/* CAL_GUIDE_CONTENT_END */
+
+let _publishedCalGuide = null;
+let _calGuideEditing = false;
+
+function ingestCalGuideFromSessionRows(rows) {
+  const incoming = collectCalGuideFromSessionRows(rows);
+  _publishedCalGuide = preferNewerCalGuide(_publishedCalGuide, incoming);
+  return _publishedCalGuide;
+}
+
 // Builds the modal DOM once. Cached on window so subsequent opens are
 // just a class toggle.
 // The 90-second recording-length reminder (added 7/8). Defined once and used
 // both inside the calibration guide modal and in the pop-up shown when the
 // clickable "≥90s" pill is tapped.
-const LENGTH_REMINDER_HTML = `
-  <div class="len-reminder">
-    <div class="len-reminder-eyebrow">Minimum recording length</div>
-    <div class="len-reminder-title">All calibration recordings must be a minimum of 90 seconds long</div>
-    <div class="len-reminder-warn">⚠️ Calibration recordings shorter than 60 seconds do not meet the project requirements and will be rejected by the client.</div>
-    <div class="len-reminder-title" style="margin-top:12px;">All scenario recordings must be a minimum of 60 seconds long</div>
-    <div class="len-reminder-title" style="margin-top:12px;">Speed reminders</div>
-    <ul class="len-reminder-list">
-      <li><strong>Vehicles:</strong> Drive very slowly · approximately 2 mph.</li>
-      <li><strong>People:</strong> Walk significantly slower than your normal pace. Think "slow-motion stroll."</li>
-    </ul>
-  </div>`;
+const LENGTH_REMINDER_HTML = (typeof renderCalGuideLengthHtml === 'function')
+  ? renderCalGuideLengthHtml((typeof cloneCalGuideIntroDefaults === 'function' ? cloneCalGuideIntroDefaults() : {}).length)
+  : '';
 
 // Clickable "≥90s" pill placed next to the motion badge on the camera stations.
 // onclick uses stopPropagation because in the accordion it lives inside the
@@ -34851,7 +35461,14 @@ const LENGTH_BADGE_HTML = `<span class="acc-length-badge" role="button" tabindex
 // which renders the HTML message when html:true). Global so the inline pill
 // onclick can reach it.
 function showLengthReminder() {
-  appAlert({ title: 'Recording length requirement', message: LENGTH_REMINDER_HTML, html: true, okLabel: 'Got it' });
+  let html = '';
+  try {
+    if (typeof currentCalGuideContent === 'function' && typeof renderCalGuideLengthHtml === 'function') {
+      html = renderCalGuideLengthHtml(currentCalGuideContent(_publishedCalGuide).length);
+    }
+  } catch (_) {}
+  if (!html) html = LENGTH_REMINDER_HTML;
+  appAlert({ title: 'Recording length requirement', message: html, html: true, okLabel: 'Got it' });
 }
 
 // ── Vehicle-scenario "drive slowly" reminder (Stations 1 & 2) ───────────────
@@ -34945,8 +35562,8 @@ function buildCalGuideModal() {
   modal.setAttribute('aria-labelledby', 'calGuideTitle');
 
   // --- Header ---
-  // The DOs & DON'Ts content now lives in a SharePoint Word doc · render a
-  // prominent click-to-open link instead of the inline grid/checklist.
+  // DOs & DON'Ts render into #calGuideSectionsHost. The onboarding doc
+  // link stays as a secondary "open full document" action.
   const docLinkHTML = `
     <a class="cal-guide-doclink" href="${CAL_GUIDE_DOC_URL.replace(/&/g, '&amp;')}" target="_blank" rel="noopener noreferrer">
       <span class="cal-guide-doclink-icon" aria-hidden="true">
@@ -34958,7 +35575,7 @@ function buildCalGuideModal() {
       </span>
       <span class="cal-guide-doclink-label">
         <span class="cal-guide-doclink-title">Open the Project Twilight Onboarding Document</span>
-        <span class="cal-guide-doclink-sub">Opens the full onboarding guide in a new tab · review it, then acknowledge below.</span>
+        <span class="cal-guide-doclink-sub">Optional · full onboarding document in a new tab.</span>
       </span>
       <span class="cal-guide-doclink-ext" aria-hidden="true">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
@@ -34990,25 +35607,10 @@ function buildCalGuideModal() {
       </button>
     </div>
     <div class="cal-guide-body" id="calGuideDefaultBody">
-      <div class="cal-guide-banner">
-        <span class="cal-guide-banner-icon">⚠️</span>
-        <span><strong>Recording rejections delay the entire study.</strong> Open and follow this guide at every station before starting any scenario recording.</span>
-      </div>
-      <div class="cal-guide-motion" role="note">
-        <div class="cal-guide-motion-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="12" r="1.8" fill="currentColor"/>
-            <path d="M7.5 7.5a6.5 6.5 0 000 9M16.5 16.5a6.5 6.5 0 000-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-            <line x1="4" y1="20" x2="20" y2="4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
-          </svg>
-        </div>
-        <div style="min-width: 0;">
-          <div class="cal-guide-motion-eyebrow">Critical · every camera</div>
-          <div class="cal-guide-motion-title">Motion Detection must be OFF</div>
-          <div class="cal-guide-motion-sub">Turn it off on every camera and keep it off for the entire session.</div>
-        </div>
-      </div>
-      ${LENGTH_REMINDER_HTML}
+      <div id="calGuideBannerHost"></div>
+      <div id="calGuideMotionHost"></div>
+      <div id="calGuideLengthHost"></div>
+      <div id="calGuideSectionsHost"></div>
       ${docLinkHTML}
     </div>
     <div class="cal-guide-body tf-guide-body" id="calGuideFeedbackBody" hidden></div>
@@ -35037,6 +35639,11 @@ function buildCalGuideModal() {
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideFeedbackPreviewBtn">Preview</button>
         <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackSendBtn">Confirm and send to Moderator</button>
         <button type="button" class="cal-guide-ack-btn" id="calGuideFeedbackAckBtn" hidden>Got it</button>
+      </div>
+      <div class="cal-guide-admin-actions" id="calGuideAdminActions" hidden>
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideEditBtn">Edit guide</button>
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="calGuideCancelEditBtn" hidden>Cancel</button>
+        <button type="button" class="cal-guide-ack-btn" id="calGuideSaveBtn" hidden>Save and publish</button>
       </div>
       <div class="cal-guide-footer-text" id="calGuideFooterText">
         Questions? Reach out to your study coordinator before recording. When in doubt, ask.
@@ -35116,6 +35723,18 @@ function buildCalGuideModal() {
   if (fbAck) fbAck.addEventListener('click', () => {
     if (typeof acknowledgeTeamFeedbackModal === 'function') acknowledgeTeamFeedbackModal();
   });
+  const editBtn = modal.querySelector('#calGuideEditBtn');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    if (typeof setCalGuideEditing === 'function') setCalGuideEditing(true);
+  });
+  const cancelEdit = modal.querySelector('#calGuideCancelEditBtn');
+  if (cancelEdit) cancelEdit.addEventListener('click', () => {
+    if (typeof setCalGuideEditing === 'function') setCalGuideEditing(false);
+  });
+  const saveBtn = modal.querySelector('#calGuideSaveBtn');
+  if (saveBtn) saveBtn.addEventListener('click', () => {
+    if (typeof submitCalGuideFromEditor === 'function') submitCalGuideFromEditor();
+  });
 }
 
 // Refreshes the cal-guide modal's ack row to reflect current
@@ -35144,6 +35763,204 @@ function refreshCalGuideAckUI() {
   }
 }
 
+function isCalGuideAdminEditor(opts) {
+  opts = opts || {};
+  if (opts.role === 'admin') return true;
+  if (opts.role === 'moderator') return false;
+  return !!(typeof state !== 'undefined' && state && (state.isAdmin || state.isMasterAdmin)
+    && document.getElementById('adminApp')
+    && document.getElementById('adminApp').classList.contains('active'));
+}
+
+function paintCalGuideDefaultBody() {
+  const content = currentCalGuideContent(_publishedCalGuide);
+  const bannerHost = document.getElementById('calGuideBannerHost');
+  const motionHost = document.getElementById('calGuideMotionHost');
+  const lengthHost = document.getElementById('calGuideLengthHost');
+  const host = document.getElementById('calGuideSectionsHost');
+  if (_calGuideEditing) {
+    if (bannerHost) {
+      bannerHost.innerHTML = '<div class="tf-draft-hint" id="cgCalloutHint">Click a box to edit it. Only one opens at a time.</div>'
+        + renderCalGuideBannerEditorHtml(content.banner);
+    }
+    if (motionHost) motionHost.innerHTML = renderCalGuideMotionEditorHtml(content.motion);
+    if (lengthHost) lengthHost.innerHTML = renderCalGuideLengthEditorHtml(content.length);
+    if (host) {
+      host.innerHTML = renderCalGuideEditorHtml(content);
+      bindCalGuideEditor(host);
+    }
+    const body = document.getElementById('calGuideDefaultBody');
+    if (body) bindCalGuideIntroEditors(body);
+  } else {
+    if (bannerHost) bannerHost.innerHTML = renderCalGuideBannerHtml(content.banner);
+    if (motionHost) motionHost.innerHTML = renderCalGuideMotionHtml(content.motion);
+    if (lengthHost) lengthHost.innerHTML = renderCalGuideLengthHtml(content.length);
+    if (host) host.innerHTML = renderCalGuideSectionsHtml(content);
+  }
+}
+
+function refreshCalGuideCalloutSummary(card) {
+  if (!card) return;
+  const draft = collectCalGuideCalloutDraft(card);
+  const preview = card.querySelector('.cg-callout-summary-preview');
+  if (preview) {
+    preview.textContent = calGuideCalloutPreviewText(card.getAttribute('data-cg-callout'), draft) || 'Click to edit';
+  }
+  const iconHost = card.querySelector('.cg-callout-summary-icon');
+  if (iconHost) {
+    iconHost.innerHTML = renderCalGuideIconHtml(card.getAttribute('data-icon')) || '<span class="cg-icon-glyph">–</span>';
+  }
+}
+
+function setCalGuideOpenCallout(root, kind) {
+  if (!root) return;
+  root.querySelectorAll('[data-cg-callout]').forEach(card => {
+    const open = kind && card.getAttribute('data-cg-callout') === kind;
+    card.setAttribute('data-open', open ? 'true' : 'false');
+    const btn = card.querySelector('.cg-callout-summary');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) refreshCalGuideCalloutSummary(card);
+  });
+}
+
+function bindCalGuideIntroEditors(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-cg-callout]').forEach(block => {
+    let lastEdit = block.querySelector('[contenteditable="true"]');
+    block.querySelectorAll('[contenteditable="true"]').forEach(ed => {
+      ed.addEventListener('focus', () => { lastEdit = ed; });
+    });
+    const summary = block.querySelector('.cg-callout-summary');
+    if (summary) {
+      summary.addEventListener('click', () => {
+        const id = block.getAttribute('data-cg-callout');
+        const wasOpen = block.getAttribute('data-open') === 'true';
+        setCalGuideOpenCallout(root, wasOpen ? '' : id);
+      });
+    }
+    block.querySelectorAll('[data-cg-icon]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        block.setAttribute('data-icon', btn.getAttribute('data-cg-icon') || '');
+        block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
+        const custom = block.querySelector('[data-cg-custom-icon]');
+        if (custom) custom.value = '';
+        refreshCalGuideCalloutSummary(block);
+      });
+    });
+    const custom = block.querySelector('[data-cg-custom-icon]');
+    if (custom) {
+      custom.addEventListener('input', () => {
+        const v = custom.value.trim();
+        if (!v) return;
+        block.setAttribute('data-icon', v);
+        block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.remove('is-on'));
+        refreshCalGuideCalloutSummary(block);
+      });
+    }
+    block.querySelectorAll('[data-cg-block-accent]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        block.setAttribute('data-accent', btn.getAttribute('data-cg-block-accent') || 'amber');
+        block.querySelectorAll('[data-cg-block-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
+      });
+    });
+    block.querySelectorAll('[data-cg-cmd]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (lastEdit) lastEdit.focus();
+        try { document.execCommand(btn.getAttribute('data-cg-cmd'), false, null); } catch (_) {}
+      });
+    });
+    block.querySelectorAll('[data-cg-text-color]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-cg-text-color');
+        const color = (CAL_GUIDE_ACCENTS && CAL_GUIDE_ACCENTS[id]) || '#6B8F71';
+        if (lastEdit) lastEdit.focus();
+        try { document.execCommand('foreColor', false, color); } catch (_) {}
+      });
+    });
+  });
+}
+
+function bindCalGuideEditor(root) {
+  if (!root) return;
+  const addBtn = root.querySelector('#cgAddSectionBtn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      const draft = collectCalGuideEditorDraft() || cloneCalGuideDefaults();
+      draft.sections.push({ emoji: '📋', title: 'New section', note: '', dos: [], donts: [] });
+      root.innerHTML = renderCalGuideEditorHtml(draft);
+      bindCalGuideEditor(root);
+    });
+  }
+  root.querySelectorAll('[data-cg-remove-section]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const blocks = root.querySelectorAll('.cg-edit-section');
+      if (blocks.length <= 1) {
+        const err = root.querySelector('#cgEditorError') || document.getElementById('cgEditorError');
+        if (err) err.textContent = 'Keep at least one section.';
+        return;
+      }
+      const block = btn.closest('.cg-edit-section');
+      if (block) block.remove();
+    });
+  });
+}
+
+function syncCalGuideAdminActions() {
+  const modal = document.getElementById('calGuideModal');
+  const admin = modal && modal.getAttribute('data-role') === 'admin';
+  const actions = document.getElementById('calGuideAdminActions');
+  const editBtn = document.getElementById('calGuideEditBtn');
+  const cancelBtn = document.getElementById('calGuideCancelEditBtn');
+  const saveBtn = document.getElementById('calGuideSaveBtn');
+  const ackRow = document.getElementById('calGuideAckRow');
+  const footer = document.getElementById('calGuideFooterText');
+  if (actions) actions.hidden = !admin;
+  if (ackRow) ackRow.hidden = !!admin;
+  if (editBtn) editBtn.hidden = !admin || _calGuideEditing;
+  if (cancelBtn) cancelBtn.hidden = !admin || !_calGuideEditing;
+  if (saveBtn) saveBtn.hidden = !admin || !_calGuideEditing;
+  if (footer && admin) {
+    footer.textContent = _calGuideEditing
+      ? 'Save and publish overwrites the live calibration guide, including the warning, Motion Detection, and length reminder. Moderators will see it the next time they open this book.'
+      : 'Edit guide changes the warning, Motion Detection, length reminder, and DOs & DON’Ts every moderator sees. Team feedback is a separate note.';
+  }
+}
+
+function setCalGuideEditing(on) {
+  _calGuideEditing = !!on;
+  paintCalGuideDefaultBody();
+  syncCalGuideAdminActions();
+}
+
+async function submitCalGuideFromEditor() {
+  const err = document.getElementById('cgEditorError');
+  const draft = collectCalGuideEditorDraft();
+  if (!draft) {
+    if (err) err.textContent = 'Could not read the guide editor.';
+    return;
+  }
+  const record = buildCalGuideRecord(draft, (typeof state !== 'undefined' && state && state.username) || 'Admin-Twilight');
+  const saveBtn = document.getElementById('calGuideSaveBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Publishing…'; }
+  const payload = buildCalGuideAppSettingPayload(record);
+  let result = { ok: false, reason: 'notconfigured' };
+  if (typeof persistFeedbackSetting === 'function') {
+    result = await persistFeedbackSetting(payload);
+  }
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save and publish'; }
+  if (!result.ok) {
+    if (err) err.textContent = result.reason === 'notconfigured'
+      ? 'Cloud save is not set up. The built-in guide is still shown until publish works.'
+      : 'Could not publish. Try again.';
+    return;
+  }
+  _publishedCalGuide = record;
+  _calGuideEditing = false;
+  paintCalGuideDefaultBody();
+  syncCalGuideAdminActions();
+  if (typeof toast === 'function') toast('Calibration guide updated for moderators');
+}
+
 function openCalGuideModal(opts) {
   opts = opts || {};
   buildCalGuideModal();
@@ -35163,9 +35980,16 @@ function openCalGuideModal(opts) {
   if (body) body.scrollTop = 0;
 
   if (mode === 'teamFeedback') {
+    _calGuideEditing = false;
+    modal.removeAttribute('data-role');
     if (typeof renderTeamFeedbackModal === 'function') renderTeamFeedbackModal(opts);
   } else {
+    const admin = isCalGuideAdminEditor(opts);
+    modal.setAttribute('data-role', admin ? 'admin' : 'moderator');
+    _calGuideEditing = false;
     if (typeof restoreCalGuideModalChrome === 'function') restoreCalGuideModalChrome();
+    paintCalGuideDefaultBody();
+    syncCalGuideAdminActions();
     // Refresh the acknowledgment row to reflect current state. The
     // modal is built once and reused (see buildCalGuideModal's guard),
     // so a re-open after acknowledging won't naturally show the pill
@@ -35173,6 +35997,16 @@ function openCalGuideModal(opts) {
     // last open (e.g., teammate sync just propagated an ack from the
     // other mod) · this pulls those changes in.
     if (typeof refreshCalGuideAckUI === 'function') refreshCalGuideAckUI();
+    if (typeof fetchSessionStateRows === 'function') {
+      fetchSessionStateRows().then(rows => {
+        if (!Array.isArray(rows)) return;
+        if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
+        const live = document.getElementById('calGuideModal');
+        if (!live || !live.classList.contains('open') || live.getAttribute('data-mode') !== 'calGuide') return;
+        if (_calGuideEditing) return;
+        paintCalGuideDefaultBody();
+      }).catch(() => {});
+    }
   }
 
   // Wire up Escape-to-close. Stored on a property so the inverse
@@ -35194,6 +36028,7 @@ function openCalGuideModal(opts) {
 }
 
 function closeCalGuideModal() {
+  _calGuideEditing = false;
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
   if (!overlay || !modal) return;
@@ -35334,7 +36169,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /* FEEDBACK_INBOX_BEGIN */
 /* =====================================================================
-   FEEDBACK INBOX · Admin team broadcast + 1:1 messages (1.3.091526a)
+   FEEDBACK INBOX · Admin team broadcast + 1:1 messages (1.3.091526b)
    ---------------------------------------------------------------------
    Persistence: SessionState appSetting rows (existing WRITE/READ URLs).
      - Team announcement · upsert ss_app_setting_team_feedback
@@ -35447,8 +36282,45 @@ function feedbackNewId(prefix) {
   return String(prefix || 'FB') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 }
 
+function teamAnnouncementHasContent(announcement) {
+  return !!(announcement && (announcement.title || announcement.bodyText || announcement.bodyHtml));
+}
+
+function publishedAnnouncementToComposerDraft(announcement) {
+  if (!announcement) return null;
+  const bodyHtml = String(announcement.bodyHtml || '');
+  return {
+    title: String(announcement.title || ''),
+    bodyHtml: bodyHtml,
+    bodyText: String(announcement.bodyText || stripFeedbackHtml(bodyHtml)).trim(),
+    icon: String(announcement.icon || 'info'),
+    accent: String(announcement.accent || 'sage'),
+    sourceId: String(announcement.id || ''),
+    editingPublished: true,
+  };
+}
+
+function resolveTeamFeedbackComposerTab(requested, announcement) {
+  if (requested === 'edit' && teamAnnouncementHasContent(announcement)) return 'edit';
+  return 'new';
+}
+
+function preferNewerTeamAnnouncement(existing, incoming) {
+  const hasExisting = teamAnnouncementHasContent(existing);
+  const hasIncoming = teamAnnouncementHasContent(incoming);
+  if (!hasIncoming) return hasExisting ? existing : null;
+  if (!hasExisting) return incoming;
+  return String(existing.publishedAt || '') > String(incoming.publishedAt || '')
+    ? existing
+    : incoming;
+}
+
 function buildTeamAnnouncementRecord(draft, adminName) {
   const bodyHtml = sanitizeFeedbackHtml((draft && draft.bodyHtml) || '');
+  // Edit-current re-sends overwrite the same SessionState row. A fresh
+  // announcement id makes the update unread again for mods who already
+  // opened the previous version. Pass draft.id only when the caller is
+  // explicitly preserving identity (tests / replay).
   return {
     id: (draft && draft.id) || feedbackNewId('TF'),
     title: String((draft && draft.title) || '').trim(),
@@ -35456,9 +36328,10 @@ function buildTeamAnnouncementRecord(draft, adminName) {
     bodyText: String((draft && draft.bodyText) || stripFeedbackHtml(bodyHtml)).trim(),
     icon: String((draft && draft.icon) || 'info'),
     accent: String((draft && draft.accent) || 'sage'),
-    publishedAt: (draft && draft.publishedAt) || new Date().toISOString(),
+    publishedAt: new Date().toISOString(),
     publishedBy: adminName || 'Admin',
     draft: false,
+    replacedId: (draft && draft.editingPublished && draft.sourceId) ? String(draft.sourceId) : '',
   };
 }
 
@@ -35658,6 +36531,10 @@ function resetInboxToastAt(now) {
   g.stripFeedbackHtml = stripFeedbackHtml;
   g.sanitizeFeedbackHtml = sanitizeFeedbackHtml;
   g.buildTeamAnnouncementRecord = buildTeamAnnouncementRecord;
+  g.teamAnnouncementHasContent = teamAnnouncementHasContent;
+  g.publishedAnnouncementToComposerDraft = publishedAnnouncementToComposerDraft;
+  g.resolveTeamFeedbackComposerTab = resolveTeamFeedbackComposerTab;
+  g.preferNewerTeamAnnouncement = preferNewerTeamAnnouncement;
   g.buildIndividualFeedbackRecord = buildIndividualFeedbackRecord;
   g.buildFeedbackAppSettingPayload = buildFeedbackAppSettingPayload;
   g.emptyFeedbackStore = emptyFeedbackStore;
@@ -35671,6 +36548,10 @@ function resetInboxToastAt(now) {
   g.inboxPillView = inboxPillView;
   g.shouldShowInboxToast = shouldShowInboxToast;
   g.resetInboxToastAt = resetInboxToastAt;
+  g.listFeedbackTeams = listFeedbackTeams;
+  g.listFeedbackTeamModerators = listFeedbackTeamModerators;
+  g.filterFeedbackChoices = filterFeedbackChoices;
+  g.findFeedbackTeamForModerator = findFeedbackTeamForModerator;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 let _feedbackUiStore = emptyFeedbackStore();
@@ -35679,6 +36560,7 @@ let _feedbackToastTimer = null;
 let _feedbackPreviewOn = false;
 let _feedbackComposerAccent = 'sage';
 let _feedbackComposerIcon = 'info';
+let _feedbackComposerTab = 'new';
 
 function currentFeedbackUser() {
   const login = (typeof state !== 'undefined' && state)
@@ -35749,8 +36631,9 @@ function ingestFeedbackFromSessionRows(rows) {
   const userKey = feedbackOrbitKey(currentFeedbackUser().loginId);
   const cloudReads = (collected.readMaps && collected.readMaps[userKey]) || [];
   cloudReads.forEach(id => localReads.add(String(id)));
+  const existingTeam = _feedbackUiStore && _feedbackUiStore.teamAnnouncement;
   _feedbackUiStore = {
-    teamAnnouncement: collected.teamAnnouncement,
+    teamAnnouncement: preferNewerTeamAnnouncement(existingTeam, collected.teamAnnouncement),
     messages: collected.messages || [],
     readIds: localReads,
     lastToastAt: loadFeedbackToastAt() || _feedbackUiStore.lastToastAt || 0,
@@ -35838,6 +36721,7 @@ function restoreCalGuideModalChrome() {
   const fbBody = document.getElementById('calGuideFeedbackBody');
   const ackRow = document.getElementById('calGuideAckRow');
   const fbActions = document.getElementById('calGuideFeedbackActions');
+  const adminActions = document.getElementById('calGuideAdminActions');
   if (title) title.textContent = 'Calibration Recording Guide';
   if (sub) sub.innerHTML = 'DOs &amp; DON\'Ts · For on-site moderators';
   if (footer) footer.textContent = 'Questions? Reach out to your study coordinator before recording. When in doubt, ask.';
@@ -35845,6 +36729,7 @@ function restoreCalGuideModalChrome() {
   if (fbBody) fbBody.hidden = true;
   if (ackRow) ackRow.hidden = false;
   if (fbActions) fbActions.hidden = true;
+  if (adminActions) adminActions.hidden = true;
 }
 
 function teamFeedbackIconGlyph(icon) {
@@ -35875,6 +36760,10 @@ function renderTeamFeedbackReadOnly(announcement) {
   `;
 }
 
+function currentPublishedTeamAnnouncement() {
+  return (_feedbackUiStore && _feedbackUiStore.teamAnnouncement) || null;
+}
+
 function loadTeamFeedbackDraft() {
   try {
     const raw = localStorage.getItem(FEEDBACK_DRAFT_LS_KEY);
@@ -35883,29 +36772,69 @@ function loadTeamFeedbackDraft() {
 }
 
 function saveTeamFeedbackDraft(draft) {
+  if (draft && draft.editingPublished) return;
   try { localStorage.setItem(FEEDBACK_DRAFT_LS_KEY, JSON.stringify(draft || {})); } catch (_) {}
 }
 
 function collectTeamFeedbackComposerDraft() {
   const titleEl = document.getElementById('tfTitleInput');
   const editor = document.getElementById('tfComposerEditor');
+  const published = currentPublishedTeamAnnouncement();
+  const tab = resolveTeamFeedbackComposerTab(_feedbackComposerTab, published);
   return {
     title: titleEl ? titleEl.value : '',
     bodyHtml: editor ? editor.innerHTML : '',
     bodyText: editor ? stripFeedbackHtml(editor.innerHTML) : '',
     icon: _feedbackComposerIcon,
     accent: _feedbackComposerAccent,
+    editingPublished: tab === 'edit',
+    sourceId: (tab === 'edit' && published && published.id) ? String(published.id) : '',
   };
 }
 
-function renderTeamFeedbackComposer(draft) {
-  draft = draft || loadTeamFeedbackDraft() || {};
+function teamFeedbackLiveWhen(announcement) {
+  if (!announcement || !announcement.publishedAt) return '';
+  const when = new Date(announcement.publishedAt);
+  if (isNaN(when.getTime())) return '';
+  return when.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function teamFeedbackLiveSummary(announcement) {
+  if (!teamAnnouncementHasContent(announcement)) return '';
+  const title = String(announcement.title || announcement.bodyText || 'Team note').trim();
+  const clipped = title.length > 52 ? title.slice(0, 49) + '…' : title;
+  const when = teamFeedbackLiveWhen(announcement);
+  return 'Live now: <strong>' + escapeHTML(clipped) + '</strong>' + (when ? ' · ' + escapeHTML(when) : '');
+}
+
+function persistTeamFeedbackComposerIfNew() {
+  const draft = collectTeamFeedbackComposerDraft();
+  if (!draft.editingPublished) saveTeamFeedbackDraft(draft);
+}
+
+function renderTeamFeedbackComposer(draft, opts) {
+  opts = opts || {};
+  const published = opts.published !== undefined ? opts.published : currentPublishedTeamAnnouncement();
+  const hasLive = teamAnnouncementHasContent(published);
+  const tab = resolveTeamFeedbackComposerTab(opts.tab || _feedbackComposerTab, published);
+  _feedbackComposerTab = tab;
+  draft = draft || (tab === 'edit'
+    ? publishedAnnouncementToComposerDraft(published)
+    : (loadTeamFeedbackDraft() || {})) || {};
   _feedbackComposerAccent = draft.accent || 'sage';
   _feedbackComposerIcon = draft.icon || 'info';
   _feedbackPreviewOn = false;
+  const liveSummary = teamFeedbackLiveSummary(published);
   return `
-    <div class="tf-composer">
-      <div class="tf-draft-hint">Draft stays on this device until you confirm and send.</div>
+    <div class="tf-composer" data-tf-tab="${tab}">
+      <div class="tf-mode-toggle" role="tablist" aria-label="Team feedback mode">
+        <button type="button" class="tf-mode-tab ${tab === 'new' ? 'is-on' : ''}" data-tf-tab="new" role="tab" aria-selected="${tab === 'new'}" id="tfTabNew">New</button>
+        <button type="button" class="tf-mode-tab ${tab === 'edit' ? 'is-on' : ''}" data-tf-tab="edit" role="tab" aria-selected="${tab === 'edit'}" id="tfTabEdit" ${hasLive ? '' : 'disabled'} title="${hasLive ? 'Load the live note moderators currently see' : 'No live team note yet'}">Edit current</button>
+      </div>
+      <div class="tf-live-banner" id="tfLiveBanner" ${hasLive ? '' : 'hidden'}>${liveSummary}</div>
+      <div class="tf-draft-hint">${tab === 'edit'
+        ? 'This is the live note moderators currently see. Confirm send overwrites it — they will get the update.'
+        : 'Draft stays on this device until you confirm and send.'}</div>
       <input class="tf-title" id="tfTitleInput" maxlength="80" placeholder="Title (optional)" value="${escapeHTML(draft.title || '')}">
       <div class="tf-toolbar" role="toolbar" aria-label="Announcement style">
         <button type="button" class="tf-swatch ${_feedbackComposerAccent === 'sage' ? 'is-on' : ''}" data-accent="sage" title="Sage"></button>
@@ -35927,19 +36856,81 @@ function renderTeamFeedbackComposer(draft) {
   `;
 }
 
+function updateTeamFeedbackAdminChrome() {
+  const modal = document.getElementById('calGuideModal');
+  if (!modal || modal.getAttribute('data-mode') !== 'teamFeedback') return;
+  const title = modal.querySelector('#calGuideTitle');
+  const sub = modal.querySelector('.cal-guide-header-sub');
+  const footer = document.getElementById('calGuideFooterText');
+  const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
+  const previewBtn = document.getElementById('calGuideFeedbackPreviewBtn');
+  if (_feedbackComposerTab === 'edit') {
+    if (title) title.textContent = 'Team feedback';
+    if (sub) sub.textContent = 'Change the live note every moderator currently sees';
+    if (footer) footer.textContent = 'Confirm send overwrites the live team note. Moderators will see the update.';
+    if (sendBtn) sendBtn.textContent = 'Confirm and send update';
+  } else {
+    if (title) title.textContent = 'Team feedback';
+    if (sub) sub.textContent = 'Write a note every moderator will see';
+    if (footer) footer.textContent = 'Confirm and send publishes this note to every moderator inbox.';
+    if (sendBtn) sendBtn.textContent = 'Confirm and send to Moderator';
+  }
+  if (previewBtn) previewBtn.textContent = _feedbackPreviewOn ? 'Keep editing' : 'Preview';
+}
+
+function refreshTeamFeedbackLiveBanner() {
+  const banner = document.getElementById('tfLiveBanner');
+  const editTab = document.getElementById('tfTabEdit');
+  const published = currentPublishedTeamAnnouncement();
+  const hasLive = teamAnnouncementHasContent(published);
+  if (editTab) {
+    editTab.disabled = !hasLive;
+    editTab.title = hasLive ? 'Load the live note moderators currently see' : 'No live team note yet';
+  }
+  if (banner) {
+    banner.hidden = !hasLive;
+    if (hasLive) banner.innerHTML = teamFeedbackLiveSummary(published);
+  }
+}
+
+function setTeamFeedbackComposerTab(tab) {
+  const published = currentPublishedTeamAnnouncement();
+  const next = resolveTeamFeedbackComposerTab(tab, published);
+  if (next === _feedbackComposerTab && document.getElementById('tfComposerEditor')) {
+    updateTeamFeedbackAdminChrome();
+    return;
+  }
+  if (_feedbackComposerTab === 'new') persistTeamFeedbackComposerIfNew();
+  _feedbackComposerTab = next;
+  const fbBody = document.getElementById('calGuideFeedbackBody');
+  if (!fbBody) return;
+  const draft = next === 'edit'
+    ? publishedAnnouncementToComposerDraft(published)
+    : (loadTeamFeedbackDraft() || {});
+  fbBody.innerHTML = renderTeamFeedbackComposer(draft, { tab: next, published: published });
+  bindTeamFeedbackComposer(fbBody);
+  updateTeamFeedbackAdminChrome();
+}
+
 function bindTeamFeedbackComposer(root) {
   if (!root) return;
+  root.querySelectorAll('button[data-tf-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      setTeamFeedbackComposerTab(btn.getAttribute('data-tf-tab') || 'new');
+    });
+  });
   root.querySelectorAll('[data-accent]').forEach(btn => {
     btn.addEventListener('click', () => {
       _feedbackComposerAccent = btn.getAttribute('data-accent') || 'sage';
       root.querySelectorAll('[data-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
-      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+      persistTeamFeedbackComposerIfNew();
     });
   });
-  root.querySelectorAll('[data-icon]').forEach(btn => {
+  root.querySelectorAll('.tf-icon-btn[data-icon]').forEach(btn => {
     btn.addEventListener('click', () => {
       _feedbackComposerIcon = btn.getAttribute('data-icon') || 'info';
-      root.querySelectorAll('[data-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
+      root.querySelectorAll('.tf-icon-btn[data-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
       const editor = document.getElementById('tfComposerEditor');
       if (editor) {
         const color = FEEDBACK_ACCENTS[_feedbackComposerAccent] || FEEDBACK_ACCENTS.sage;
@@ -35948,7 +36939,7 @@ function bindTeamFeedbackComposer(root) {
           editor.innerHTML += chip;
         }
       }
-      saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft());
+      persistTeamFeedbackComposerIfNew();
     });
   });
   root.querySelectorAll('[data-tf-cmd]').forEach(btn => {
@@ -35958,10 +36949,10 @@ function bindTeamFeedbackComposer(root) {
   });
   const editor = root.querySelector('#tfComposerEditor');
   if (editor) {
-    editor.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+    editor.addEventListener('input', persistTeamFeedbackComposerIfNew);
   }
   const title = root.querySelector('#tfTitleInput');
-  if (title) title.addEventListener('input', () => saveTeamFeedbackDraft(collectTeamFeedbackComposerDraft()));
+  if (title) title.addEventListener('input', persistTeamFeedbackComposerIfNew);
 }
 
 function isAdminFeedbackComposer() {
@@ -35989,16 +36980,19 @@ function renderTeamFeedbackModal(opts) {
   if (fbActions) fbActions.hidden = false;
   const admin = opts.role === 'admin' || (opts.role == null && isAdminFeedbackComposer());
   if (admin) {
-    if (title) title.textContent = 'Team feedback';
-    if (sub) sub.textContent = 'Write a note every moderator will see';
-    if (footer) footer.textContent = 'Confirm and send publishes this note to every moderator inbox.';
+    const published = currentPublishedTeamAnnouncement();
+    _feedbackComposerTab = resolveTeamFeedbackComposerTab(opts.composerTab || opts.tab || 'new', published);
+    const draft = _feedbackComposerTab === 'edit'
+      ? publishedAnnouncementToComposerDraft(published)
+      : (opts.draft || loadTeamFeedbackDraft());
     if (fbBody) {
-      fbBody.innerHTML = renderTeamFeedbackComposer(opts.draft || loadTeamFeedbackDraft());
+      fbBody.innerHTML = renderTeamFeedbackComposer(draft, { tab: _feedbackComposerTab, published: published });
       bindTeamFeedbackComposer(fbBody);
     }
     if (sendBtn) sendBtn.hidden = false;
     if (previewBtn) previewBtn.hidden = false;
     if (gotBtn) gotBtn.hidden = true;
+    updateTeamFeedbackAdminChrome();
   } else {
     const announcement = opts.announcement || (_feedbackUiStore && _feedbackUiStore.teamAnnouncement);
     if (title) title.textContent = (announcement && announcement.title) || 'Team feedback';
@@ -36039,24 +37033,29 @@ async function submitTeamFeedbackFromComposer() {
   }
   const announcement = buildTeamAnnouncementRecord(draft, (state && state.username) || 'Admin-Twilight');
   const sendBtn = document.getElementById('calGuideFeedbackSendBtn');
-  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+  const sendLabel = draft.editingPublished ? 'Confirm and send update' : 'Confirm and send to Moderator';
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = draft.editingPublished ? 'Updating…' : 'Sending…'; }
   const payload = buildFeedbackAppSettingPayload(
     TEAM_FEEDBACK_SETTING_ID,
     TEAM_FEEDBACK_ASSIGNMENT_ID,
     { type: 'appSetting', key: 'teamFeedback', announcement: announcement }
   );
   const result = await persistFeedbackSetting(payload);
-  if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Confirm and send to Moderator'; }
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = sendLabel; }
   if (!result.ok) {
     if (err) err.textContent = result.reason === 'notconfigured'
       ? 'Cloud save is not set up. Draft is still on this device.'
       : 'Could not send. Draft is saved here — try again.';
-    saveTeamFeedbackDraft(draft);
+    if (!draft.editingPublished) saveTeamFeedbackDraft(draft);
     return;
   }
   _feedbackUiStore = applyPublishedTeamAnnouncement(_feedbackUiStore, announcement);
   try { localStorage.removeItem(FEEDBACK_DRAFT_LS_KEY); } catch (_) {}
-  if (typeof toast === 'function') toast('Team feedback sent to moderators');
+  if (typeof toast === 'function') {
+    toast(draft.editingPublished
+      ? 'Team feedback updated for moderators'
+      : 'Team feedback sent to moderators');
+  }
   if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
 }
 
@@ -36067,9 +37066,89 @@ function acknowledgeTeamFeedbackModal() {
 }
 
 function openTeamFeedbackComposer() {
+  _feedbackComposerTab = 'new';
   if (typeof openCalGuideModal === 'function') {
-    openCalGuideModal({ mode: 'teamFeedback', role: 'admin' });
+    openCalGuideModal({ mode: 'teamFeedback', role: 'admin', composerTab: 'new' });
   }
+  if (typeof fetchSessionStateRows === 'function') {
+    fetchSessionStateRows().then(rows => {
+      if (!Array.isArray(rows) || typeof ingestFeedbackFromSessionRows !== 'function') return;
+      ingestFeedbackFromSessionRows(rows);
+      const modal = document.getElementById('calGuideModal');
+      if (!modal || !modal.classList.contains('open') || modal.getAttribute('data-mode') !== 'teamFeedback') return;
+      refreshTeamFeedbackLiveBanner();
+    }).catch(() => {});
+  }
+}
+
+function listFeedbackTeams(teams) {
+  return (Array.isArray(teams) ? teams : []).map(t => {
+    if (!t) return null;
+    const backupIds = Array.isArray(t.backupIds)
+      ? t.backupIds.filter(Boolean)
+      : (t.backupId ? [t.backupId] : []);
+    return {
+      id: String(t.id != null ? t.id : ''),
+      name: String(t.name || t.teamName || t.team_name || ('Team ' + t.id)),
+      primaryIds: Array.isArray(t.primaryIds) ? t.primaryIds.filter(Boolean) : [],
+      backupIds: backupIds,
+    };
+  }).filter(t => t && t.id);
+}
+
+function listFeedbackTeamModerators(team, moderators, opts) {
+  opts = opts || {};
+  const idOf = opts.idOf || function (m) {
+    return String((m && (m.orbitLoginId || m.loginId || m.id)) || '');
+  };
+  const nameOf = opts.nameOf || function (m) {
+    const n = [m && m.firstName, m && m.lastName].filter(Boolean).join(' ').trim();
+    return n || idOf(m);
+  };
+  const mods = Array.isArray(moderators) ? moderators : [];
+  const primary = (team && Array.isArray(team.primaryIds)) ? team.primaryIds : [];
+  const backup = (team && Array.isArray(team.backupIds))
+    ? team.backupIds
+    : ((team && team.backupId) ? [team.backupId] : []);
+  const seen = {};
+  const out = [];
+  function add(rawId, role) {
+    const key = feedbackOrbitKey(rawId);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    const row = mods.find(m => feedbackOrbitKey(idOf(m)) === key);
+    const id = row ? (idOf(row) || String(rawId)) : String(rawId || '');
+    out.push({
+      id: id,
+      name: row ? (nameOf(row) || id) : String(rawId || id),
+      role: role,
+      key: key,
+    });
+  }
+  primary.forEach(id => add(id, 'Primary'));
+  backup.forEach(id => add(id, 'Backup'));
+  return out;
+}
+
+function filterFeedbackChoices(items, query) {
+  const q = String(query || '').trim().toLowerCase();
+  const list = Array.isArray(items) ? items : [];
+  if (!q) return list.slice();
+  return list.filter(it => {
+    const blob = [it.name, it.id, it.role, it.teamName].filter(Boolean).join(' ').toLowerCase();
+    return blob.indexOf(q) !== -1;
+  });
+}
+
+function findFeedbackTeamForModerator(teams, loginId) {
+  const key = feedbackOrbitKey(loginId);
+  if (!key) return null;
+  const list = listFeedbackTeams(teams);
+  for (let i = 0; i < list.length; i++) {
+    const ids = list[i].primaryIds.concat(list[i].backupIds);
+    if (ids.some(id => feedbackOrbitKey(id) === key)) return list[i];
+  }
+  return null;
 }
 
 function adminModeratorChoices() {
@@ -36084,6 +37163,8 @@ function adminModeratorChoices() {
 }
 
 function ensureIndividualFeedbackModal() {
+  const existing = document.getElementById('fbSendOverlay');
+  if (existing && !document.getElementById('fbSendTeamPick')) existing.remove();
   if (document.getElementById('fbSendOverlay')) return;
   const overlay = document.createElement('div');
   overlay.id = 'fbSendOverlay';
@@ -36092,8 +37173,11 @@ function ensureIndividualFeedbackModal() {
     <div class="fb-send-modal" role="dialog" aria-modal="true" aria-labelledby="fbSendTitle">
       <div class="inbox-modal-title" id="fbSendTitle">Message a moderator</div>
       <div class="inbox-modal-sub">Private note · they will see it in Inbox</div>
-      <label class="tf-draft-hint" for="fbSendTarget">Moderator</label>
-      <select class="tf-pick" id="fbSendTarget"></select>
+      <label class="tf-draft-hint" id="fbSendTeamLabel">Team</label>
+      <div class="tw-pick" id="fbSendTeamPick" data-open="false"></div>
+      <label class="tf-draft-hint" id="fbSendModLabel">Moderator</label>
+      <div class="tw-pick" id="fbSendModPick" data-open="false"></div>
+      <input type="hidden" id="fbSendTarget" value="">
       <textarea class="tf-note" id="fbSendText" rows="5" placeholder="Write a short note"></textarea>
       <div class="tf-send-error" id="fbSendError"></div>
       <div class="fb-send-actions">
@@ -36108,22 +37192,201 @@ function ensureIndividualFeedbackModal() {
   overlay.querySelector('#fbSendBtn').addEventListener('click', submitIndividualFeedbackComposer);
 }
 
+function feedbackPickerLiveTeams() {
+  let teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  if ((!teams || !teams.length) && typeof loadAssignmentData === 'function') {
+    const stored = loadAssignmentData() || {};
+    if (Array.isArray(stored.teams) && stored.teams.length) {
+      teams = stored.teams;
+      if (typeof adminState !== 'undefined' && adminState) adminState.teams = stored.teams;
+    }
+  }
+  return listFeedbackTeams(teams);
+}
+
+function feedbackPickerLiveMods() {
+  return (typeof adminState !== 'undefined' && adminState && adminState.moderators) || [];
+}
+
+function feedbackPickerModOpts() {
+  return {
+    idOf: function (m) {
+      return String((typeof perfModId === 'function') ? perfModId(m) : ((m && (m.orbitLoginId || m.loginId)) || ''));
+    },
+    nameOf: function (m) {
+      if (typeof perfModName === 'function') {
+        const n = perfModName(m);
+        if (n) return n;
+      }
+      return [m && m.firstName, m && m.lastName].filter(Boolean).join(' ').trim();
+    },
+  };
+}
+
+function closeFeedbackPicks(exceptId) {
+  ['fbSendTeamPick', 'fbSendModPick'].forEach(id => {
+    if (exceptId && id === exceptId) return;
+    const el = document.getElementById(id);
+    if (el) el.setAttribute('data-open', 'false');
+  });
+}
+
+function paintFeedbackTeamPick(selectedId, query) {
+  const host = document.getElementById('fbSendTeamPick');
+  if (!host) return;
+  const teams = feedbackPickerLiveTeams();
+  const selected = teams.find(t => String(t.id) === String(selectedId)) || null;
+  const shown = filterFeedbackChoices(teams, query);
+  const open = host.getAttribute('data-open') === 'true';
+  host.innerHTML = `
+    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendTeamBtn" aria-expanded="${open ? 'true' : 'false'}">
+      <span>${selected ? escapeHTML(selected.name) : 'Choose a team'}</span>
+      <span class="tw-pick-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="tw-pick-panel">
+      <input type="search" class="part-pick-search tw-pick-search" id="fbSendTeamSearch" placeholder="Search teams" value="${escapeHTML(query || '')}" autocomplete="off">
+      <div class="tw-pick-list" id="fbSendTeamList" role="listbox">
+        ${shown.length ? shown.map(t => `
+          <button type="button" class="tw-pick-item ${selected && String(selected.id) === String(t.id) ? 'is-on' : ''}" data-team-id="${escapeHTML(t.id)}" role="option">
+            <span class="tw-pick-item-name">${escapeHTML(t.name)}</span>
+            <span class="tw-pick-item-meta">${t.primaryIds.length + t.backupIds.length} moderator${(t.primaryIds.length + t.backupIds.length) === 1 ? '' : 's'}</span>
+          </button>
+        `).join('') : `<div class="tw-pick-empty">${teams.length ? 'No teams match that search.' : 'No teams loaded yet.'}</div>`}
+      </div>
+    </div>
+  `;
+  const trigger = host.querySelector('#fbSendTeamBtn');
+  if (trigger) {
+    trigger.addEventListener('click', () => {
+      const next = host.getAttribute('data-open') !== 'true';
+      closeFeedbackPicks(next ? 'fbSendTeamPick' : '');
+      host.setAttribute('data-open', next ? 'true' : 'false');
+      paintFeedbackTeamPick(selectedId, query);
+      if (next) {
+        const search = document.getElementById('fbSendTeamSearch');
+        if (search) search.focus();
+      }
+    });
+  }
+  const search = host.querySelector('#fbSendTeamSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      host.setAttribute('data-open', 'true');
+      paintFeedbackTeamPick(selectedId, search.value);
+      const again = document.getElementById('fbSendTeamSearch');
+      if (again) {
+        again.focus();
+        const len = again.value.length;
+        try { again.setSelectionRange(len, len); } catch (_) {}
+      }
+    });
+  }
+  host.querySelectorAll('[data-team-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const teamId = btn.getAttribute('data-team-id') || '';
+      host.setAttribute('data-open', 'false');
+      const modPick = document.getElementById('fbSendModPick');
+      if (modPick) modPick.setAttribute('data-open', 'true');
+      const target = document.getElementById('fbSendTarget');
+      if (target) target.value = '';
+      paintFeedbackTeamPick(teamId, '');
+      paintFeedbackModPick(teamId, '', '');
+    });
+  });
+}
+
+function paintFeedbackModPick(teamId, selectedLoginId, query) {
+  const host = document.getElementById('fbSendModPick');
+  if (!host) return;
+  const teams = feedbackPickerLiveTeams();
+  const team = teams.find(t => String(t.id) === String(teamId)) || null;
+  const mods = team
+    ? listFeedbackTeamModerators(team, feedbackPickerLiveMods(), feedbackPickerModOpts())
+    : [];
+  const selected = mods.find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(selectedLoginId)) || null;
+  const shown = filterFeedbackChoices(mods, query);
+  const open = host.getAttribute('data-open') === 'true';
+  const disabled = !team;
+  host.innerHTML = `
+    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendModBtn" aria-expanded="${open ? 'true' : 'false'}" ${disabled ? 'disabled' : ''}>
+      <span>${selected ? escapeHTML(selected.name) : (disabled ? 'Choose a team first' : 'Choose a moderator')}</span>
+      <span class="tw-pick-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="tw-pick-panel">
+      <input type="search" class="part-pick-search tw-pick-search" id="fbSendModSearch" placeholder="Search this team" value="${escapeHTML(query || '')}" autocomplete="off" ${disabled ? 'disabled' : ''}>
+      <div class="tw-pick-list" id="fbSendModList" role="listbox">
+        ${disabled ? `<div class="tw-pick-empty">Pick a team to see primaries and backups.</div>`
+          : (shown.length ? shown.map(m => `
+          <button type="button" class="tw-pick-item ${selected && m.key === selected.key ? 'is-on' : ''}" data-mod-id="${escapeHTML(m.id)}" role="option">
+            <span class="tw-pick-item-copy">
+              <span class="tw-pick-item-name">${escapeHTML(m.name)}</span>
+              <span class="tw-pick-item-meta">${escapeHTML(m.id)}</span>
+            </span>
+            <span class="tw-pick-role ${m.role === 'Backup' ? 'is-backup' : 'is-primary'}">${escapeHTML(m.role)}</span>
+          </button>
+        `).join('') : `<div class="tw-pick-empty">${mods.length ? 'No moderators match that search.' : 'This team has no primaries or backups yet.'}</div>`)}
+      </div>
+    </div>
+  `;
+  const target = document.getElementById('fbSendTarget');
+  if (target) target.value = selected ? selected.id : '';
+  const trigger = host.querySelector('#fbSendModBtn');
+  if (trigger && !disabled) {
+    trigger.addEventListener('click', () => {
+      const next = host.getAttribute('data-open') !== 'true';
+      closeFeedbackPicks(next ? 'fbSendModPick' : '');
+      host.setAttribute('data-open', next ? 'true' : 'false');
+      paintFeedbackModPick(teamId, selectedLoginId, query);
+      if (next) {
+        const search = document.getElementById('fbSendModSearch');
+        if (search) search.focus();
+      }
+    });
+  }
+  const search = host.querySelector('#fbSendModSearch');
+  if (search && !disabled) {
+    search.addEventListener('input', () => {
+      host.setAttribute('data-open', 'true');
+      paintFeedbackModPick(teamId, selectedLoginId, search.value);
+      const again = document.getElementById('fbSendModSearch');
+      if (again) {
+        again.focus();
+        const len = again.value.length;
+        try { again.setSelectionRange(len, len); } catch (_) {}
+      }
+    });
+  }
+  host.querySelectorAll('[data-mod-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      host.setAttribute('data-open', 'false');
+      paintFeedbackModPick(teamId, btn.getAttribute('data-mod-id') || '', query);
+      const text = document.getElementById('fbSendText');
+      if (text) text.focus();
+    });
+  });
+}
+
 function openIndividualFeedbackComposer(prefill) {
   ensureIndividualFeedbackModal();
-  if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators)) {
+  if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators || !adminState.moderators.length)) {
     loadModerators(false);
   }
+  feedbackPickerLiveTeams();
   const overlay = document.getElementById('fbSendOverlay');
-  const sel = document.getElementById('fbSendTarget');
   const text = document.getElementById('fbSendText');
   const err = document.getElementById('fbSendError');
-  if (sel) {
-    const choices = adminModeratorChoices();
-    sel.innerHTML = '<option value="">Choose a moderator</option>' + choices.map(m =>
-      `<option value="${escapeHTML(m.id)}" ${prefill && feedbackOrbitKey(prefill.loginId) === feedbackOrbitKey(m.id) ? 'selected' : ''}>${escapeHTML(m.name)} · ${escapeHTML(m.id)}</option>`
-    ).join('');
-    if (prefill && prefill.loginId) sel.value = prefill.loginId;
-  }
+  const target = document.getElementById('fbSendTarget');
+  const teams = feedbackPickerLiveTeams();
+  const prefillId = prefill && (prefill.loginId || prefill.id) ? String(prefill.loginId || prefill.id) : '';
+  const matchedTeam = prefillId ? findFeedbackTeamForModerator(teams, prefillId) : null;
+  const teamId = matchedTeam ? matchedTeam.id : '';
+  const teamPick = document.getElementById('fbSendTeamPick');
+  const modPick = document.getElementById('fbSendModPick');
+  if (teamPick) teamPick.setAttribute('data-open', teamId ? 'false' : 'true');
+  if (modPick) modPick.setAttribute('data-open', teamId ? 'true' : 'false');
+  if (target) target.value = prefillId;
+  paintFeedbackTeamPick(teamId, '');
+  paintFeedbackModPick(teamId, prefillId, '');
   if (text) text.value = '';
   if (err) err.textContent = '';
   overlay.classList.add('open');
@@ -36140,7 +37403,7 @@ async function submitIndividualFeedbackComposer() {
   const err = document.getElementById('fbSendError');
   const toLoginId = sel ? sel.value : '';
   const message = text ? text.value.trim() : '';
-  if (!toLoginId) { if (err) err.textContent = 'Choose a moderator.'; return; }
+  if (!toLoginId) { if (err) err.textContent = 'Choose a team, then a moderator.'; return; }
   if (!message) { if (err) err.textContent = 'Write a short note.'; return; }
   const choice = adminModeratorChoices().find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(toLoginId));
   const record = buildIndividualFeedbackRecord({
