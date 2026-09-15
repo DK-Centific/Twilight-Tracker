@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-/* Self-test: Approval Lakitu / Ring popup helpers.
+/* Self-test: Approval Lakitu / Ring side-panel helpers.
  * Resolves selected-request URLs with catalog fallbacks, and opens a
- * named desktop popup with a new-tab fallback when blocked.
+ * right-docked named window (side-panel analogue) with a new-tab
+ * fallback when blocked. True Chrome Side Panel API is not available
+ * to a GitHub Pages app.
  */
 'use strict';
 
@@ -24,19 +26,25 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval Lakitu / Ring popup self-test');
+console.log('Approval Lakitu / Ring side-panel self-test');
 
 assert(
-  'shared popup helper exists',
+  'shared window helper exists',
   /function openExternalAppWindow\(url, windowName, opts\)/.test(src)
 );
 assert(
-  'record-flow reuses the shared helper',
-  /openExternalAppWindow\(url, 'lakituRecord', \{ allowOpener: true \}\)/.test(src)
+  'side-panel geometry helper exists',
+  /function desktopWindowGeometry\(opts\)/.test(src)
+    && /opts\.layout === 'sidePanel'/.test(src)
 );
 assert(
-  'Approval click opens via the shared helper',
-  /openExternalAppWindow\(href, a\.getAttribute\('data-appr-win'\)/.test(src)
+  'record-flow reuses the shared helper without side-panel layout',
+  /openExternalAppWindow\(url, 'lakituRecord', \{ allowOpener: true \}\)/.test(src)
+    && !/openExternalAppWindow\(url, 'lakituRecord'[\s\S]{0,80}sidePanel/.test(src)
+);
+assert(
+  'Approval click opens a side panel via the shared helper',
+  /openExternalAppWindow\(href, a\.getAttribute\('data-appr-win'\)[\s\S]{0,40}\{ layout: 'sidePanel' \}\)/.test(src)
 );
 assert(
   'no iframe embed on Approval panel',
@@ -51,7 +59,7 @@ assert(
   /const label = isLakitu \? 'Open Lakitu' : 'Open Ring'/.test(src)
 );
 assert(
-  'named windows reuse Approval popups',
+  'named windows reuse Approval side panels',
   /const APPROVAL_LAKITU_WINDOW = 'twilightApprovalLakitu'/.test(src)
     && /const APPROVAL_RING_WINDOW = 'twilightApprovalRing'/.test(src)
 );
@@ -80,7 +88,7 @@ const reviewBegin = src.indexOf('function lakituReviewUrl(url)');
 const reviewEnd = src.indexOf('// Centralized renderer for the Lakitu pill');
 const apprBegin = src.indexOf('function defaultApprovalRingUrl()');
 const apprEnd = src.indexOf('function renderApprovalPanelInto()');
-const popupBegin = src.indexOf('function desktopPopupFeatures(opts)');
+const popupBegin = src.indexOf('function desktopWindowGeometry(opts)');
 const popupEnd = src.indexOf('function openLakituForRecord(stationKey, num)');
 const escapeBegin = src.indexOf('function escapeHTML(s)');
 const escapeEnd = src.indexOf('/* =====================================================================\n   ADMIN APP');
@@ -92,12 +100,17 @@ assert('source slices located',
   && popupEnd > popupBegin && escapeEnd > escapeBegin && getRingFnEnd > getRingFn);
 
 const opens = [];
-const fakeWin = { opener: { keep: true }, closed: false };
+const fakeWin = {
+  opener: { keep: true },
+  closed: false,
+  resizeTo(w, h) { this._resized = { w: w, h: h }; },
+  moveTo(left, top) { this._moved = { left: left, top: top }; },
+};
 const context = {
   console,
   URL,
   window: {
-    screen: { availWidth: 1600, availHeight: 1000 },
+    screen: { availWidth: 1600, availHeight: 1000, availLeft: 0, availTop: 0 },
     open(url, name, features) {
       opens.push({ url, name, features });
       if (name === 'blocked') return null;
@@ -120,7 +133,7 @@ runSlice(getRingFn, getRingFnEnd, 'getRingDashboardByKey');
 runSlice(safeBegin, teamRingEnd, 'isSafeHttpUrl + team ring');
 runSlice(reviewBegin, reviewEnd, 'lakituReviewUrl');
 runSlice(escapeBegin, escapeEnd, 'escapeHTML');
-runSlice(popupBegin, popupEnd, 'openExternalAppWindow');
+runSlice(popupBegin, popupEnd, 'openExternalAppWindow + side panel');
 runSlice(apprBegin, apprEnd, 'approval resolvers');
 
 const sessionUrl = 'https://lakitu.ring.amazon.dev/p/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa?session=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -176,31 +189,88 @@ assert('empty-state HTML includes Open Ring', html.includes('Open Ring') && html
 assert('empty-state Lakitu href is sessions list', html.includes('https://lakitu.ring.amazon.dev/sessions'));
 assert('empty-state Ring href is nighttime-centific-4', html.includes('cf59ccd3-2f3d-441f-ac44-6b2e8befd904'));
 assert('empty-state links keep target=_blank fallback', (html.match(/target="_blank"/g) || []).length === 2);
+assert('empty-state tooltips mention side panel', html.includes('Open Lakitu in a side panel') && html.includes('Open Ring in a side panel'));
 
-opens.length = 0;
-const win = context.openExternalAppWindow('https://lakitu.ring.amazon.dev/sessions', 'twilightApprovalLakitu');
-assert('popup open uses the named window', opens[0] && opens[0].name === 'twilightApprovalLakitu');
-assert('popup features include desktop size', opens[0] && /popup=yes/.test(opens[0].features) && /width=/.test(opens[0].features));
-assert('Approval popup does not request opener', opens[0] && !/noopener=no/.test(opens[0].features));
-assert('Approval popup nulls window.opener', win && win.opener === null);
+function parseFeatures(features) {
+  const out = {};
+  String(features || '').split(',').forEach(part => {
+    const i = part.indexOf('=');
+    if (i < 0) return;
+    out[part.slice(0, i)] = part.slice(i + 1);
+  });
+  return out;
+}
 
 opens.length = 0;
 fakeWin.opener = { keep: true };
+fakeWin._resized = null;
+fakeWin._moved = null;
+const win = context.openExternalAppWindow(
+  'https://lakitu.ring.amazon.dev/sessions',
+  'twilightApprovalLakitu',
+  { layout: 'sidePanel' }
+);
+const panelFeat = parseFeatures(opens[0] && opens[0].features);
+const expectedPanelW = Math.min(560, Math.max(420, Math.floor(1600 * 0.34)));
+const expectedPanelLeft = 1600 - expectedPanelW;
+assert('side-panel open uses the named window', opens[0] && opens[0].name === 'twilightApprovalLakitu');
+assert(
+  'side-panel is a tall right-docked window',
+  panelFeat.popup === 'yes'
+    && Number(panelFeat.width) === expectedPanelW
+    && Number(panelFeat.height) === 1000
+    && Number(panelFeat.left) === expectedPanelLeft
+    && Number(panelFeat.top) === 0,
+  JSON.stringify(panelFeat)
+);
+assert('Approval side panel does not request opener', opens[0] && !/noopener=no/.test(opens[0].features));
+assert('Approval side panel nulls window.opener', win && win.opener === null);
+assert(
+  'side-panel also resizes/moves the opened window',
+  fakeWin._resized && fakeWin._resized.w === expectedPanelW && fakeWin._resized.h === 1000
+    && fakeWin._moved && fakeWin._moved.left === expectedPanelLeft && fakeWin._moved.top === 0,
+  JSON.stringify({ resized: fakeWin._resized, moved: fakeWin._moved })
+);
+
+opens.length = 0;
+fakeWin.opener = { keep: true };
+fakeWin._resized = null;
+fakeWin._moved = null;
 const rec = context.openExternalAppWindow('https://lakitu.ring.amazon.dev/sessions', 'lakituRecord', { allowOpener: true });
+const recFeat = parseFeatures(opens[0] && opens[0].features);
 assert('record-flow keeps opener=no in features', opens[0] && /noopener=no/.test(opens[0].features));
 assert('record-flow keeps the window reference', rec === fakeWin && rec.opener !== null);
+assert(
+  'record-flow stays a centered popup, not a side panel',
+  Number(recFeat.width) === 1100
+    && Number(recFeat.left) === 250
+    && Number(recFeat.left) !== expectedPanelLeft,
+  JSON.stringify(recFeat)
+);
 
 opens.length = 0;
 context.window.open = function (url, name) {
   opens.push({ url, name });
   return null;
 };
-const fallback = context.openExternalAppWindow('https://account.ring.com/account/dashboard?l=cf59ccd3-2f3d-441f-ac44-6b2e8befd904', 'twilightApprovalRing');
+const fallback = context.openExternalAppWindow(
+  'https://account.ring.com/account/dashboard?l=cf59ccd3-2f3d-441f-ac44-6b2e8befd904',
+  'twilightApprovalRing',
+  { layout: 'sidePanel' }
+);
 assert(
-  'blocked popup falls back to a new tab',
+  'blocked side panel falls back to a new tab',
   opens.length === 2 && opens[0].name === 'twilightApprovalRing' && opens[1].name === '_blank' && fallback === null
 );
-assert('empty URL does not open a window', context.openExternalAppWindow('', 'twilightApprovalLakitu') === null);
+assert('empty URL does not open a window', context.openExternalAppWindow('', 'twilightApprovalLakitu', { layout: 'sidePanel' }) === null);
+
+context.window.screen = { availWidth: 1024, availHeight: 768, availLeft: 0, availTop: 0 };
+const narrow = context.desktopWindowGeometry({ layout: 'sidePanel' });
+assert(
+  'narrow screens still keep a usable side-panel width',
+  narrow.w === 420 && narrow.left === 1024 - 420 && narrow.h === 768,
+  JSON.stringify(narrow)
+);
 
 console.log('');
 console.log(failed ? `FAILED ${failed} · passed ${passed}` : `All ${passed} checks passed`);
