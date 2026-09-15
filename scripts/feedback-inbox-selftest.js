@@ -47,6 +47,10 @@ const {
   buildIndividualFeedbackRecord,
   buildFeedbackAppSettingPayload,
   feedbackMatchesRecipient,
+  listFeedbackTeams,
+  listFeedbackTeamModerators,
+  filterFeedbackChoices,
+  findFeedbackTeamForModerator,
 } = context;
 
 let failed = 0;
@@ -240,6 +244,33 @@ assert('ingest prefers the newer publishedAt',
   preferNewerTeamAnnouncement(announcement, edited) === edited);
 assert('ingest does not invent a team note from empty',
   preferNewerTeamAnnouncement(null, null) === null);
+
+const fbTeams = listFeedbackTeams([
+  { id: 1, name: 'Team Alpha', primaryIds: ['Alex-tw'], backupIds: ['Pat-tw'] },
+  { id: 2, name: 'Team Beta', primaryIds: ['Sam-tw'], backupId: 'Riley-tw' },
+]);
+assert('lists both teams', fbTeams.length === 2 && fbTeams[0].name === 'Team Alpha');
+assert('legacy backupId becomes backupIds', fbTeams[1].backupIds.indexOf('Riley-tw') !== -1);
+
+const fbMods = [
+  { orbitLoginId: 'Alex-tw', firstName: 'Alex', lastName: 'Chen' },
+  { orbitLoginId: 'Pat-tw', firstName: 'Pat', lastName: 'Lee' },
+  { orbitLoginId: 'Sam-tw', firstName: 'Sam', lastName: 'Kim' },
+];
+const alphaMods = listFeedbackTeamModerators(fbTeams[0], fbMods);
+assert('team list is primary then backup',
+  alphaMods.length === 2 && alphaMods[0].role === 'Primary' && alphaMods[1].role === 'Backup');
+assert('alpha includes Alex as primary',
+  alphaMods.some(m => m.id === 'Alex-tw' && m.role === 'Primary'));
+assert('alpha does not include Sam',
+  !alphaMods.some(m => /sam/i.test(m.id)));
+assert('search filters to Alex',
+  filterFeedbackChoices(alphaMods, 'alex').length === 1
+  && filterFeedbackChoices(alphaMods, 'alex')[0].id === 'Alex-tw');
+assert('finds Alex team',
+  findFeedbackTeamForModerator(fbTeams, 'Alex-tw')
+  && findFeedbackTeamForModerator(fbTeams, 'Alex-tw').id === '1');
+assert('unknown login is not on a team', findFeedbackTeamForModerator(fbTeams, 'No-Such') === null);
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

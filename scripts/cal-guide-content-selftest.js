@@ -39,6 +39,8 @@ const {
   renderCalGuideLengthHtml,
   renderCalGuideIconHtml,
   calGuideLineList,
+  calGuideCalloutPreviewText,
+  renderCalGuideBannerEditorHtml,
 } = context;
 
 let failed = 0;
@@ -200,6 +202,13 @@ const introRows = [{
 const introCollected = collectCalGuideFromSessionRows(introRows);
 assert('ingest restores custom banner icon', introCollected && introCollected.banner.icon === '📷');
 assert('ingest restores length body', /120 seconds/.test(introCollected.length.bodyHtml));
+
+const bannerEditor = renderCalGuideBannerEditorHtml(defaults.banner);
+assert('edit banner starts collapsed', /data-open="false"/.test(bannerEditor));
+assert('edit banner has a clickable summary card', /cg-callout-summary/.test(bannerEditor) && /Warning banner/.test(bannerEditor));
+assert('edit banner keeps the editor fields in the card', /data-cg-field="bannerBody"/.test(bannerEditor));
+assert('callout preview uses live warning copy',
+  /Recording rejections/.test(calGuideCalloutPreviewText('banner', defaults.banner)));
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

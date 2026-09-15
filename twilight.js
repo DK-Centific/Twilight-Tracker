@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526d';
-const APP_UPDATED_AT = '09/15/2026 20:10';
+const APP_VERSION = '1.3.091526e';
+const APP_UPDATED_AT = '09/15/2026 20:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -35245,34 +35245,64 @@ function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
     </div>`;
 }
 
+function calGuideCalloutPreviewText(kind, data) {
+  data = data || {};
+  if (kind === 'banner') return calGuideStripHtml(data.bodyHtml || '').slice(0, 110);
+  if (kind === 'motion') {
+    return calGuideStripHtml([data.eyebrowHtml, data.titleHtml, data.subHtml].filter(Boolean).join(' · ')).slice(0, 110);
+  }
+  if (kind === 'length') {
+    return calGuideStripHtml([data.eyebrowHtml, data.bodyHtml].filter(Boolean).join(' · ')).slice(0, 110);
+  }
+  return '';
+}
+
+function wrapCalGuideCalloutEditor(kind, label, data, icon, accent, innerHtml) {
+  const preview = calGuideCalloutPreviewText(kind, data) || 'Click to edit';
+  const iconHtml = renderCalGuideIconHtml(icon) || '<span class="cg-icon-glyph">–</span>';
+  return `<div class="cg-callout-card" data-cg-callout="${calGuideEscape(kind)}" data-icon="${calGuideEscape(icon || '')}" data-accent="${calGuideEscape(accent || 'amber')}" data-open="false">
+    <button type="button" class="cg-callout-summary" aria-expanded="false">
+      <span class="cg-callout-summary-icon" aria-hidden="true">${iconHtml}</span>
+      <span class="cg-callout-summary-copy">
+        <span class="cg-callout-summary-label">${calGuideEscape(label)}</span>
+        <span class="cg-callout-summary-preview">${calGuideEscape(preview)}</span>
+      </span>
+      <span class="cg-callout-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="cg-callout-editor-body">
+      ${innerHtml}
+    </div>
+  </div>`;
+}
+
 function renderCalGuideBannerEditorHtml(banner) {
   const b = normalizeCalGuideBanner(banner) || cloneCalGuideIntroDefaults().banner;
-  return `<div class="cg-callout-editor" data-cg-callout="banner" data-icon="${calGuideEscape(b.icon)}" data-accent="${calGuideEscape(b.accent)}">
-    <div class="tf-draft-hint">Warning banner · first thing moderators see</div>
+  return wrapCalGuideCalloutEditor('banner', 'Warning banner', b, b.icon, b.accent, `
+    <div class="tf-draft-hint">First thing moderators see</div>
     ${renderCalGuideCalloutToolbar(b.icon, b.accent)}
     <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="bannerBody" aria-label="Warning banner">${calGuideSanitizeHtml(b.bodyHtml)}</div>
-  </div>`;
+  `);
 }
 
 function renderCalGuideMotionEditorHtml(motion) {
   const m = normalizeCalGuideMotion(motion) || cloneCalGuideIntroDefaults().motion;
-  return `<div class="cg-callout-editor" data-cg-callout="motion" data-icon="${calGuideEscape(m.icon)}" data-accent="${calGuideEscape(m.accent)}">
+  return wrapCalGuideCalloutEditor('motion', 'Motion Detection reminder', m, m.icon, m.accent, `
     <div class="tf-draft-hint">Motion Detection reminder</div>
     ${renderCalGuideCalloutToolbar(m.icon, m.accent)}
     <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="motionEyebrow" aria-label="Motion eyebrow">${calGuideSanitizeHtml(m.eyebrowHtml)}</div>
-    <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="motionTitle" aria-label="Motion title">${calGuideSanitizeHtml(m.titleHtml)}</div>
+    <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="motionTitle" aria-label="Motion title">${calGuideSanitizeHtml(m.titleHtml)}</div>
     <div class="tf-editor cg-rich" contenteditable="true" role="textbox" data-cg-field="motionSub" aria-label="Motion details">${calGuideSanitizeHtml(m.subHtml)}</div>
-  </div>`;
+  `);
 }
 
 function renderCalGuideLengthEditorHtml(length) {
   const L = normalizeCalGuideLength(length) || cloneCalGuideIntroDefaults().length;
-  return `<div class="cg-callout-editor" data-cg-callout="length" data-icon="${calGuideEscape(L.icon)}" data-accent="${calGuideEscape(L.accent)}">
-    <div class="tf-draft-hint">Length reminder · also used when a moderator taps ≥90s</div>
+  return wrapCalGuideCalloutEditor('length', 'Length reminder', L, L.icon, L.accent, `
+    <div class="tf-draft-hint">Also used when a moderator taps ≥90s</div>
     ${renderCalGuideCalloutToolbar(L.icon, L.accent)}
     <div class="tf-editor cg-rich cg-rich-sm" contenteditable="true" role="textbox" data-cg-field="lengthEyebrow" aria-label="Length eyebrow">${calGuideSanitizeHtml(L.eyebrowHtml)}</div>
     <div class="tf-editor cg-rich cg-rich-lg" contenteditable="true" role="textbox" data-cg-field="lengthBody" aria-label="Length reminder">${calGuideSanitizeHtml(L.bodyHtml)}</div>
-  </div>`;
+  `);
 }
 
 function collectCalGuideCalloutDraft(block) {
@@ -35399,6 +35429,8 @@ function collectCalGuideEditorDraft(root) {
   g.renderCalGuideSectionsHtml = renderCalGuideSectionsHtml;
   g.renderCalGuideEditorHtml = renderCalGuideEditorHtml;
   g.collectCalGuideEditorDraft = collectCalGuideEditorDraft;
+  g.calGuideCalloutPreviewText = calGuideCalloutPreviewText;
+  g.wrapCalGuideCalloutEditor = wrapCalGuideCalloutEditor;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 /* CAL_GUIDE_CONTENT_END */
 
@@ -35747,7 +35779,10 @@ function paintCalGuideDefaultBody() {
   const lengthHost = document.getElementById('calGuideLengthHost');
   const host = document.getElementById('calGuideSectionsHost');
   if (_calGuideEditing) {
-    if (bannerHost) bannerHost.innerHTML = renderCalGuideBannerEditorHtml(content.banner);
+    if (bannerHost) {
+      bannerHost.innerHTML = '<div class="tf-draft-hint" id="cgCalloutHint">Click a box to edit it. Only one opens at a time.</div>'
+        + renderCalGuideBannerEditorHtml(content.banner);
+    }
     if (motionHost) motionHost.innerHTML = renderCalGuideMotionEditorHtml(content.motion);
     if (lengthHost) lengthHost.innerHTML = renderCalGuideLengthEditorHtml(content.length);
     if (host) {
@@ -35764,6 +35799,30 @@ function paintCalGuideDefaultBody() {
   }
 }
 
+function refreshCalGuideCalloutSummary(card) {
+  if (!card) return;
+  const draft = collectCalGuideCalloutDraft(card);
+  const preview = card.querySelector('.cg-callout-summary-preview');
+  if (preview) {
+    preview.textContent = calGuideCalloutPreviewText(card.getAttribute('data-cg-callout'), draft) || 'Click to edit';
+  }
+  const iconHost = card.querySelector('.cg-callout-summary-icon');
+  if (iconHost) {
+    iconHost.innerHTML = renderCalGuideIconHtml(card.getAttribute('data-icon')) || '<span class="cg-icon-glyph">–</span>';
+  }
+}
+
+function setCalGuideOpenCallout(root, kind) {
+  if (!root) return;
+  root.querySelectorAll('[data-cg-callout]').forEach(card => {
+    const open = kind && card.getAttribute('data-cg-callout') === kind;
+    card.setAttribute('data-open', open ? 'true' : 'false');
+    const btn = card.querySelector('.cg-callout-summary');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (!open) refreshCalGuideCalloutSummary(card);
+  });
+}
+
 function bindCalGuideIntroEditors(root) {
   if (!root) return;
   root.querySelectorAll('[data-cg-callout]').forEach(block => {
@@ -35771,12 +35830,21 @@ function bindCalGuideIntroEditors(root) {
     block.querySelectorAll('[contenteditable="true"]').forEach(ed => {
       ed.addEventListener('focus', () => { lastEdit = ed; });
     });
+    const summary = block.querySelector('.cg-callout-summary');
+    if (summary) {
+      summary.addEventListener('click', () => {
+        const id = block.getAttribute('data-cg-callout');
+        const wasOpen = block.getAttribute('data-open') === 'true';
+        setCalGuideOpenCallout(root, wasOpen ? '' : id);
+      });
+    }
     block.querySelectorAll('[data-cg-icon]').forEach(btn => {
       btn.addEventListener('click', () => {
         block.setAttribute('data-icon', btn.getAttribute('data-cg-icon') || '');
         block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.toggle('is-on', b === btn));
         const custom = block.querySelector('[data-cg-custom-icon]');
         if (custom) custom.value = '';
+        refreshCalGuideCalloutSummary(block);
       });
     });
     const custom = block.querySelector('[data-cg-custom-icon]');
@@ -35786,6 +35854,7 @@ function bindCalGuideIntroEditors(root) {
         if (!v) return;
         block.setAttribute('data-icon', v);
         block.querySelectorAll('[data-cg-icon]').forEach(b => b.classList.remove('is-on'));
+        refreshCalGuideCalloutSummary(block);
       });
     }
     block.querySelectorAll('[data-cg-block-accent]').forEach(btn => {
@@ -36479,6 +36548,10 @@ function resetInboxToastAt(now) {
   g.inboxPillView = inboxPillView;
   g.shouldShowInboxToast = shouldShowInboxToast;
   g.resetInboxToastAt = resetInboxToastAt;
+  g.listFeedbackTeams = listFeedbackTeams;
+  g.listFeedbackTeamModerators = listFeedbackTeamModerators;
+  g.filterFeedbackChoices = filterFeedbackChoices;
+  g.findFeedbackTeamForModerator = findFeedbackTeamForModerator;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 
 let _feedbackUiStore = emptyFeedbackStore();
@@ -37008,6 +37081,76 @@ function openTeamFeedbackComposer() {
   }
 }
 
+function listFeedbackTeams(teams) {
+  return (Array.isArray(teams) ? teams : []).map(t => {
+    if (!t) return null;
+    const backupIds = Array.isArray(t.backupIds)
+      ? t.backupIds.filter(Boolean)
+      : (t.backupId ? [t.backupId] : []);
+    return {
+      id: String(t.id != null ? t.id : ''),
+      name: String(t.name || t.teamName || t.team_name || ('Team ' + t.id)),
+      primaryIds: Array.isArray(t.primaryIds) ? t.primaryIds.filter(Boolean) : [],
+      backupIds: backupIds,
+    };
+  }).filter(t => t && t.id);
+}
+
+function listFeedbackTeamModerators(team, moderators, opts) {
+  opts = opts || {};
+  const idOf = opts.idOf || function (m) {
+    return String((m && (m.orbitLoginId || m.loginId || m.id)) || '');
+  };
+  const nameOf = opts.nameOf || function (m) {
+    const n = [m && m.firstName, m && m.lastName].filter(Boolean).join(' ').trim();
+    return n || idOf(m);
+  };
+  const mods = Array.isArray(moderators) ? moderators : [];
+  const primary = (team && Array.isArray(team.primaryIds)) ? team.primaryIds : [];
+  const backup = (team && Array.isArray(team.backupIds))
+    ? team.backupIds
+    : ((team && team.backupId) ? [team.backupId] : []);
+  const seen = {};
+  const out = [];
+  function add(rawId, role) {
+    const key = feedbackOrbitKey(rawId);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    const row = mods.find(m => feedbackOrbitKey(idOf(m)) === key);
+    const id = row ? (idOf(row) || String(rawId)) : String(rawId || '');
+    out.push({
+      id: id,
+      name: row ? (nameOf(row) || id) : String(rawId || id),
+      role: role,
+      key: key,
+    });
+  }
+  primary.forEach(id => add(id, 'Primary'));
+  backup.forEach(id => add(id, 'Backup'));
+  return out;
+}
+
+function filterFeedbackChoices(items, query) {
+  const q = String(query || '').trim().toLowerCase();
+  const list = Array.isArray(items) ? items : [];
+  if (!q) return list.slice();
+  return list.filter(it => {
+    const blob = [it.name, it.id, it.role, it.teamName].filter(Boolean).join(' ').toLowerCase();
+    return blob.indexOf(q) !== -1;
+  });
+}
+
+function findFeedbackTeamForModerator(teams, loginId) {
+  const key = feedbackOrbitKey(loginId);
+  if (!key) return null;
+  const list = listFeedbackTeams(teams);
+  for (let i = 0; i < list.length; i++) {
+    const ids = list[i].primaryIds.concat(list[i].backupIds);
+    if (ids.some(id => feedbackOrbitKey(id) === key)) return list[i];
+  }
+  return null;
+}
+
 function adminModeratorChoices() {
   const rows = (typeof adminState !== 'undefined' && adminState && adminState.moderators) || [];
   return rows.map(m => {
@@ -37020,6 +37163,8 @@ function adminModeratorChoices() {
 }
 
 function ensureIndividualFeedbackModal() {
+  const existing = document.getElementById('fbSendOverlay');
+  if (existing && !document.getElementById('fbSendTeamPick')) existing.remove();
   if (document.getElementById('fbSendOverlay')) return;
   const overlay = document.createElement('div');
   overlay.id = 'fbSendOverlay';
@@ -37028,8 +37173,11 @@ function ensureIndividualFeedbackModal() {
     <div class="fb-send-modal" role="dialog" aria-modal="true" aria-labelledby="fbSendTitle">
       <div class="inbox-modal-title" id="fbSendTitle">Message a moderator</div>
       <div class="inbox-modal-sub">Private note · they will see it in Inbox</div>
-      <label class="tf-draft-hint" for="fbSendTarget">Moderator</label>
-      <select class="tf-pick" id="fbSendTarget"></select>
+      <label class="tf-draft-hint" id="fbSendTeamLabel">Team</label>
+      <div class="tw-pick" id="fbSendTeamPick" data-open="false"></div>
+      <label class="tf-draft-hint" id="fbSendModLabel">Moderator</label>
+      <div class="tw-pick" id="fbSendModPick" data-open="false"></div>
+      <input type="hidden" id="fbSendTarget" value="">
       <textarea class="tf-note" id="fbSendText" rows="5" placeholder="Write a short note"></textarea>
       <div class="tf-send-error" id="fbSendError"></div>
       <div class="fb-send-actions">
@@ -37044,22 +37192,201 @@ function ensureIndividualFeedbackModal() {
   overlay.querySelector('#fbSendBtn').addEventListener('click', submitIndividualFeedbackComposer);
 }
 
+function feedbackPickerLiveTeams() {
+  let teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  if ((!teams || !teams.length) && typeof loadAssignmentData === 'function') {
+    const stored = loadAssignmentData() || {};
+    if (Array.isArray(stored.teams) && stored.teams.length) {
+      teams = stored.teams;
+      if (typeof adminState !== 'undefined' && adminState) adminState.teams = stored.teams;
+    }
+  }
+  return listFeedbackTeams(teams);
+}
+
+function feedbackPickerLiveMods() {
+  return (typeof adminState !== 'undefined' && adminState && adminState.moderators) || [];
+}
+
+function feedbackPickerModOpts() {
+  return {
+    idOf: function (m) {
+      return String((typeof perfModId === 'function') ? perfModId(m) : ((m && (m.orbitLoginId || m.loginId)) || ''));
+    },
+    nameOf: function (m) {
+      if (typeof perfModName === 'function') {
+        const n = perfModName(m);
+        if (n) return n;
+      }
+      return [m && m.firstName, m && m.lastName].filter(Boolean).join(' ').trim();
+    },
+  };
+}
+
+function closeFeedbackPicks(exceptId) {
+  ['fbSendTeamPick', 'fbSendModPick'].forEach(id => {
+    if (exceptId && id === exceptId) return;
+    const el = document.getElementById(id);
+    if (el) el.setAttribute('data-open', 'false');
+  });
+}
+
+function paintFeedbackTeamPick(selectedId, query) {
+  const host = document.getElementById('fbSendTeamPick');
+  if (!host) return;
+  const teams = feedbackPickerLiveTeams();
+  const selected = teams.find(t => String(t.id) === String(selectedId)) || null;
+  const shown = filterFeedbackChoices(teams, query);
+  const open = host.getAttribute('data-open') === 'true';
+  host.innerHTML = `
+    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendTeamBtn" aria-expanded="${open ? 'true' : 'false'}">
+      <span>${selected ? escapeHTML(selected.name) : 'Choose a team'}</span>
+      <span class="tw-pick-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="tw-pick-panel">
+      <input type="search" class="part-pick-search tw-pick-search" id="fbSendTeamSearch" placeholder="Search teams" value="${escapeHTML(query || '')}" autocomplete="off">
+      <div class="tw-pick-list" id="fbSendTeamList" role="listbox">
+        ${shown.length ? shown.map(t => `
+          <button type="button" class="tw-pick-item ${selected && String(selected.id) === String(t.id) ? 'is-on' : ''}" data-team-id="${escapeHTML(t.id)}" role="option">
+            <span class="tw-pick-item-name">${escapeHTML(t.name)}</span>
+            <span class="tw-pick-item-meta">${t.primaryIds.length + t.backupIds.length} moderator${(t.primaryIds.length + t.backupIds.length) === 1 ? '' : 's'}</span>
+          </button>
+        `).join('') : `<div class="tw-pick-empty">${teams.length ? 'No teams match that search.' : 'No teams loaded yet.'}</div>`}
+      </div>
+    </div>
+  `;
+  const trigger = host.querySelector('#fbSendTeamBtn');
+  if (trigger) {
+    trigger.addEventListener('click', () => {
+      const next = host.getAttribute('data-open') !== 'true';
+      closeFeedbackPicks(next ? 'fbSendTeamPick' : '');
+      host.setAttribute('data-open', next ? 'true' : 'false');
+      paintFeedbackTeamPick(selectedId, query);
+      if (next) {
+        const search = document.getElementById('fbSendTeamSearch');
+        if (search) search.focus();
+      }
+    });
+  }
+  const search = host.querySelector('#fbSendTeamSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      host.setAttribute('data-open', 'true');
+      paintFeedbackTeamPick(selectedId, search.value);
+      const again = document.getElementById('fbSendTeamSearch');
+      if (again) {
+        again.focus();
+        const len = again.value.length;
+        try { again.setSelectionRange(len, len); } catch (_) {}
+      }
+    });
+  }
+  host.querySelectorAll('[data-team-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const teamId = btn.getAttribute('data-team-id') || '';
+      host.setAttribute('data-open', 'false');
+      const modPick = document.getElementById('fbSendModPick');
+      if (modPick) modPick.setAttribute('data-open', 'true');
+      const target = document.getElementById('fbSendTarget');
+      if (target) target.value = '';
+      paintFeedbackTeamPick(teamId, '');
+      paintFeedbackModPick(teamId, '', '');
+    });
+  });
+}
+
+function paintFeedbackModPick(teamId, selectedLoginId, query) {
+  const host = document.getElementById('fbSendModPick');
+  if (!host) return;
+  const teams = feedbackPickerLiveTeams();
+  const team = teams.find(t => String(t.id) === String(teamId)) || null;
+  const mods = team
+    ? listFeedbackTeamModerators(team, feedbackPickerLiveMods(), feedbackPickerModOpts())
+    : [];
+  const selected = mods.find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(selectedLoginId)) || null;
+  const shown = filterFeedbackChoices(mods, query);
+  const open = host.getAttribute('data-open') === 'true';
+  const disabled = !team;
+  host.innerHTML = `
+    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendModBtn" aria-expanded="${open ? 'true' : 'false'}" ${disabled ? 'disabled' : ''}>
+      <span>${selected ? escapeHTML(selected.name) : (disabled ? 'Choose a team first' : 'Choose a moderator')}</span>
+      <span class="tw-pick-caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="tw-pick-panel">
+      <input type="search" class="part-pick-search tw-pick-search" id="fbSendModSearch" placeholder="Search this team" value="${escapeHTML(query || '')}" autocomplete="off" ${disabled ? 'disabled' : ''}>
+      <div class="tw-pick-list" id="fbSendModList" role="listbox">
+        ${disabled ? `<div class="tw-pick-empty">Pick a team to see primaries and backups.</div>`
+          : (shown.length ? shown.map(m => `
+          <button type="button" class="tw-pick-item ${selected && m.key === selected.key ? 'is-on' : ''}" data-mod-id="${escapeHTML(m.id)}" role="option">
+            <span class="tw-pick-item-copy">
+              <span class="tw-pick-item-name">${escapeHTML(m.name)}</span>
+              <span class="tw-pick-item-meta">${escapeHTML(m.id)}</span>
+            </span>
+            <span class="tw-pick-role ${m.role === 'Backup' ? 'is-backup' : 'is-primary'}">${escapeHTML(m.role)}</span>
+          </button>
+        `).join('') : `<div class="tw-pick-empty">${mods.length ? 'No moderators match that search.' : 'This team has no primaries or backups yet.'}</div>`)}
+      </div>
+    </div>
+  `;
+  const target = document.getElementById('fbSendTarget');
+  if (target) target.value = selected ? selected.id : '';
+  const trigger = host.querySelector('#fbSendModBtn');
+  if (trigger && !disabled) {
+    trigger.addEventListener('click', () => {
+      const next = host.getAttribute('data-open') !== 'true';
+      closeFeedbackPicks(next ? 'fbSendModPick' : '');
+      host.setAttribute('data-open', next ? 'true' : 'false');
+      paintFeedbackModPick(teamId, selectedLoginId, query);
+      if (next) {
+        const search = document.getElementById('fbSendModSearch');
+        if (search) search.focus();
+      }
+    });
+  }
+  const search = host.querySelector('#fbSendModSearch');
+  if (search && !disabled) {
+    search.addEventListener('input', () => {
+      host.setAttribute('data-open', 'true');
+      paintFeedbackModPick(teamId, selectedLoginId, search.value);
+      const again = document.getElementById('fbSendModSearch');
+      if (again) {
+        again.focus();
+        const len = again.value.length;
+        try { again.setSelectionRange(len, len); } catch (_) {}
+      }
+    });
+  }
+  host.querySelectorAll('[data-mod-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      host.setAttribute('data-open', 'false');
+      paintFeedbackModPick(teamId, btn.getAttribute('data-mod-id') || '', query);
+      const text = document.getElementById('fbSendText');
+      if (text) text.focus();
+    });
+  });
+}
+
 function openIndividualFeedbackComposer(prefill) {
   ensureIndividualFeedbackModal();
-  if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators)) {
+  if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators || !adminState.moderators.length)) {
     loadModerators(false);
   }
+  feedbackPickerLiveTeams();
   const overlay = document.getElementById('fbSendOverlay');
-  const sel = document.getElementById('fbSendTarget');
   const text = document.getElementById('fbSendText');
   const err = document.getElementById('fbSendError');
-  if (sel) {
-    const choices = adminModeratorChoices();
-    sel.innerHTML = '<option value="">Choose a moderator</option>' + choices.map(m =>
-      `<option value="${escapeHTML(m.id)}" ${prefill && feedbackOrbitKey(prefill.loginId) === feedbackOrbitKey(m.id) ? 'selected' : ''}>${escapeHTML(m.name)} · ${escapeHTML(m.id)}</option>`
-    ).join('');
-    if (prefill && prefill.loginId) sel.value = prefill.loginId;
-  }
+  const target = document.getElementById('fbSendTarget');
+  const teams = feedbackPickerLiveTeams();
+  const prefillId = prefill && (prefill.loginId || prefill.id) ? String(prefill.loginId || prefill.id) : '';
+  const matchedTeam = prefillId ? findFeedbackTeamForModerator(teams, prefillId) : null;
+  const teamId = matchedTeam ? matchedTeam.id : '';
+  const teamPick = document.getElementById('fbSendTeamPick');
+  const modPick = document.getElementById('fbSendModPick');
+  if (teamPick) teamPick.setAttribute('data-open', teamId ? 'false' : 'true');
+  if (modPick) modPick.setAttribute('data-open', teamId ? 'true' : 'false');
+  if (target) target.value = prefillId;
+  paintFeedbackTeamPick(teamId, '');
+  paintFeedbackModPick(teamId, prefillId, '');
   if (text) text.value = '';
   if (err) err.textContent = '';
   overlay.classList.add('open');
@@ -37076,7 +37403,7 @@ async function submitIndividualFeedbackComposer() {
   const err = document.getElementById('fbSendError');
   const toLoginId = sel ? sel.value : '';
   const message = text ? text.value.trim() : '';
-  if (!toLoginId) { if (err) err.textContent = 'Choose a moderator.'; return; }
+  if (!toLoginId) { if (err) err.textContent = 'Choose a team, then a moderator.'; return; }
   if (!message) { if (err) err.textContent = 'Write a short note.'; return; }
   const choice = adminModeratorChoices().find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(toLoginId));
   const record = buildIndividualFeedbackRecord({
