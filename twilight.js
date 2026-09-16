@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626i';
-const APP_UPDATED_AT = '09/16/2026 03:20';
+const APP_VERSION = '1.3.091626j';
+const APP_UPDATED_AT = '09/16/2026 03:28';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -36001,8 +36001,52 @@ function calGuideStripHtml(html) {
     .trim();
 }
 
-function calGuideSanitizeHtml(html) {
+function calGuideNormalizeHexColor(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) {
+    if (s.length === 4) {
+      return ('#' + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2) + s.charAt(3) + s.charAt(3)).toLowerCase();
+    }
+    return s.toLowerCase();
+  }
+  const rgb = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgb) {
+    const hex = n => ('0' + Math.max(0, Math.min(255, Number(n))).toString(16)).slice(-2);
+    return '#' + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
+  }
+  return '';
+}
+
+function calGuideColorSpanHtml(innerHtml, color) {
+  const hex = calGuideNormalizeHexColor(color);
+  if (!hex) return String(innerHtml == null ? '' : innerHtml);
+  return '<span style="color:' + hex + '">' + String(innerHtml == null ? '' : innerHtml) + '</span>';
+}
+
+function calGuideNormalizeFontColorHtml(html) {
   let s = String(html || '');
+  let prev = '';
+  while (s !== prev) {
+    prev = s;
+    s = s.replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+      const attrSrc = String(attrs || '');
+      const colorAttr = attrSrc.match(/color\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const styleAttr = attrSrc.match(/style\s*=\s*("([^"]*)"|'([^']*)')/i);
+      let color = '';
+      if (colorAttr) color = calGuideNormalizeHexColor(colorAttr[2] || colorAttr[3] || colorAttr[4] || '');
+      if (!color && styleAttr) {
+        const m = String(styleAttr[2] || styleAttr[3] || '').match(/color\s*:\s*([^;]+)/i);
+        if (m) color = calGuideNormalizeHexColor(m[1]);
+      }
+      const body = inner == null ? '' : inner;
+      return color ? calGuideColorSpanHtml(body, color) : body;
+    });
+  }
+  return s;
+}
+
+function calGuideSanitizeHtml(html) {
+  let s = calGuideNormalizeFontColorHtml(html);
   s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
   s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   s = s.replace(/javascript:/gi, '');
@@ -36513,6 +36557,9 @@ function collectCalGuideEditorDraft(root) {
   g.calGuideLineList = calGuideLineList;
   g.calGuideSanitizeHtml = calGuideSanitizeHtml;
   g.calGuideStripHtml = calGuideStripHtml;
+  g.calGuideNormalizeHexColor = calGuideNormalizeHexColor;
+  g.calGuideNormalizeFontColorHtml = calGuideNormalizeFontColorHtml;
+  g.calGuideColorSpanHtml = calGuideColorSpanHtml;
   g.cloneCalGuideDefaults = cloneCalGuideDefaults;
   g.cloneCalGuideIntroDefaults = cloneCalGuideIntroDefaults;
   g.normalizeCalGuideContent = normalizeCalGuideContent;
@@ -36626,7 +36673,7 @@ function scenarioCatalogIdIsCalRig(scOrId) {
 }
 
 function scenarioDescriptionLooksLikeHtml(raw) {
-  return /<\/?(?:p|div|span|strong|b|em|i|u|br|ul|ol|li)\b/i.test(String(raw || ''));
+  return /<\/?(?:p|div|span|strong|b|em|i|u|br|ul|ol|li|font)\b/i.test(String(raw || ''));
 }
 
 function scenarioDescriptionEscapePlain(raw) {
@@ -36636,8 +36683,16 @@ function scenarioDescriptionEscapePlain(raw) {
 }
 
 function scenarioDescriptionSanitizeHtml(html) {
-  if (typeof calGuideSanitizeHtml === 'function') return calGuideSanitizeHtml(html);
-  let s = String(html || '');
+  const normalized = (typeof calGuideNormalizeFontColorHtml === 'function')
+    ? calGuideNormalizeFontColorHtml(html)
+    : String(html || '').replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+      const colorAttr = String(attrs || '').match(/color\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const raw = colorAttr ? (colorAttr[2] || colorAttr[3] || colorAttr[4] || '') : '';
+      const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(raw).trim()) ? String(raw).trim().toLowerCase() : '';
+      return hex ? ('<span style="color:' + hex + '">' + inner + '</span>') : inner;
+    });
+  if (typeof calGuideSanitizeHtml === 'function') return calGuideSanitizeHtml(normalized);
+  let s = String(normalized || '');
   s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
   s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   s = s.replace(/javascript:/gi, '');
@@ -38057,22 +38112,111 @@ function bindCalGuideIntroEditors(root) {
   });
 }
 
+function calGuideRangeInEditor(range, editor) {
+  if (!range || !editor) return false;
+  const node = range.commonAncestorContainer;
+  return !!(editor === node || (editor.contains && editor.contains(node)));
+}
+
+function calGuideCloneSelectedRange(editor) {
+  if (typeof window === 'undefined' || !window.getSelection) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1) return null;
+  const range = sel.getRangeAt(0);
+  if (editor && !calGuideRangeInEditor(range, editor)) return null;
+  try { return range.cloneRange(); } catch (_) { return null; }
+}
+
+function calGuideRestoreRange(range) {
+  if (!range || typeof window === 'undefined' || !window.getSelection) return false;
+  const sel = window.getSelection();
+  try {
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  } catch (_) { return false; }
+}
+
+function calGuideExpandRangeToWord(range) {
+  if (!range || !range.collapsed) return range;
+  const node = range.startContainer;
+  if (!node || node.nodeType !== 3) return range;
+  const text = String(node.nodeValue || '');
+  let start = range.startOffset;
+  let end = range.endOffset;
+  while (start > 0 && /[^\s]/.test(text.charAt(start - 1))) start -= 1;
+  while (end < text.length && /[^\s]/.test(text.charAt(end))) end += 1;
+  if (end > start) {
+    range.setStart(node, start);
+    range.setEnd(node, end);
+  }
+  return range;
+}
+
+function calGuideApplyTextColor(color, editor, range) {
+  const hex = calGuideNormalizeHexColor(color);
+  if (!hex || !editor || typeof document === 'undefined') return false;
+  try { if (editor.focus) editor.focus(); } catch (_) {}
+  if (range) calGuideRestoreRange(range);
+  const sel = (typeof window !== 'undefined' && window.getSelection) ? window.getSelection() : null;
+  if (!sel || sel.rangeCount < 1) return false;
+  let next = sel.getRangeAt(0);
+  if (!calGuideRangeInEditor(next, editor)) return false;
+  if (next.collapsed) calGuideExpandRangeToWord(next);
+  if (next.collapsed) return false;
+  const span = document.createElement('span');
+  span.setAttribute('style', 'color:' + hex);
+  try {
+    span.appendChild(next.extractContents());
+    next.insertNode(span);
+  } catch (_) {
+    return false;
+  }
+  try {
+    const painted = document.createRange();
+    painted.selectNodeContents(span);
+    sel.removeAllRanges();
+    sel.addRange(painted);
+  } catch (_) {}
+  return true;
+}
+
 function bindCalGuideRichTextCommands(root, getLastEdit) {
   if (!root) return;
+  const editorOf = () => (typeof getLastEdit === 'function' ? getLastEdit() : getLastEdit);
+  let savedRange = calGuideCloneSelectedRange(editorOf());
+  const remember = () => {
+    const range = calGuideCloneSelectedRange(editorOf());
+    if (range) savedRange = range;
+  };
+  root.querySelectorAll('[contenteditable="true"]').forEach(ed => {
+    ed.addEventListener('mouseup', remember);
+    ed.addEventListener('keyup', remember);
+    ed.addEventListener('focus', remember);
+  });
+  const keepSelection = e => { e.preventDefault(); };
+  root.querySelectorAll('[data-cg-cmd], [data-cg-text-color]').forEach(btn => {
+    btn.addEventListener('mousedown', keepSelection);
+    btn.addEventListener('pointerdown', keepSelection);
+  });
   root.querySelectorAll('[data-cg-cmd]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const lastEdit = typeof getLastEdit === 'function' ? getLastEdit() : getLastEdit;
-      if (lastEdit) lastEdit.focus();
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const lastEdit = editorOf();
+      if (lastEdit && lastEdit.focus) lastEdit.focus();
+      if (savedRange) calGuideRestoreRange(savedRange);
       try { document.execCommand(btn.getAttribute('data-cg-cmd'), false, null); } catch (_) {}
+      remember();
     });
   });
   root.querySelectorAll('[data-cg-text-color]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
       const id = btn.getAttribute('data-cg-text-color');
       const color = (CAL_GUIDE_ACCENTS && CAL_GUIDE_ACCENTS[id]) || '#6B8F71';
-      const lastEdit = typeof getLastEdit === 'function' ? getLastEdit() : getLastEdit;
-      if (lastEdit) lastEdit.focus();
-      try { document.execCommand('foreColor', false, color); } catch (_) {}
+      const lastEdit = editorOf();
+      calGuideApplyTextColor(color, lastEdit, savedRange);
+      remember();
     });
   });
 }

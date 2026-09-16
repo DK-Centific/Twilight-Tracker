@@ -293,8 +293,8 @@ assert('editor card still renders when both rigs are off', /cal-rig-card-editor/
   && /Rig 1/.test(emptyCard)
   && /Rig 2/.test(emptyCard));
 
-assert('APP_VERSION is 1.3.091626i', /const APP_VERSION = '1\.3\.091626i'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626i'));
+assert('APP_VERSION is 1.3.091626j', /const APP_VERSION = '1\.3\.091626j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626j'));
 assert('changelog redo styles distinguish undone rows', /#scenCatalogModal \.scen-log-row\.is-undone\.is-redoable/.test(html)
   && /\.scen-log-redo/.test(html)
   && /text-decoration: line-through/.test(html));
@@ -324,6 +324,28 @@ assert('editor collect reads contenteditable innerHTML', typeof collectScenarioD
   && collectScenarioDescriptionFromEditor({ isContentEditable: true, innerHTML: '<strong>Hold</strong>' }) === '<strong>Hold</strong>'
   && collectScenarioDescriptionFromEditor({ isContentEditable: true, innerHTML: '<br>' }) === ''
   && collectScenarioDescriptionFromEditor({ isContentEditable: false, value: '  Hold the board  ' }) === 'Hold the board');
+assert('font color input is normalized to a hex span', typeof scenarioDescriptionSanitizeHtml === 'function'
+  && scenarioDescriptionSanitizeHtml('<font color="#ef4444">Hold</font>') === '<span style="color:#ef4444">Hold</span>'
+  && /color:#ef4444/.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>'))
+  && /Hold/.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>'))
+  && !/<font/i.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>')));
+assert('collect keeps applied hex color on a span',
+  /color:#ef4444/.test(collectScenarioDescriptionFromEditor({
+    isContentEditable: true,
+    innerHTML: '<span style="color:#ef4444">Hold</span>',
+  }))
+  && collectScenarioDescriptionFromEditor({
+    isContentEditable: true,
+    innerHTML: '<font color="#ef4444">Hold</font>',
+  }) === '<span style="color:#ef4444">Hold</span>');
+assert('color swatches wrap spans instead of font/foreColor', /function calGuideApplyTextColor\(/.test(fullSrc)
+  && /calGuideApplyTextColor\(color, lastEdit, savedRange\)/.test(fullSrc)
+  && /pointerdown/.test(fullSrc.slice(fullSrc.indexOf('function bindCalGuideRichTextCommands'), fullSrc.indexOf('function bindCalGuideEditor')))
+  && !/execCommand\(\s*['"]foreColor['"]/.test(fullSrc));
+assert('tile description CSS does not force descendant color',
+  !/\.cl-scen-desc\s+[^{]+\{[^}]*\bcolor:/.test(html)
+  && !/\.scenario-desc\s+[^{]+\{[^}]*\bcolor:/.test(html)
+  && !/\.sc-flow-desc\s+[^{]+\{[^}]*\bcolor:/.test(html));
 
 const richEdit = applyScenarioCatalogEdit(
   { overrides: {}, changelog: [] },
