@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091526j';
-const APP_UPDATED_AT = '09/15/2026 23:02';
+const APP_VERSION = '1.3.091626b';
+const APP_UPDATED_AT = '09/16/2026 01:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -203,6 +203,21 @@ const STATIONS = [
   },
 ];
 
+// Built-in snapshot · Admin Checklist edits overlay this, never mutate the
+// snapshot itself. Used to restore a scenario when an edit is undone.
+const SCENARIO_CATALOG_BUILTIN = STATIONS.map(st => ({
+  key: st.key,
+  label: st.label,
+  scenarios: (st.scenarios || []).map(sc => ({
+    num: sc.num,
+    id: sc.id,
+    name: sc.name,
+    iter: sc.iter || 1,
+    recordFlow: !!sc.recordFlow,
+    description: sc.description || '',
+  })),
+}));
+
 // --- Camera checkpoints hidden (Twilight SOP change) ---------------------
 // The per-station camera-confirmation card is hidden for now (moderator asked
 // to revisit later). Flip this to false to restore the 8-camera confirmation
@@ -296,8 +311,47 @@ const DEFAULT_LAKITU_URL = 'https://lakitu.ring.amazon.dev/sessions';
 // keep working unchanged · only the *button* is removed from the UI.
 const RECORD_FLOW_COMPLETE_STATUS = 'Calibrated';
 
+function isCalRigScenario(scOrId) {
+  const id = (scOrId && typeof scOrId === 'object') ? scOrId.id : scOrId;
+  return id === 'CAL_EXT' || id === 'CAL_GND';
+}
+
+function normalizeCalRigFlags(sd) {
+  if (!sd || typeof sd !== 'object') return { rig1: false, rig2: false };
+  if (sd.rig1Completed != null || sd.rig2Completed != null) {
+    return { rig1: !!sd.rig1Completed, rig2: !!sd.rig2Completed };
+  }
+  const n = Number(sd.iterations) || 0;
+  return { rig1: n >= 1, rig2: n >= 2 };
+}
+
+function isCalRigsComplete(sd) {
+  const flags = normalizeCalRigFlags(sd);
+  return !!(flags.rig1 && flags.rig2);
+}
+
+function applyCalRigChecks(sd, sc, rig1, rig2) {
+  if (!sd) return sd;
+  const next1 = !!rig1;
+  const next2 = !!rig2;
+  sd.rig1Completed = next1;
+  sd.rig2Completed = next2;
+  const target = (sc && sc.iter) || sd.iter || 2;
+  sd.iter = target;
+  sd.iterations = (next1 ? 1 : 0) + (next2 ? 1 : 0);
+  if (next1 && next2) {
+    if (sd.status !== 'Uploaded') sd.status = 'Calibrated';
+  } else if (sd.status === 'Calibrated' || sd.status === 'Uploaded' || sd.status === 'All Recorded') {
+    sd.status = (next1 || next2) ? 'Partially Recorded' : 'Not Started';
+  }
+  return sd;
+}
+
 function isScenarioComplete(sc) {
   if (!sc) return false;
+  // Calibration (CAL_EXT / CAL_GND): both Rig 1 + Rig 2 boxes = section
+  // done for approval review. Replaces the Iteration stepper gate.
+  if (isCalRigsComplete(sc)) return true;
   // Tapping Uploaded is the moderator "this scenario is done" mark.
   // Count it even when the iteration stepper was never used.
   if (sc.status === 'Uploaded') return true;
@@ -327,6 +381,8 @@ function isScenarioResolved(sc) {
 function isScenarioInProgress(sc) {
   if (!sc) return false;
   if (isScenarioComplete(sc) || isScenarioSkipped(sc)) return false;
+  const rigs = normalizeCalRigFlags(sc);
+  if (rigs.rig1 || rigs.rig2) return true;
   return PROGRESS_VALUES.includes(sc.status) || (sc.iterations || 0) > 0;
 }
 // Returns true if the scenario is Partially Recorded but missing a required note
@@ -425,7 +481,14 @@ function defaultState() {
     };
     if (st.requiresCameras) CAMERAS.forEach(c => s.stations[st.key].cameras[c] = false);
     st.scenarios.forEach(sc => {
-      s.stations[st.key].scenarios[sc.num] = { status: 'Not Started', notes: '', iterations: 0, iter: sc.iter || 1 };
+      s.stations[st.key].scenarios[sc.num] = {
+        status: 'Not Started',
+        notes: '',
+        iterations: 0,
+        iter: sc.iter || 1,
+        rig1Completed: false,
+        rig2Completed: false,
+      };
     });
   });
   return s;
@@ -664,12 +727,30 @@ function migrateState(loaded) {
     }
     st.scenarios.forEach(sc => {
       if (!sd.scenarios[sc.num] || typeof sd.scenarios[sc.num] !== 'object') {
-        sd.scenarios[sc.num] = { status: 'Not Started', notes: '', iterations: 0 };
+        sd.scenarios[sc.num] = {
+          status: 'Not Started',
+          notes: '',
+          iterations: 0,
+          rig1Completed: false,
+          rig2Completed: false,
+        };
       } else {
         if (typeof sd.scenarios[sc.num].status !== 'string') sd.scenarios[sc.num].status = 'Not Started';
         if (typeof sd.scenarios[sc.num].notes !== 'string') sd.scenarios[sc.num].notes = '';
         if (typeof sd.scenarios[sc.num].iterations !== 'number' || sd.scenarios[sc.num].iterations < 0) {
           sd.scenarios[sc.num].iterations = 0;
+        }
+        if (typeof sd.scenarios[sc.num].rig1Completed !== 'boolean'
+            || typeof sd.scenarios[sc.num].rig2Completed !== 'boolean') {
+          const fromIter = isCalRigScenario(sc)
+            ? { rig1: (sd.scenarios[sc.num].iterations || 0) >= 1, rig2: (sd.scenarios[sc.num].iterations || 0) >= 2 }
+            : { rig1: false, rig2: false };
+          if (typeof sd.scenarios[sc.num].rig1Completed !== 'boolean') {
+            sd.scenarios[sc.num].rig1Completed = !!fromIter.rig1;
+          }
+          if (typeof sd.scenarios[sc.num].rig2Completed !== 'boolean') {
+            sd.scenarios[sc.num].rig2Completed = !!fromIter.rig2;
+          }
         }
       }
       // Always refresh the required-iteration count from the definition
@@ -1246,7 +1327,17 @@ function renderWelcomeWorklogBannerHTML() {
         </div>
       </div>`;
     }
-    return `<div class="welcome-worklog-banner ready">
+    if (typeof prefetchAssignmentFenceGeocode === 'function') prefetchAssignmentFenceGeocode(asgn);
+    const fencePos = (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null);
+    const fenceCheck = (typeof liveLocationInsideAssignmentFence === 'function')
+      ? liveLocationInsideAssignmentFence(asgn, fencePos)
+      : { known: false, inside: false, reason: 'nolocation' };
+    const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
+    const welcomeTitle = inFence ? 'Traveling to the assigned location' : 'Waiting for the assigned location';
+    const welcomeSub = inFence
+      ? `When you arrive at ${escapeHTML(((typeof assignmentParticipantContact === 'function' && assignmentParticipantContact(asgn).address) || (asgn.participantData && asgn.participantData.address) || 'the team address'))}, please confirm your arrival.`
+      : 'Confirm Arrival unlocks when you are inside the assigned address area.';
+    return `<div class="welcome-worklog-banner ${inFence ? 'ready' : 'waiting'}">
       <div class="welcome-worklog-banner-icon">
         <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
           <path d="M8 14c3-3.5 5-6 5-8a5 5 0 0 0-10 0c0 2 2 4.5 5 8z" stroke="currentColor" stroke-width="1.6"/>
@@ -1254,10 +1345,10 @@ function renderWelcomeWorklogBannerHTML() {
         </svg>
       </div>
       <div class="welcome-worklog-banner-text">
-        <div class="welcome-worklog-banner-title">Traveling to the assigned location</div>
-        <div class="welcome-worklog-banner-sub">When you arrive at ${escapeHTML(((typeof assignmentParticipantContact === 'function' && assignmentParticipantContact(asgn).address) || (asgn.participantData && asgn.participantData.address) || 'the team address'))}, please confirm your arrival.</div>
+        <div class="welcome-worklog-banner-title">${welcomeTitle}</div>
+        <div class="welcome-worklog-banner-sub">${welcomeSub}</div>
       </div>
-      <button class="btn btn-primary welcome-worklog-action" id="welcomeArrivalBtn">
+      <button class="btn ${inFence ? 'btn-primary' : 'btn-secondary'} welcome-worklog-action" id="welcomeArrivalBtn" ${inFence ? '' : 'disabled'} title="${escapeHTML((typeof arrivalUnlockTitle === 'function') ? arrivalUnlockTitle('worklog', fenceCheck) : '')}">
         Confirm Arrival
       </button>
     </div>`;
@@ -1393,6 +1484,19 @@ function entryBarHTML() {
   // run · explicit opt-in avoids spamming mods who haven't actually
   // started yet (e.g. opened the app over breakfast).
   const arrivedStr = state.arrivedAt ? renderArrivedPillHTML(state.arrivedAt) : '';
+  const arrivedAsgn = (typeof bookedSessionForArrivalUnlock === 'function')
+    ? bookedSessionForArrivalUnlock()
+    : null;
+  if (typeof prefetchAssignmentFenceGeocode === 'function' && arrivedAsgn) {
+    prefetchAssignmentFenceGeocode(arrivedAsgn);
+  }
+  const arrivedFence = (typeof liveLocationInsideAssignmentFence === 'function')
+    ? liveLocationInsideAssignmentFence(arrivedAsgn, (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null))
+    : { known: false, inside: false, reason: 'nolocation' };
+  const arrivedUnlocked = !!(arrivedFence && arrivedFence.known && arrivedFence.inside);
+  const arrivedTitle = (typeof arrivalUnlockTitle === 'function')
+    ? arrivalUnlockTitle('arrived', arrivedFence)
+    : "Mark that you've arrived at the participant's home";
 
   // TeamLog Lakitu + Ring links for the displayed team (session team, or
   // the operator's first membership). Shown whenever TeamLog has those
@@ -1483,7 +1587,7 @@ function entryBarHTML() {
         <label>On-site</label>
         ${state.arrivedAt
           ? arrivedStr
-          : `<button type="button" id="ent_arrived_btn" class="entry-arrived-btn" title="Mark that you've arrived at the participant's home · starts the hourly progress check-in reminders">
+          : `<button type="button" id="ent_arrived_btn" class="entry-arrived-btn${arrivedUnlocked ? '' : ' entry-arrived-btn-disabled'}" ${arrivedUnlocked ? '' : 'disabled'} title="${escapeHTML(arrivedTitle)}">
                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                  <path d="M8 2a4 4 0 014 4c0 3-4 8-4 8s-4-5-4-8a4 4 0 014-4z" stroke="currentColor" stroke-width="1.5"/>
                  <circle cx="8" cy="6" r="1.4" fill="currentColor"/>
@@ -2122,8 +2226,10 @@ function scenarioStatusButtonsHTML(station, sd, scenarioNum, scenarioId) {
         <button type="button" class="cal-ref-btn" onclick="openCalRefVideo(3)">Video 3</button>
       </span>
     </div>` : '';
+  const calRigHTML = isCal ? calRigChecksHTML(station.key, scenarioNum, sd) : '';
 
   return `
+    ${calRigHTML}
     ${calRefHTML}
     <div class="scenario-status-group ${STATUS_CLASS[current] || ''}" data-key="${station.key}" data-num="${scenarioNum}">
       ${choices.map(opt => {
@@ -2448,6 +2554,41 @@ function iterStepperHTML(stationKey, scenarioNum, iters, stateClass, target) {
   `;
 }
 
+function calRigChecksHTML(stationKey, scenarioNum, sd) {
+  const flags = normalizeCalRigFlags(sd);
+  const both = !!(flags.rig1 && flags.rig2);
+  const one = !!(!both && (flags.rig1 || flags.rig2));
+  const stateClass = both ? 'is-done' : one ? 'is-progress' : '';
+  const box = (on) => on
+    ? `<span class="cal-rig-box" aria-hidden="true"><svg width="14" height="12" viewBox="0 0 13 10" fill="none"><path d="M1.5 5L5 8.5L11.5 1.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`
+    : `<span class="cal-rig-box" aria-hidden="true"></span>`;
+  return `
+    <div class="cal-rig-card ${stateClass}" data-key="${escapeHTML(String(stationKey))}" data-num="${escapeHTML(String(scenarioNum))}" role="group" aria-label="Rig completion">
+      <div class="cal-rig-card-kicker">${both ? 'Ready for review' : 'Mark each rig'}</div>
+      <div class="cal-rig-card-title">Calibration rigs</div>
+      <p class="cal-rig-card-sub">Check both rigs when this calibration is done. Approval review unlocks after both are checked.</p>
+      <label class="cal-rig-check ${flags.rig1 ? 'is-on' : ''}">
+        <input type="checkbox" class="cal-rig-input" data-key="${escapeHTML(String(stationKey))}" data-num="${escapeHTML(String(scenarioNum))}" data-rig="1" ${flags.rig1 ? 'checked' : ''}>
+        ${box(flags.rig1)}
+        <span class="cal-rig-label">Rig 1 Completed</span>
+      </label>
+      <label class="cal-rig-check ${flags.rig2 ? 'is-on' : ''}">
+        <input type="checkbox" class="cal-rig-input" data-key="${escapeHTML(String(stationKey))}" data-num="${escapeHTML(String(scenarioNum))}" data-rig="2" ${flags.rig2 ? 'checked' : ''}>
+        ${box(flags.rig2)}
+        <span class="cal-rig-label">Rig 2 Completed</span>
+      </label>
+    </div>
+  `;
+}
+
+function scenarioIterControlHTML(station, sc, sd) {
+  if (isCalRigScenario(sc)) return '';
+  if (scenarioUsesRecordFlow(station, sc)) return '';
+  const iters = (sd && sd.iterations) || 0;
+  const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
+  return iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter);
+}
+
 const SCENARIO_FLOW_AXIS_KEY = 'centific_orbit_scenario_flow_axis';
 const SCENARIO_FLOW_PEEK = 32;
 const SCENARIO_FLOW_FACE_SHARE = 0.70;
@@ -2559,25 +2700,25 @@ function updateScenarioFlowCount() {
 
 function scenarioFlowTileHTML(station, data, sc) {
   const sd = data.scenarios[sc.num] || {};
-  const iters = sd.iterations || 0;
-  const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
-  const rf = scenarioUsesRecordFlow(station, sc);
   const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
   const done = isScenarioComplete(sd);
   const skipped = isScenarioSkipped(sd);
   const stateClass = done ? 'is-done' : skipped ? 'is-skipped' : isScenarioInProgress(sd) ? 'is-progress' : '';
+  const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
   return `
-    <article class="sc-flow-tile ${stateClass}" data-num="${escapeHTML(String(sc.num))}" data-key="${escapeHTML(station.key)}">
+    <article class="sc-flow-tile ${stateClass}${pencil ? ' has-scen-pencil' : ''}" data-num="${escapeHTML(String(sc.num))}" data-key="${escapeHTML(station.key)}">
+      ${pencil}
       <div class="sc-flow-face">
         <div class="sc-flow-tile-top">
           <div class="sc-flow-num" aria-hidden="true">${escapeHTML(String(sc.num))}</div>
           <div class="sc-flow-copy">
             <div class="sc-flow-name">${escapeHTML(sc.name)}${vehIcon}</div>
             <div class="sc-flow-id">${escapeHTML(sc.id)}</div>
+            ${sc.description ? `<div class="sc-flow-desc">${escapeHTML(sc.description)}</div>` : ''}
           </div>
         </div>
         <div class="sc-flow-actions">
-          ${rf ? '' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}
+          ${scenarioIterControlHTML(station, sc, sd)}
           ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
           ${station.type === 'capture' ? `
             <input class="scenario-notes" data-num="${sc.num}" data-key="${station.key}"
@@ -2972,7 +3113,7 @@ function bindScenarioFlow() {
     if (nextBtn) nextBtn.addEventListener('click', e => { e.stopPropagation(); stepScenarioFlow(1); });
     vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
       tile.addEventListener('click', e => {
-        if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow')) return;
+        if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow, .cal-rig-card, .sc-scen-pencil, label')) return;
         const num = tile.getAttribute('data-num');
         if (!num) return;
         _scenarioFlowFocusNum = num;
@@ -3430,12 +3571,13 @@ function renderStation(key, opts) {
             const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
             const rf = scenarioUsesRecordFlow(station, sc);
             const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
+            const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
             return `
-              <tr class="${rowClass}" data-num="${sc.num}">
+              <tr class="${rowClass}${pencil ? ' has-scen-pencil' : ''}" data-num="${sc.num}" data-key="${escapeHTML(station.key)}">
                 <td class="col-num">${sc.num}</td>
                 <td class="col-id">${escapeHTML(sc.id)}</td>
-                <td class="col-name">${escapeHTML(sc.name)}${vehIcon}</td>
-                <td class="col-iter">${rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}</td>
+                <td class="col-name">${pencil}${escapeHTML(sc.name)}${vehIcon}${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}</td>
+                <td class="col-iter">${isCalRigScenario(sc) ? '<span class="iter-auto" title="Mark Rig 1 and Rig 2 in the Status column">Rigs</span>' : (rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter))}</td>
                 <td class="col-status">${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
                 ${station.type === 'capture' ? `
                   <td class="col-notes">
@@ -3457,17 +3599,20 @@ function renderStation(key, opts) {
           const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
           const rf = scenarioUsesRecordFlow(station, sc);
           const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
+          const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
           return `
-            <div class="scenario-card">
+            <div class="scenario-card${pencil ? ' has-scen-pencil' : ''}" data-num="${sc.num}" data-key="${escapeHTML(station.key)}">
+              ${pencil}
               <div class="scenario-card-head">
                 <div class="scenario-card-num">${sc.num}</div>
                 <div>
                   <div class="scenario-card-title">${escapeHTML(sc.name)}${vehIcon}</div>
                   <div class="scenario-card-id">${escapeHTML(sc.id)}</div>
+                  ${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}
                 </div>
               </div>
               <div class="scenario-card-controls">
-                ${rf ? '' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter)}
+                ${scenarioIterControlHTML(station, sc, sd)}
 ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
                 ${station.type === 'capture' ? `
                   <input class="scenario-notes" data-num="${sc.num}" data-key="${station.key}"
@@ -3602,6 +3747,10 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
           const target = (scDef && scDef.iter) || sc.iter || 1;
           sc.iter = target;
           if ((sc.iterations || 0) < target) sc.iterations = target;
+          if (typeof isCalRigScenario === 'function' && isCalRigScenario(scDef)) {
+            sc.rig1Completed = true;
+            sc.rig2Completed = true;
+          }
         }
       }
       saveState();
@@ -3772,6 +3921,34 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
     });
   });
 
+  // Bind CAL_EXT / CAL_GND rig checkboxes (Stations 1 & 3).
+  c.querySelectorAll('.cal-rig-input').forEach(inp => {
+    inp.addEventListener('click', e => e.stopPropagation());
+    inp.addEventListener('change', e => {
+      e.stopPropagation();
+      if (typeof isSessionLocked === 'function' && isSessionLocked()) {
+        inp.checked = !inp.checked;
+        return;
+      }
+      const num = inp.dataset.num;
+      const k = inp.dataset.key;
+      const sc = state.stations[k] && state.stations[k].scenarios[num];
+      if (!sc) return;
+      const stDef = STATIONS.find(s => s.key === k);
+      const scDef = stDef && stDef.scenarios
+        ? stDef.scenarios.find(s => String(s.num) === String(num)) : null;
+      const flags = normalizeCalRigFlags(sc);
+      const next1 = inp.dataset.rig === '1' ? inp.checked : flags.rig1;
+      const next2 = inp.dataset.rig === '2' ? inp.checked : flags.rig2;
+      const wasDone = isScenarioDoneForStation(sc);
+      applyCalRigChecks(sc, scDef, next1, next2);
+      saveState();
+      if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+      if (!wasDone && isScenarioDoneForStation(sc)) markScenarioFlowAdvance(k, num);
+      renderApp();
+    });
+  });
+
   // Bind iteration steppers
   c.querySelectorAll('.iter-btn').forEach(btn => {
     btn.addEventListener('click', e => {
@@ -3829,6 +4006,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
   // gate is active. Runs every render so it survives renderApp() rebuilds.
   if (typeof decorateApprovalGate === 'function') decorateApprovalGate(c, station);
   bindScenarioFlow();
+  if (typeof bindScenarioStationTilePencils === 'function') bindScenarioStationTilePencils(c);
 }
 
 /* =====================================================================
@@ -5415,14 +5593,15 @@ function _calStatus(k, num) {
 }
 function isCalibrationEngaged(k) {
   // "Engaged" = the mod has started calibration in ANY way on CAL_EXT/CAL_GND ·
-  // either set a status OR logged at least one take (iteration). This drives
+  // status, a rig checkbox, or a leftover iteration count. This drives
   // whether Station 0A surfaces its submit-for-review gate. It used to check
   // status ONLY, so bumping the iteration counter (the natural "record a take"
   // action) left the gate hidden until the mod also clicked "Calibrated".
   return GATE_CAL_NUMS.some(n => {
     const sd = state.stations[k] && state.stations[k].scenarios[n];
     if (!sd) return false;
-    return (sd.status && sd.status !== 'Not Started') || (sd.iterations || 0) > 0;
+    const rigs = (typeof normalizeCalRigFlags === 'function') ? normalizeCalRigFlags(sd) : { rig1: false, rig2: false };
+    return (sd.status && sd.status !== 'Not Started') || (sd.iterations || 0) > 0 || rigs.rig1 || rigs.rig2;
   });
 }
 function calibrationComplete(k) {
@@ -8191,6 +8370,7 @@ function renderAdmin() {
       <div class="admin-tabs" role="tablist">
         <button class="admin-tab ${adminState.tab === 'overview' ? 'active' : ''}" data-tab="overview" role="tab">Overview</button>
         <button class="admin-tab ${adminState.tab === 'moderators' ? 'active' : ''}" data-tab="moderators" role="tab">Moderator Hub</button>
+        <button class="admin-tab ${adminState.tab === 'checklist' ? 'active' : ''}" data-tab="checklist" role="tab">Checklist</button>
         <button class="admin-tab ${adminState.tab === 'performance' ? 'active' : ''}" data-tab="performance" role="tab">Performance</button>
         <button class="admin-tab ${adminState.tab === 'approval' ? 'active' : ''}" data-tab="approval" role="tab">
           Approval
@@ -12948,6 +13128,11 @@ function renderAdminTabBody(opts) {
     return;
   }
   if (typeof stopOverviewHeliosClock === 'function') stopOverviewHeliosClock();
+  if (adminState.tab === 'checklist') {
+    if (typeof renderAdminChecklist === 'function') renderAdminChecklist(body);
+    if (opts.animate === 'subtab') playAdminSubtabEnter();
+    return;
+  }
   if (adminState.tab === 'performance') {
     renderPerformance(body);
     if (opts.animate === 'subtab') playAdminSubtabEnter();
@@ -14294,6 +14479,7 @@ function ingestAppSettingsFromSessionRows(rows) {
   ingestMasterAdminsFromSessionRows(rows);
   if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
   if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
+  if (typeof ingestScenarioCatalogFromSessionRows === 'function') ingestScenarioCatalogFromSessionRows(rows);
   if (typeof ingestSessionLinkOverridesFromSessionRows === 'function') {
     ingestSessionLinkOverridesFromSessionRows(rows);
   }
@@ -15015,6 +15201,143 @@ function assignmentFenceAddress(asgn) {
     : fallback;
 }
 
+/* FENCE_UNLOCK_BEGIN */
+function lastGeoIsFreshEnough(g, maxAgeMs) {
+  const at = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(g) : 0;
+  if (!at) return false;
+  const cap = Number(maxAgeMs) > 0 ? Number(maxAgeMs) : ((typeof GEO_PING_STALE_MS === 'number') ? GEO_PING_STALE_MS : 15 * 60 * 1000);
+  return (Date.now() - at) <= cap;
+}
+
+function cachedFenceDestForAddress(address) {
+  const q = String(address || '').trim();
+  if (!q) return null;
+  let cache = {};
+  try {
+    cache = (typeof loadGeocodeCache === 'function') ? loadGeocodeCache() : {};
+  } catch (_) { cache = {}; }
+  const hit = cache && cache[q.toLowerCase()];
+  if (hit && Number.isFinite(Number(hit.lat)) && Number.isFinite(Number(hit.lng))) return hit;
+  return null;
+}
+
+function liveLocationInsideAssignmentFence(asgn, pos, opts) {
+  opts = opts || {};
+  const address = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(asgn) : '';
+  if (!asgn) return { known: false, inside: false, reason: 'noassignment' };
+  if (!address) return { known: true, inside: true, reason: 'no-address' };
+  const dest = cachedFenceDestForAddress(address);
+  if (!dest) return { known: false, inside: false, reason: 'nogeocode', address };
+  if (!pos || !Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lng))) {
+    return { known: false, inside: false, reason: 'nolocation', address };
+  }
+  if (!opts.allowStale && !lastGeoIsFreshEnough(pos, opts.maxAgeMs)) {
+    return { known: false, inside: false, reason: 'stale', address };
+  }
+  const meters = (typeof haversineMeters === 'function')
+    ? haversineMeters(Number(pos.lat), Number(pos.lng), dest.lat, dest.lng)
+    : null;
+  const radius = (typeof GEOFENCE_HOME_RADIUS_M === 'number') ? GEOFENCE_HOME_RADIUS_M : 200;
+  const inside = meters != null && meters <= radius;
+  return { known: true, inside, meters, address, reason: inside ? 'inside' : 'outside' };
+}
+
+function isWorklogUnlockedByGeofence(asgn, pos) {
+  const check = liveLocationInsideAssignmentFence(asgn, pos);
+  return !!(check && check.known && check.inside);
+}
+
+function bookedSessionForArrivalUnlock() {
+  try {
+    if (typeof getAssignedOpenSession === 'function') {
+      const open = getAssignedOpenSession();
+      if (open) return open;
+    }
+  } catch (_) {}
+  try {
+    if (typeof getActiveOperatorAssignment === 'function') {
+      const active = getActiveOperatorAssignment();
+      if (active && active.status !== 'Cancelled' && active.status !== 'Unassigned') return active;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function isArrivedControlUnlocked(asgn, pos) {
+  const session = asgn || bookedSessionForArrivalUnlock();
+  if (!session) return false;
+  return isWorklogUnlockedByGeofence(session, pos);
+}
+
+(function exportFenceUnlockHelpers(g) {
+  if (!g) return;
+  g.lastGeoIsFreshEnough = lastGeoIsFreshEnough;
+  g.cachedFenceDestForAddress = cachedFenceDestForAddress;
+  g.liveLocationInsideAssignmentFence = liveLocationInsideAssignmentFence;
+  g.isWorklogUnlockedByGeofence = isWorklogUnlockedByGeofence;
+  g.bookedSessionForArrivalUnlock = bookedSessionForArrivalUnlock;
+  g.isArrivedControlUnlocked = isArrivedControlUnlocked;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+/* FENCE_UNLOCK_END */
+
+function prefetchAssignmentFenceGeocode(asgn) {
+  const address = assignmentFenceAddress(asgn);
+  if (!address) return;
+  if (cachedFenceDestForAddress(address)) return;
+  if (typeof geocodeAddress !== 'function') return;
+  geocodeAddress(address).then(() => {
+    if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
+  }).catch(() => {});
+}
+
+let _arrivalUnlockUiTimer = null;
+function scheduleArrivalUnlockUiRefresh() {
+  if (_arrivalUnlockUiTimer) return;
+  _arrivalUnlockUiTimer = setTimeout(() => {
+    _arrivalUnlockUiTimer = null;
+    try {
+      if (typeof refreshArrivalUnlockControls === 'function') refreshArrivalUnlockControls();
+    } catch (_) {}
+  }, 350);
+}
+
+function currentModeratorFencePos() {
+  return (typeof state !== 'undefined' && state && state.lastGeo) ? state.lastGeo : null;
+}
+
+function arrivalUnlockTitle(kind, check) {
+  if (!check || check.reason === 'noassignment') return 'Unlocks when a booked session is available and you are at the assigned address.';
+  if (check.reason === 'nolocation' || check.reason === 'stale') return 'Unlocks when your live location is available at the assigned address.';
+  if (check.reason === 'nogeocode') return 'Unlocks when the assigned address can be placed on the map.';
+  if (check.reason === 'outside') return 'Unlocks when you are inside the assigned address area.';
+  return kind === 'arrived' ? "Mark that you've arrived at the participant's home" : 'Confirm arrival at the assigned location';
+}
+
+function refreshArrivalUnlockControls() {
+  const asgn = bookedSessionForArrivalUnlock();
+  const pos = currentModeratorFencePos();
+  const check = liveLocationInsideAssignmentFence(asgn, pos);
+  const unlocked = !!(check && check.known && check.inside);
+  document.querySelectorAll('.worklog-btn-arrival').forEach(btn => {
+    if (!btn || btn.classList.contains('worklog-btn-start')) return;
+    btn.disabled = !unlocked;
+    btn.classList.toggle('worklog-btn-disabled', !unlocked);
+    btn.classList.toggle('worklog-btn-primary', unlocked);
+    btn.title = arrivalUnlockTitle('worklog', check);
+  });
+  const welcome = document.getElementById('welcomeArrivalBtn');
+  if (welcome) {
+    welcome.disabled = !unlocked;
+    welcome.title = arrivalUnlockTitle('worklog', check);
+  }
+  const arrived = document.getElementById('ent_arrived_btn');
+  if (arrived) {
+    arrived.disabled = !unlocked;
+    arrived.classList.toggle('entry-arrived-btn-disabled', !unlocked);
+    arrived.title = arrivalUnlockTitle('arrived', check);
+  }
+}
+
 function loadGeocodeCache() {
   try {
     const raw = localStorage.getItem(GEOCODE_CACHE_KEY);
@@ -15159,6 +15482,7 @@ function recordGeoPing(ping, opts) {
     syncReason: next.syncReason || '',
   };
   try { saveState(); } catch (_) {}
+  if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
   const due = !_lastGeoSyncAt || (Date.now() - _lastGeoSyncAt) >= GEO_SESSIONSTATE_SYNC_MS;
   if (!opts.skipSync && due && typeof triggerSessionStateSync === 'function') {
     _lastGeoSyncAt = Date.now();
@@ -32602,6 +32926,8 @@ function bindAdminMenu() {
         if (typeof loadModerators === 'function')         loadModerators(true);
         if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
         if (typeof fetchWorklogFromPA === 'function')     fetchWorklogFromPA();
+      } else if (tab === 'checklist') {
+        if (typeof fetchSessionStateRows === 'function') fetchSessionStateRows();
       } else if (tab === 'approval') {
         // Approval was missing from this dispatcher · Refresh spun the
         // icon but never re-fetched the queue, so the list looked frozen.
@@ -33138,6 +33464,7 @@ function scenarioProgressRank(sc) {
   if (sc.status === 'All Recorded' || sc.status === 'Calibrated') return 28;
   if (sc.status === 'Partially Recorded') return 18;
   if ((sc.iterations || 0) > 0) return 10;
+  if ((typeof normalizeCalRigFlags === 'function') && (normalizeCalRigFlags(sc).rig1 || normalizeCalRigFlags(sc).rig2)) return 10;
   if ((sc.notes || '').trim()) return 5;
   return 0;
 }
@@ -33152,6 +33479,8 @@ function pickBetterScenario(local, cloud) {
   const out = Object.assign({}, l);
   if ((c.iterations || 0) > (l.iterations || 0)) out.iterations = c.iterations;
   if ((String(c.notes || '').trim().length) > (String(l.notes || '').trim().length)) out.notes = c.notes;
+  if (c.rig1Completed && !out.rig1Completed) out.rig1Completed = true;
+  if (c.rig2Completed && !out.rig2Completed) out.rig2Completed = true;
   return out;
 }
 
@@ -35967,6 +36296,651 @@ function ingestCalGuideFromSessionRows(rows) {
   const incoming = collectCalGuideFromSessionRows(rows);
   _publishedCalGuide = preferNewerCalGuide(_publishedCalGuide, incoming);
   return _publishedCalGuide;
+}
+
+/* SCENARIO_CATALOG_BEGIN */
+/* =====================================================================
+   ADMIN CHECKLIST · Stations & scenarios catalog
+   Admin → Checklist tiles keep their editor. Master Admin who switches
+   into the station / checklist shell also gets a top-right pencil on
+   each live scenario tile (Master-Admin-only). Same
+   ss_app_setting_scenario_catalog row, changelog + undo. Live STATIONS
+   lists are overlaid from the catalog.
+   ===================================================================== */
+const SCENARIO_CATALOG_SETTING_ID = 'ss_app_setting_scenario_catalog';
+const SCENARIO_CATALOG_ASSIGNMENT_ID = 'app_setting_scenario_catalog';
+const SCENARIO_CATALOG_LS_KEY = 'centific_orbit_scenario_catalog_v1';
+const SCENARIO_CATALOG_CHANGELOG_MAX = 80;
+
+function scenarioCatalogKey(stationKey, num) {
+  return String(stationKey || '') + '|' + String(num || '');
+}
+
+function scenarioCatalogEditAllowed(input) {
+  input = input || {};
+  if (input.isReviewer) return false;
+  if (input.isMasterAdmin) return true;
+  if (input.isAdmin && input.adminAppActive) return true;
+  return false;
+}
+
+/* Station / checklist cover-flow tiles: Master Admin only. Regular Admin
+   keeps the Admin → Checklist tab editor, not live station pencils. */
+function scenarioStationTileEditAllowed(input) {
+  input = input || {};
+  if (input.isReviewer) return false;
+  return !!input.isMasterAdmin;
+}
+
+function cloneScenarioCatalogFields(sc) {
+  return {
+    num: sc && sc.num != null ? String(sc.num) : '',
+    id: String((sc && sc.id) || ''),
+    name: String((sc && sc.name) || ''),
+    iter: Number(sc && sc.iter) > 0 ? Number(sc.iter) : 1,
+    recordFlow: !!(sc && sc.recordFlow),
+    description: String((sc && sc.description) || ''),
+  };
+}
+
+function builtinScenarioFields(stationKey, num) {
+  const st = (typeof SCENARIO_CATALOG_BUILTIN !== 'undefined' ? SCENARIO_CATALOG_BUILTIN : [])
+    .find(s => s.key === stationKey);
+  const sc = st && (st.scenarios || []).find(x => String(x.num) === String(num));
+  return sc ? cloneScenarioCatalogFields(sc) : null;
+}
+
+function liveScenarioDef(stationKey, num) {
+  const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+    ? STATIONS.find(s => s.key === stationKey) : null;
+  return st && (st.scenarios || []).find(x => String(x.num) === String(num));
+}
+
+function emptyScenarioCatalog() {
+  return { overrides: {}, changelog: [], publishedAt: '', publishedBy: '' };
+}
+
+function normalizeScenarioCatalog(src) {
+  if (!src || typeof src !== 'object') return emptyScenarioCatalog();
+  const parsed = (src.type === 'appSetting' && src.catalog) ? src.catalog : src;
+  const overrides = {};
+  const raw = parsed.overrides && typeof parsed.overrides === 'object' ? parsed.overrides : {};
+  Object.keys(raw).forEach(key => {
+    const fields = cloneScenarioCatalogFields(raw[key]);
+    if (fields.num || fields.id || fields.name) overrides[key] = fields;
+  });
+  const changelog = Array.isArray(parsed.changelog) ? parsed.changelog.filter(e => e && e.id).slice(-SCENARIO_CATALOG_CHANGELOG_MAX) : [];
+  return {
+    overrides,
+    changelog,
+    publishedAt: String(parsed.publishedAt || ''),
+    publishedBy: String(parsed.publishedBy || ''),
+  };
+}
+
+function preferNewerScenarioCatalog(existing, incoming) {
+  const a = normalizeScenarioCatalog(existing);
+  const b = incoming ? normalizeScenarioCatalog(incoming) : null;
+  if (!b) return a;
+  if (!a || !a.publishedAt) return b;
+  if (!b.publishedAt) return a;
+  return String(b.publishedAt) >= String(a.publishedAt) ? b : a;
+}
+
+function applyScenarioFieldsToDef(def, fields) {
+  if (!def || !fields) return def;
+  if (fields.id != null) def.id = String(fields.id);
+  if (fields.name != null) def.name = String(fields.name);
+  if (fields.description != null) def.description = String(fields.description);
+  if (Number(fields.iter) > 0) def.iter = Number(fields.iter);
+  return def;
+}
+
+function applyScenarioCatalogToStations(catalog) {
+  const cat = normalizeScenarioCatalog(catalog);
+  const builtin = (typeof SCENARIO_CATALOG_BUILTIN !== 'undefined') ? SCENARIO_CATALOG_BUILTIN : [];
+  builtin.forEach(stSnap => {
+    const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+      ? STATIONS.find(s => s.key === stSnap.key) : null;
+    if (!st || !Array.isArray(st.scenarios)) return;
+    st.scenarios.forEach(def => {
+      const base = builtinScenarioFields(st.key, def.num) || cloneScenarioCatalogFields(def);
+      applyScenarioFieldsToDef(def, base);
+      const over = cat.overrides[scenarioCatalogKey(st.key, def.num)];
+      if (over) applyScenarioFieldsToDef(def, over);
+    });
+  });
+  return cat;
+}
+
+function scenarioCatalogPatchSummary(before, after, stationKey) {
+  const labels = [];
+  ['name', 'id', 'description', 'iter'].forEach(k => {
+    const a = before ? String(before[k] == null ? '' : before[k]) : '';
+    const b = after ? String(after[k] == null ? '' : after[k]) : '';
+    if (a !== b) labels.push(k === 'name' ? 'title' : k);
+  });
+  const who = (after && after.id) || (before && before.id) || '';
+  return (stationKey || 'Station') + (who ? ' · ' + who : '') + (labels.length ? ': ' + labels.join(', ') : ': update');
+}
+
+function scenarioFieldsEqual(a, b) {
+  const x = cloneScenarioCatalogFields(a || {});
+  const y = cloneScenarioCatalogFields(b || {});
+  return x.id === y.id && x.name === y.name && x.description === y.description && Number(x.iter) === Number(y.iter);
+}
+
+function pushScenarioCatalogChange(catalog, entry) {
+  const next = normalizeScenarioCatalog(catalog);
+  next.changelog = (next.changelog || []).concat([entry]).slice(-SCENARIO_CATALOG_CHANGELOG_MAX);
+  return next;
+}
+
+function lastUndoableScenarioChange(catalog) {
+  const log = (catalog && catalog.changelog) || [];
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i] && !log[i].undone) return log[i];
+  }
+  return null;
+}
+
+function undoScenarioCatalogChange(catalog, changeId) {
+  const next = normalizeScenarioCatalog(catalog);
+  const entry = (next.changelog || []).find(e => e && String(e.id) === String(changeId));
+  if (!entry || entry.undone) return { catalog: next, undone: null };
+  const key = scenarioCatalogKey(entry.stationKey, entry.num);
+  const builtin = builtinScenarioFields(entry.stationKey, entry.num);
+  const before = entry.before || builtin;
+  if (before && builtin && scenarioFieldsEqual(before, builtin)) {
+    delete next.overrides[key];
+  } else if (before) {
+    next.overrides[key] = cloneScenarioCatalogFields(before);
+  }
+  entry.undone = true;
+  entry.undoneAt = new Date().toISOString();
+  return { catalog: next, undone: entry };
+}
+
+function applyScenarioCatalogEdit(catalog, stationKey, num, draft, adminName) {
+  const next = normalizeScenarioCatalog(catalog);
+  const key = scenarioCatalogKey(stationKey, num);
+  const live = liveScenarioDef(stationKey, num);
+  const builtin = builtinScenarioFields(stationKey, num);
+  const before = next.overrides[key]
+    ? cloneScenarioCatalogFields(next.overrides[key])
+    : cloneScenarioCatalogFields(live || builtin || {});
+  const after = cloneScenarioCatalogFields(Object.assign({}, before, draft, { num: num }));
+  if (scenarioFieldsEqual(before, after)) return { catalog: next, changed: false };
+  if (builtin && scenarioFieldsEqual(after, builtin)) delete next.overrides[key];
+  else next.overrides[key] = after;
+  const entry = {
+    id: 'chg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    at: new Date().toISOString(),
+    by: adminName || 'Admin',
+    stationKey,
+    num: String(num),
+    before,
+    after,
+    summary: scenarioCatalogPatchSummary(before, after, stationKey),
+    undone: false,
+  };
+  next.changelog = (next.changelog || []).concat([entry]).slice(-SCENARIO_CATALOG_CHANGELOG_MAX);
+  next.publishedAt = entry.at;
+  next.publishedBy = entry.by;
+  return { catalog: next, changed: true, entry };
+}
+
+function buildScenarioCatalogPayload(catalog) {
+  const cat = normalizeScenarioCatalog(catalog);
+  return {
+    sessionStateId: SCENARIO_CATALOG_SETTING_ID,
+    assignmentId: SCENARIO_CATALOG_ASSIGNMENT_ID,
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({ type: 'appSetting', key: 'scenarioCatalog', catalog: cat }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+    writeMode: 'upsert',
+  };
+}
+
+function collectScenarioCatalogFromSessionRows(rows) {
+  let best = null;
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const id = String(row.sessionStateId || row.assignmentId || '');
+    let parsed = row.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+    }
+    if (!parsed || parsed.type !== 'appSetting' || parsed.key !== 'scenarioCatalog') {
+      if (id !== SCENARIO_CATALOG_SETTING_ID && id !== SCENARIO_CATALOG_ASSIGNMENT_ID) continue;
+    }
+    const next = normalizeScenarioCatalog(parsed.catalog || parsed);
+    if (!best || String(next.publishedAt || '') > String(best.publishedAt || '')) best = next;
+  }
+  return best;
+}
+
+(function exportScenarioCatalogHelpers(g) {
+  if (!g) return;
+  g.SCENARIO_CATALOG_SETTING_ID = SCENARIO_CATALOG_SETTING_ID;
+  g.scenarioCatalogKey = scenarioCatalogKey;
+  g.cloneScenarioCatalogFields = cloneScenarioCatalogFields;
+  g.normalizeScenarioCatalog = normalizeScenarioCatalog;
+  g.applyScenarioCatalogEdit = applyScenarioCatalogEdit;
+  g.undoScenarioCatalogChange = undoScenarioCatalogChange;
+  g.lastUndoableScenarioChange = lastUndoableScenarioChange;
+  g.scenarioCatalogPatchSummary = scenarioCatalogPatchSummary;
+  g.buildScenarioCatalogPayload = buildScenarioCatalogPayload;
+  g.collectScenarioCatalogFromSessionRows = collectScenarioCatalogFromSessionRows;
+  g.preferNewerScenarioCatalog = preferNewerScenarioCatalog;
+  g.applyScenarioCatalogToStations = applyScenarioCatalogToStations;
+  g.scenarioCatalogEditAllowed = scenarioCatalogEditAllowed;
+  g.scenarioStationTileEditAllowed = scenarioStationTileEditAllowed;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+/* SCENARIO_CATALOG_END */
+
+let _scenarioCatalog = (function loadScenarioCatalogCache() {
+  try {
+    const raw = localStorage.getItem(SCENARIO_CATALOG_LS_KEY);
+    return raw ? normalizeScenarioCatalog(JSON.parse(raw)) : emptyScenarioCatalog();
+  } catch (_) { return emptyScenarioCatalog(); }
+})();
+applyScenarioCatalogToStations(_scenarioCatalog);
+
+function saveScenarioCatalogCache(catalog) {
+  _scenarioCatalog = normalizeScenarioCatalog(catalog);
+  try { localStorage.setItem(SCENARIO_CATALOG_LS_KEY, JSON.stringify(_scenarioCatalog)); } catch (_) {}
+  applyScenarioCatalogToStations(_scenarioCatalog);
+}
+
+function ingestScenarioCatalogFromSessionRows(rows) {
+  const incoming = collectScenarioCatalogFromSessionRows(rows);
+  if (!incoming) return _scenarioCatalog;
+  _scenarioCatalog = preferNewerScenarioCatalog(_scenarioCatalog, incoming);
+  saveScenarioCatalogCache(_scenarioCatalog);
+  return _scenarioCatalog;
+}
+
+function liveScenarioCatalogEditAllowed() {
+  const reviewer = typeof state !== 'undefined' && state && !!state.isReviewer;
+  const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  const admin = typeof state !== 'undefined' && state && !!state.isAdmin;
+  const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+  return scenarioCatalogEditAllowed({
+    isReviewer: reviewer,
+    isMasterAdmin: master,
+    isAdmin: admin,
+    adminAppActive: !!(adminApp && adminApp.classList.contains('active')),
+  });
+}
+
+function liveScenarioStationTileEditAllowed() {
+  const reviewer = typeof state !== 'undefined' && state && !!state.isReviewer;
+  const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  return scenarioStationTileEditAllowed({ isReviewer: reviewer, isMasterAdmin: master });
+}
+
+function scenarioStationTilePencilHTML(station, sc) {
+  if (!liveScenarioStationTileEditAllowed()) return '';
+  const name = (sc && (sc.name || sc.id)) || 'scenario';
+  return `<button type="button" class="sc-scen-pencil" data-station="${escapeHTML(station && station.key)}" data-num="${escapeHTML(String(sc && sc.num))}" aria-label="Edit ${escapeHTML(name)}" title="Edit scenario">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M11.4 2.6l2 2-8.1 8.1H3.3v-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M10.2 3.8l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </button>`;
+}
+
+function bindScenarioStationTilePencils(root) {
+  if (!root) return;
+  root.querySelectorAll('.sc-scen-pencil').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!liveScenarioStationTileEditAllowed()) return;
+      openScenarioCatalogEditor(btn.dataset.station, btn.dataset.num, { fromStation: true });
+    });
+  });
+}
+
+function refreshScenarioCatalogSurfaces() {
+  try {
+    const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+    if (adminApp && adminApp.classList.contains('active')
+        && typeof adminState !== 'undefined' && adminState && adminState.tab === 'checklist') {
+      const host = document.getElementById('adminTabBody');
+      if (host && typeof renderAdminChecklist === 'function') renderAdminChecklist(host);
+    }
+  } catch (_) {}
+  try {
+    const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+    const inStationView = !adminApp || !adminApp.classList.contains('active');
+    if (inStationView && typeof renderApp === 'function') renderApp();
+  } catch (_) {}
+}
+
+function scenarioCatalogAdminName() {
+  if (typeof state !== 'undefined' && state) {
+    if (state.username) return state.username;
+    if (state.modProfile && state.modProfile.name) return state.modProfile.name;
+  }
+  return 'Admin';
+}
+
+function scenarioCatalogWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function renderScenarioChangelogHTML(catalog) {
+  const log = ((catalog && catalog.changelog) || []).slice().reverse();
+  if (!log.length) return `<div class="tf-draft-hint">No edits yet. Changes show here so you can undo them.</div>`;
+  return `
+    <div class="scen-log" role="list">
+      ${log.map(e => `
+        <div class="scen-log-row ${e.undone ? 'is-undone' : ''}" role="listitem">
+          <div class="scen-log-main">
+            <div class="scen-log-sum">${escapeHTML(e.summary || 'Edit')}</div>
+            <div class="tf-draft-hint">${escapeHTML((e.by || 'Admin') + (e.at ? ' · ' + scenarioCatalogWhen(e.at) : ''))}${e.undone ? ' · undone' : ''}</div>
+          </div>
+          ${e.undone ? '' : `<button type="button" class="scen-log-undo" data-chg="${escapeHTML(String(e.id))}">Undo</button>`}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderAdminChecklist(body) {
+  if (!body) return;
+  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
+  const last = lastUndoableScenarioChange(catalog);
+  const stations = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)) ? STATIONS : [];
+  body.innerHTML = `
+    <div class="cl-root">
+      <div class="cl-hero">
+        <div class="tf-draft-hint">Checklist</div>
+        <h2 class="cl-title">Stations &amp; scenarios</h2>
+        <p class="cl-sub">Tap the pencil on a scenario to edit the title, instructions, and the other fields this tile shows. Every save is logged so you can undo.</p>
+        <div class="cl-hero-actions">
+          <button type="button" class="cal-guide-ack-btn tf-secondary" id="clUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
+        </div>
+      </div>
+      ${stations.map(st => `
+        <section class="cl-station" data-station="${escapeHTML(st.key)}">
+          <div class="cl-station-head">
+            <div class="cl-station-label">${escapeHTML(st.label)}</div>
+            <div class="tf-draft-hint">${escapeHTML((st.location || '') + (st.lights ? ' · Lights ' + String(st.lights).toUpperCase() : ''))}</div>
+          </div>
+          <div class="cl-scen-grid">
+            ${(st.scenarios || []).map(sc => {
+              const over = catalog.overrides[scenarioCatalogKey(st.key, sc.num)];
+              const desc = String((over && over.description) || sc.description || '');
+              return `
+                <article class="cl-scen-tile" data-station="${escapeHTML(st.key)}" data-num="${escapeHTML(String(sc.num))}">
+                  <button type="button" class="cl-scen-pencil" data-station="${escapeHTML(st.key)}" data-num="${escapeHTML(String(sc.num))}" aria-label="Edit ${escapeHTML(sc.name || sc.id)}" title="Edit scenario">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M11.4 2.6l2 2-8.1 8.1H3.3v-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                      <path d="M10.2 3.8l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <div class="cl-scen-num">${escapeHTML(String(sc.num))}</div>
+                  <div class="cl-scen-id">${escapeHTML(String(sc.id))}</div>
+                  <div class="cl-scen-name">${escapeHTML(sc.name || '')}</div>
+                  ${desc ? `<div class="cl-scen-desc">${escapeHTML(desc)}</div>` : ''}
+                  <div class="cl-scen-meta">${sc.recordFlow ? 'Record flow' : (Number(sc.iter) > 0 ? Number(sc.iter) + ' iter' : '')}</div>
+                </article>
+              `;
+            }).join('')}
+          </div>
+        </section>
+      `).join('')}
+      <section class="cl-log-card">
+        <div class="cl-station-label">Change log</div>
+        ${renderScenarioChangelogHTML(catalog)}
+      </section>
+    </div>
+  `;
+  body.querySelectorAll('.cl-scen-pencil').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      openScenarioCatalogEditor(btn.dataset.station, btn.dataset.num);
+    });
+  });
+  body.querySelectorAll('.scen-log-undo').forEach(btn => {
+    btn.addEventListener('click', () => persistScenarioCatalogUndo(btn.dataset.chg));
+  });
+  const undoLast = body.querySelector('#clUndoLastBtn');
+  if (undoLast) {
+    undoLast.addEventListener('click', () => {
+      const hit = lastUndoableScenarioChange(_scenarioCatalog);
+      if (hit) persistScenarioCatalogUndo(hit.id);
+    });
+  }
+  if (typeof fetchSessionStateRows === 'function') {
+    fetchSessionStateRows().then(rows => {
+      if (!Array.isArray(rows)) return;
+      ingestScenarioCatalogFromSessionRows(rows);
+      if (adminState && adminState.tab === 'checklist') renderAdminChecklist(body);
+    }).catch(() => {});
+  }
+}
+
+function scenarioCatalogEditorHTML(stationKey, num) {
+  const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+    ? STATIONS.find(s => s.key === stationKey) : null;
+  const sc = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
+  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
+  const last = lastUndoableScenarioChange(catalog);
+  return `
+    <div class="tf-composer scen-editor">
+      <div class="tf-draft-hint">${escapeHTML((st && st.label) || stationKey)} · #${escapeHTML(String(num))}</div>
+      <label class="tf-draft-hint" for="scenEditTitle">Title</label>
+      <input class="tf-title" id="scenEditTitle" maxlength="120" placeholder="Scenario title" value="${escapeHTML(sc.name || '')}">
+      <label class="tf-draft-hint" for="scenEditId">Scenario ID</label>
+      <input class="tf-title" id="scenEditId" maxlength="40" placeholder="CAL_EXT" value="${escapeHTML(sc.id || '')}">
+      <label class="tf-draft-hint" for="scenEditDesc">Description / instructions</label>
+      <textarea class="tf-note" id="scenEditDesc" rows="5" placeholder="What the moderator should do">${escapeHTML(sc.description || '')}</textarea>
+      <label class="tf-draft-hint" for="scenEditIter">Required iterations</label>
+      <input class="tf-title" id="scenEditIter" type="number" min="1" max="99" value="${escapeHTML(String(sc.iter || 1))}">
+      <div class="cl-hero-actions scen-edit-actions">
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenEditUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
+      </div>
+      <div class="tf-send-error" id="scenEditError"></div>
+      <div class="scen-edit-log">
+        <div class="cl-station-label">Change log</div>
+        ${renderScenarioChangelogHTML(catalog)}
+      </div>
+    </div>
+  `;
+}
+
+function bindScenarioCatalogEditorChrome() {
+  const body = document.getElementById('scenCatalogBody');
+  if (!body) return;
+  const refill = () => {
+    const modal = document.getElementById('scenCatalogModal');
+    if (!modal || !modal.classList.contains('open')) return;
+    body.innerHTML = scenarioCatalogEditorHTML(modal.dataset.station, modal.dataset.num);
+    bindScenarioCatalogEditorChrome();
+    const title = document.getElementById('scenEditTitle');
+    if (title) title.focus();
+  };
+  body.querySelectorAll('.scen-log-undo').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await persistScenarioCatalogUndo(btn.dataset.chg);
+      refill();
+    });
+  });
+  const undoLast = body.querySelector('#scenEditUndoLastBtn');
+  if (undoLast) {
+    undoLast.addEventListener('click', async () => {
+      const hit = lastUndoableScenarioChange(_scenarioCatalog);
+      if (hit) {
+        await persistScenarioCatalogUndo(hit.id);
+        refill();
+      }
+    });
+  }
+}
+
+function collectScenarioCatalogEditorDraft() {
+  const title = document.getElementById('scenEditTitle');
+  const idEl = document.getElementById('scenEditId');
+  const desc = document.getElementById('scenEditDesc');
+  const iter = document.getElementById('scenEditIter');
+  return {
+    name: title ? title.value.trim() : '',
+    id: idEl ? idEl.value.trim() : '',
+    description: desc ? desc.value.trim() : '',
+    iter: Math.max(1, Math.min(99, parseInt(iter && iter.value, 10) || 1)),
+  };
+}
+
+function buildScenarioCatalogEditorModal() {
+  if (document.getElementById('scenCatalogModal')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'scenCatalogOverlay';
+  overlay.className = 'cal-guide-overlay';
+  const modal = document.createElement('div');
+  modal.id = 'scenCatalogModal';
+  modal.className = 'cal-guide-modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'scenCatalogTitle');
+  modal.innerHTML = `
+    <div class="cal-guide-header">
+      <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+        <div class="cal-guide-header-icon">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M11.4 2.6l2 2-8.1 8.1H3.3v-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div style="min-width: 0;">
+          <div class="cal-guide-header-title" id="scenCatalogTitle">Edit scenario</div>
+          <div class="cal-guide-header-sub">Same editor as the calibration guide · save publishes to every moderator</div>
+        </div>
+      </div>
+      <button type="button" class="cal-guide-close" id="scenCatalogCloseBtn" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 3L11 11M11 3L3 11" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="cal-guide-body tf-guide-body" id="scenCatalogBody"></div>
+    <div class="cal-guide-footer">
+      <div class="cal-guide-admin-actions" id="scenCatalogActions">
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenCatalogCancelBtn">Cancel</button>
+        <button type="button" class="cal-guide-ack-btn" id="scenCatalogSaveBtn">Save and publish</button>
+      </div>
+      <div class="cal-guide-footer-text">This updates the live checklist tiles moderators see on their stations.</div>
+    </div>
+  `;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeScenarioCatalogEditor(); });
+  modal.querySelector('#scenCatalogCloseBtn').addEventListener('click', closeScenarioCatalogEditor);
+  modal.querySelector('#scenCatalogCancelBtn').addEventListener('click', closeScenarioCatalogEditor);
+  modal.querySelector('#scenCatalogSaveBtn').addEventListener('click', () => submitScenarioCatalogEditor());
+  document.body.appendChild(overlay);
+  document.body.appendChild(modal);
+}
+
+function openScenarioCatalogEditor(stationKey, num, opts) {
+  opts = opts || {};
+  if (opts.fromStation) {
+    if (!liveScenarioStationTileEditAllowed()) return;
+  } else if (!liveScenarioCatalogEditAllowed()) {
+    return;
+  }
+  buildScenarioCatalogEditorModal();
+  const overlay = document.getElementById('scenCatalogOverlay');
+  const modal = document.getElementById('scenCatalogModal');
+  const body = document.getElementById('scenCatalogBody');
+  if (!overlay || !modal || !body) return;
+  modal.dataset.station = stationKey;
+  modal.dataset.num = String(num);
+  body.innerHTML = scenarioCatalogEditorHTML(stationKey, num);
+  bindScenarioCatalogEditorChrome();
+  overlay.hidden = false;
+  modal.hidden = false;
+  requestAnimationFrame(() => {
+    overlay.classList.add('open');
+    modal.classList.add('open');
+    const title = document.getElementById('scenEditTitle');
+    if (title) title.focus();
+  });
+}
+
+function closeScenarioCatalogEditor() {
+  const overlay = document.getElementById('scenCatalogOverlay');
+  const modal = document.getElementById('scenCatalogModal');
+  if (overlay) {
+    overlay.classList.remove('open');
+    overlay.hidden = true;
+  }
+  if (modal) {
+    modal.classList.remove('open');
+    modal.hidden = true;
+  }
+}
+
+async function persistScenarioCatalogRecord(catalog) {
+  saveScenarioCatalogCache(catalog);
+  const payload = buildScenarioCatalogPayload(catalog);
+  if (typeof persistFeedbackSetting === 'function') {
+    return persistFeedbackSetting(payload);
+  }
+  const url = (typeof SESSIONSTATE_PA_WRITE_URL !== 'undefined') ? SESSIONSTATE_PA_WRITE_URL : '';
+  if (!url) return { ok: true, reason: 'local' };
+  try {
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e && e.message };
+  }
+}
+
+async function submitScenarioCatalogEditor() {
+  const modal = document.getElementById('scenCatalogModal');
+  if (!modal) return;
+  const stationKey = modal.dataset.station;
+  const num = modal.dataset.num;
+  const draft = collectScenarioCatalogEditorDraft();
+  const err = document.getElementById('scenEditError');
+  if (!draft.name) {
+    if (err) err.textContent = 'Title is required.';
+    return;
+  }
+  const result = applyScenarioCatalogEdit(_scenarioCatalog, stationKey, num, draft, scenarioCatalogAdminName());
+  if (!result.changed) {
+    closeScenarioCatalogEditor();
+    return;
+  }
+  const saveBtn = document.getElementById('scenCatalogSaveBtn');
+  if (saveBtn) saveBtn.disabled = true;
+  const persisted = await persistScenarioCatalogRecord(result.catalog);
+  if (saveBtn) saveBtn.disabled = false;
+  if (!persisted || persisted.ok === false) {
+    if (err) err.textContent = 'Saved on this device. Cloud publish failed — try again.';
+  }
+  closeScenarioCatalogEditor();
+  if (typeof toast === 'function') toast('Scenario updated');
+  refreshScenarioCatalogSurfaces();
+}
+
+async function persistScenarioCatalogUndo(changeId) {
+  const result = undoScenarioCatalogChange(_scenarioCatalog, changeId);
+  if (!result.undone) return;
+  result.catalog.publishedAt = new Date().toISOString();
+  result.catalog.publishedBy = scenarioCatalogAdminName();
+  await persistScenarioCatalogRecord(result.catalog);
+  if (typeof toast === 'function') toast('Edit undone');
+  refreshScenarioCatalogSurfaces();
 }
 
 // Builds the modal DOM once. Cached on window so subsequent opens are
@@ -39086,11 +40060,20 @@ function renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, is
         </button>
       </div>`;
     }
+    prefetchAssignmentFenceGeocode(asgn);
+    const fencePos = currentModeratorFencePos();
+    const fenceCheck = liveLocationInsideAssignmentFence(asgn, fencePos);
+    const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
+    const fenceCopy = inFence
+      ? 'You are at the assigned location. Confirm arrival.'
+      : (fenceCheck.reason === 'outside'
+        ? 'Confirm Arrival unlocks when you are inside the assigned address area.'
+        : 'Confirm Arrival unlocks when your live location is inside the assigned address area.');
     return `<div class="worklog-row">
       <div class="worklog-copy">
-        When you arrive at the assigned location, confirm arrival.
+        ${inFence ? 'When you arrive at the assigned location, confirm arrival.' : fenceCopy}
       </div>
-      <button class="worklog-btn worklog-btn-arrival worklog-btn-primary">
+      <button class="worklog-btn worklog-btn-arrival ${inFence ? 'worklog-btn-primary' : 'worklog-btn-disabled'}" ${inFence ? '' : 'disabled'} title="${escapeHTML(arrivalUnlockTitle('worklog', fenceCheck))}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
           <path d="M8 14c3-3.5 5-6 5-8a5 5 0 0 0-10 0c0 2 2 4.5 5 8z" stroke="currentColor" stroke-width="1.4"/>
           <circle cx="8" cy="6" r="1.5" stroke="currentColor" stroke-width="1.4"/>
