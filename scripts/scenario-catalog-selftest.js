@@ -293,8 +293,8 @@ assert('editor card still renders when both rigs are off', /cal-rig-card-editor/
   && /Rig 1/.test(emptyCard)
   && /Rig 2/.test(emptyCard));
 
-assert('APP_VERSION is 1.3.091626l', /const APP_VERSION = '1\.3\.091626l'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626l'));
+assert('APP_VERSION is 1.3.091626m', /const APP_VERSION = '1\.3\.091626m'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626m'));
 assert('changelog redo styles distinguish undone rows', /#scenCatalogModal \.scen-log-row\.is-undone\.is-redoable/.test(html)
   && /\.scen-log-redo/.test(html)
   && /text-decoration: line-through/.test(html));

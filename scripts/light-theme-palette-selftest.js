@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Soft Sage Parchment + muted gold (v1.3.091626l). */
+/* Self-test: Soft Sage Parchment + muted gold (v1.3.091626m). */
 'use strict';
 
 const fs = require('fs');
@@ -81,8 +81,18 @@ assert('moon orb uses PNG plus SVG fallback',
     && /ov-solar-orb\.is-moon[\s\S]{0,800}background-image:/.test(html));
 assert('moon fallback is not a coral disc',
   !/\.ov-solar-orb\.is-moon[\s\S]{0,400}#E07A2B/.test(html));
-assert('APP_VERSION is 1.3.091626l', /const APP_VERSION = '1\.3\.091626l'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626l'));
+assert('APP_VERSION is 1.3.091626m', /const APP_VERSION = '1\.3\.091626m'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626m'));
+assert('viz value uses Helios gold token',
+  /\n\.ov-viz-value \{[^}]*color: var\(--ov-viz-gold\)/.test(html));
+assert('viz label uses soft gold, not text3',
+  /\n\.ov-viz-label \{[^}]*color: var\(--ov-viz-gold-soft\)/.test(html));
+assert('dark viz gold is light Helios #F0D78A',
+  /--ov-viz-gold: #F0D78A/.test(html));
+assert('light day viz gold is muted #C5A059',
+  /\[data-theme="light"\] \.ov-viz-well \{[\s\S]*?--ov-viz-gold: #C5A059/.test(html));
+assert('sunset/night wells lift to light gold',
+  /\.ov-viz-well\.is-night \{[\s\S]*?--ov-viz-gold: #F0D78A/.test(html));
 
 console.log(failed ? `\n${failed} failed, ${passed} passed` : `\n${passed} passed`);
 process.exit(failed ? 1 : 0);
