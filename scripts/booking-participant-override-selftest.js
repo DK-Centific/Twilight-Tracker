@@ -35,6 +35,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'twilight.js'), 'utf8');
 assert('edit modal has participant name field', src.includes('id="asgnPartName"'));
 assert('edit modal has address field', src.includes('id="asgnPartAddress"'));
 assert('save accepts typed participant', /assignmentModalHasParticipant/.test(src));
+assert('manual entry runs duplicate checks', /assignmentModalParticipantForConflictCheck/.test(src));
 assert('team picker uses search not select', src.includes('id="asgnTeamSearch"') && !src.includes('id="asgnTeamSelect"'));
 assert('roster is collapsible', src.includes('asgn-roster-disclosure'));
 assert('overnight duration helper', /function assignmentDurationMin/.test(src));

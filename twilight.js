@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626w';
-const APP_UPDATED_AT = '09/16/2026 15:30';
+const APP_VERSION = '1.3.091626x';
+const APP_UPDATED_AT = '09/16/2026 15:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -24620,6 +24620,24 @@ function assignmentModalHasParticipant(m) {
   );
 }
 
+function assignmentModalParticipantForConflictCheck(m, allParticipants) {
+  if (!m) return null;
+  const list = allParticipants || (adminState.participants ? normalizeParticipants() : []);
+  if (m.participantOrbitId) {
+    return list.find(p => {
+      const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
+      return id === m.participantOrbitId;
+    }) || null;
+  }
+  const snap = assignmentManualParticipantSnapshot(m);
+  const ov = m.participantOverride || {};
+  const firstName = String(ov.firstName || snap.split.firstName || '').trim();
+  const lastName = String(ov.lastName || snap.split.lastName || '').trim();
+  const email = String(ov.email || '').trim();
+  if (!firstName && !lastName && !email) return null;
+  return { raw: {}, email, firstName, lastName };
+}
+
 function applyManualParticipantFieldsToData(participantData, m, live) {
   const out = Object.assign({}, participantData || {});
   const snap = assignmentManualParticipantSnapshot(m);
@@ -29922,11 +29940,9 @@ function renderAssignmentModal() {
         // edited so editing-yourself isn't flagged. Mentions the first conflict in
         // detail and counts the rest, so admin sees the full picture before
         // overriding.
-        if (!m.participantOrbitId) return '';
-        const sel = allParticipants.find(p => {
-          const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
-          return id === m.participantOrbitId;
-        });
+        const sel = (typeof assignmentModalParticipantForConflictCheck === 'function')
+          ? assignmentModalParticipantForConflictCheck(m, allParticipants)
+          : null;
         if (!sel) return '';
         const conflicts = findActiveBookingsForParticipant(sel, m.editingId || null);
         if (conflicts.length === 0) return '';
@@ -30001,10 +30017,9 @@ function renderAssignmentModal() {
         if (!(m.teamId && (typeof assignmentModalHasParticipant === 'function' ? assignmentModalHasParticipant(m) : m.participantOrbitId))) {
           return `<button class="btn btn-primary" id="asgnSaveBtn" disabled>${isEdit ? 'Save changes' : 'Save'}</button>`;
         }
-        const sel = allParticipants.find(p => {
-          const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
-          return id === m.participantOrbitId;
-        });
+        const sel = (typeof assignmentModalParticipantForConflictCheck === 'function')
+          ? assignmentModalParticipantForConflictCheck(m, allParticipants)
+          : null;
         const conflicts = sel ? findActiveBookingsForParticipant(sel, m.editingId || null) : [];
         const hasSameTeamDup = conflicts.some(c => c.teamId === m.teamId);
         const hasOtherConflict = conflicts.length > 0 && !hasSameTeamDup;
@@ -30486,10 +30501,9 @@ async function saveAssignment() {
   // here. The check uses the same findActiveBookingsForParticipant helper
   // that powers the in-modal warning, so the rule is consistent across
   // both surfaces.
-  const sel = (adminState.participants ? normalizeParticipants() : []).find(p => {
-    const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
-    return id === m.participantOrbitId;
-  });
+  const sel = (typeof assignmentModalParticipantForConflictCheck === 'function')
+    ? assignmentModalParticipantForConflictCheck(m)
+    : null;
   if (sel) {
     const conflicts = findActiveBookingsForParticipant(sel, m.editingId || null);
     const sameTeamDup = conflicts.find(c => c.teamId === m.teamId);
