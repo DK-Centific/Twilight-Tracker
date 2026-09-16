@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626d';
-const APP_UPDATED_AT = '09/16/2026 02:20';
+const APP_VERSION = '1.3.091626e';
+const APP_UPDATED_AT = '09/16/2026 02:25';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -36379,7 +36379,7 @@ function scenarioStationTileEditAllowed(input) {
 }
 
 function cloneScenarioCatalogFields(sc) {
-  return {
+  const out = {
     num: sc && sc.num != null ? String(sc.num) : '',
     id: String((sc && sc.id) || ''),
     name: String((sc && sc.name) || ''),
@@ -36387,6 +36387,9 @@ function cloneScenarioCatalogFields(sc) {
     recordFlow: !!(sc && sc.recordFlow),
     description: String((sc && sc.description) || ''),
   };
+  if (sc && typeof sc.rig1Completed === 'boolean') out.rig1Completed = sc.rig1Completed;
+  if (sc && typeof sc.rig2Completed === 'boolean') out.rig2Completed = sc.rig2Completed;
+  return out;
 }
 
 function builtinScenarioFields(stationKey, num) {
@@ -36400,6 +36403,15 @@ function liveScenarioDef(stationKey, num) {
   const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
     ? STATIONS.find(s => s.key === stationKey) : null;
   return st && (st.scenarios || []).find(x => String(x.num) === String(num));
+}
+
+function scenarioCatalogRigFlagsFromFields(fields, fallback) {
+  if (fields && (typeof fields.rig1Completed === 'boolean' || typeof fields.rig2Completed === 'boolean')) {
+    return { rig1: !!fields.rig1Completed, rig2: !!fields.rig2Completed };
+  }
+  const fb = fallback && typeof fallback === 'object' ? fallback : {};
+  if (fb.rig1 != null || fb.rig2 != null) return { rig1: !!fb.rig1, rig2: !!fb.rig2 };
+  return { rig1: !!fb.rig1Completed, rig2: !!fb.rig2Completed };
 }
 
 function emptyScenarioCatalog() {
@@ -36439,6 +36451,8 @@ function applyScenarioFieldsToDef(def, fields) {
   if (fields.name != null) def.name = String(fields.name);
   if (fields.description != null) def.description = String(fields.description);
   if (Number(fields.iter) > 0) def.iter = Number(fields.iter);
+  if (typeof fields.rig1Completed === 'boolean') def.rig1Completed = fields.rig1Completed;
+  if (typeof fields.rig2Completed === 'boolean') def.rig2Completed = fields.rig2Completed;
   return def;
 }
 
@@ -36461,10 +36475,18 @@ function applyScenarioCatalogToStations(catalog) {
 
 function scenarioCatalogPatchSummary(before, after, stationKey) {
   const labels = [];
-  ['name', 'id', 'description', 'iter'].forEach(k => {
+  const names = {
+    name: 'title',
+    id: 'id',
+    description: 'description',
+    iter: 'iter',
+    rig1Completed: 'Rig 1',
+    rig2Completed: 'Rig 2',
+  };
+  ['name', 'id', 'description', 'iter', 'rig1Completed', 'rig2Completed'].forEach(k => {
     const a = before ? String(before[k] == null ? '' : before[k]) : '';
     const b = after ? String(after[k] == null ? '' : after[k]) : '';
-    if (a !== b) labels.push(k === 'name' ? 'title' : k);
+    if (a !== b) labels.push(names[k] || k);
   });
   const who = (after && after.id) || (before && before.id) || '';
   return (stationKey || 'Station') + (who ? ' · ' + who : '') + (labels.length ? ': ' + labels.join(', ') : ': update');
@@ -36473,7 +36495,10 @@ function scenarioCatalogPatchSummary(before, after, stationKey) {
 function scenarioFieldsEqual(a, b) {
   const x = cloneScenarioCatalogFields(a || {});
   const y = cloneScenarioCatalogFields(b || {});
-  return x.id === y.id && x.name === y.name && x.description === y.description && Number(x.iter) === Number(y.iter);
+  return x.id === y.id && x.name === y.name && x.description === y.description
+    && Number(x.iter) === Number(y.iter)
+    && !!x.rig1Completed === !!y.rig1Completed
+    && !!x.rig2Completed === !!y.rig2Completed;
 }
 
 function pushScenarioCatalogChange(catalog, entry) {
@@ -36589,6 +36614,7 @@ function collectScenarioCatalogFromSessionRows(rows) {
   g.applyScenarioCatalogToStations = applyScenarioCatalogToStations;
   g.scenarioCatalogEditAllowed = scenarioCatalogEditAllowed;
   g.scenarioStationTileEditAllowed = scenarioStationTileEditAllowed;
+  g.scenarioCatalogRigFlagsFromFields = scenarioCatalogRigFlagsFromFields;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 /* SCENARIO_CATALOG_END */
 
@@ -36780,14 +36806,40 @@ function renderAdminChecklist(body) {
   }
 }
 
-function scenarioCatalogEditorRigHTML(stationKey, num, scOrId) {
-  if (typeof isCalRigScenario !== 'function' || !isCalRigScenario(scOrId)) return '';
+function scenarioCatalogEditorRigFlags(stationKey, num) {
+  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
+  const over = catalog.overrides[scenarioCatalogKey(stationKey, num)];
+  const live = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
   const sd = (typeof state !== 'undefined' && state && state.stations
     && state.stations[stationKey] && state.stations[stationKey].scenarios)
-    ? state.stations[stationKey].scenarios[num] : {};
+    ? state.stations[stationKey].scenarios[num] : null;
+  const fromSession = (typeof normalizeCalRigFlags === 'function' && sd)
+    ? normalizeCalRigFlags(sd)
+    : { rig1: false, rig2: false };
+  return scenarioCatalogRigFlagsFromFields(over, scenarioCatalogRigFlagsFromFields(live, fromSession));
+}
+
+function scenarioCatalogEditorRigHTML(stationKey, num, scOrId, flags) {
+  if (typeof isCalRigScenario !== 'function' || !isCalRigScenario(scOrId)) return '';
+  const next = flags || scenarioCatalogEditorRigFlags(stationKey, num);
+  const sd = { rig1Completed: !!next.rig1, rig2Completed: !!next.rig2 };
   return typeof calRigChecksHTML === 'function'
-    ? calRigChecksHTML(stationKey, num, sd || {})
+    ? calRigChecksHTML(stationKey, num, sd)
     : '';
+}
+
+function applyScenarioCatalogRigsToSession(stationKey, num, fields) {
+  const sc = liveScenarioDef(stationKey, num) || fields || {};
+  if (typeof isCalRigScenario === 'function' && !isCalRigScenario(sc) && !isCalRigScenario(fields)) return false;
+  const sd = (typeof state !== 'undefined' && state && state.stations
+    && state.stations[stationKey] && state.stations[stationKey].scenarios)
+    ? state.stations[stationKey].scenarios[num] : null;
+  if (!sd || typeof applyCalRigChecks !== 'function') return false;
+  const flags = scenarioCatalogRigFlagsFromFields(fields, { rig1: false, rig2: false });
+  applyCalRigChecks(sd, sc, flags.rig1, flags.rig2);
+  if (typeof saveState === 'function') saveState();
+  if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  return true;
 }
 
 function scenarioCatalogEditorHTML(stationKey, num) {
@@ -36796,6 +36848,7 @@ function scenarioCatalogEditorHTML(stationKey, num) {
   const sc = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
   const catalog = normalizeScenarioCatalog(_scenarioCatalog);
   const last = lastUndoableScenarioChange(catalog);
+  const flags = scenarioCatalogEditorRigFlags(stationKey, num);
   return `
     <div class="tf-composer scen-editor">
       <div class="tf-draft-hint">${escapeHTML((st && st.label) || stationKey)} · #${escapeHTML(String(num))}</div>
@@ -36805,7 +36858,7 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       <input class="tf-title" id="scenEditId" maxlength="40" placeholder="CAL_EXT" value="${escapeHTML(sc.id || '')}">
       <label class="tf-draft-hint" for="scenEditDesc">Description / instructions</label>
       <textarea class="tf-note" id="scenEditDesc" rows="5" placeholder="What the moderator should do">${escapeHTML(sc.description || '')}</textarea>
-      <div id="scenEditRigHost" class="scen-edit-rig">${scenarioCatalogEditorRigHTML(stationKey, num, sc)}</div>
+      <div id="scenEditRigHost" class="scen-edit-rig" data-rig1="${flags.rig1 ? '1' : '0'}" data-rig2="${flags.rig2 ? '1' : '0'}">${scenarioCatalogEditorRigHTML(stationKey, num, sc, flags)}</div>
       <div class="cl-hero-actions scen-edit-actions">
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenEditUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
       </div>
@@ -36818,7 +36871,7 @@ function scenarioCatalogEditorHTML(stationKey, num) {
   `;
 }
 
-function refreshScenarioCatalogEditorRigHost() {
+function paintScenarioCatalogEditorRigHost(flags) {
   const modal = document.getElementById('scenCatalogModal');
   const host = document.getElementById('scenEditRigHost');
   if (!modal || !host) return;
@@ -36827,8 +36880,18 @@ function refreshScenarioCatalogEditorRigHost() {
   const idEl = document.getElementById('scenEditId');
   const live = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
   const id = (idEl && idEl.value.trim()) || live.id;
-  host.innerHTML = scenarioCatalogEditorRigHTML(stationKey, num, { id });
+  const next = flags || {
+    rig1: host.dataset.rig1 === '1',
+    rig2: host.dataset.rig2 === '1',
+  };
+  host.dataset.rig1 = next.rig1 ? '1' : '0';
+  host.dataset.rig2 = next.rig2 ? '1' : '0';
+  host.innerHTML = scenarioCatalogEditorRigHTML(stationKey, num, { id }, next);
   bindScenarioCatalogEditorRigCard();
+}
+
+function refreshScenarioCatalogEditorRigHost() {
+  paintScenarioCatalogEditorRigHost();
 }
 
 function bindScenarioCatalogEditorRigCard() {
@@ -36838,13 +36901,9 @@ function bindScenarioCatalogEditorRigCard() {
     inp.addEventListener('click', e => e.stopPropagation());
     inp.addEventListener('change', e => {
       e.stopPropagation();
-      if (!applyCalRigInputFromElement(inp)) return;
-      refreshScenarioCatalogEditorRigHost();
-      try {
-        const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
-        const inStationView = !adminApp || !adminApp.classList.contains('active');
-        if (inStationView && typeof renderApp === 'function') renderApp();
-      } catch (_) {}
+      const next1 = inp.dataset.rig === '1' ? inp.checked : host.dataset.rig1 === '1';
+      const next2 = inp.dataset.rig === '2' ? inp.checked : host.dataset.rig2 === '1';
+      paintScenarioCatalogEditorRigHost({ rig1: !!next1, rig2: !!next2 });
     });
   });
 }
@@ -36887,11 +36946,19 @@ function collectScenarioCatalogEditorDraft() {
   const title = document.getElementById('scenEditTitle');
   const idEl = document.getElementById('scenEditId');
   const desc = document.getElementById('scenEditDesc');
-  return {
+  const host = document.getElementById('scenEditRigHost');
+  const draft = {
     name: title ? title.value.trim() : '',
     id: idEl ? idEl.value.trim() : '',
     description: desc ? desc.value.trim() : '',
   };
+  if (typeof isCalRigScenario === 'function' && isCalRigScenario(draft) && host) {
+    const inp1 = host.querySelector('.cal-rig-input[data-rig="1"]');
+    const inp2 = host.querySelector('.cal-rig-input[data-rig="2"]');
+    draft.rig1Completed = inp1 ? !!inp1.checked : host.dataset.rig1 === '1';
+    draft.rig2Completed = inp2 ? !!inp2.checked : host.dataset.rig2 === '1';
+  }
+  return draft;
 }
 
 function buildScenarioCatalogEditorModal() {
@@ -37017,6 +37084,7 @@ async function submitScenarioCatalogEditor() {
   if (!persisted || persisted.ok === false) {
     if (err) err.textContent = 'Saved on this device. Cloud publish failed — try again.';
   }
+  applyScenarioCatalogRigsToSession(stationKey, num, result.entry.after || draft);
   closeScenarioCatalogEditor();
   if (typeof toast === 'function') toast('Scenario updated');
   refreshScenarioCatalogSurfaces();
@@ -37028,6 +37096,9 @@ async function persistScenarioCatalogUndo(changeId) {
   result.catalog.publishedAt = new Date().toISOString();
   result.catalog.publishedBy = scenarioCatalogAdminName();
   await persistScenarioCatalogRecord(result.catalog);
+  if (result.undone) {
+    applyScenarioCatalogRigsToSession(result.undone.stationKey, result.undone.num, result.undone.before || {});
+  }
   if (typeof toast === 'function') toast('Edit undone');
   refreshScenarioCatalogSurfaces();
 }

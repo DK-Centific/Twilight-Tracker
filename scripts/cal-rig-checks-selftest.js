@@ -37,6 +37,11 @@ assert('desktop/web Uploaded buttons are enlarged', /scenario-card-list \.scenar
 assert('editor modal hosts the same cal-rig-card', /scenEditRigHost/.test(src)
   && /function scenarioCatalogEditorRigHTML\(/.test(src)
   && !/scenEditIter/.test(src));
+assert('editor save publishes rig flags', /draft\.rig1Completed/.test(src)
+  && /function applyScenarioCatalogRigsToSession\(/.test(src)
+  && /function paintScenarioCatalogEditorRigHost\(/.test(src));
+assert('editor card CSS is interactive', /#scenCatalogModal \.cal-rig-input/.test(html)
+  && /#scenCatalogModal \.cal-rig-check/.test(html));
 
 // Exercise the same completion rules the app uses.
 function applyCalRigChecks(sd, sc, rig1, rig2) {
