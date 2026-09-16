@@ -4751,6 +4751,17 @@ button, a, label, input, select, textarea,
   color: var(--text2);
   font-weight: 450;
 }
+.scenario-desc p, .sc-flow-desc p, .cl-scen-desc p { margin: 0 0 0.35em; }
+.scenario-desc p:last-child, .sc-flow-desc p:last-child, .cl-scen-desc p:last-child { margin-bottom: 0; }
+.scenario-desc ul, .sc-flow-desc ul, .cl-scen-desc ul,
+.scenario-desc ol, .sc-flow-desc ol, .cl-scen-desc ol { margin: 0.2em 0 0.2em 1.2em; padding: 0; }
+.scenario-desc b, .scenario-desc strong,
+.sc-flow-desc b, .sc-flow-desc strong,
+.cl-scen-desc b, .cl-scen-desc strong { font-weight: 700; }
+.scenario-desc i, .scenario-desc em,
+.sc-flow-desc i, .sc-flow-desc em,
+.cl-scen-desc i, .cl-scen-desc em { font-style: italic; }
+.scenario-desc u, .sc-flow-desc u, .cl-scen-desc u { text-decoration: underline; }
 .scenario-card-id {
   font-family: var(--font-num);
   font-size: 12px; color: var(--text3);
@@ -6667,6 +6678,20 @@ input#ent_lakitu.lakitu-invalid {
   border-color: var(--accent);
 }
 #scenCatalogModal .tf-note { width: 100%; min-height: 120px; }
+#scenCatalogModal .scen-desc-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+}
+#scenCatalogModal .scen-desc-editor .tf-editor.cg-rich {
+  min-height: 120px;
+}
+#scenCatalogModal .scen-desc-editor .tf-editor.cg-rich:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text3);
+  pointer-events: none;
+}
 @media (max-width: 760px) {
   .cl-scen-grid { grid-template-columns: 1fr; }
   .cl-scen-pencil,
@@ -17050,7 +17075,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091626h" defer></script>
+<script src="twilight.js?v=twilight-1.3.091626i" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -41,6 +41,8 @@ const {
   calGuideLineList,
   calGuideCalloutPreviewText,
   renderCalGuideBannerEditorHtml,
+  renderCalGuideCalloutToolbar,
+  renderCalGuideStyleToolbar,
 } = context;
 
 let failed = 0;
@@ -209,6 +211,25 @@ assert('edit banner has a clickable summary card', /cg-callout-summary/.test(ban
 assert('edit banner keeps the editor fields in the card', /data-cg-field="bannerBody"/.test(bannerEditor));
 assert('callout preview uses live warning copy',
   /Recording rejections/.test(calGuideCalloutPreviewText('banner', defaults.banner)));
+assert('shared style toolbar has bold italic underline and colors',
+  typeof renderCalGuideStyleToolbar === 'function'
+  && /data-cg-cmd="bold"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-cmd="italic"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-cmd="underline"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-text-color="red"/.test(renderCalGuideStyleToolbar())
+  && !/data-cg-icon/.test(renderCalGuideStyleToolbar())
+  && !/data-cg-block-accent/.test(renderCalGuideStyleToolbar()));
+assert('callout toolbar still has icons plus shared style controls',
+  typeof renderCalGuideCalloutToolbar === 'function'
+  && /data-cg-icon/.test(renderCalGuideCalloutToolbar('warn', 'amber'))
+  && /data-cg-block-accent/.test(renderCalGuideCalloutToolbar('warn', 'amber'))
+  && /data-cg-cmd="underline"/.test(renderCalGuideCalloutToolbar('warn', 'amber')));
+assert('banner editor still uses the shared callout toolbar',
+  /data-cg-cmd="bold"/.test(bannerEditor) && /data-cg-text-color/.test(bannerEditor));
+assert('callout bind still uses shared rich-text commands',
+  /function bindCalGuideIntroEditors\(/.test(src)
+  && /function bindCalGuideRichTextCommands\(/.test(src)
+  && /bindCalGuideRichTextCommands\(block/.test(src));
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');
