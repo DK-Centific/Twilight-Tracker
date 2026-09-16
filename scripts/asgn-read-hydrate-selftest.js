@@ -284,6 +284,12 @@ const fromDir = assignmentParticipantDisplayName({
 });
 assert('participantOrbitId directory name wins for OD title', fromDir === 'Directory Pat', fromDir);
 
+const twilightOverride = assignmentParticipantDisplayName({
+  participantOrbitId: 'orbit-pat',
+  participantData: { firstName: 'Typed', lastName: 'Walkin' },
+});
+assert('Twilight typed name wins over directory', twilightOverride === 'Typed Walkin', twilightOverride);
+
 assert(
   'Booking session list uses shared participant display helper',
   /assignmentParticipantDisplayName\(a\)/.test(src)
