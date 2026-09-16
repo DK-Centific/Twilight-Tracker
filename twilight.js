@@ -36847,13 +36847,10 @@ function scenarioCatalogEditorRigFlags(stationKey, num) {
   const catalog = normalizeScenarioCatalog(_scenarioCatalog);
   const over = catalog.overrides[scenarioCatalogKey(stationKey, num)];
   const live = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
-  const sd = (typeof state !== 'undefined' && state && state.stations
-    && state.stations[stationKey] && state.stations[stationKey].scenarios)
-    ? state.stations[stationKey].scenarios[num] : null;
-  const fromSession = (typeof normalizeCalRigFlags === 'function' && sd)
-    ? normalizeCalRigFlags(sd)
-    : { rig1: false, rig2: false };
-  return scenarioCatalogRigFlagsFromFields(over, scenarioCatalogRigFlagsFromFields(live, fromSession));
+  // Catalog defaults only — do not copy the live session card. An empty
+  // override must open as both-off, not as whatever the current station row
+  // happens to have checked.
+  return scenarioCatalogRigFlagsFromFields(over, scenarioCatalogRigFlagsFromFields(live, { rig1: false, rig2: false }));
 }
 
 function scenarioCatalogEditorRigHTML(stationKey, num, scOrId, flags) {
@@ -36988,8 +36985,9 @@ function bindScenarioCatalogEditorChrome() {
   };
   body.querySelectorAll('.scen-log-undo').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await persistScenarioCatalogUndo(btn.dataset.chg);
+      applyScenarioCatalogUndoLocal(btn.dataset.chg);
       refill();
+      await persistScenarioCatalogRecord(_scenarioCatalog);
     });
   });
   const undoLast = body.querySelector('#scenEditUndoLastBtn');
@@ -36997,8 +36995,9 @@ function bindScenarioCatalogEditorChrome() {
     undoLast.addEventListener('click', async () => {
       const hit = lastUndoableScenarioChange(_scenarioCatalog);
       if (hit) {
-        await persistScenarioCatalogUndo(hit.id);
+        applyScenarioCatalogUndoLocal(hit.id);
         refill();
+        await persistScenarioCatalogRecord(_scenarioCatalog);
       }
     });
   }
@@ -37164,17 +37163,23 @@ async function submitScenarioCatalogEditor() {
   refreshScenarioCatalogSurfaces();
 }
 
-async function persistScenarioCatalogUndo(changeId) {
+function applyScenarioCatalogUndoLocal(changeId) {
   const result = undoScenarioCatalogChange(_scenarioCatalog, changeId);
-  if (!result.undone) return;
+  if (!result.undone) return result;
   result.catalog.publishedAt = new Date().toISOString();
   result.catalog.publishedBy = scenarioCatalogAdminName();
-  await persistScenarioCatalogRecord(result.catalog);
-  if (result.undone) {
-    applyScenarioCatalogRigsToSession(result.undone.stationKey, result.undone.num, result.undone.before || {});
-  }
+  saveScenarioCatalogCache(result.catalog);
+  applyScenarioCatalogRigsToSession(result.undone.stationKey, result.undone.num, result.undone.before || {});
   if (typeof toast === 'function') toast('Edit undone');
   refreshScenarioCatalogSurfaces();
+  return result;
+}
+
+async function persistScenarioCatalogUndo(changeId) {
+  const result = applyScenarioCatalogUndoLocal(changeId);
+  if (!result.undone) return result;
+  await persistScenarioCatalogRecord(result.catalog);
+  return result;
 }
 
 // Builds the modal DOM once. Cached on window so subsequent opens are

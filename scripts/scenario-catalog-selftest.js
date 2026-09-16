@@ -158,6 +158,12 @@ assert('editor toggles are buttons, not hidden station checkboxes', /function bi
   && !/\.cal-rig-input/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
 assert('editor does not rebuild the card on every toggle', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
   && !/paintScenarioCatalogEditorRigHost\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor undo refills before cloud persist', /function applyScenarioCatalogUndoLocal\(/.test(fullSrc)
+  && /applyScenarioCatalogUndoLocal\(btn\.dataset\.chg\)/.test(fullSrc)
+  && /refill\(\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor rig flags do not fall back to the live session row', /function scenarioCatalogEditorRigFlags\(/.test(fullSrc)
+  && /rig1: false, rig2: false/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML')))
+  && !/state\.stations\[stationKey\]/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML'))));
 
 const rigFlags = scenarioCatalogRigFlagsFromFields(
   { rig1Completed: true, rig2Completed: false },
