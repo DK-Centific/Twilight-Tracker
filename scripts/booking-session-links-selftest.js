@@ -211,8 +211,8 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091626f', /const APP_VERSION = '1\.3\.091626f'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626f'));
+assert('APP_VERSION is 1.3.091626g', /const APP_VERSION = '1\.3\.091626g'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626g'));
 
 assert(
   'session cards put the date in bk-session-time and split time / team / address',

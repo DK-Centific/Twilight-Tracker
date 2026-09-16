@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626f';
-const APP_UPDATED_AT = '09/16/2026 03:20';
+const APP_VERSION = '1.3.091626g';
+const APP_UPDATED_AT = '09/16/2026 04:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -36351,8 +36351,9 @@ function ingestCalGuideFromSessionRows(rows) {
    Admin → Checklist tiles keep their editor. Master Admin who switches
    into the station / checklist shell also gets a top-right pencil on
    each live scenario tile (Master-Admin-only). Same
-   ss_app_setting_scenario_catalog row, changelog + undo. Live STATIONS
-   lists are overlaid from the catalog.
+   ss_app_setting_scenario_catalog row, changelog + draft undo/redo.
+   Pencil-editor Undo/Redo stay in the modal draft until Save and
+   publish. Live STATIONS lists are overlaid from the published catalog.
    ===================================================================== */
 const SCENARIO_CATALOG_SETTING_ID = 'ss_app_setting_scenario_catalog';
 const SCENARIO_CATALOG_ASSIGNMENT_ID = 'app_setting_scenario_catalog';
@@ -36453,6 +36454,47 @@ function emptyScenarioCatalog() {
   return { overrides: {}, changelog: [], publishedAt: '', publishedBy: '' };
 }
 
+function cloneScenarioCatalogChange(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const out = Object.assign({}, entry);
+  if (entry.before) out.before = cloneScenarioCatalogFields(entry.before);
+  if (entry.after) out.after = cloneScenarioCatalogFields(entry.after);
+  out.undone = !!entry.undone;
+  return out;
+}
+
+function cloneScenarioCatalog(catalog) {
+  return normalizeScenarioCatalog(catalog);
+}
+
+function scenarioCatalogPublishFingerprint(catalog) {
+  const cat = normalizeScenarioCatalog(catalog);
+  return JSON.stringify({
+    overrides: cat.overrides,
+    log: (cat.changelog || []).map(e => ({
+      id: e.id,
+      undone: !!e.undone,
+      stationKey: e.stationKey,
+      num: e.num,
+      before: e.before || null,
+      after: e.after || null,
+    })),
+  });
+}
+
+function scenarioCatalogDraftEqualsPublished(draft, published) {
+  return scenarioCatalogPublishFingerprint(draft) === scenarioCatalogPublishFingerprint(published);
+}
+
+function scenarioCatalogResolvedFields(stationKey, num, catalog) {
+  const cat = normalizeScenarioCatalog(catalog);
+  const builtin = builtinScenarioFields(stationKey, num);
+  const over = cat.overrides[scenarioCatalogKey(stationKey, num)];
+  if (over) return cloneScenarioCatalogFields(over);
+  if (builtin) return cloneScenarioCatalogFields(builtin);
+  return cloneScenarioCatalogFields(liveScenarioDef(stationKey, num) || {});
+}
+
 function normalizeScenarioCatalog(src) {
   if (!src || typeof src !== 'object') return emptyScenarioCatalog();
   const parsed = (src.type === 'appSetting' && src.catalog) ? src.catalog : src;
@@ -36462,7 +36504,9 @@ function normalizeScenarioCatalog(src) {
     const fields = cloneScenarioCatalogFields(raw[key]);
     if (fields.num || fields.id || fields.name) overrides[key] = fields;
   });
-  const changelog = Array.isArray(parsed.changelog) ? parsed.changelog.filter(e => e && e.id).slice(-SCENARIO_CATALOG_CHANGELOG_MAX) : [];
+  const changelog = Array.isArray(parsed.changelog)
+    ? parsed.changelog.filter(e => e && e.id).slice(-SCENARIO_CATALOG_CHANGELOG_MAX).map(cloneScenarioCatalogChange).filter(Boolean)
+    : [];
   return {
     overrides,
     changelog,
@@ -36564,7 +36608,34 @@ function undoScenarioCatalogChange(catalog, changeId) {
   }
   entry.undone = true;
   entry.undoneAt = new Date().toISOString();
+  delete entry.redoneAt;
   return { catalog: next, undone: entry };
+}
+
+function lastRedoableScenarioChange(catalog) {
+  const log = (catalog && catalog.changelog) || [];
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i] && log[i].undone) return log[i];
+  }
+  return null;
+}
+
+function redoScenarioCatalogChange(catalog, changeId) {
+  const next = normalizeScenarioCatalog(catalog);
+  const entry = (next.changelog || []).find(e => e && String(e.id) === String(changeId));
+  if (!entry || !entry.undone) return { catalog: next, redone: null };
+  const key = scenarioCatalogKey(entry.stationKey, entry.num);
+  const builtin = builtinScenarioFields(entry.stationKey, entry.num);
+  const after = entry.after || builtin;
+  if (after && builtin && scenarioFieldsEqual(after, builtin)) {
+    delete next.overrides[key];
+  } else if (after) {
+    next.overrides[key] = cloneScenarioCatalogFields(after);
+  }
+  entry.undone = false;
+  delete entry.undoneAt;
+  entry.redoneAt = new Date().toISOString();
+  return { catalog: next, redone: entry };
 }
 
 function applyScenarioCatalogEdit(catalog, stationKey, num, draft, adminName) {
@@ -36641,7 +36712,12 @@ function collectScenarioCatalogFromSessionRows(rows) {
   g.normalizeScenarioCatalog = normalizeScenarioCatalog;
   g.applyScenarioCatalogEdit = applyScenarioCatalogEdit;
   g.undoScenarioCatalogChange = undoScenarioCatalogChange;
+  g.redoScenarioCatalogChange = redoScenarioCatalogChange;
   g.lastUndoableScenarioChange = lastUndoableScenarioChange;
+  g.lastRedoableScenarioChange = lastRedoableScenarioChange;
+  g.cloneScenarioCatalog = cloneScenarioCatalog;
+  g.scenarioCatalogResolvedFields = scenarioCatalogResolvedFields;
+  g.scenarioCatalogDraftEqualsPublished = scenarioCatalogDraftEqualsPublished;
   g.scenarioCatalogPatchSummary = scenarioCatalogPatchSummary;
   g.buildScenarioCatalogPayload = buildScenarioCatalogPayload;
   g.collectScenarioCatalogFromSessionRows = collectScenarioCatalogFromSessionRows;
@@ -36661,7 +36737,21 @@ let _scenarioCatalog = (function loadScenarioCatalogCache() {
     return raw ? normalizeScenarioCatalog(JSON.parse(raw)) : emptyScenarioCatalog();
   } catch (_) { return emptyScenarioCatalog(); }
 })();
+let _scenarioCatalogDraft = null;
 applyScenarioCatalogToStations(_scenarioCatalog);
+
+function scenarioCatalogEditorWorkingCatalog() {
+  return _scenarioCatalogDraft || _scenarioCatalog;
+}
+
+function beginScenarioCatalogEditorDraft() {
+  _scenarioCatalogDraft = cloneScenarioCatalog(_scenarioCatalog);
+  return _scenarioCatalogDraft;
+}
+
+function discardScenarioCatalogEditorDraft() {
+  _scenarioCatalogDraft = null;
+}
 
 function saveScenarioCatalogCache(catalog) {
   _scenarioCatalog = normalizeScenarioCatalog(catalog);
@@ -36750,20 +36840,41 @@ function scenarioCatalogWhen(iso) {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-function renderScenarioChangelogHTML(catalog) {
+function renderScenarioChangelogHTML(catalog, opts) {
+  opts = opts || {};
+  const draftMode = !!opts.draftMode;
   const log = ((catalog && catalog.changelog) || []).slice().reverse();
-  if (!log.length) return `<div class="tf-draft-hint">No edits yet. Changes show here so you can undo them.</div>`;
+  if (!log.length) {
+    return `<div class="tf-draft-hint">${draftMode
+      ? 'No edits yet. Undo and redo stay in this draft until you click Save and publish.'
+      : 'No edits yet. Changes show here so you can undo them.'}</div>`;
+  }
   return `
     <div class="scen-log" role="list">
-      ${log.map(e => `
-        <div class="scen-log-row ${e.undone ? 'is-undone' : ''}" role="listitem">
+      ${log.map(e => {
+        const undone = !!e.undone;
+        const rowClass = undone ? 'is-undone is-redoable' : 'is-active';
+        const when = escapeHTML((e.by || 'Admin') + (e.at ? ' · ' + scenarioCatalogWhen(e.at) : ''));
+        const status = undone
+          ? (draftMode ? ' · undone · tap to redo' : ' · undone')
+          : ' · active';
+        const action = undone
+          ? (draftMode
+            ? `<button type="button" class="scen-log-redo" data-chg="${escapeHTML(String(e.id))}">Redo</button>`
+            : '')
+          : `<button type="button" class="scen-log-undo" data-chg="${escapeHTML(String(e.id))}">Undo</button>`;
+        const rowAttrs = undone && draftMode
+          ? `tabindex="0" data-chg="${escapeHTML(String(e.id))}" aria-label="Redo this undone edit in the draft"`
+          : '';
+        return `
+        <div class="scen-log-row ${rowClass}" role="listitem" ${rowAttrs}>
           <div class="scen-log-main">
             <div class="scen-log-sum">${escapeHTML(e.summary || 'Edit')}</div>
-            <div class="tf-draft-hint">${escapeHTML((e.by || 'Admin') + (e.at ? ' · ' + scenarioCatalogWhen(e.at) : ''))}${e.undone ? ' · undone' : ''}</div>
+            <div class="tf-draft-hint">${when}${status}</div>
           </div>
-          ${e.undone ? '' : `<button type="button" class="scen-log-undo" data-chg="${escapeHTML(String(e.id))}">Undo</button>`}
-        </div>
-      `).join('')}
+          ${action}
+        </div>`;
+      }).join('')}
     </div>
   `;
 }
@@ -36843,14 +36954,15 @@ function renderAdminChecklist(body) {
   }
 }
 
-function scenarioCatalogEditorRigFlags(stationKey, num) {
-  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
-  const over = catalog.overrides[scenarioCatalogKey(stationKey, num)];
-  const live = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
+function scenarioCatalogEditorRigFlags(stationKey, num, catalog) {
+  const cat = normalizeScenarioCatalog(catalog || scenarioCatalogEditorWorkingCatalog());
+  const over = cat.overrides[scenarioCatalogKey(stationKey, num)];
+  const builtin = builtinScenarioFields(stationKey, num) || {};
   // Catalog defaults only — do not copy the live session card. An empty
   // override must open as both-off, not as whatever the current station row
-  // happens to have checked.
-  return scenarioCatalogRigFlagsFromFields(over, scenarioCatalogRigFlagsFromFields(live, { rig1: false, rig2: false }));
+  // happens to have checked. Draft undo also prefers builtin over live
+  // STATIONS so an undone override does not snap back to the published tile.
+  return scenarioCatalogRigFlagsFromFields(over, scenarioCatalogRigFlagsFromFields(builtin, { rig1: false, rig2: false }));
 }
 
 function scenarioCatalogEditorRigHTML(stationKey, num, scOrId, flags) {
@@ -36887,13 +36999,14 @@ function applyScenarioCatalogRigsToSession(stationKey, num, fields) {
 function scenarioCatalogEditorHTML(stationKey, num) {
   const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
     ? STATIONS.find(s => s.key === stationKey) : null;
-  const sc = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
-  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
+  const catalog = normalizeScenarioCatalog(scenarioCatalogEditorWorkingCatalog());
+  const sc = scenarioCatalogResolvedFields(stationKey, num, catalog);
   const last = lastUndoableScenarioChange(catalog);
-  const flags = scenarioCatalogEditorRigFlags(stationKey, num);
+  const flags = scenarioCatalogEditorRigFlags(stationKey, num, catalog);
   return `
     <div class="tf-composer scen-editor">
       <div class="tf-draft-hint">${escapeHTML((st && st.label) || stationKey)} · #${escapeHTML(String(num))}</div>
+      <p class="tf-draft-hint scen-edit-draft-note">Undo and redo stay in this draft. Only Save and publish updates the live catalog.</p>
       <label class="tf-draft-hint" for="scenEditTitle">Title</label>
       <input class="tf-title" id="scenEditTitle" maxlength="120" placeholder="Scenario title" value="${escapeHTML(sc.name || '')}">
       <label class="tf-draft-hint" for="scenEditId">Scenario ID</label>
@@ -36907,7 +37020,8 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       <div class="tf-send-error" id="scenEditError"></div>
       <div class="scen-edit-log">
         <div class="cl-station-label">Change log</div>
-        ${renderScenarioChangelogHTML(catalog)}
+        <p class="tf-draft-hint">Active edits can be undone. Undone rows are faded — tap one to redo it in this draft.</p>
+        ${renderScenarioChangelogHTML(catalog, { draftMode: true })}
       </div>
     </div>
   `;
@@ -36972,6 +37086,24 @@ function bindScenarioCatalogEditorRigCard() {
   });
 }
 
+function applyScenarioCatalogEditorDraftUndo(changeId) {
+  if (!_scenarioCatalogDraft) beginScenarioCatalogEditorDraft();
+  const result = undoScenarioCatalogChange(_scenarioCatalogDraft, changeId);
+  if (!result.undone) return result;
+  _scenarioCatalogDraft = result.catalog;
+  if (typeof toast === 'function') toast('Undone here. Save and publish to make it live.');
+  return result;
+}
+
+function applyScenarioCatalogEditorDraftRedo(changeId) {
+  if (!_scenarioCatalogDraft) beginScenarioCatalogEditorDraft();
+  const result = redoScenarioCatalogChange(_scenarioCatalogDraft, changeId);
+  if (!result.redone) return result;
+  _scenarioCatalogDraft = result.catalog;
+  if (typeof toast === 'function') toast('Redone here. Save and publish to make it live.');
+  return result;
+}
+
 function bindScenarioCatalogEditorChrome() {
   const body = document.getElementById('scenCatalogBody');
   if (!body) return;
@@ -36983,22 +37115,47 @@ function bindScenarioCatalogEditorChrome() {
     const title = document.getElementById('scenEditTitle');
     if (title) title.focus();
   };
+  const undoDraft = changeId => {
+    if (!changeId) return;
+    applyScenarioCatalogEditorDraftUndo(changeId);
+    refill();
+  };
+  const redoDraft = changeId => {
+    if (!changeId) return;
+    applyScenarioCatalogEditorDraftRedo(changeId);
+    refill();
+  };
   body.querySelectorAll('.scen-log-undo').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      applyScenarioCatalogUndoLocal(btn.dataset.chg);
-      refill();
-      await persistScenarioCatalogRecord(_scenarioCatalog);
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      undoDraft(btn.dataset.chg);
+    });
+  });
+  body.querySelectorAll('.scen-log-redo').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      redoDraft(btn.dataset.chg);
+    });
+  });
+  body.querySelectorAll('.scen-log-row.is-undone[data-chg]').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target && e.target.closest && e.target.closest('.scen-log-redo, .scen-log-undo')) return;
+      redoDraft(row.dataset.chg);
+    });
+    row.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        redoDraft(row.dataset.chg);
+      }
     });
   });
   const undoLast = body.querySelector('#scenEditUndoLastBtn');
   if (undoLast) {
-    undoLast.addEventListener('click', async () => {
-      const hit = lastUndoableScenarioChange(_scenarioCatalog);
-      if (hit) {
-        applyScenarioCatalogUndoLocal(hit.id);
-        refill();
-        await persistScenarioCatalogRecord(_scenarioCatalog);
-      }
+    undoLast.addEventListener('click', () => {
+      const hit = lastUndoableScenarioChange(scenarioCatalogEditorWorkingCatalog());
+      if (hit) undoDraft(hit.id);
     });
   }
   const idEl = document.getElementById('scenEditId');
@@ -37055,7 +37212,7 @@ function buildScenarioCatalogEditorModal() {
         </div>
         <div style="min-width: 0;">
           <div class="cal-guide-header-title" id="scenCatalogTitle">Edit scenario</div>
-          <div class="cal-guide-header-sub">Same editor as the calibration guide · save publishes to every moderator</div>
+          <div class="cal-guide-header-sub">Undo and redo stay in this draft · Save and publish is the only live update</div>
         </div>
       </div>
       <button type="button" class="cal-guide-close" id="scenCatalogCloseBtn" aria-label="Close">
@@ -37068,7 +37225,7 @@ function buildScenarioCatalogEditorModal() {
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenCatalogCancelBtn">Cancel</button>
         <button type="button" class="cal-guide-ack-btn" id="scenCatalogSaveBtn">Save and publish</button>
       </div>
-      <div class="cal-guide-footer-text">This updates the live checklist tiles moderators see on their stations.</div>
+      <div class="cal-guide-footer-text">Cancel discards this draft. Save and publish updates the live checklist tiles.</div>
     </div>
   `;
   overlay.addEventListener('click', e => { if (e.target === overlay) closeScenarioCatalogEditor(); });
@@ -37093,6 +37250,7 @@ function openScenarioCatalogEditor(stationKey, num, opts) {
   if (!overlay || !modal || !body) return;
   modal.dataset.station = stationKey;
   modal.dataset.num = String(num);
+  beginScenarioCatalogEditorDraft();
   body.innerHTML = scenarioCatalogEditorHTML(stationKey, num);
   bindScenarioCatalogEditorChrome();
   overlay.hidden = false;
@@ -37106,6 +37264,7 @@ function openScenarioCatalogEditor(stationKey, num, opts) {
 }
 
 function closeScenarioCatalogEditor() {
+  discardScenarioCatalogEditorDraft();
   const overlay = document.getElementById('scenCatalogOverlay');
   const modal = document.getElementById('scenCatalogModal');
   if (overlay) {
@@ -37139,25 +37298,37 @@ async function submitScenarioCatalogEditor() {
   if (!modal) return;
   const stationKey = modal.dataset.station;
   const num = modal.dataset.num;
-  const draft = collectScenarioCatalogEditorDraft();
+  const fieldDraft = collectScenarioCatalogEditorDraft();
   const err = document.getElementById('scenEditError');
-  if (!draft.name) {
+  if (!fieldDraft.name) {
     if (err) err.textContent = 'Title is required.';
     return;
   }
-  const result = applyScenarioCatalogEdit(_scenarioCatalog, stationKey, num, draft, scenarioCatalogAdminName());
-  if (!result.changed) {
+  const published = normalizeScenarioCatalog(_scenarioCatalog);
+  let catalog = normalizeScenarioCatalog(_scenarioCatalogDraft || _scenarioCatalog);
+  const result = applyScenarioCatalogEdit(catalog, stationKey, num, fieldDraft, scenarioCatalogAdminName());
+  catalog = result.catalog;
+  if (!result.changed && scenarioCatalogDraftEqualsPublished(catalog, published)) {
+    discardScenarioCatalogEditorDraft();
     closeScenarioCatalogEditor();
     return;
   }
+  if (!result.changed) {
+    catalog.publishedAt = new Date().toISOString();
+    catalog.publishedBy = scenarioCatalogAdminName();
+  }
   const saveBtn = document.getElementById('scenCatalogSaveBtn');
   if (saveBtn) saveBtn.disabled = true;
-  const persisted = await persistScenarioCatalogRecord(result.catalog);
+  const persisted = await persistScenarioCatalogRecord(catalog);
   if (saveBtn) saveBtn.disabled = false;
   if (!persisted || persisted.ok === false) {
     if (err) err.textContent = 'Saved on this device. Cloud publish failed — try again.';
   }
-  applyScenarioCatalogRigsToSession(stationKey, num, result.entry.after || draft);
+  const afterFields = result.changed
+    ? (result.entry.after || fieldDraft)
+    : (catalog.overrides[scenarioCatalogKey(stationKey, num)] || fieldDraft);
+  applyScenarioCatalogRigsToSession(stationKey, num, afterFields);
+  discardScenarioCatalogEditorDraft();
   closeScenarioCatalogEditor();
   if (typeof toast === 'function') toast('Scenario updated');
   refreshScenarioCatalogSurfaces();

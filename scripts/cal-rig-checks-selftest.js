@@ -42,7 +42,10 @@ assert('editor modal hosts a dedicated cal-rig-card-editor', /scenEditRigHost/.t
 assert('editor save publishes rig flags', /draft\.rig1Completed/.test(src)
   && /function applyScenarioCatalogRigsToSession\(/.test(src)
   && /function paintScenarioCatalogEditorRigHost\(/.test(src)
-  && /function applyScenarioCatalogEditorRigVisuals\(/.test(src));
+  && /function applyScenarioCatalogEditorRigVisuals\(/.test(src)
+  && /function submitScenarioCatalogEditor\(/.test(src));
+assert('editor undo does not publish rigs until save', /function applyScenarioCatalogEditorDraftUndo\(/.test(src)
+  && !/applyScenarioCatalogRigsToSession\(/.test(src.slice(src.indexOf('function applyScenarioCatalogEditorDraftUndo'), src.indexOf('function bindScenarioCatalogEditorChrome'))));
 assert('editor card CSS is interactive', /#scenCatalogModal \.cal-rig-card-editor/.test(html)
   && /#scenCatalogModal \.cal-rig-edit-toggle/.test(html)
   && /pointer-events: auto/.test(html));
