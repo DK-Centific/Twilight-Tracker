@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626g';
-const APP_UPDATED_AT = '09/16/2026 04:40';
+const APP_VERSION = '1.3.091626h';
+const APP_UPDATED_AT = '09/16/2026 03:05';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -474,6 +474,7 @@ function defaultState() {
     // the full rationale). Both stay empty/zero-length until the mod
     // clicks "Arrived at participant" in the entry bar.
     arrivedAt: '',
+    suppressAutoArrival: false,
     remindersShown: [],
     officeCheckedInAt: '',
     officeCheckedOutAt: '',
@@ -565,6 +566,59 @@ function getPSTDateString() {
 function todayPretty() {
   const d = new Date();
   return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+// Session Date chrome must follow the active assignment (PST booking day),
+// never the device clock or a leftover sessionDate from another year.
+function formatSessionDateYmd(ymd) {
+  const raw = String(ymd || '').trim();
+  if (!raw) return '';
+  const d = (typeof parseYMD === 'function') ? parseYMD(raw) : null;
+  if (d && !isNaN(d.getTime())) {
+    return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  }
+  return raw;
+}
+
+function activeSessionDateYmd(asgn) {
+  const session = asgn || ((typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  const booked = session && session.date ? String(session.date).trim() : '';
+  if (booked) return booked;
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : todayISO();
+  const sd = (typeof state !== 'undefined' && state && state.sessionDate)
+    ? String(state.sessionDate).trim()
+    : '';
+  if (sd && sd === today) return sd;
+  return today;
+}
+
+function sessionDateChromeLabel(asgn) {
+  return formatSessionDateYmd(activeSessionDateYmd(asgn)) || todayPretty();
+}
+
+function sessionDateConflictsWithAssignment(sd, asgnDate, today) {
+  const stored = String(sd || '').trim();
+  const booked = String(asgnDate || '').trim();
+  const ref = String(today || '').trim();
+  if (!stored) return false;
+  if (booked && stored !== booked) return true;
+  if (!booked && ref && stored < ref) return true;
+  return false;
+}
+
+function syncSessionDateFromActiveAssignment(asgn) {
+  if (typeof state === 'undefined' || !state) return false;
+  const session = asgn || ((typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  const ymd = session && session.date ? String(session.date).trim() : '';
+  if (!ymd) return false;
+  if (state.sessionDate === ymd) return false;
+  state.sessionDate = ymd;
+  if (typeof saveState === 'function') saveState();
+  return true;
 }
 
 /* =====================================================================
@@ -813,6 +867,7 @@ function migrateState(loaded) {
   // reminder loop. Empty string = not yet arrived (no reminders fire).
   // Reminders fire at arrivedAt + 1h, +2h, ... up to PROGRESS_REMINDER_MAX_HOUR.
   if (typeof loaded.arrivedAt !== 'string') loaded.arrivedAt = '';
+  if (typeof loaded.suppressAutoArrival !== 'boolean') loaded.suppressAutoArrival = false;
   if (typeof loaded.officeCheckedInAt !== 'string') loaded.officeCheckedInAt = '';
   if (typeof loaded.officeCheckedOutAt !== 'string') loaded.officeCheckedOutAt = '';
   if (!loaded.officeCheckinGeo || typeof loaded.officeCheckinGeo !== 'object') loaded.officeCheckinGeo = null;
@@ -1352,26 +1407,25 @@ function renderWelcomeWorklogBannerHTML() {
 
   // ---- Pre-arrival (en route) ----
   if (myIdx < arrivedIdx) {
-    if (!equipmentReady) {
-      return `<div class="welcome-worklog-banner waiting">
-        <div class="welcome-worklog-banner-icon"><svg width="20" height="20" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M6 8l1.5 1.5L11 6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-        <div class="welcome-worklog-banner-text">
-          <div class="welcome-worklog-banner-title">Pack your equipment first</div>
-          <div class="welcome-worklog-banner-sub">Once all required items below are checked off, you can confirm your arrival.</div>
-        </div>
-      </div>`;
-    }
     if (typeof prefetchAssignmentFenceGeocode === 'function') prefetchAssignmentFenceGeocode(asgn);
     const fencePos = (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null);
     const fenceCheck = (typeof liveLocationInsideAssignmentFence === 'function')
       ? liveLocationInsideAssignmentFence(asgn, fencePos)
       : { known: false, inside: false, reason: 'nolocation' };
+    const gate = (typeof arrivalUnlockHelper === 'function')
+      ? arrivalUnlockHelper('worklog', fenceCheck, equipmentReady)
+      : { unlocked: !!(equipmentReady && fenceCheck && fenceCheck.known && fenceCheck.inside), helper: '' };
     const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
-    const welcomeTitle = inFence ? 'Traveling to the assigned location' : 'Waiting for the assigned location';
-    const welcomeSub = inFence
+    const unlocked = !!gate.unlocked;
+    const welcomeTitle = unlocked
+      ? 'Traveling to the assigned location'
+      : (!equipmentReady && !inFence
+        ? 'Pack equipment and reach the assigned location'
+        : (!equipmentReady ? 'Pack your equipment first' : 'Waiting for the assigned location'));
+    const welcomeSub = unlocked
       ? `When you arrive at ${escapeHTML(((typeof assignmentParticipantContact === 'function' && assignmentParticipantContact(asgn).address) || (asgn.participantData && asgn.participantData.address) || 'the team address'))}, please confirm your arrival.`
-      : 'Confirm Arrival unlocks when you are inside the assigned address area.';
-    return `<div class="welcome-worklog-banner ${inFence ? 'ready' : 'waiting'}">
+      : (gate.helper || 'Confirm Arrival unlocks when required equipment is packed and you are inside the assigned address area.');
+    return `<div class="welcome-worklog-banner ${unlocked ? 'ready' : 'waiting'}">
       <div class="welcome-worklog-banner-icon">
         <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
           <path d="M8 14c3-3.5 5-6 5-8a5 5 0 0 0-10 0c0 2 2 4.5 5 8z" stroke="currentColor" stroke-width="1.6"/>
@@ -1382,7 +1436,7 @@ function renderWelcomeWorklogBannerHTML() {
         <div class="welcome-worklog-banner-title">${welcomeTitle}</div>
         <div class="welcome-worklog-banner-sub">${welcomeSub}</div>
       </div>
-      <button class="btn ${inFence ? 'btn-primary' : 'btn-secondary'} welcome-worklog-action" id="welcomeArrivalBtn" ${inFence ? '' : 'disabled'} title="${escapeHTML((typeof arrivalUnlockTitle === 'function') ? arrivalUnlockTitle('worklog', fenceCheck) : '')}">
+      <button class="btn ${unlocked ? 'btn-primary' : 'btn-secondary'} welcome-worklog-action" id="welcomeArrivalBtn" ${unlocked ? '' : 'disabled'} title="${escapeHTML((typeof arrivalUnlockTitle === 'function') ? arrivalUnlockTitle('worklog', fenceCheck, equipmentReady) : welcomeSub)}">
         Confirm Arrival
       </button>
     </div>`;
@@ -1527,9 +1581,13 @@ function entryBarHTML() {
   const arrivedFence = (typeof liveLocationInsideAssignmentFence === 'function')
     ? liveLocationInsideAssignmentFence(arrivedAsgn, (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null))
     : { known: false, inside: false, reason: 'nolocation' };
-  const arrivedUnlocked = !!(arrivedFence && arrivedFence.known && arrivedFence.inside);
+  const arrivedEqOk = (typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true;
+  const arrivedGate = (typeof arrivalUnlockHelper === 'function')
+    ? arrivalUnlockHelper('arrived', arrivedFence, arrivedEqOk)
+    : { unlocked: !!(arrivedFence && arrivedFence.known && arrivedFence.inside) };
+  const arrivedUnlocked = !!arrivedGate.unlocked;
   const arrivedTitle = (typeof arrivalUnlockTitle === 'function')
-    ? arrivalUnlockTitle('arrived', arrivedFence)
+    ? arrivalUnlockTitle('arrived', arrivedFence, arrivedEqOk)
     : "Mark that you've arrived at the participant's home";
 
   // TeamLog Lakitu + Ring links for the displayed team (session team, or
@@ -1610,7 +1668,7 @@ function entryBarHTML() {
       <div class="entry-divider"></div>
       <div class="entry-field">
         <label>Session Date</label>
-        <div class="field-readonly">${todayPretty()}</div>
+        <div class="field-readonly">${escapeHTML((typeof sessionDateChromeLabel === 'function') ? sessionDateChromeLabel(arrivedAsgn) : todayPretty())}</div>
       </div>
       <div class="entry-divider"></div>
       <!-- Arrival affordance · wide enough to hold either the call-to-
@@ -1970,24 +2028,23 @@ function bindEntryFields() {
     });
   }
 
-  // Arrived pill · click to undo. Confirmation modal-less here
-  // because undoing arrival is harmless (just resets the timer);
-  // the immediate visual feedback (pill → button) tells admin the
-  // click registered.
+  // Arrived pill · click to undo. Uses the in-app confirm (not the
+  // review/sent-back modal) and re-renders through renderApp so the
+  // pill actually clears.
   const arrivedPill = document.getElementById('ent_arrived_pill');
   if (arrivedPill && !arrivedPill.dataset.boundEntry) {
     arrivedPill.dataset.boundEntry = '1';
-    arrivedPill.addEventListener('click', () => {
-      // Confirm to prevent accidental loss of timing data · but cheap
-      // native confirm() is fine here. The undo is a "I clicked the
-      // wrong thing earlier" recovery, not a routine action.
-      if (!confirm('Undo arrival? The progress-reminder timer will reset.')) return;
-      state.arrivedAt = '';
-      state.remindersShown = [];
-      saveState();
-      if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
-      stopPerHourReminder();
-      if (typeof render === 'function') render();
+    arrivedPill.addEventListener('click', (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      if (typeof confirmUndoOperatorArrival === 'function') {
+        confirmUndoOperatorArrival();
+        return;
+      }
+      if (!confirm('Undo arrival?')) return;
+      if (typeof undoOperatorArrival === 'function') undoOperatorArrival();
     });
   }
 
@@ -6024,7 +6081,7 @@ function showApprovalApprovedPopup(k, token) {
 function showApprovalRejectedPopup(by, note) {
   const safeBy = escapeHTML(by || 'the reviewer');
   const feedback = (typeof approvalQaFeedbackHtml === 'function')
-    ? approvalQaFeedbackHtml(note, by)
+    ? approvalQaFeedbackHtml(note, by, 'Rejected')
     : (note ? ('<br><br>“' + escapeHTML(note) + '”') : '');
   appAlert({
     title: 'Review complete · Sent back', html: true, okLabel: 'Confirm',
@@ -6116,7 +6173,7 @@ function decorateApprovalGate(c, station) {
   } else if (g.status === 'Rejected') {
     stateClass = 'rejected';
     const feedback = (typeof approvalQaFeedbackHtml === 'function')
-      ? approvalQaFeedbackHtml(g.note, g.decidedBy)
+      ? approvalQaFeedbackHtml(g.note, g.decidedBy, g.status || 'Rejected')
       : (g.note ? '<div class="appr-slidedown-note">\u201c' + escapeHTML(g.note) + '\u201d \u2014 ' + escapeHTML(g.decidedBy || 'reviewer') + '</div>' : '');
     inner = '<div class="appr-slidedown-title">Calibration sent back</div>' +
             '<div class="appr-slidedown-sub">Fix the QA items below, re-record if needed, then resubmit.</div>' +
@@ -12567,7 +12624,12 @@ function parseApprovalQaFeedback(note) {
   return { reasons, comment };
 }
 
-function approvalQaFeedbackHtml(note, decidedBy) {
+function approvalQaFeedbackHtml(note, decidedBy, status) {
+  const st = String(status || '').trim();
+  const isApproved = (st === 'Approved' || st === 'AutoApproved');
+  // Current decision wins. Leftover send-back notes from an earlier
+  // reject must not appear under an Approved badge.
+  if (isApproved) return '';
   const parsed = parseApprovalQaFeedback(note);
   const who = decidedBy ? escapeHTML(decidedBy) : '';
   let html = '';
@@ -12803,12 +12865,12 @@ function approvalExternalOpenRowHTML(lakituUrl, ringUrl) {
 function onApprovalExternalOpenClick(e) {
   const a = e.target && e.target.closest && e.target.closest('a.appr-icon-btn[data-appr-ext]');
   if (!a) return;
-  if (e.defaultPrevented) return;
   if (e.button !== 0) return;
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const href = a.getAttribute('href') || '';
   if (!href) return;
   e.preventDefault();
+  e.stopPropagation();
   if (typeof openExternalAppWindow === 'function') {
     openExternalAppWindow(href, a.getAttribute('data-appr-win') || '_blank', { layout: 'sidePanel' });
   } else {
@@ -12816,10 +12878,25 @@ function onApprovalExternalOpenClick(e) {
   }
 }
 
+function bindApprovalExternalOpeners(root) {
+  const scope = root || document;
+  if (!scope || !scope.querySelectorAll) return;
+  scope.querySelectorAll('a.appr-icon-btn[data-appr-ext]').forEach((a) => {
+    if (a.dataset.apprBound === '1') return;
+    a.dataset.apprBound = '1';
+    a.addEventListener('click', onApprovalExternalOpenClick);
+  });
+}
+
 function initApprovalExternalOpeners() {
-  if (initApprovalExternalOpeners._wired) return;
-  initApprovalExternalOpeners._wired = true;
-  document.addEventListener('click', onApprovalExternalOpenClick);
+  if (!initApprovalExternalOpeners._wired) {
+    initApprovalExternalOpeners._wired = true;
+    // Capture so Reviewer and Admin both intercept before the native
+    // target=_blank tab navigation. Fallback tab still happens inside
+    // openExternalAppWindow when the side panel is blocked.
+    document.addEventListener('click', onApprovalExternalOpenClick, true);
+  }
+  bindApprovalExternalOpeners(document.getElementById('apprPanel') || document);
 }
 
 function renderApprovalPanelInto() {
@@ -12833,6 +12910,7 @@ function renderApprovalPanelInto() {
       <div>Select a request to review.</div>
       ${approvalExternalOpenRowHTML(resolveApprovalLakituUrl(null), resolveApprovalRingUrl(null))}
     </div>`;
+    if (typeof bindApprovalExternalOpeners === 'function') bindApprovalExternalOpeners(panel);
     return;
   }
   const reviewUrl = resolveApprovalLakituUrl(a);
@@ -12841,7 +12919,7 @@ function renderApprovalPanelInto() {
   const openRow = approvalExternalOpenRowHTML(reviewUrl, ringUrl);
   const parsedNote = parseApprovalQaFeedback(a.feedback_note || '');
   const decidedFeedback = decided
-    ? approvalQaFeedbackHtml(a.feedback_note || '', a.decided_by)
+    ? approvalQaFeedbackHtml(a.feedback_note || '', a.decided_by, a.status)
     : '';
   const rejectOpen = !!(adminState._apprRejectOpen && String(adminState._apprSelected) === String(a.approval_id));
   const qaChecks = APPROVAL_QA_REASONS.map(r => `
@@ -12903,6 +12981,7 @@ function renderApprovalPanelInto() {
     adminState._apprRejectOpen = false;
     renderApprovalPanelInto();
   });
+  if (typeof bindApprovalExternalOpeners === 'function') bindApprovalExternalOpeners(panel);
 }
 
 function selectApproval(id) {
@@ -15321,36 +15400,73 @@ function currentModeratorFencePos() {
   return (typeof state !== 'undefined' && state && state.lastGeo) ? state.lastGeo : null;
 }
 
-function arrivalUnlockTitle(kind, check) {
-  if (!check || check.reason === 'noassignment') return 'Unlocks when a booked session is available and you are at the assigned address.';
-  if (check.reason === 'nolocation' || check.reason === 'stale') return 'Unlocks when your live location is available at the assigned address.';
-  if (check.reason === 'nogeocode') return 'Unlocks when the assigned address can be placed on the map.';
-  if (check.reason === 'outside') return 'Unlocks when you are inside the assigned address area.';
-  return kind === 'arrived' ? "Mark that you've arrived at the participant's home" : 'Confirm arrival at the assigned location';
+function requiredEquipmentPacked(eqState) {
+  const list = (typeof EQUIPMENT_LIST !== 'undefined') ? EQUIPMENT_LIST : [];
+  const required = list.filter(e => e && !e.optional);
+  if (!required.length) return true;
+  const eq = eqState || ((typeof state !== 'undefined' && state && state.equipment) ? state.equipment : {});
+  return required.every(e => eq && eq[e.id]);
+}
+
+function arrivalFenceReasonPhrase(check) {
+  if (!check || check.reason === 'noassignment') return 'a booked session is available and you are at the assigned address';
+  if (check.reason === 'nolocation' || check.reason === 'stale') return 'your live location is available at the assigned address';
+  if (check.reason === 'nogeocode') return 'the assigned address can be placed on the map';
+  if (check.reason === 'outside' || !(check.known && check.inside)) return 'you are inside the assigned address area';
+  return '';
+}
+
+function arrivalUnlockHelper(kind, check, equipmentReady) {
+  const eqOk = (equipmentReady == null)
+    ? ((typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true)
+    : !!equipmentReady;
+  const inFence = !!(check && check.known && check.inside);
+  if (eqOk && inFence) {
+    return {
+      unlocked: true,
+      title: kind === 'arrived' ? "Mark that you've arrived at the participant's home" : 'Confirm arrival at the assigned location',
+      helper: '',
+    };
+  }
+  const parts = [];
+  if (!eqOk) parts.push('all required equipment is packed');
+  const fencePart = arrivalFenceReasonPhrase(check);
+  if (!inFence && fencePart) parts.push(fencePart);
+  const helper = parts.length
+    ? ('Confirm Arrival unlocks when ' + (parts.length === 2 ? parts[0] + ' and ' + parts[1] : parts[0]) + '.')
+    : 'Confirm Arrival unlocks when equipment is packed and you are inside the assigned address area.';
+  return { unlocked: false, title: helper, helper };
+}
+
+function arrivalUnlockTitle(kind, check, equipmentReady) {
+  const gate = arrivalUnlockHelper(kind, check, equipmentReady);
+  return gate.title;
 }
 
 function refreshArrivalUnlockControls() {
   const asgn = bookedSessionForArrivalUnlock();
   const pos = currentModeratorFencePos();
   const check = liveLocationInsideAssignmentFence(asgn, pos);
-  const unlocked = !!(check && check.known && check.inside);
+  const eqOk = (typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true;
+  const gate = arrivalUnlockHelper('worklog', check, eqOk);
+  const unlocked = !!gate.unlocked;
   document.querySelectorAll('.worklog-btn-arrival').forEach(btn => {
     if (!btn || btn.classList.contains('worklog-btn-start')) return;
     btn.disabled = !unlocked;
     btn.classList.toggle('worklog-btn-disabled', !unlocked);
     btn.classList.toggle('worklog-btn-primary', unlocked);
-    btn.title = arrivalUnlockTitle('worklog', check);
+    btn.title = arrivalUnlockTitle('worklog', check, eqOk);
   });
   const welcome = document.getElementById('welcomeArrivalBtn');
   if (welcome) {
     welcome.disabled = !unlocked;
-    welcome.title = arrivalUnlockTitle('worklog', check);
+    welcome.title = arrivalUnlockTitle('worklog', check, eqOk);
   }
   const arrived = document.getElementById('ent_arrived_btn');
   if (arrived) {
     arrived.disabled = !unlocked;
     arrived.classList.toggle('entry-arrived-btn-disabled', !unlocked);
-    arrived.title = arrivalUnlockTitle('arrived', check);
+    arrived.title = arrivalUnlockTitle('arrived', check, eqOk);
   }
 }
 
@@ -15696,6 +15812,7 @@ function hasOfficeCheckout(asgn) {
 }
 
 function hasAssignmentArrival(asgn) {
+  if (state && state.suppressAutoArrival && !state.arrivedAt) return false;
   if (state && state.arrivedAt) return true;
   return !!(asgn && (
     worklogHasStatus(asgn.id, 'arrived') ||
@@ -16062,6 +16179,7 @@ function applyOfficeCheckout(asgn, result) {
 
 function applyOperatorArrival(asgn, geoNote, result) {
   const note = geoNote || formatGeoWorklogNote('arrival', result || { role: getOperatorFenceRole(), inside: true });
+  if (state) state.suppressAutoArrival = false;
   if (asgn && typeof pushWorklogStatus === 'function') {
     pushWorklogStatus(asgn, 'arrived', { notes: note });
   }
@@ -16178,6 +16296,52 @@ async function confirmOperatorArrival() {
   return false;
 }
 
+function confirmUndoOperatorArrival() {
+  const run = () => {
+    if (typeof undoOperatorArrival === 'function') undoOperatorArrival();
+  };
+  if (typeof appConfirm === 'function') {
+    return appConfirm({
+      title: 'Undo arrival?',
+      message: 'This clears on-site arrival for this session. The progress-reminder timer will reset.',
+      confirmLabel: 'Undo arrival',
+      cancelLabel: 'Keep arrived',
+      variant: 'warning',
+    }).then((ok) => {
+      if (ok) run();
+      return !!ok;
+    });
+  }
+  if (typeof confirm === 'function' && !confirm('Undo arrival?')) return Promise.resolve(false);
+  run();
+  return Promise.resolve(true);
+}
+
+function undoOperatorArrival() {
+  if (typeof state === 'undefined' || !state) return false;
+  state.arrivedAt = '';
+  state.arrivalGeo = null;
+  state.remindersShown = [];
+  state.suppressAutoArrival = true;
+  if (typeof saveState === 'function') saveState();
+  const asgn = (typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof bookedSessionForArrivalUnlock === 'function')
+      ? bookedSessionForArrivalUnlock()
+      : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  if (asgn && typeof pushWorklogStatus === 'function') {
+    try { pushWorklogStatus(asgn, 'office_checkin', { notes: 'arrival undone', allowDowngrade: true }); }
+    catch (_) {}
+  }
+  if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  if (typeof stopPerHourReminder === 'function') stopPerHourReminder();
+  try {
+    if (typeof refreshGeoFlowUi === 'function') refreshGeoFlowUi();
+    else if (typeof renderApp === 'function') renderApp();
+  } catch (_) {}
+  return true;
+}
+
 /**
  * Foreground auto state machine. Safe to call often; gated by _geoFlowBusy.
  * Does NOT check out at the participant house — checkout only at HQ after
@@ -16215,6 +16379,7 @@ async function tickModeratorGeoFlow(opts) {
 
     // 2) Auto-confirm arrival when already inside the assignment fence
     if (asgn && !hasAssignmentArrival(asgn) && !isSessionCompleteForGeo(asgn)) {
+      if (state && state.suppressAutoArrival) return;
       const home = await checkParticipantGeofence(asgn);
       if (home.ok && !home.skipped) {
         applyOperatorArrival(asgn, formatGeoWorklogNote('arrival', home), home);
@@ -34326,7 +34491,14 @@ function mergeTeammateState(syncableState) {
   if (syncableState.participantId)      state.participantId      = syncableState.participantId;
   if (syncableState.participantName)    state.participantName    = syncableState.participantName;
   if (syncableState.participantAddress) state.participantAddress = syncableState.participantAddress;
-  if (syncableState.sessionDate)        state.sessionDate        = syncableState.sessionDate;
+  if (syncableState.sessionDate) {
+    const incomingDate = String(syncableState.sessionDate).trim();
+    const asgn = (typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
+    const booked = asgn && asgn.date ? String(asgn.date).trim() : '';
+    if (!booked || incomingDate === booked) state.sessionDate = incomingDate;
+  }
   // Carry the completion marker forward if it's NEWER than ours.
   // Newest wins · once any device marks the session complete, all
   // other devices should reflect that.
@@ -34350,7 +34522,9 @@ function mergeTeammateState(syncableState) {
   if (syncableState.arrivedAt) {
     const incoming = String(syncableState.arrivedAt);
     const current  = String(state.arrivedAt || '');
-    if (!current || incoming < current) {
+    if (state.suppressAutoArrival && !current) {
+      // Intentional undo · do not restore a teammate/cloud arrival stamp.
+    } else if (!current || incoming < current) {
       state.arrivedAt = incoming;
       // Don't carry remindersShown · they're personal device state.
       // Reset the local list so this device gets its own reminder
@@ -34458,7 +34632,14 @@ function applySelfSyncReplace(s) {
   state.participantId      = s.participantId      || '';
   state.participantName    = s.participantName    || '';
   state.participantAddress = s.participantAddress || '';
-  state.sessionDate        = s.sessionDate        || '';
+  if (s.sessionDate) {
+    const incomingDate = String(s.sessionDate).trim();
+    const asgn = (typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
+    const booked = asgn && asgn.date ? String(asgn.date).trim() : '';
+    if (!booked || incomingDate === booked) state.sessionDate = incomingDate;
+  }
   state.equipment          = (s.equipment && typeof s.equipment === 'object') ? { ...s.equipment } : {};
   state.stations           = (s.stations && typeof s.stations === 'object')
     ? JSON.parse(JSON.stringify(s.stations))
@@ -34466,7 +34647,13 @@ function applySelfSyncReplace(s) {
   state.sessionCompletedAt = s.sessionCompletedAt || null;
   state.stationCompletedAt = (s.stationCompletedAt && typeof s.stationCompletedAt === 'object')
     ? { ...s.stationCompletedAt } : (state.stationCompletedAt || {});
-  state.arrivedAt          = s.arrivedAt          || '';
+  if (state.suppressAutoArrival && !s.arrivedAt) {
+    state.arrivedAt = '';
+  } else if (state.suppressAutoArrival && !state.arrivedAt) {
+    state.arrivedAt = '';
+  } else {
+    state.arrivedAt          = s.arrivedAt          || '';
+  }
   state.officeCheckedInAt  = s.officeCheckedInAt  || '';
   state.officeCheckedOutAt = s.officeCheckedOutAt || '';
   if (typeof shouldKeepLocalLastGeo === 'function' && shouldKeepLocalLastGeo(state.lastGeo, s.lastGeo)) {
@@ -35036,7 +35223,7 @@ function pushWorklogStatus(asgn, status, opts) {
   if (existing && existing.status === status) {
     return existing;
   }
-  if (existing && statusOrderIdx(existing.status) >= 0 && statusOrderIdx(status) >= 0
+  if (!opts.allowDowngrade && existing && statusOrderIdx(existing.status) >= 0 && statusOrderIdx(status) >= 0
       && statusOrderIdx(existing.status) >= statusOrderIdx(status)) {
     return existing;
   }
@@ -40460,30 +40647,19 @@ function renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, is
   }
 
   if (myIdx < arrivedIdx && teamIdx < arrivedIdx) {
-    if (!equipmentReady) {
-      return `<div class="worklog-row">
-        <div class="worklog-copy">
-          <strong>Pack your equipment first.</strong> Once everything is checked off, you'll be able to confirm arrival here.
-        </div>
-        <button class="worklog-btn worklog-btn-disabled" disabled>
-          Confirm Arrival
-        </button>
-      </div>`;
-    }
     prefetchAssignmentFenceGeocode(asgn);
     const fencePos = currentModeratorFencePos();
     const fenceCheck = liveLocationInsideAssignmentFence(asgn, fencePos);
-    const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
-    const fenceCopy = inFence
+    const gate = arrivalUnlockHelper('worklog', fenceCheck, equipmentReady);
+    const unlocked = !!gate.unlocked;
+    const helper = unlocked
       ? 'You are at the assigned location. Confirm arrival.'
-      : (fenceCheck.reason === 'outside'
-        ? 'Confirm Arrival unlocks when you are inside the assigned address area.'
-        : 'Confirm Arrival unlocks when your live location is inside the assigned address area.');
+      : (gate.helper || 'Confirm Arrival unlocks when required equipment is packed and you are inside the assigned address area.');
     return `<div class="worklog-row">
       <div class="worklog-copy">
-        ${inFence ? 'When you arrive at the assigned location, confirm arrival.' : fenceCopy}
+        ${unlocked ? 'When you arrive at the assigned location, confirm arrival.' : helper}
       </div>
-      <button class="worklog-btn worklog-btn-arrival ${inFence ? 'worklog-btn-primary' : 'worklog-btn-disabled'}" ${inFence ? '' : 'disabled'} title="${escapeHTML(arrivalUnlockTitle('worklog', fenceCheck))}">
+      <button class="worklog-btn worklog-btn-arrival ${unlocked ? 'worklog-btn-primary' : 'worklog-btn-disabled'}" ${unlocked ? '' : 'disabled'} title="${escapeHTML(arrivalUnlockTitle('worklog', fenceCheck, equipmentReady))}">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
           <path d="M8 14c3-3.5 5-6 5-8a5 5 0 0 0-10 0c0 2 2 4.5 5 8z" stroke="currentColor" stroke-width="1.4"/>
           <circle cx="8" cy="6" r="1.5" stroke="currentColor" stroke-width="1.4"/>
@@ -40569,6 +40745,9 @@ function applyAssignmentToEntryFields() {
   const asgn = (typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment()
     : getOperatorAssignment();
+  if (typeof syncSessionDateFromActiveAssignment === 'function') {
+    syncSessionDateFromActiveAssignment(asgn);
+  }
   if (!asgn || !asgn.participantData) return;
   const contact = (typeof assignmentParticipantContact === 'function')
     ? assignmentParticipantContact(asgn)
@@ -40986,16 +41165,28 @@ function maybeResetStaleSession() {
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return false;
   const today = getPSTDateString();
   const sd = state.sessionDate || '';
-  // Only reset when there is a real prior-day date. A fresh defaultState
-  // (sessionDate = today) or a today/future session is left untouched.
-  if (!sd || sd >= today) return false;
-  console.log('[Twilight] Stale session on load (sessionDate ' + sd + ' < ' + today + ') · resetting to a fresh session for today.');
+  const asgn = (typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
+  const asgnDate = asgn && asgn.date ? String(asgn.date).trim() : '';
+  const yearOff = !!(sd && today && sd.slice(0, 4) && today.slice(0, 4) && sd.slice(0, 4) !== today.slice(0, 4)
+    && (!asgnDate || sd.slice(0, 4) !== asgnDate.slice(0, 4)));
+  const priorDay = !!(sd && sd < today && (!asgnDate || sd !== asgnDate));
+  // Only reset when there is a real prior-day / wrong-year date. A fresh
+  // defaultState (sessionDate = today) or a today/future session that
+  // matches the active assignment is left untouched.
+  if (!priorDay && !yearOff) {
+    if (typeof syncSessionDateFromActiveAssignment === 'function') syncSessionDateFromActiveAssignment(asgn);
+    return false;
+  }
+  console.log('[Twilight] Stale session on load (sessionDate ' + sd + ' vs today ' + today + (asgnDate ? ' asgn ' + asgnDate : '') + ') · resetting to a fresh session for today.');
   resetOperatorSessionState({ preserveEquipment: true });
   state.sessionCompletedAt = null;
   // defaultState() seeds sessionDate from local time (todayISO); align it
   // to the PST reference day so the comparison basis stays consistent.
-  state.sessionDate = today;
+  state.sessionDate = asgnDate || today;
   saveState();
+  if (typeof syncSessionDateFromActiveAssignment === 'function') syncSessionDateFromActiveAssignment(asgn);
   return true;
 }
 
