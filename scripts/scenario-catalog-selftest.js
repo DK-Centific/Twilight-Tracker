@@ -23,6 +23,7 @@ vm.runInContext(src.slice(begin, end + '/* SCENARIO_CATALOG_END */'.length), con
 const {
   scenarioCatalogKey,
   applyScenarioCatalogEdit,
+  resolveScenarioCatalogEditorName,
   undoScenarioCatalogChange,
   redoScenarioCatalogChange,
   lastUndoableScenarioChange,
@@ -67,6 +68,27 @@ const first = applyScenarioCatalogEdit(
   'Admin-Twilight'
 );
 assert('edit records a changelog entry', first.changed && first.entry && first.entry.id);
+assert('edit stamps the passed editor name', first.entry.by === 'Admin-Twilight');
+assert('blank editor name falls back to Admin', applyScenarioCatalogEdit(
+  { overrides: {}, changelog: [] },
+  'station1',
+  '01',
+  { name: 'Air Cal · blank by', id: 'CAL_EXT', description: 'Hold' },
+  '   '
+).entry.by === 'Admin');
+assert('named admin username wins over profile display name',
+  typeof resolveScenarioCatalogEditorName === 'function'
+    && resolveScenarioCatalogEditorName({ username: 'jsmith', modProfile: { name: 'Jane Smith' } }) === 'jsmith');
+assert('Admin-Twilight login stamps Admin-Twilight',
+  resolveScenarioCatalogEditorName({ username: 'Admin-Twilight' }) === 'Admin-Twilight');
+assert('admin-orbit alias maps to Admin-Twilight',
+  resolveScenarioCatalogEditorName({ username: 'admin-orbit' }) === 'Admin-Twilight');
+assert('whitespace username falls back to profile name',
+  resolveScenarioCatalogEditorName({ username: '  ', modProfile: { name: 'Ritu Shah' } }) === 'Ritu Shah');
+assert('empty session falls back to Admin',
+  resolveScenarioCatalogEditorName({}) === 'Admin');
+assert('Master Admin named account uses Orbit login id',
+  resolveScenarioCatalogEditorName({ username: 'Ritu-Orbit', modProfile: { name: 'Ritu' } }) === 'Ritu-Orbit');
 assert('edit stores before/after', first.entry.before.name !== first.entry.after.name
   && first.entry.after.description === 'Hold the board high');
 assert('summary names the changed fields', /title|description/.test(scenarioCatalogPatchSummary(first.entry.before, first.entry.after, 'station1')));
@@ -293,8 +315,18 @@ assert('editor card still renders when both rigs are off', /cal-rig-card-editor/
   && /Rig 1/.test(emptyCard)
   && /Rig 2/.test(emptyCard));
 
-assert('APP_VERSION is 1.3.091626m', /const APP_VERSION = '1\.3\.091626m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626m'));
+assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert('editor change log is capped to 5.5 rows with hidden scrollbars',
+  html.includes('#scenCatalogModal .scen-log')
+    && html.includes('5.5 * var(--scen-log-row-h)')
+    && html.includes('scrollbar-width: none')
+    && html.includes('#scenCatalogModal .scen-log::-webkit-scrollbar'));
+assert('save stamps trimmed editor name on changelog.by',
+  /by:\s*String\(adminName \|\| ''\)\.trim\(\) \|\| 'Admin'/.test(src)
+    && /function resolveScenarioCatalogEditorName\(/.test(src)
+    && /function scenarioCatalogAdminName\(/.test(src)
+    && /applyScenarioCatalogEdit\(catalog, stationKey, num, fieldDraft, scenarioCatalogAdminName\(\)\)/.test(src));
 assert('changelog redo styles distinguish undone rows', /#scenCatalogModal \.scen-log-row\.is-undone\.is-redoable/.test(html)
   && /\.scen-log-redo/.test(html)
   && /text-decoration: line-through/.test(html));

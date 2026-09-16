@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: E2E approval / arrival / session-date fixes (v1.3.091626m).
+/* Self-test: E2E approval / arrival / session-date fixes (v1.3.091626n).
  * Covers contradictory Approved+Rejected copy, undo-arrival confirm,
  * Reviewer side-panel openers, session-date chrome, and arrival helper copy.
  */
@@ -27,8 +27,8 @@ function assert(name, cond, detail) {
 
 console.log('E2E approval / arrival / session-date self-test');
 
-assert('APP_VERSION is 1.3.091626m', /const APP_VERSION = '1\.3\.091626m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626m'));
+assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626n'));
 
 assert(
   'Approved panel does not render leftover Rejected-by copy',

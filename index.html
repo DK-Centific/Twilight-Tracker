@@ -126,7 +126,7 @@ html {
 }
 
 [data-theme="light"] {
-  /* Soft Sage Parchment · muted gold accent (v1.3.091626m) */
+  /* Soft Sage Parchment · muted gold accent (v1.3.091626n) */
   --bg: #E4EBE3;
   --bg2: #F3F0E9;
   --bg3: #DDE5DB;
@@ -2892,6 +2892,20 @@ a.icon-btn:focus-visible {
   flex: 1; min-height: 0;
   overflow: auto;
   padding: 16px 18px 188px;
+}
+/* Week + Assign-a-Team · lock page scroll so the booking shell height
+   is the dash grid. Month / assign-collapsed keep normal page scroll.
+   Inner .bk-team-list still scrolls. */
+body.booking-week-assign-open {
+  overflow: hidden;
+}
+#bookingPage.is-week-assign-open,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) {
+  overflow: hidden;
+}
+#bookingPage.is-week-assign-open .booking-page-body,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .booking-page-body {
+  overflow: hidden;
 }
 
 /* Booking dashboard · Helios surfaces on the Booking Mobile layout */
@@ -6637,6 +6651,31 @@ input#ent_lakitu.lakitu-invalid {
   background: var(--card-bg);
 }
 .scen-log { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+/* Catalog editor change log · ~5.5 rows with a half-row peek, same
+   pattern as .bk-dash-grid.is-week .bk-team-list. Scrollbar is hidden;
+   rows stay tappable for undo/redo. */
+#scenCatalogModal .scen-log {
+  --scen-log-row-h: 56px;
+  --scen-log-gap: 8px;
+  gap: var(--scen-log-gap);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  scrollbar-color: transparent transparent;
+  -ms-overflow-style: none;
+  max-height: calc(
+    (5.5 * var(--scen-log-row-h))
+    + (5 * var(--scen-log-gap))
+  );
+}
+#scenCatalogModal .scen-log::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+  background: transparent;
+}
 .scen-log-row {
   display: flex;
   align-items: center;
@@ -17103,7 +17142,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091626m" defer></script>
+<script src="twilight.js?v=twilight-1.3.091626n" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

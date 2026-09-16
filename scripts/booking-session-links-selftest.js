@@ -211,8 +211,18 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091626m', /const APP_VERSION = '1\.3\.091626m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626m'));
+assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert(
+  'Week + assign open locks booking page scroll',
+  html.includes('body.booking-week-assign-open')
+    && html.includes('#bookingPage.is-week-assign-open')
+    && /#bookingPage\.is-week-assign-open \.booking-page-body/.test(html)
+    && /overflow:\s*hidden/.test(html.slice(html.indexOf('body.booking-week-assign-open'), html.indexOf('body.booking-week-assign-open') + 700))
+    && /function applyBookingWeekAssignScrollLock\(/.test(src)
+    && /applyBookingWeekAssignScrollLock\(view === 'week' && assignOpen\)/.test(src)
+    && /applyBookingWeekAssignScrollLock\(false\)/.test(src)
+);
 
 assert(
   'session cards put the date in bk-session-time and split time / team / address',
