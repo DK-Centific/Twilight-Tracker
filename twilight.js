@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626n';
-const APP_UPDATED_AT = '09/16/2026 04:08';
+const APP_VERSION = '1.3.091626o';
+const APP_UPDATED_AT = '09/16/2026 15:50';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5152,7 +5152,8 @@ function isTeamSessionAssignment(a) {
   const hasPart = !!(
     (a.participantOrbitId && String(a.participantOrbitId).trim()) ||
     (pd.firstName && String(pd.firstName).trim()) ||
-    (pd.lastName && String(pd.lastName).trim())
+    (pd.lastName && String(pd.lastName).trim()) ||
+    (pd.address && String(pd.address).trim())
   );
   return !hasPart && a.teamId != null && a.teamId !== '';
 }
@@ -7266,6 +7267,7 @@ const adminState = {
   calTeamFilter: null,
   bookingOpen: false,        // dedicated Booking slide page (Assignment calendar)
   bookingSearch: '',
+  bookingParticipantName: '',
   bookingAddress: '',
   bookingSelectedParticipant: null,
   bookingStartMin: 17 * 60,
@@ -7638,15 +7640,21 @@ function assignmentParticipantFieldsFromRecord(r) {
   };
 }
 
-// Shared Booking / session-card title. Prefer directory name, then
-// participant-scoped first/last, then email. Never use an OD moderator
-// name or "{mod} x {mod}" team string as the bold title.
+// Shared Booking / session-card title. OD prefers the live directory
+// name (OneData stays source of truth). Twilight-created bookings own
+// the stored participantData name so a typed / overridden name is what
+// Booking, View Assignment, and emails show. Directory fill is a
+// gap-fill only. Never use an OD moderator name or "{mod} x {mod}"
+// team string as the bold title.
 function assignmentParticipantDisplayName(asgn, opts) {
   opts = opts || {};
   const isOd = (typeof assignmentIsOdOrigin === 'function')
     ? assignmentIsOdOrigin(asgn)
     : assignmentRecordLooksOd(asgn);
   const pd = (asgn && asgn.participantData) || {};
+  let fromPd = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim();
+  if (fromPd && isOd && assignmentParticipantLabelIsUntrusted(fromPd, asgn)) fromPd = '';
+  if (!isOd && fromPd) return fromPd;
   if (asgn && asgn.participantOrbitId && typeof getLiveParticipantByAssignmentId === 'function') {
     try {
       const live = getLiveParticipantByAssignmentId(asgn.participantOrbitId);
@@ -7654,8 +7662,6 @@ function assignmentParticipantDisplayName(asgn, opts) {
       if (liveName) return liveName;
     } catch (_) { /* directory not loaded */ }
   }
-  let fromPd = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim();
-  if (fromPd && isOd && assignmentParticipantLabelIsUntrusted(fromPd, asgn)) fromPd = '';
   if (fromPd) return fromPd;
   const email = String(pd.email || '').trim();
   if (email) return email;
@@ -21484,7 +21490,7 @@ async function fetchAssignmentsFromPA() {
         savedAt: r.lastActive || new Date().toISOString(),
         source: (r.comment === 'od-sync' || odKeys.odScheduleId || odKeys.bookingGroupId || odKeys.odStatus)
           ? 'od-sync'
-          : ((r.comment === 'team-session' || (!r.assignedTo && r.teamId)) ? 'team-session' : undefined),
+          : ((r.comment === 'team-session' || (!r.assignedTo && r.teamId && !(r.address || r.participantFirstName || r.participantLastName))) ? 'team-session' : undefined),
         // Tag this assignment as having come from a remote fetch. Used by
         // the local-only merge below to distinguish "pending write" from
         // "previously synced but now deleted from Excel". Without this
@@ -22795,6 +22801,16 @@ function renderAssignment(opts) {
   const bookingSearchCaret = restoreBookingSearch
     ? [bookingSearchEl.selectionStart, bookingSearchEl.selectionEnd]
     : null;
+  const bookingNameEl = document.getElementById('bookingParticipantName');
+  const restoreBookingName = !!(bookingNameEl && document.activeElement === bookingNameEl);
+  const bookingNameCaret = restoreBookingName
+    ? [bookingNameEl.selectionStart, bookingNameEl.selectionEnd]
+    : null;
+  const bookingAddrEl = document.getElementById('bookingAddress');
+  const restoreBookingAddr = !!(bookingAddrEl && document.activeElement === bookingAddrEl);
+  const bookingAddrCaret = restoreBookingAddr
+    ? [bookingAddrEl.selectionStart, bookingAddrEl.selectionEnd]
+    : null;
 
   body.innerHTML = `
     ${showSyncBanner ? `
@@ -22850,6 +22866,22 @@ function renderAssignment(opts) {
       nextSearch.focus();
       if (bookingSearchCaret) {
         try { nextSearch.setSelectionRange(bookingSearchCaret[0], bookingSearchCaret[1]); } catch (_) {}
+      }
+    }
+  } else if (restoreBookingName) {
+    const nextName = document.getElementById('bookingParticipantName');
+    if (nextName) {
+      nextName.focus();
+      if (bookingNameCaret) {
+        try { nextName.setSelectionRange(bookingNameCaret[0], bookingNameCaret[1]); } catch (_) {}
+      }
+    }
+  } else if (restoreBookingAddr) {
+    const nextAddr = document.getElementById('bookingAddress');
+    if (nextAddr) {
+      nextAddr.focus();
+      if (bookingAddrCaret) {
+        try { nextAddr.setSelectionRange(bookingAddrCaret[0], bookingAddrCaret[1]); } catch (_) {}
       }
     }
   }
@@ -24272,10 +24304,76 @@ function bookingLooksLikeAddress(value) {
   return !!(q && /\d/.test(q));
 }
 
+/* BOOKING_MANUAL_PART_BEGIN
+ * Admin Booking: Participant name + Address can be typed (or prefilled
+ * from the roster and then overridden). Helpers are shared by the
+ * Booking dashboard, the assignment modal, and saveAssignment.
+ */
+function bookingComposePersonName(part) {
+  if (!part) return '';
+  return [part.firstName, part.lastName].filter(Boolean).join(' ').trim();
+}
+
+function assignmentManualParticipantSnapshot(m) {
+  const name = String((m && m.participantName) || '').trim();
+  const addr = String((m && m.participantAddress) || '').trim();
+  const split = (typeof splitAssignmentPersonName === 'function')
+    ? splitAssignmentPersonName(name)
+    : (function (full) {
+        const parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+        return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
+      })(name);
+  return { name, addr, split };
+}
+
+function assignmentModalHasParticipant(m) {
+  if (!m) return false;
+  if (m.participantOrbitId) return true;
+  const snap = assignmentManualParticipantSnapshot(m);
+  if (snap.name || snap.addr) return true;
+  const ov = m.participantOverride || {};
+  return !!(
+    String(ov.firstName || '').trim()
+    || String(ov.lastName || '').trim()
+    || String(ov.address || '').trim()
+  );
+}
+
+function applyManualParticipantFieldsToData(participantData, m, live) {
+  const out = Object.assign({}, participantData || {});
+  const snap = assignmentManualParticipantSnapshot(m);
+  const liveName = bookingComposePersonName(live);
+  const liveAddr = live
+    ? ((typeof formatParticipantAddressLine === 'function')
+        ? formatParticipantAddressLine(live)
+        : [live.address, live.state, live.zipCode].filter(Boolean).join(', '))
+    : '';
+  if (snap.name) {
+    out.firstName = snap.split.firstName;
+    out.lastName = snap.split.lastName;
+  }
+  if (m && (m.participantAddress != null)) {
+    out.address = snap.addr;
+    if (snap.addr && snap.addr !== String(liveAddr || '').trim()) {
+      // Typed address is the whole line. Drop leftover roster state/zip
+      // so formatParticipantAddressLine does not append the old city.
+      out.state = '';
+      out.zipCode = '';
+    }
+  }
+  const nameChanged = !!(snap.name && snap.name !== liveName);
+  const addrChanged = !!(snap.addr && snap.addr !== String(liveAddr || '').trim());
+  const custom = !live || nameChanged || addrChanged;
+  return { participantData: out, custom: !!(custom && (snap.name || snap.addr)) };
+}
+/* BOOKING_MANUAL_PART_END */
+
 function bookingCurrentAddress() {
   const clean = (v) => (typeof sanitizeSharePointPlainText === 'function')
     ? sanitizeSharePointPlainText(v)
     : String(v == null ? '' : v).trim();
+  const explicit = clean((adminState && adminState.bookingAddress) || '');
+  if (explicit) return explicit;
   const part = adminState && adminState.bookingSelectedParticipant;
   if (part && (part.address || part.state || part.zipCode)) {
     const line = (typeof formatParticipantAddressLine === 'function')
@@ -24283,8 +24381,6 @@ function bookingCurrentAddress() {
       : [part.address, part.state, part.zipCode].filter(Boolean).join(', ');
     if (line) return line;
   }
-  const explicit = clean((adminState && adminState.bookingAddress) || '');
-  if (explicit) return explicit;
   const q = clean((adminState && adminState.bookingSearch) || '');
   if (bookingLooksLikeAddress(q)) return q;
   return '';
@@ -24806,12 +24902,18 @@ function renderBookingSuggestHTML(query) {
         <span>${escapeHTML(addr || p.email || 'No address on file')}</span>
       </button>`;
   }).join('');
-  const useNew = `
+  const useTyped = bookingLooksLikeAddress(q)
+    ? `
     <button type="button" class="bk-suggest-item is-new" data-new-address="1">
       <strong>Use this address</strong>
       <span>${escapeHTML(q)}</span>
+    </button>`
+    : `
+    <button type="button" class="bk-suggest-item is-new" data-new-name="1">
+      <strong>Use this name</strong>
+      <span>${escapeHTML(q)}</span>
     </button>`;
-  return `<div class="bk-suggest" id="bookingSuggest">${rows}${useNew}</div>`;
+  return `<div class="bk-suggest" id="bookingSuggest">${rows}${useTyped}</div>`;
 }
 
 function bookingViewMode() {
@@ -25240,7 +25342,9 @@ function renderBookingDashboardHTML() {
   const selectedPart = adminState.bookingSelectedParticipant;
   const selectedPartLabel = selectedPart
     ? ([selectedPart.firstName, selectedPart.lastName].filter(Boolean).join(' ') || selectedPart.address || 'Participant')
-    : (adminState.bookingAddress || '');
+    : '';
+  const typedName = escapeHTML(adminState.bookingParticipantName || '');
+  const typedAddr = escapeHTML(adminState.bookingAddress || '');
   const dayPills = renderBookingDayPillsHTML(weekStart, selectedStr, todayStr, bookingBookedDateSet());
   const teamCards = renderBookingTeamListHTML(selectedStr);
   const sessionCards = renderBookingSessionListHTML(sessions, sessionFilter, sessionScope);
@@ -25252,9 +25356,19 @@ function renderBookingDashboardHTML() {
   return `
     <div class="bk-dash">
       <div class="bk-search-wrap">
-        <input type="search" class="bk-search" id="bookingSearch" placeholder="Search participants..." value="${searchVal}" autocomplete="off">
-        ${selectedPartLabel && !String(adminState.bookingSearch || '').trim() ? `<div class="bk-search-picked">${escapeHTML(selectedPartLabel)}</div>` : ''}
+        <input type="search" class="bk-search" id="bookingSearch" placeholder="Search the roster…" value="${searchVal}" autocomplete="off">
+        ${selectedPartLabel ? `<div class="bk-search-picked">From list · ${escapeHTML(selectedPartLabel)} · name and address below stay editable</div>` : ''}
         ${renderBookingSuggestHTML(adminState.bookingSearch)}
+      </div>
+      <div class="bk-manual-grid">
+        <label class="bk-manual-field">
+          <span class="bk-date-label">Participant name</span>
+          <input type="text" class="bk-search bk-manual-input" id="bookingParticipantName" placeholder="Type a name, or pick from the list above" value="${typedName}" autocomplete="off">
+        </label>
+        <label class="bk-manual-field">
+          <span class="bk-date-label">Address</span>
+          <input type="text" class="bk-search bk-manual-input" id="bookingAddress" placeholder="Street, city, state, ZIP" value="${typedAddr}" autocomplete="off">
+        </label>
       </div>
       <div class="bk-dash-grid is-${view}${assignOpen ? ' is-assign-open' : ' is-assign-collapsed'}">
         <section class="bk-hero">
@@ -25384,25 +25498,29 @@ function bindBookingSuggestEvents() {
   box.querySelectorAll('.bk-suggest-item').forEach(item => {
     item.addEventListener('mousedown', (e) => e.preventDefault());
     item.addEventListener('click', () => {
+      const sanitize = (v) => (typeof sanitizeSharePointPlainText === 'function')
+        ? sanitizeSharePointPlainText(v)
+        : String(v || '').trim();
       if (item.dataset.newAddress) {
         adminState.bookingSelectedParticipant = null;
-        adminState.bookingAddress = (typeof sanitizeSharePointPlainText === 'function')
-          ? sanitizeSharePointPlainText(adminState.bookingSearch)
-          : String(adminState.bookingSearch || '').trim();
-        adminState.bookingSearch = adminState.bookingAddress;
+        adminState.bookingAddress = sanitize(adminState.bookingSearch);
+        adminState.bookingSearch = '';
+      } else if (item.dataset.newName) {
+        adminState.bookingSelectedParticipant = null;
+        adminState.bookingParticipantName = sanitize(adminState.bookingSearch);
+        adminState.bookingSearch = '';
       } else {
         const id = item.dataset.partId;
         const match = bookingSearchMatches().find(p => bookingParticipantId(p) === id)
           || (typeof normalizeParticipants === 'function' ? normalizeParticipants().find(p => bookingParticipantId(p) === id) : null);
         adminState.bookingSelectedParticipant = match || null;
+        adminState.bookingParticipantName = match
+          ? (bookingComposePersonName(match) || sanitize(adminState.bookingSearch))
+          : sanitize(adminState.bookingSearch);
         adminState.bookingAddress = (match && (typeof formatParticipantAddressLine === 'function')
           ? formatParticipantAddressLine(match)
-          : (match && match.address)) || ((typeof sanitizeSharePointPlainText === 'function')
-          ? sanitizeSharePointPlainText(adminState.bookingSearch)
-          : String(adminState.bookingSearch || '').trim());
-        adminState.bookingSearch = match
-          ? ([match.firstName, match.lastName].filter(Boolean).join(' ') || match.address || '')
-          : adminState.bookingSearch;
+          : (match && match.address)) || '';
+        adminState.bookingSearch = '';
       }
       renderAssignment();
     });
@@ -25440,15 +25558,12 @@ function bindBookingDashboardEvents() {
     search.addEventListener('input', (e) => {
       adminState.bookingSearch = e.target.value;
       adminState.bookingSelectedParticipant = null;
-      adminState.bookingAddress = '';
       refreshBookingSuggest();
     });
     search.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         adminState.bookingSearch = '';
-        adminState.bookingAddress = '';
-        adminState.bookingSelectedParticipant = null;
         renderAssignment();
         const next = document.getElementById('bookingSearch');
         if (next) next.focus();
@@ -25459,7 +25574,9 @@ function bindBookingDashboardEvents() {
         if (first) first.click();
         else {
           const typed = String(adminState.bookingSearch || '').trim();
-          adminState.bookingAddress = bookingLooksLikeAddress(typed) ? typed : '';
+          if (bookingLooksLikeAddress(typed)) adminState.bookingAddress = typed;
+          else if (typed) adminState.bookingParticipantName = typed;
+          adminState.bookingSearch = '';
           renderAssignment();
         }
       }
@@ -25468,17 +25585,21 @@ function bindBookingDashboardEvents() {
       setTimeout(() => {
         const box = document.getElementById('bookingSuggest');
         if (box) box.remove();
-        if (String(adminState.bookingSearch || '').trim() && !adminState.bookingSelectedParticipant && !adminState.bookingAddress) {
-          const typed = String(adminState.bookingSearch || '').trim();
-          adminState.bookingAddress = bookingLooksLikeAddress(typed) ? typed : '';
-          // Keep the current drawer if a team/assignment popup is open.
-          // Those popups live in this same host — a full re-render would
-          // close New Team right after the address is copied in.
-          const modal = document.getElementById('asgnModal');
-          const modalOpen = !!(adminState.modal || (modal && modal.classList.contains('open')));
-          if (adminState.bookingAddress && !modalOpen) renderAssignment();
-        }
       }, 180);
+    });
+  }
+
+  const nameEl = document.getElementById('bookingParticipantName');
+  if (nameEl) {
+    nameEl.addEventListener('input', (e) => {
+      adminState.bookingParticipantName = e.target.value;
+    });
+  }
+  const addrEl = document.getElementById('bookingAddress');
+  if (addrEl) {
+    addrEl.addEventListener('input', (e) => {
+      adminState.bookingAddress = e.target.value;
+      if (typeof refreshBookingTeamList === 'function') refreshBookingTeamList();
     });
   }
   bindBookingSuggestEvents();
@@ -25538,24 +25659,40 @@ function bindBookingDashboardEvents() {
       const startMin = adminState.bookingStartMin != null ? adminState.bookingStartMin : BOOKING_DEFAULT_START_MIN;
       const endMin = adminState.bookingEndMin != null ? adminState.bookingEndMin : BOOKING_DEFAULT_END_MIN;
       const part = adminState.bookingSelectedParticipant;
-      const customAddr = String(adminState.bookingAddress || '').trim();
-      const override = (part || customAddr) ? {
-        firstName: part ? part.firstName : '',
-        lastName: part ? part.lastName : '',
+      const typedName = String(adminState.bookingParticipantName || '').trim();
+      const typedAddr = String(adminState.bookingAddress || '').trim();
+      const nameFromPart = part
+        ? ((typeof bookingComposePersonName === 'function')
+            ? bookingComposePersonName(part)
+            : [part.firstName, part.lastName].filter(Boolean).join(' ').trim())
+        : '';
+      const addrFromPart = part
+        ? (((typeof formatParticipantAddressLine === 'function')
+            ? formatParticipantAddressLine(part)
+            : part.address) || '')
+        : '';
+      const name = typedName || nameFromPart;
+      const addr = typedAddr || addrFromPart;
+      const split = (typeof splitAssignmentPersonName === 'function')
+        ? splitAssignmentPersonName(name)
+        : { firstName: name, lastName: '' };
+      const override = (part || name || addr) ? {
+        firstName: (typedName || !part) ? split.firstName : (part.firstName || ''),
+        lastName: (typedName || !part) ? split.lastName : (part.lastName || ''),
         email: part ? part.email : '',
         phone: part ? part.phone : '',
-        address: (part && part.address) || customAddr,
-        state: part ? part.state : '',
-        zipCode: part ? part.zipCode : '',
+        address: addr,
+        state: (part && addr === addrFromPart) ? part.state : '',
+        zipCode: (part && addr === addrFromPart) ? part.zipCode : '',
       } : null;
       openAssignmentModal(dateStr, startMin, {
         teamId: adminState._selectedTeam || undefined,
         startMin,
         endMin,
         participantOrbitId: part ? bookingParticipantId(part) : undefined,
-        partSearch: part
-          ? ([part.firstName, part.lastName].filter(Boolean).join(' ') || part.address || '')
-          : customAddr,
+        participantName: name,
+        participantAddress: addr,
+        partSearch: name || addr,
         participantOverride: override,
       });
     });
@@ -28635,6 +28772,12 @@ function openAssignmentModal(dateStr, slotMin, opts) {
     partSearch: opts.partSearch || '',
     partFilter: 'all',  // 'all' | 'booked' | 'available'
     partPage: 1,
+    // Typed Participant name + Address. Prefill from a roster pick or
+    // from Booking dashboard fields; stay editable so admin can override
+    // or book someone who is missing from the master list.
+    participantName: opts.participantName || '',
+    participantAddress: opts.participantAddress || '',
+    odLocked: !!opts.odLocked,
     // Per-booking participant info override. null = use the live
     // participant's data unchanged. When non-null, this object (with
     // keys firstName, lastName, email, phone, address, state, zipCode)
@@ -28646,6 +28789,14 @@ function openAssignmentModal(dateStr, slotMin, opts) {
     // needs to live on adminState.modal here.
     participantOverride: opts.participantOverride || null,
   };
+  if (!adminState.modal.participantName && opts.participantOverride) {
+    adminState.modal.participantName = (typeof bookingComposePersonName === 'function')
+      ? bookingComposePersonName(opts.participantOverride)
+      : [opts.participantOverride.firstName, opts.participantOverride.lastName].filter(Boolean).join(' ').trim();
+  }
+  if (!adminState.modal.participantAddress && opts.participantOverride && opts.participantOverride.address) {
+    adminState.modal.participantAddress = String(opts.participantOverride.address || '').trim();
+  }
   renderAssignmentModal();
   showAsgnModal();
 }
@@ -28702,7 +28853,21 @@ function openEditAssignmentModal(asgnId) {
         address: pd.address || '', state: pd.state || '', zipCode: pd.zipCode || '',
       };
     }
+  } else if (a.participantData) {
+    const pd = a.participantData;
+    savedOverride = {
+      firstName: pd.firstName || '', lastName: pd.lastName || '',
+      email: pd.email || '', phone: pd.phone || '',
+      address: pd.address || '', state: pd.state || '', zipCode: pd.zipCode || '',
+    };
   }
+
+  const pd = a.participantData || {};
+  const savedName = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim();
+  const savedAddr = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : (pd.address || '');
+  const odLocked = (typeof assignmentIsOdOrigin === 'function') ? assignmentIsOdOrigin(a) : false;
 
   adminState.modal = {
     kind: 'editAssignment',
@@ -28719,6 +28884,9 @@ function openEditAssignmentModal(asgnId) {
     partSearch: '',
     partFilter: 'all',
     partPage: 1,
+    participantName: savedName,
+    participantAddress: savedAddr,
+    odLocked,
     // Pre-seeded override from saved participantData (if it diverged
     // from live). The edit popup opens on demand via the inline
     // trigger button rendered in the parent modal.
@@ -29303,7 +29471,22 @@ function renderAssignmentModal() {
       </div>
 
       <div class="asgn-field">
-        <label class="asgn-field-label">Participant</label>
+        <label class="asgn-field-label">Participant name</label>
+        <input type="text" id="asgnPartName" value="${escapeHTML(m.participantName || '')}" placeholder="First and last name" ${m.odLocked ? 'readonly' : ''} autocomplete="off">
+        <div class="asgn-field-hint">${m.odLocked
+          ? 'This session is from OneData. Name stays with OD.'
+          : 'Type a name, or pick someone from the roster below to fill it in. You can still edit after picking.'}</div>
+      </div>
+      <div class="asgn-field">
+        <label class="asgn-field-label">Address</label>
+        <textarea id="asgnPartAddress" rows="2" placeholder="Street, city, state, ZIP" ${m.odLocked ? 'readonly' : ''}>${escapeHTML(m.participantAddress || '')}</textarea>
+        <div class="asgn-field-hint">${m.odLocked
+          ? 'This session is from OneData. Address stays with OD.'
+          : 'Type an address even if the person is missing from the master list.'}</div>
+      </div>
+
+      <div class="asgn-field">
+        <label class="asgn-field-label">Roster</label>
         ${filterPillsHTML}
         <div class="part-pick-search-wrap">
           <span class="part-pick-search-icon" aria-hidden="true">
@@ -29318,7 +29501,7 @@ function renderAssignmentModal() {
         </div>
         <div class="part-pick-list">${participantList}</div>
         ${paginationHTML}
-        <div class="asgn-field-hint">${participantHint}</div>
+        <div class="asgn-field-hint">${participantHint}${m.odLocked ? '' : ' · optional · pick to fill name and address above'}</div>
       </div>
       ${(() => {
         // =================================================================
@@ -29525,7 +29708,7 @@ function renderAssignmentModal() {
     <div class="asgn-modal-foot">
       <button class="btn btn-ghost" id="asgnCancelBtn">Cancel</button>
       ${(() => {
-        if (!(m.teamId && m.participantOrbitId)) {
+        if (!(m.teamId && (typeof assignmentModalHasParticipant === 'function' ? assignmentModalHasParticipant(m) : m.participantOrbitId))) {
           return `<button class="btn btn-primary" id="asgnSaveBtn" disabled>${isEdit ? 'Save changes' : 'Save'}</button>`;
         }
         const sel = allParticipants.find(p => {
@@ -29597,22 +29780,72 @@ function renderAssignmentModal() {
       renderAssignmentModal();
     });
   }
-  document.getElementById('asgnNewTeamBtn').addEventListener('click', () => {
-    adminState.modal.inlineTeamCreate = true;
-    renderAssignmentModal();
-  });
+  const newTeamBtn = document.getElementById('asgnNewTeamBtn');
+  if (newTeamBtn) {
+    newTeamBtn.addEventListener('click', () => {
+      adminState.modal.inlineTeamCreate = true;
+      renderAssignmentModal();
+    });
+  }
+  const refreshAsgnManualSaveButton = () => {
+    const btn = document.getElementById('asgnSaveBtn');
+    const cur = adminState.modal;
+    if (!btn || !cur) return;
+    if (btn.getAttribute('title') && /already booked on this team/i.test(btn.getAttribute('title') || '')) return;
+    const ok = !!(cur.teamId && (typeof assignmentModalHasParticipant === 'function'
+      ? assignmentModalHasParticipant(cur)
+      : cur.participantOrbitId));
+    btn.disabled = !ok;
+  };
+  const nameInput = document.getElementById('asgnPartName');
+  if (nameInput) {
+    nameInput.addEventListener('input', e => {
+      if (!adminState.modal || adminState.modal.odLocked) return;
+      adminState.modal.participantName = e.target.value;
+      refreshAsgnManualSaveButton();
+    });
+  }
+  const addrInput = document.getElementById('asgnPartAddress');
+  if (addrInput) {
+    addrInput.addEventListener('input', e => {
+      if (!adminState.modal || adminState.modal.odLocked) return;
+      adminState.modal.participantAddress = e.target.value;
+      refreshAsgnManualSaveButton();
+    });
+  }
   document.querySelectorAll('.part-pick-item').forEach(item => {
     item.addEventListener('click', () => {
       const newPid = item.dataset.pid;
+      // Clicking the selected row clears the roster pick but keeps any
+      // typed name/address, so admin can book a walk-in without a list row.
+      // OD sessions keep the roster row — OneData stays the source of truth.
+      if (adminState.modal.participantOrbitId === newPid) {
+        if (adminState.modal.odLocked) return;
+        adminState.modal.participantOrbitId = null;
+        adminState.modal.participantOverride = null;
+        renderAssignmentModal();
+        return;
+      }
       // If admin picks a DIFFERENT participant than the one currently in
       // the modal, drop any in-progress participantOverride · the override
       // was scoped to the previous person, and carrying it over would
       // silently apply their custom email/phone/address to the new person.
-      // Same-participant re-clicks (e.g., toggling) preserve the override.
       if (adminState.modal.participantOrbitId !== newPid) {
         adminState.modal.participantOverride = null;
       }
       adminState.modal.participantOrbitId = newPid;
+      const picked = (adminState.participants ? normalizeParticipants() : []).find(p => {
+        const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
+        return id === newPid;
+      });
+      if (picked) {
+        adminState.modal.participantName = (typeof bookingComposePersonName === 'function')
+          ? bookingComposePersonName(picked)
+          : [picked.firstName, picked.lastName].filter(Boolean).join(' ').trim();
+        adminState.modal.participantAddress = (typeof formatParticipantAddressLine === 'function')
+          ? (formatParticipantAddressLine(picked) || picked.address || '')
+          : (picked.address || '');
+      }
       renderAssignmentModal();
     });
   });
@@ -29844,6 +30077,14 @@ function openParticipantOverrideModal() {
       if (newVal !== liveVal) final[f] = typed;
     }
     adminState.modal.participantOverride = Object.keys(final).length > 0 ? final : null;
+    if (adminState.modal) {
+      const fn = (modal.querySelector('.asgn-part-override-input[data-pf="firstName"]') || {}).value || '';
+      const ln = (modal.querySelector('.asgn-part-override-input[data-pf="lastName"]') || {}).value || '';
+      const addr = (modal.querySelector('.asgn-part-override-input[data-pf="address"]') || {}).value || '';
+      adminState.modal.participantName = [fn, ln].filter(v => String(v || '').trim()).join(' ').trim()
+        || adminState.modal.participantName || '';
+      if (addr != null) adminState.modal.participantAddress = String(addr).trim();
+    }
     close();
     renderAssignmentModal(); // Refresh the chip / button in parent modal.
   };
@@ -29882,7 +30123,8 @@ function openParticipantOverrideModal() {
 
 async function saveAssignment() {
   const m = adminState.modal;
-  if (!m.teamId || !m.participantOrbitId) return;
+  if (!m.teamId) return;
+  if (typeof assignmentModalHasParticipant === 'function' ? !assignmentModalHasParticipant(m) : !m.participantOrbitId) return;
   const isEdit = m.kind === 'editAssignment';
 
   const team = adminState.teams.find(t => t.id === m.teamId);
@@ -30122,6 +30364,19 @@ async function saveAssignment() {
     if (orig) participantData = orig.participantData;
   }
 
+  // Typed Participant name + Address from the Booking / assignment form.
+  // These win over the live roster snapshot so admin can book a walk-in
+  // (no roster row) or override an incomplete Excel address. OD edit
+  // keeps the fields read-only (odLocked), so this does not fight OD.
+  let manualCustom = false;
+  if (!m.odLocked && typeof applyManualParticipantFieldsToData === 'function') {
+    const applied = applyManualParticipantFieldsToData(participantData, m, participant);
+    participantData = applied.participantData;
+    manualCustom = !!applied.custom;
+  } else if (!participantData) {
+    participantData = {};
+  }
+
   // Apply per-booking participant info override on top of the resolved
   // data. m.participantOverride is set when admin used the "Edit
   // participant info for this booking" inline panel. Any keys present
@@ -30189,7 +30444,7 @@ async function saveAssignment() {
       // explicit flag documents intent. Once set, sticks even if a
       // later edit clears the override · admin can manually re-fetch
       // master-list data by Undo-override-ing in the modal.
-      _customParticipantInfo: m.participantOverride && Object.keys(m.participantOverride).length > 0
+      _customParticipantInfo: (m.participantOverride && Object.keys(m.participantOverride).length > 0) || manualCustom
         ? true
         : (existing._customParticipantInfo || false),
       modSnapshots: modSnapshots,
@@ -30244,7 +30499,7 @@ async function saveAssignment() {
       endMin: m.endMin,
       participantOrbitId: m.participantOrbitId,
       participantData: participantData,
-      _customParticipantInfo: !!(m.participantOverride && Object.keys(m.participantOverride).length > 0),
+      _customParticipantInfo: !!(m.participantOverride && Object.keys(m.participantOverride).length > 0) || manualCustom,
       modSnapshots: modSnapshots,
       status: 'Booked',
       comment: '',

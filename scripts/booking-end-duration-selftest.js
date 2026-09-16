@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 
 console.log('Booking end-from-start +8h self-test');
 
-assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert('APP_VERSION is 1.3.091626o', /const APP_VERSION = '1\.3\.091626o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626o'));
 assert('duration constant is 8 hours', /const BOOKING_DEFAULT_DURATION_MIN = 8 \* 60/.test(src));
 assert('default end is start + duration',
   /const BOOKING_DEFAULT_END_MIN = BOOKING_DEFAULT_START_MIN \+ BOOKING_DEFAULT_DURATION_MIN/.test(src));
