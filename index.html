@@ -2906,6 +2906,11 @@ body.booking-week-assign-open {
 #bookingPage.is-week-assign-open .booking-page-body,
 #bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .booking-page-body {
   overflow: hidden;
+  overscroll-behavior: none;
+}
+#bookingPage.is-week-assign-open .bk-dash,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-dash {
+  padding-bottom: 0;
 }
 
 /* Booking dashboard · Helios surfaces on the Booking Mobile layout */

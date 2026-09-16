@@ -24876,6 +24876,8 @@ function applyBookingWeekAssignScrollLock(weekAssignOpen) {
   document.body.classList.toggle('booking-week-assign-open', lock);
   const page = document.getElementById('bookingPage');
   if (page) page.classList.toggle('is-week-assign-open', lock);
+  const body = document.getElementById('bookingSubtabBody');
+  if (lock && body) body.scrollTop = 0;
 }
 
 function applyBookingMotionChrome() {
@@ -25411,6 +25413,7 @@ function bindBookingDashboardEvents() {
   const body = document.getElementById('bookingSubtabBody');
   if (!body || typeof isBookingOpen !== 'function' || !isBookingOpen()) return;
   armBookingMotion();
+  applyBookingMotionChrome();
   if (typeof paintBookingHeliosWeather === 'function') paintBookingHeliosWeather();
 
   body.querySelectorAll('.bk-view-btn').forEach(btn => {

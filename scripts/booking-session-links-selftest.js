@@ -222,6 +222,8 @@ assert(
     && /function applyBookingWeekAssignScrollLock\(/.test(src)
     && /applyBookingWeekAssignScrollLock\(view === 'week' && assignOpen\)/.test(src)
     && /applyBookingWeekAssignScrollLock\(false\)/.test(src)
+    && /function bindBookingDashboardEvents\(/.test(src)
+    && /applyBookingMotionChrome\(\)/.test(src.slice(src.indexOf('function bindBookingDashboardEvents'), src.indexOf('function bindBookingDashboardEvents') + 500))
 );
 
 assert(
