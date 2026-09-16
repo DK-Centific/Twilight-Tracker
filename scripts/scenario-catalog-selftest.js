@@ -31,6 +31,8 @@ const {
   scenarioCatalogEditAllowed,
   scenarioStationTileEditAllowed,
   scenarioCatalogRigFlagsFromFields,
+  scenarioCatalogIdIsCalRig,
+  buildScenarioCatalogEditorRigCardHTML,
 } = context;
 
 let failed = 0;
@@ -132,17 +134,36 @@ assert('editor has no Required iterations field', !/Required iterations/.test(fu
 assert('editor draft no longer writes iter from a number field', /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
   && !/scenEditIter/.test(fullSrc)
   && /description: desc \? desc\.value\.trim\(\) : ''/.test(fullSrc));
-assert('editor shows cal-rig-card for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
+assert('editor shows a dedicated cal-rig-card-editor for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
   && /scenEditRigHost/.test(fullSrc)
-  && /calRigChecksHTML\(/.test(fullSrc)
+  && /function buildScenarioCatalogEditorRigCardHTML\(/.test(fullSrc)
+  && /cal-rig-card-editor/.test(fullSrc)
+  && /cal-rig-edit-toggle/.test(fullSrc)
   && /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc));
+assert('editor does not reuse the live station calRigChecksHTML card', (() => {
+  const start = fullSrc.indexOf('function scenarioCatalogEditorRigHTML');
+  const end = fullSrc.indexOf('function applyScenarioCatalogRigsToSession');
+  if (start < 0 || end < 0 || end <= start) return false;
+  return !/calRigChecksHTML\(/.test(fullSrc.slice(start, end));
+})());
 assert('editor rig card is draft-editable until save', /function paintScenarioCatalogEditorRigHost\(/.test(fullSrc)
   && /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
   && /draft\.rig1Completed/.test(fullSrc)
   && /draft\.rig2Completed/.test(fullSrc)
-  && /applyScenarioCatalogRigsToSession\(/.test(fullSrc));
-assert('editor checkboxes are not session-lock gated', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
-  && !/applyCalRigInputFromElement\(inp\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'))));
+  && /applyScenarioCatalogRigsToSession\(/.test(fullSrc)
+  && /function applyScenarioCatalogEditorRigVisuals\(/.test(fullSrc));
+assert('editor toggles are buttons, not hidden station checkboxes', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
+  && /cal-rig-edit-toggle/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard')))
+  && !/applyCalRigInputFromElement\(inp\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard')))
+  && !/\.cal-rig-input/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor does not rebuild the card on every toggle', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
+  && !/paintScenarioCatalogEditorRigHost\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor undo refills before cloud persist', /function applyScenarioCatalogUndoLocal\(/.test(fullSrc)
+  && /applyScenarioCatalogUndoLocal\(btn\.dataset\.chg\)/.test(fullSrc)
+  && /refill\(\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor rig flags do not fall back to the live session row', /function scenarioCatalogEditorRigFlags\(/.test(fullSrc)
+  && /rig1: false, rig2: false/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML')))
+  && !/state\.stations\[stationKey\]/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML'))));
 
 const rigFlags = scenarioCatalogRigFlagsFromFields(
   { rig1Completed: true, rig2Completed: false },
@@ -170,6 +191,31 @@ const undoneRigs = undoScenarioCatalogChange(onlyRigs.catalog, onlyRigs.entry.id
 assert('undo restores previous rig flags', undoneRigs.undone
   && !undoneRigs.catalog.overrides['station1|01'].rig1Completed
   && !undoneRigs.catalog.overrides['station1|01'].rig2Completed);
+
+assert('cal id helper trims and ignores case', typeof scenarioCatalogIdIsCalRig === 'function'
+  && scenarioCatalogIdIsCalRig(' cal_ext ')
+  && scenarioCatalogIdIsCalRig({ id: 'Cal_Gnd' })
+  && !scenarioCatalogIdIsCalRig({ id: 'CAL_PHONE' })
+  && !scenarioCatalogIdIsCalRig({ id: '3' }));
+
+const editorCard = typeof buildScenarioCatalogEditorRigCardHTML === 'function'
+  ? buildScenarioCatalogEditorRigCardHTML({ rig1: true, rig2: false })
+  : '';
+assert('editor card HTML is a dedicated interactive control', /cal-rig-card-editor/.test(editorCard)
+  && /Catalog default · editable/.test(editorCard)
+  && /cal-rig-edit-toggle/.test(editorCard)
+  && /aria-pressed="true"/.test(editorCard)
+  && /aria-pressed="false"/.test(editorCard)
+  && !/cal-rig-input/.test(editorCard)
+  && !/type="checkbox"/.test(editorCard)
+  && !/Mark each rig/.test(editorCard)
+  && !/Approval review unlocks/.test(editorCard));
+const emptyCard = typeof buildScenarioCatalogEditorRigCardHTML === 'function'
+  ? buildScenarioCatalogEditorRigCardHTML({ rig1: false, rig2: false })
+  : '';
+assert('editor card still renders when both rigs are off', /cal-rig-card-editor/.test(emptyCard)
+  && /Rig 1/.test(emptyCard)
+  && /Rig 2/.test(emptyCard));
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');

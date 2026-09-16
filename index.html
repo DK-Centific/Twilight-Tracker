@@ -6582,19 +6582,24 @@ input#ent_lakitu.lakitu-invalid {
 #scenCatalogModal .scen-edit-actions { margin: 12px 0 4px; }
 #scenCatalogModal .scen-edit-rig { margin-top: 12px; pointer-events: auto; }
 #scenCatalogModal .scen-edit-rig:empty { display: none; }
-#scenCatalogModal .cal-rig-card { margin: 0; pointer-events: auto; }
-#scenCatalogModal .cal-rig-check {
-  position: relative;
+#scenCatalogModal .cal-rig-card-editor {
+  margin: 0;
+  pointer-events: auto;
+}
+#scenCatalogModal .cal-rig-edit-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
   pointer-events: auto;
   cursor: pointer;
 }
-#scenCatalogModal .cal-rig-input {
-  pointer-events: auto;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  margin: 0;
+#scenCatalogModal .cal-rig-edit-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .cl-scen-num {
   font-family: var(--font-num);
@@ -17019,7 +17024,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091626e" defer></script>
+<script src="twilight.js?v=twilight-1.3.091626f" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
