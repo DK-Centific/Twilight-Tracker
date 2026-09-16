@@ -57,6 +57,22 @@ assert('edit stores before/after', first.entry.before.name !== first.entry.after
   && first.entry.after.description === 'Hold the board high');
 assert('summary names the changed fields', /title|description/.test(scenarioCatalogPatchSummary(first.entry.before, first.entry.after, 'station1')));
 
+const noIter = applyScenarioCatalogEdit(
+  {
+    overrides: {
+      'station1|01': { num: '01', id: 'CAL_EXT', name: 'Air Cal', iter: 2, description: 'old' },
+    },
+    changelog: [],
+  },
+  'station1',
+  '01',
+  { name: 'Air Cal · no iter field', id: 'CAL_EXT', description: 'Hold the board high' },
+  'Admin-Twilight'
+);
+assert('save without iter keeps the previous iteration target', noIter.changed
+  && Number(noIter.entry.after.iter) === 2
+  && Number(noIter.entry.before.iter) === 2);
+
 const last = lastUndoableScenarioChange(first.catalog);
 assert('last undoable is the new edit', last && last.id === first.entry.id);
 
@@ -111,6 +127,16 @@ assert('cover-flow tiles include the station pencil', /function scenarioFlowTile
 assert('editor from station tiles requires Master Admin', /opts\.fromStation/.test(fullSrc)
   && /liveScenarioStationTileEditAllowed\(\)/.test(fullSrc));
 assert('save refreshes station view as well as Checklist', /function refreshScenarioCatalogSurfaces\(/.test(fullSrc));
+assert('editor has no Required iterations field', !/Required iterations/.test(fullSrc) && !/scenEditIter/.test(fullSrc));
+assert('editor draft no longer writes iter from a number field', /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
+  && !/scenEditIter/.test(fullSrc)
+  && /description: desc \? desc\.value\.trim\(\) : ''/.test(fullSrc));
+assert('editor shows cal-rig-card for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
+  && /scenEditRigHost/.test(fullSrc)
+  && /calRigChecksHTML\(/.test(fullSrc)
+  && /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc));
+assert('editor rig card reuses station persist helper', /function applyCalRigInputFromElement\(/.test(fullSrc)
+  && /applyCalRigInputFromElement\(inp\)/.test(fullSrc));
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');

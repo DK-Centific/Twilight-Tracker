@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626b';
-const APP_UPDATED_AT = '09/16/2026 01:40';
+const APP_VERSION = '1.3.091626c';
+const APP_UPDATED_AT = '09/16/2026 01:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -345,6 +345,39 @@ function applyCalRigChecks(sd, sc, rig1, rig2) {
     sd.status = (next1 || next2) ? 'Partially Recorded' : 'Not Started';
   }
   return sd;
+}
+
+// Shared persist path for station tiles and the Scenario edit modal.
+// Writes the same rig1Completed / rig2Completed row the CAL_EXT / CAL_GND
+// cards already use. Returns null when locked or the row is missing.
+function applyCalRigInputFromElement(inp) {
+  if (!inp) return null;
+  if (typeof isSessionLocked === 'function' && isSessionLocked()) {
+    inp.checked = !inp.checked;
+    return null;
+  }
+  const num = inp.dataset.num;
+  const k = inp.dataset.key;
+  const sc = (typeof state !== 'undefined' && state && state.stations
+    && state.stations[k] && state.stations[k].scenarios)
+    ? state.stations[k].scenarios[num] : null;
+  if (!sc) return null;
+  const stDef = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
+    ? STATIONS.find(s => s.key === k) : null;
+  const scDef = stDef && stDef.scenarios
+    ? stDef.scenarios.find(s => String(s.num) === String(num)) : null;
+  const flags = normalizeCalRigFlags(sc);
+  const next1 = inp.dataset.rig === '1' ? inp.checked : flags.rig1;
+  const next2 = inp.dataset.rig === '2' ? inp.checked : flags.rig2;
+  const wasDone = typeof isScenarioDoneForStation === 'function' && isScenarioDoneForStation(sc);
+  applyCalRigChecks(sc, scDef, next1, next2);
+  if (typeof saveState === 'function') saveState();
+  if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  if (!wasDone && typeof isScenarioDoneForStation === 'function' && isScenarioDoneForStation(sc)
+      && typeof markScenarioFlowAdvance === 'function') {
+    markScenarioFlowAdvance(k, num);
+  }
+  return { stationKey: k, num, sc, scDef };
 }
 
 function isScenarioComplete(sc) {
@@ -3926,25 +3959,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
     inp.addEventListener('click', e => e.stopPropagation());
     inp.addEventListener('change', e => {
       e.stopPropagation();
-      if (typeof isSessionLocked === 'function' && isSessionLocked()) {
-        inp.checked = !inp.checked;
-        return;
-      }
-      const num = inp.dataset.num;
-      const k = inp.dataset.key;
-      const sc = state.stations[k] && state.stations[k].scenarios[num];
-      if (!sc) return;
-      const stDef = STATIONS.find(s => s.key === k);
-      const scDef = stDef && stDef.scenarios
-        ? stDef.scenarios.find(s => String(s.num) === String(num)) : null;
-      const flags = normalizeCalRigFlags(sc);
-      const next1 = inp.dataset.rig === '1' ? inp.checked : flags.rig1;
-      const next2 = inp.dataset.rig === '2' ? inp.checked : flags.rig2;
-      const wasDone = isScenarioDoneForStation(sc);
-      applyCalRigChecks(sc, scDef, next1, next2);
-      saveState();
-      if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
-      if (!wasDone && isScenarioDoneForStation(sc)) markScenarioFlowAdvance(k, num);
+      if (!applyCalRigInputFromElement(inp)) return;
       renderApp();
     });
   });
@@ -36696,7 +36711,7 @@ function renderAdminChecklist(body) {
                   <div class="cl-scen-id">${escapeHTML(String(sc.id))}</div>
                   <div class="cl-scen-name">${escapeHTML(sc.name || '')}</div>
                   ${desc ? `<div class="cl-scen-desc">${escapeHTML(desc)}</div>` : ''}
-                  <div class="cl-scen-meta">${sc.recordFlow ? 'Record flow' : (Number(sc.iter) > 0 ? Number(sc.iter) + ' iter' : '')}</div>
+                  <div class="cl-scen-meta">${sc.recordFlow ? 'Record flow' : (isCalRigScenario(sc) ? 'Rig 1 / Rig 2' : (Number(sc.iter) > 0 ? Number(sc.iter) + ' iter' : ''))}</div>
                 </article>
               `;
             }).join('')}
@@ -36734,6 +36749,16 @@ function renderAdminChecklist(body) {
   }
 }
 
+function scenarioCatalogEditorRigHTML(stationKey, num, scOrId) {
+  if (typeof isCalRigScenario !== 'function' || !isCalRigScenario(scOrId)) return '';
+  const sd = (typeof state !== 'undefined' && state && state.stations
+    && state.stations[stationKey] && state.stations[stationKey].scenarios)
+    ? state.stations[stationKey].scenarios[num] : {};
+  return typeof calRigChecksHTML === 'function'
+    ? calRigChecksHTML(stationKey, num, sd || {})
+    : '';
+}
+
 function scenarioCatalogEditorHTML(stationKey, num) {
   const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
     ? STATIONS.find(s => s.key === stationKey) : null;
@@ -36749,8 +36774,7 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       <input class="tf-title" id="scenEditId" maxlength="40" placeholder="CAL_EXT" value="${escapeHTML(sc.id || '')}">
       <label class="tf-draft-hint" for="scenEditDesc">Description / instructions</label>
       <textarea class="tf-note" id="scenEditDesc" rows="5" placeholder="What the moderator should do">${escapeHTML(sc.description || '')}</textarea>
-      <label class="tf-draft-hint" for="scenEditIter">Required iterations</label>
-      <input class="tf-title" id="scenEditIter" type="number" min="1" max="99" value="${escapeHTML(String(sc.iter || 1))}">
+      <div id="scenEditRigHost" class="scen-edit-rig">${scenarioCatalogEditorRigHTML(stationKey, num, sc)}</div>
       <div class="cl-hero-actions scen-edit-actions">
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenEditUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
       </div>
@@ -36761,6 +36785,37 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       </div>
     </div>
   `;
+}
+
+function refreshScenarioCatalogEditorRigHost() {
+  const modal = document.getElementById('scenCatalogModal');
+  const host = document.getElementById('scenEditRigHost');
+  if (!modal || !host) return;
+  const stationKey = modal.dataset.station;
+  const num = modal.dataset.num;
+  const idEl = document.getElementById('scenEditId');
+  const live = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
+  const id = (idEl && idEl.value.trim()) || live.id;
+  host.innerHTML = scenarioCatalogEditorRigHTML(stationKey, num, { id });
+  bindScenarioCatalogEditorRigCard();
+}
+
+function bindScenarioCatalogEditorRigCard() {
+  const host = document.getElementById('scenEditRigHost');
+  if (!host) return;
+  host.querySelectorAll('.cal-rig-input').forEach(inp => {
+    inp.addEventListener('click', e => e.stopPropagation());
+    inp.addEventListener('change', e => {
+      e.stopPropagation();
+      if (!applyCalRigInputFromElement(inp)) return;
+      refreshScenarioCatalogEditorRigHost();
+      try {
+        const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+        const inStationView = !adminApp || !adminApp.classList.contains('active');
+        if (inStationView && typeof renderApp === 'function') renderApp();
+      } catch (_) {}
+    });
+  });
 }
 
 function bindScenarioCatalogEditorChrome() {
@@ -36790,18 +36845,21 @@ function bindScenarioCatalogEditorChrome() {
       }
     });
   }
+  const idEl = document.getElementById('scenEditId');
+  if (idEl) {
+    idEl.addEventListener('input', refreshScenarioCatalogEditorRigHost);
+  }
+  bindScenarioCatalogEditorRigCard();
 }
 
 function collectScenarioCatalogEditorDraft() {
   const title = document.getElementById('scenEditTitle');
   const idEl = document.getElementById('scenEditId');
   const desc = document.getElementById('scenEditDesc');
-  const iter = document.getElementById('scenEditIter');
   return {
     name: title ? title.value.trim() : '',
     id: idEl ? idEl.value.trim() : '',
     description: desc ? desc.value.trim() : '',
-    iter: Math.max(1, Math.min(99, parseInt(iter && iter.value, 10) || 1)),
   };
 }
 
