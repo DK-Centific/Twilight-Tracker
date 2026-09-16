@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626c';
-const APP_UPDATED_AT = '09/16/2026 01:55';
+const APP_VERSION = '1.3.091626d';
+const APP_UPDATED_AT = '09/16/2026 02:20';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8201,8 +8201,8 @@ function openBookingPage() {
   if (adminState.calView === 'day' || adminState.calView === 'list') {
     adminState.calView = 'week';
   }
-  adminState.bookingStartMin = 17 * 60;
-  adminState.bookingEndMin = 25 * 60;
+  adminState.bookingStartMin = BOOKING_DEFAULT_START_MIN;
+  adminState.bookingEndMin = bookingDefaultEndFromStart(BOOKING_DEFAULT_START_MIN);
   adminState.bookingAssignOpen = true;
   adminState.bookingSessionFilter = 'all';
   adminState.bookingSessionScope = 'week';
@@ -24039,11 +24039,24 @@ function renderCalendarToolbarHTML(view, periodLabel) {
 }
 
 /* ----------- Booking dashboard (Booking Mobile layout.html) ----------- */
+const BOOKING_DEFAULT_DURATION_MIN = 8 * 60;
 const BOOKING_DEFAULT_START_MIN = 17 * 60;
-const BOOKING_DEFAULT_END_MIN = 25 * 60;
+const BOOKING_DEFAULT_END_MIN = BOOKING_DEFAULT_START_MIN + BOOKING_DEFAULT_DURATION_MIN;
+
+function bookingWrapClockMin(min) {
+  const n = Number(min);
+  if (!Number.isFinite(n)) return 0;
+  return ((n % (24 * 60)) + (24 * 60)) % (24 * 60);
+}
+
+function bookingDefaultEndFromStart(startMin) {
+  const start = Number(startMin);
+  if (!Number.isFinite(start)) return BOOKING_DEFAULT_END_MIN;
+  return start + BOOKING_DEFAULT_DURATION_MIN;
+}
 
 function fmtBookingClock(min) {
-  const wrapped = ((min % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const wrapped = bookingWrapClockMin(min);
   const h = Math.floor(wrapped / 60);
   const m = wrapped % 60;
   const ampm = h >= 12 ? 'PM' : 'AM';
@@ -24058,14 +24071,14 @@ function bookingClockToMin(hhmm) {
 }
 
 function bookingMinToInput(min) {
-  const wrapped = ((min % (24 * 60)) + (24 * 60)) % (24 * 60);
+  const wrapped = bookingWrapClockMin(min);
   const h = Math.floor(wrapped / 60);
   const mm = wrapped % 60;
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function bookingNormalizeEndMin(startMin, endClockMin) {
-  if (endClockMin == null) return BOOKING_DEFAULT_END_MIN;
+  if (endClockMin == null) return bookingDefaultEndFromStart(startMin);
   if (endClockMin <= startMin) return endClockMin + (24 * 60);
   return endClockMin;
 }
@@ -25291,16 +25304,21 @@ function bindBookingDashboardEvents() {
 
   const startInput = document.getElementById('bookingStartTime');
   const endInput = document.getElementById('bookingEndTime');
-  const applyTimes = () => {
+  if (startInput) startInput.addEventListener('change', () => {
+    const startClock = bookingClockToMin(startInput.value);
+    if (startClock == null) return;
+    adminState.bookingStartMin = startClock;
+    adminState.bookingEndMin = bookingDefaultEndFromStart(startClock);
+    renderAssignment();
+  });
+  if (endInput) endInput.addEventListener('change', () => {
     const startClock = bookingClockToMin(startInput && startInput.value);
-    const endClock = bookingClockToMin(endInput && endInput.value);
+    const endClock = bookingClockToMin(endInput.value);
     if (startClock == null || endClock == null) return;
     adminState.bookingStartMin = startClock;
     adminState.bookingEndMin = bookingNormalizeEndMin(startClock, endClock);
     renderAssignment();
-  };
-  if (startInput) startInput.addEventListener('change', applyTimes);
-  if (endInput) endInput.addEventListener('change', applyTimes);
+  });
 
   const assignToggle = document.getElementById('bookingAssignToggle');
   if (assignToggle) {
@@ -25418,7 +25436,7 @@ function renderCalendarPanelHTML() {
 //
 // Click behavior:
 //   Empty cell  → opens openAssignmentModal pre-filled with the team
-//                 and a full work-day time range (9 AM – 5 PM).
+//                 and start + 8 hours.
 //   Filled cell → opens the existing view-assignment modal.
 // ------------------------------------------------------------
 function renderTeamGridHTML(days) {
@@ -27237,12 +27255,13 @@ function bindAssignmentEvents() {
         openViewAssignmentModal(asgnId);
         return;
       }
-      // Empty cell · full work-day default (9 AM – 5 PM = 8 hours of work).
+      // Empty cell · full work-day default (start + 8 hours).
       // Admin can still adjust the time inside the modal if needed.
-      openAssignmentModal(dateStr, 9 * 60, {
+      const startMin = 9 * 60;
+      openAssignmentModal(dateStr, startMin, {
         teamId: teamId,
-        startMin: 9 * 60,
-        endMin: 17 * 60,
+        startMin,
+        endMin: bookingDefaultEndFromStart(startMin),
       });
     };
     cell.addEventListener('click', handle);
@@ -27276,11 +27295,12 @@ function bindAssignmentEvents() {
         renderAssignment();
       } else {
         // Empty cell · open the assignment modal with the date set,
-        // a sensible default time window (9 AM–5 PM), and no team.
-        // Admin picks a team and adjusts the time inside the modal.
-        openAssignmentModal(date, 9 * 60, {
-          startMin: 9 * 60,
-          endMin: 17 * 60,
+        // start + 8 hours, and no team. Admin picks a team and can
+        // still adjust the time inside the modal.
+        const startMin = 9 * 60;
+        openAssignmentModal(date, startMin, {
+          startMin,
+          endMin: bookingDefaultEndFromStart(startMin),
         });
       }
     };
@@ -27528,7 +27548,7 @@ function openScheduleByModPicker() {
           kind: 'newAssignment',
           date: dateStr,
           startMin: 9 * 60,
-          endMin: 11 * 60,
+          endMin: bookingDefaultEndFromStart(9 * 60),
           teamId: null,
           participantOrbitId: null,
           notes: '',
@@ -28408,13 +28428,14 @@ function openTeamDeleteGuardModal(teamId, buckets) {
 //   opts.teamId    · pre-select this team (e.g. when opening from a team-grid
 //              cell that already knows which row was clicked).
 //   opts.startMin  · explicit start time in minutes; overrides slotMin.
-//   opts.endMin    · explicit end time. Defaults to slotMin + CAL_SLOT_MIN
-//              for legacy callers (1-hour block) but the team-grid passes a
-//              full work-day range (9am–5pm) so the booking matches reality.
+//   opts.endMin    · explicit end time. Defaults to start + 8 hours
+//              (BOOKING_DEFAULT_DURATION_MIN). Callers that already
+//              know the window (Booking timeslot, OD-supplied end)
+//              pass it through so we don't overwrite a real end.
 function openAssignmentModal(dateStr, slotMin, opts) {
   opts = opts || {};
   const startMin = (opts.startMin != null) ? opts.startMin : slotMin;
-  const endMin   = (opts.endMin   != null) ? opts.endMin   : (slotMin + CAL_SLOT_MIN);
+  const endMin   = (opts.endMin   != null) ? opts.endMin   : bookingDefaultEndFromStart(startMin);
   const teamId   = (opts.teamId   != null)
     ? opts.teamId
     : (adminState._selectedTeam || (adminState.teams[0] && adminState.teams[0].id) || null);
@@ -28910,8 +28931,8 @@ function renderAssignmentModal() {
   })();
 
   // Time picker · start/end as <input type="time">
-  const startVal = `${String(Math.floor(m.startMin/60)).padStart(2,'0')}:${String(m.startMin%60).padStart(2,'0')}`;
-  const endVal   = `${String(Math.floor(m.endMin/60)).padStart(2,'0')}:${String(m.endMin%60).padStart(2,'0')}`;
+  const startVal = bookingMinToInput(m.startMin);
+  const endVal   = bookingMinToInput(m.endMin);
 
   const participantList = pagedOptions.length === 0
     ? (q || m.partFilter !== 'all'
@@ -29092,7 +29113,7 @@ function renderAssignmentModal() {
           <span style="color: var(--text3); font-size: 14px;">→</span>
           <input type="time" id="asgnEndTime" value="${endVal}" style="flex: 1;">
         </div>
-        <div class="asgn-field-hint" id="asgnTimeHint">${fmtTimeOfDay(m.startMin)} – ${fmtTimeOfDay(m.endMin)} · ${fmtDurationHours(m.endMin - m.startMin)}${(m.endMin - m.startMin) < 480 ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>' : ''}</div>
+        <div class="asgn-field-hint" id="asgnTimeHint">${fmtTimeOfDay(bookingWrapClockMin(m.startMin))} – ${fmtTimeOfDay(bookingWrapClockMin(m.endMin))} · ${fmtDurationHours(m.endMin - m.startMin)}${(m.endMin - m.startMin) < BOOKING_DEFAULT_DURATION_MIN ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>' : ''}</div>
       </div>
 
       <div class="asgn-field">
@@ -29356,27 +29377,37 @@ function renderAssignmentModal() {
   const startEl = document.getElementById('asgnStartTime');
   const endEl   = document.getElementById('asgnEndTime');
   const timeHint = document.getElementById('asgnTimeHint');
-  const updateTime = () => {
-    const [sh, sm] = startEl.value.split(':').map(Number);
-    const [eh, em] = endEl.value.split(':').map(Number);
-    if ([sh, sm, eh, em].some(isNaN)) return;
-    let startMin = sh * 60 + sm;
-    let endMin = eh * 60 + em;
-    if (endMin <= startMin) {
-      // Auto-correct: end must be after start. Set end to 1 hour after start.
-      endMin = startMin + 60;
-      endEl.value = `${String(Math.floor(endMin/60)).padStart(2,'0')}:${String(endMin%60).padStart(2,'0')}`;
-    }
+  const readAsgnClock = (el) => {
+    const [h, m] = String((el && el.value) || '').split(':').map(Number);
+    if ([h, m].some(isNaN)) return null;
+    return h * 60 + m;
+  };
+  const paintAsgnTimeHint = (startMin, endMin) => {
     adminState.modal.startMin = startMin;
     adminState.modal.endMin   = endMin;
     const dur = endMin - startMin;
-    const shortWarn = dur < 480
+    const shortWarn = dur < BOOKING_DEFAULT_DURATION_MIN
       ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>'
       : '';
-    timeHint.innerHTML = `${fmtTimeOfDay(startMin)} – ${fmtTimeOfDay(endMin)} · ${fmtDurationHours(dur)}${shortWarn}`;
+    if (timeHint) {
+      timeHint.innerHTML = `${fmtTimeOfDay(bookingWrapClockMin(startMin))} – ${fmtTimeOfDay(bookingWrapClockMin(endMin))} · ${fmtDurationHours(dur)}${shortWarn}`;
+    }
   };
-  startEl.addEventListener('change', updateTime);
-  endEl.addEventListener('change', updateTime);
+  startEl.addEventListener('change', () => {
+    const startMin = readAsgnClock(startEl);
+    if (startMin == null) return;
+    const endMin = bookingDefaultEndFromStart(startMin);
+    if (endEl) endEl.value = bookingMinToInput(endMin);
+    paintAsgnTimeHint(startMin, endMin);
+  });
+  endEl.addEventListener('change', () => {
+    const startMin = readAsgnClock(startEl);
+    const endClock = readAsgnClock(endEl);
+    if (startMin == null || endClock == null) return;
+    const endMin = bookingNormalizeEndMin(startMin, endClock);
+    if (endEl) endEl.value = bookingMinToInput(endMin);
+    paintAsgnTimeHint(startMin, endMin);
+  });
 
   const teamSel = document.getElementById('asgnTeamSelect');
   if (teamSel) {
