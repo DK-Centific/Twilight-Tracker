@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-16 · Cursor (Composer)  
+**Last updated:** 2026-09-16 · Cursor (Composer) · Bugbot fixes  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,10 +9,10 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091626w` (local — not pushed yet) |
-| **Live site** | https://dk-centific.github.io/Twilight-Tracker/ (still on `n` until push) |
-| **Last merged** | PR #107 — Soft Sage theme, booking week-assign scroll lock, scenario changelog cap, edited-by stamps |
-| **Local branch** | `main` · uncommitted geo/arrival + Twilight landing fix |
+| **`main` version** | `1.3.091626x` (pushed) |
+| **Live site** | https://dk-centific.github.io/Twilight-Tracker/ (deploying `x`) |
+| **Last merged** | Direct push — manual booking duplicate checks + E2E version sync |
+| **Local branch** | `main` · clean |
 
 ### Recently shipped on `main` (Sep 16)
 
