@@ -1,0 +1,12 @@
+---
+description: Agent session handoff — read and update docs/HANDOFF.md every session
+alwaysApply: true
+---
+
+# Agent handoff
+
+At **session start**, read `docs/HANDOFF.md` before making changes. It has the current version, open PRs, and what the last agent left off.
+
+At **session end**, update `docs/HANDOFF.md` with what you finished, what's blocked, branch/PR links, and the recommended next step.
+
+Stable project context lives in `AGENTS.md` (architecture, deploy rules, test commands). Grok Build reads that file automatically.

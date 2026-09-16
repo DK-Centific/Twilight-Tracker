@@ -10,19 +10,30 @@ You should see a login screen titled **Project Twilight**.
 
 If the page looks old, refresh hard: Ctrl+Shift+R (Windows) or Cmd+Shift+R (Mac).
 
+If you land on **Kilo** or an old **Orbit** page instead of Twilight, you are on a legacy bookmark or home-screen icon. Open the link above in the browser, confirm the login title says **Project Twilight**, then add that page to your home screen again (delete the old Kilo/Orbit icon first).
+
 Login IDs such as `Admin-Twilight` stay the same. The old `Admin-orbit` name still works and opens the same account.
 
 ## Local preview (before merge)
 
-Serve the **repo root** over HTTP and open `http://localhost:<port>/`. Do not open `index.html` as a file (`file://`) — some screens fetch sibling files.
+Serve the **twilight-tracker repo root** over HTTP and open `http://localhost:8080/`. Do not open `index.html` as a file (`file://`) — some screens fetch sibling files.
+
+⚠ If you see **Kilo** instead of **Project Twilight**, the preview server is running from the wrong folder (often your home folder because `~/index.html` is an old Kilo copy). Stop that server and use the script below.
 
 From the repo folder:
 
 ```bash
+./scripts/serve-twilight.sh
+```
+
+Or manually:
+
+```bash
+cd /path/to/twilight-tracker
 python3 -m http.server 8080
 ```
 
-Then open **http://localhost:8080/**
+Then open **http://localhost:8080/** — login title must say **Project Twilight**.
 
 App scripts and images are **relative** (`twilight.js`, `icons/…`, `assets/…`). There is no GitHub Pages origin check for Admin / Moderator UI.
 

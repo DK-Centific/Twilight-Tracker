@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626n';
-const APP_UPDATED_AT = '09/16/2026 04:08';
+const APP_VERSION = '1.3.091626w';
+const APP_UPDATED_AT = '09/16/2026 15:30';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -1297,11 +1297,14 @@ function renderWelcome() {
     <div class="welcome">
       <div class="welcome-eyebrow">Welcome</div>
       <h1 class="welcome-title">${escapeHTML(operatorDisplayName())}, Welcome to Project Twilight!</h1>
-      <p class="welcome-sub">Select a Station from the sidebar. Fill in the data fields, tick each step, then mark complete.</p>
+      <p class="welcome-sub">Pack your equipment, confirm arrival at the session address, then open a station from the sidebar.</p>
     </div>
     ${_syncBtnHTML}
     ${isStationAccordionMode() ? '' : entryBarHTML()}
-    ${renderWelcomeWorklogBannerHTML()}
+    <div class="operator-home-setup">
+      ${renderWelcomeWorklogBannerHTML()}
+      ${equipmentCardHTML()}
+    </div>
     <div class="card">
       <div class="card-title">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="color:var(--accent-ink)">
@@ -1333,6 +1336,8 @@ function renderWelcome() {
   `;
   bindEntryFields();
   bindWelcomeWorklogActions();
+  bindEquipmentRows();
+  if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
   // Wire the manual "Sync from teammate" button if it rendered.
   const _wsb = document.getElementById('welcomeSyncTeammateBtn');
   if (_wsb) {
@@ -1407,25 +1412,20 @@ function renderWelcomeWorklogBannerHTML() {
 
   // ---- Pre-arrival (en route) ----
   if (myIdx < arrivedIdx) {
-    if (typeof prefetchAssignmentFenceGeocode === 'function') prefetchAssignmentFenceGeocode(asgn);
-    const fencePos = (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null);
-    const fenceCheck = (typeof liveLocationInsideAssignmentFence === 'function')
-      ? liveLocationInsideAssignmentFence(asgn, fencePos)
+    const unlockCtx = (typeof resolveArrivalUnlockContext === 'function')
+      ? resolveArrivalUnlockContext(asgn)
+      : null;
+    const fenceCheck = unlockCtx
+      ? unlockCtx.check
       : { known: false, inside: false, reason: 'nolocation' };
-    const gate = (typeof arrivalUnlockHelper === 'function')
-      ? arrivalUnlockHelper('worklog', fenceCheck, equipmentReady)
-      : { unlocked: !!(equipmentReady && fenceCheck && fenceCheck.known && fenceCheck.inside), helper: '' };
-    const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
-    const unlocked = !!gate.unlocked;
-    const welcomeTitle = unlocked
-      ? 'Traveling to the assigned location'
-      : (!equipmentReady && !inFence
-        ? 'Pack equipment and reach the assigned location'
-        : (!equipmentReady ? 'Pack your equipment first' : 'Waiting for the assigned location'));
-    const welcomeSub = unlocked
-      ? `When you arrive at ${escapeHTML(((typeof assignmentParticipantContact === 'function' && assignmentParticipantContact(asgn).address) || (asgn.participantData && asgn.participantData.address) || 'the team address'))}, please confirm your arrival.`
-      : (gate.helper || 'Confirm Arrival unlocks when required equipment is packed and you are inside the assigned address area.');
-    return `<div class="welcome-worklog-banner ${unlocked ? 'ready' : 'waiting'}">
+    const bannerCopy = (typeof welcomeArrivalBannerCopy === 'function')
+      ? welcomeArrivalBannerCopy(fenceCheck, equipmentReady)
+      : { title: 'Waiting for the assigned location', sub: '', unlocked: false, gate: { unlocked: false, helper: '' } };
+    const gate = bannerCopy.gate;
+    const unlocked = !!bannerCopy.unlocked;
+    const welcomeTitle = bannerCopy.title;
+    const welcomeSub = bannerCopy.sub;
+    return `<div class="welcome-worklog-banner ${unlocked ? 'ready' : 'waiting'}" id="welcomeWorklogBanner">
       <div class="welcome-worklog-banner-icon">
         <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
           <path d="M8 14c3-3.5 5-6 5-8a5 5 0 0 0-10 0c0 2 2 4.5 5 8z" stroke="currentColor" stroke-width="1.6"/>
@@ -1572,15 +1572,13 @@ function entryBarHTML() {
   // run · explicit opt-in avoids spamming mods who haven't actually
   // started yet (e.g. opened the app over breakfast).
   const arrivedStr = state.arrivedAt ? renderArrivedPillHTML(state.arrivedAt) : '';
-  const arrivedAsgn = (typeof bookedSessionForArrivalUnlock === 'function')
-    ? bookedSessionForArrivalUnlock()
-    : null;
-  if (typeof prefetchAssignmentFenceGeocode === 'function' && arrivedAsgn) {
-    prefetchAssignmentFenceGeocode(arrivedAsgn);
-  }
-  const arrivedFence = (typeof liveLocationInsideAssignmentFence === 'function')
-    ? liveLocationInsideAssignmentFence(arrivedAsgn, (typeof currentModeratorFencePos === 'function') ? currentModeratorFencePos() : (state.lastGeo || null))
-    : { known: false, inside: false, reason: 'nolocation' };
+  const arrivedUnlockCtx = (typeof resolveArrivalUnlockContext === 'function')
+    ? resolveArrivalUnlockContext()
+    : { asgn: null, check: { known: false, inside: false, reason: 'nolocation' } };
+  const arrivedAsgn = arrivedUnlockCtx.asgn || ((typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : null);
+  const arrivedFence = arrivedUnlockCtx.check;
   const arrivedEqOk = (typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true;
   const arrivedGate = (typeof arrivalUnlockHelper === 'function')
     ? arrivalUnlockHelper('arrived', arrivedFence, arrivedEqOk)
@@ -2128,11 +2126,11 @@ function equipmentCardHTML() {
         `).join('')}
       </div>
       <div class="equipment-actions">
-        <button class="btn btn-ghost" id="eqMarkAll">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+        <button class="btn ${allRequiredPacked ? 'btn-secondary' : 'btn-primary'} eq-confirm-packed-btn" id="eqMarkAll" type="button">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <path d="M3 8.5L7 12L13 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          ${packedAll === totalAll ? 'Reset all' : 'Mark all packed'}
+          ${allRequiredPacked ? 'Reset equipment checklist' : 'Confirm equipment packed'}
         </button>
         <span style="font-size: 12px; color: var(--text3); letter-spacing: 0.02em;">
           ${packedAll} of ${totalAll} items checked${EQUIPMENT_LIST.some(i => i.optional) ? ' (incl. optional)' : ''}
@@ -2195,6 +2193,7 @@ function bindEquipmentRows() {
         if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
         renderApp();
       }
+      if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
     };
     row.addEventListener('click', toggle);
     row.addEventListener('keydown', (e) => {
@@ -2231,12 +2230,20 @@ function bindEquipmentRows() {
   // "Mark all packed" / "Reset all" button
   const markAll = document.getElementById('eqMarkAll');
   if (markAll) {
-    markAll.addEventListener('click', () => {
+    markAll.addEventListener('click', (e) => {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       const totalAll = EQUIPMENT_LIST.length;
       const packedAll = EQUIPMENT_LIST.filter(i => state.equipment[i.id]).length;
-      const setTo = !(packedAll === totalAll);
+      const setTo = allRequiredPacked() ? false : true;
       const wasComplete = allRequiredPacked();
-      EQUIPMENT_LIST.forEach(it => { state.equipment[it.id] = setTo; });
+      if (setTo) {
+        EQUIPMENT_LIST.forEach(it => { state.equipment[it.id] = true; });
+      } else {
+        EQUIPMENT_LIST.forEach(it => { state.equipment[it.id] = false; });
+      }
       const isNowComplete = allRequiredPacked();
 
       // Same auto-collapse behaviour when marking all packed
@@ -2253,13 +2260,15 @@ function bindEquipmentRows() {
           const head = document.getElementById('eqHead');
           if (card) card.classList.add('collapsed');
           if (head) head.setAttribute('aria-expanded', 'false');
+          if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
         }, 550);
       } else {
         saveState();
         if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
         renderApp();
       }
-      toast(setTo ? 'All equipment marked packed' : 'Equipment list reset');
+      toast(setTo ? 'Equipment packed — Confirm Arrival can unlock when you are at the address' : 'Equipment checklist reset');
+      if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
     });
   }
 }
@@ -8344,6 +8353,7 @@ function wireBookingPage() {
     closeBtn.addEventListener('click', () => closeBookingPage());
   }
   if (typeof initBookingOnedataOpener === 'function') initBookingOnedataOpener();
+  if (typeof initBookingOnedataRefresh === 'function') initBookingOnedataRefresh();
   if (!document._bookingEscWired) {
     document._bookingEscWired = true;
     document.addEventListener('keydown', (e) => {
@@ -9255,6 +9265,118 @@ function perfLiveStatusDisplay(a) {
   }
   if (a.status === 'Notified') return { key: 'notified', label: 'Notified' };
   return { key: 'booked', label: 'Booked' };
+}
+
+function perfAssignmentSessionRows(a) {
+  if (!a || !a.id) return [];
+  const targetExact = String(a.id);
+  const targetLoose = targetExact.trim().toLowerCase();
+  const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  return rows.filter(r => {
+    if (!r) return false;
+    const rExact = String(r.assignmentId || '');
+    return rExact === targetExact || rExact.trim().toLowerCase() === targetLoose;
+  });
+}
+
+function perfGeoTrackDisplay(a) {
+  if (!a) return null;
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id) : null;
+  const arrivedIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('arrived') : -1;
+  const liveIdx = live ? statusOrderIdx(live.status) : -1;
+  if (live && (live.status === 'arrived' || (liveIdx > arrivedIdx && live.status !== 'office_checkin'))) {
+    const who = live.moderatorName || live.moderatorId || 'Team';
+    const when = live.timestamp || live.lastActive || '';
+    const d = when ? new Date(when) : null;
+    const whenLabel = (d && !isNaN(d.getTime()))
+      ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      : '';
+    return {
+      key: 'arrived',
+      label: 'Arrival confirmed from app',
+      detail: [who, whenLabel].filter(Boolean).join(' · '),
+      title: 'Moderator confirmed arrival in the app' + (whenLabel ? (' · ' + whenLabel) : ''),
+    };
+  }
+  const rows = perfAssignmentSessionRows(a);
+  if (!rows.length) {
+    return { key: 'pending', label: 'Location pending', detail: '', title: 'No location reported yet for this booking' };
+  }
+  rows.sort((x, y) => String(y.lastActive || '').localeCompare(String(x.lastActive || '')));
+  let bestInside = null;
+  let bestOutside = null;
+  let bestAny = null;
+  for (const r of rows) {
+    let parsed = {};
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    const geo = (typeof lastGeoFromSessionRow === 'function')
+      ? lastGeoFromSessionRow(r, parsed)
+      : (parsed.lastGeo || null);
+    if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) continue;
+    const atMs = (typeof lastGeoPingAtMs === 'function')
+      ? lastGeoPingAtMs(geo)
+      : (parseLastActiveMs(r.lastActive) || Number(geo.at) || 0);
+    const pos = Object.assign({}, geo, { at: atMs || geo.at });
+    const fenceAsgn = Object.assign({}, a);
+    const rowAddr = String(r.assignmentAddress || parsed.assignmentAddress || '').trim();
+    const rowLat = Number(r.assignmentLat != null ? r.assignmentLat : parsed.assignmentLat);
+    const rowLng = Number(r.assignmentLng != null ? r.assignmentLng : parsed.assignmentLng);
+    if (rowAddr && Number.isFinite(rowLat) && Number.isFinite(rowLng) && typeof seedGeocodeCacheEntry === 'function') {
+      seedGeocodeCacheEntry(rowAddr, rowLat, rowLng);
+      if (!fenceAsgn.address) fenceAsgn.address = rowAddr;
+      fenceAsgn.assignmentLat = rowLat;
+      fenceAsgn.assignmentLng = rowLng;
+    }
+    const check = (typeof liveLocationInsideAssignmentFence === 'function')
+      ? liveLocationInsideAssignmentFence(fenceAsgn, pos, { maxAgeMs: 24 * 60 * 60 * 1000 })
+      : null;
+    const modName = (typeof getModeratorDisplayName === 'function' && r.orbitLoginId)
+      ? getModeratorDisplayName(r.orbitLoginId)
+      : (r.orbitLoginId || 'Moderator');
+    const entry = {
+      modName,
+      atMs,
+      meters: check && check.meters,
+      inside: !!(check && check.known && check.inside),
+    };
+    if (!bestAny || entry.atMs >= bestAny.atMs) bestAny = entry;
+    if (entry.inside && (!bestInside || entry.atMs >= bestInside.atMs)) bestInside = entry;
+    if (!entry.inside && check && check.known && (!bestOutside || entry.atMs >= bestOutside.atMs)) bestOutside = entry;
+  }
+  const pick = bestInside || bestOutside || bestAny;
+  if (!pick) {
+    return { key: 'pending', label: 'Location pending', detail: '', title: 'Waiting for moderator location' };
+  }
+  const whenLabel = pick.atMs
+    ? new Date(pick.atMs).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : '';
+  if (pick.inside) {
+    return {
+      key: 'ataddress',
+      label: 'At assigned address',
+      detail: [pick.modName, whenLabel].filter(Boolean).join(' · '),
+      title: 'Moderator location is inside the assignment geofence' + (whenLabel ? (' · ' + whenLabel) : ''),
+    };
+  }
+  const dist = Number.isFinite(pick.meters) ? Math.round(pick.meters) + ' m away' : 'Outside area';
+  return {
+    key: 'outside',
+    label: 'Outside assignment area',
+    detail: [pick.modName, dist, whenLabel].filter(Boolean).join(' · '),
+    title: 'Moderator is not inside the assignment geofence yet',
+  };
+}
+
+function renderPerfGeoTrackHTML(a, variant) {
+  const track = (typeof perfGeoTrackDisplay === 'function') ? perfGeoTrackDisplay(a) : null;
+  if (!track) return '';
+  const cls = variant === 'panel' ? 'perf-geo-track-pill is-panel' : 'perf-geo-track-pill';
+  const detail = track.detail
+    ? `<span class="perf-geo-track-detail">${escapeHTML(track.detail)}</span>`
+    : '';
+  return `<span class="${cls} is-${escapeHTML(track.key)}" title="${escapeHTML(track.title || track.label)}">${escapeHTML(track.label)}${detail}</span>`;
 }
 
 // Date-range filter helpers for the Performance tab.
@@ -10673,6 +10795,7 @@ function renderPerfBookingRowHTML(a, team, search) {
       <span class="perf-booking-meta">${escapeHTML(tName + (modLabel !== '·' ? ` · ${modLabel}` : ''))}</span>
       <span class="perf-booking-date">${escapeHTML(dateLabel)}</span>
       <span class="perf-booking-status-pill status-${statusKey}" title="${escapeHTML(pillTitle)}">${escapeHTML(statusLabel)}</span>${mismatchHTML}
+      ${(typeof renderPerfGeoTrackHTML === 'function') ? renderPerfGeoTrackHTML(a, 'row') : ''}
       ${lakituHTML}
     </button>
   `;
@@ -10992,6 +11115,11 @@ function openPerformancePanel(asgnId) {
       ${lakituPillHTML ? `
         <div style="margin-top: 14px;">
           ${lakituPillHTML}
+        </div>
+      ` : ''}
+      ${(typeof renderPerfGeoTrackHTML === 'function') ? `
+        <div class="perf-panel-geo-track" style="margin-top: 12px;">
+          ${renderPerfGeoTrackHTML(a, 'panel')}
         </div>
       ` : ''}
     </div>
@@ -15299,8 +15427,9 @@ function assignmentFenceAddress(asgn) {
 
 /* FENCE_UNLOCK_BEGIN */
 function lastGeoIsFreshEnough(g, maxAgeMs) {
+  if (!g || !Number.isFinite(Number(g.lat)) || !Number.isFinite(Number(g.lng))) return false;
   const at = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(g) : 0;
-  if (!at) return false;
+  if (!at) return true;
   const cap = Number(maxAgeMs) > 0 ? Number(maxAgeMs) : ((typeof GEO_PING_STALE_MS === 'number') ? GEO_PING_STALE_MS : 15 * 60 * 1000);
   return (Date.now() - at) <= cap;
 }
@@ -15317,12 +15446,43 @@ function cachedFenceDestForAddress(address) {
   return null;
 }
 
+function seedGeocodeCacheEntry(address, lat, lng) {
+  const q = String(address || '').trim();
+  const la = Number(lat);
+  const ln = Number(lng);
+  if (!q || !Number.isFinite(la) || !Number.isFinite(ln)) return;
+  const cache = (typeof loadGeocodeCache === 'function') ? loadGeocodeCache() : {};
+  const key = q.toLowerCase();
+  if (cache[key] && Number.isFinite(cache[key].lat) && Number.isFinite(cache[key].lng)) return;
+  cache[key] = { lat: la, lng: ln, at: Date.now(), seed: 'assignment' };
+  if (typeof saveGeocodeCache === 'function') saveGeocodeCache(cache);
+}
+
+function cachedFenceDestForAssignment(asgn) {
+  if (!asgn) return null;
+  const address = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(asgn) : '';
+  if (address) {
+    const hit = cachedFenceDestForAddress(address);
+    if (hit) return hit;
+  }
+  const pd = asgn.participantData || {};
+  const lat = Number(pd.lat != null ? pd.lat : (asgn.assignmentLat != null ? asgn.assignmentLat : asgn.lat));
+  const lng = Number(pd.lng != null ? pd.lng : (asgn.assignmentLng != null ? asgn.assignmentLng : asgn.lng));
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    if (address) seedGeocodeCacheEntry(address, lat, lng);
+    return { lat, lng };
+  }
+  return null;
+}
+
 function liveLocationInsideAssignmentFence(asgn, pos, opts) {
   opts = opts || {};
   const address = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(asgn) : '';
   if (!asgn) return { known: false, inside: false, reason: 'noassignment' };
   if (!address) return { known: true, inside: true, reason: 'no-address' };
-  const dest = cachedFenceDestForAddress(address);
+  const dest = (typeof cachedFenceDestForAssignment === 'function')
+    ? cachedFenceDestForAssignment(asgn)
+    : cachedFenceDestForAddress(address);
   if (!dest) return { known: false, inside: false, reason: 'nogeocode', address };
   if (!pos || !Number.isFinite(Number(pos.lat)) || !Number.isFinite(Number(pos.lng))) {
     return { known: false, inside: false, reason: 'nolocation', address };
@@ -15369,6 +15529,8 @@ function isArrivedControlUnlocked(asgn, pos) {
   if (!g) return;
   g.lastGeoIsFreshEnough = lastGeoIsFreshEnough;
   g.cachedFenceDestForAddress = cachedFenceDestForAddress;
+  g.cachedFenceDestForAssignment = cachedFenceDestForAssignment;
+  g.seedGeocodeCacheEntry = seedGeocodeCacheEntry;
   g.liveLocationInsideAssignmentFence = liveLocationInsideAssignmentFence;
   g.isWorklogUnlockedByGeofence = isWorklogUnlockedByGeofence;
   g.bookedSessionForArrivalUnlock = bookedSessionForArrivalUnlock;
@@ -15377,9 +15539,10 @@ function isArrivedControlUnlocked(asgn, pos) {
 /* FENCE_UNLOCK_END */
 
 function prefetchAssignmentFenceGeocode(asgn) {
+  if (!asgn) return;
+  if (typeof cachedFenceDestForAssignment === 'function' && cachedFenceDestForAssignment(asgn)) return;
   const address = assignmentFenceAddress(asgn);
   if (!address) return;
-  if (cachedFenceDestForAddress(address)) return;
   if (typeof geocodeAddress !== 'function') return;
   geocodeAddress(address).then(() => {
     if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
@@ -15398,7 +15561,16 @@ function scheduleArrivalUnlockUiRefresh() {
 }
 
 function currentModeratorFencePos() {
-  return (typeof state !== 'undefined' && state && state.lastGeo) ? state.lastGeo : null;
+  const myId = String((typeof moderatorGeoOrbitId === 'function')
+    ? moderatorGeoOrbitId()
+    : ((state && state.modProfile && state.modProfile.orbitLoginId) || (state && state.username) || '')).toLowerCase();
+  const local = (typeof state !== 'undefined' && state && state.lastGeo) ? state.lastGeo : null;
+  const ping = (myId && typeof loadGeoPings === 'function') ? (loadGeoPings() || {})[myId] : null;
+  if (!local) return ping || null;
+  if (!ping) return local;
+  const localAt = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(local) : Number(local.at) || 0;
+  const pingAt = (typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(ping) : Number(ping.at) || 0;
+  return pingAt >= localAt ? ping : local;
 }
 
 function requiredEquipmentPacked(eqState) {
@@ -15444,31 +15616,121 @@ function arrivalUnlockTitle(kind, check, equipmentReady) {
   return gate.title;
 }
 
-function refreshArrivalUnlockControls() {
-  const asgn = bookedSessionForArrivalUnlock();
-  const pos = currentModeratorFencePos();
-  const check = liveLocationInsideAssignmentFence(asgn, pos);
-  const eqOk = (typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true;
-  const gate = arrivalUnlockHelper('worklog', check, eqOk);
-  const unlocked = !!gate.unlocked;
+function arrivalUnlockMaxAgeMs() {
+  if (typeof isModTrackingEnabled === 'function' && isModTrackingEnabled()) {
+    return 60 * 60 * 1000;
+  }
+  return (typeof GEO_PING_STALE_MS === 'number') ? GEO_PING_STALE_MS : 15 * 60 * 1000;
+}
+
+function ensureAssignmentFenceCoords(asgn) {
+  if (!asgn) return;
+  if (typeof cachedFenceDestForAssignment === 'function' && cachedFenceDestForAssignment(asgn)) return;
+  const addr = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(asgn) : '';
+  const snap = (typeof assignmentLocationSnapshot === 'function') ? assignmentLocationSnapshot(asgn) : null;
+  if (addr && snap && Number.isFinite(snap.lat) && Number.isFinite(snap.lng)
+      && typeof seedGeocodeCacheEntry === 'function') {
+    seedGeocodeCacheEntry(addr, snap.lat, snap.lng);
+    return;
+  }
+  if (typeof prefetchAssignmentFenceGeocode === 'function') prefetchAssignmentFenceGeocode(asgn);
+}
+
+function resolveArrivalUnlockContext(asgnHint) {
+  let asgn = asgnHint || null;
+  if (!asgn && typeof bookedSessionForArrivalUnlock === 'function') asgn = bookedSessionForArrivalUnlock();
+  if (!asgn && typeof getActiveOperatorAssignment === 'function') asgn = getActiveOperatorAssignment();
+  if (asgn && typeof ensureAssignmentFenceCoords === 'function') ensureAssignmentFenceCoords(asgn);
+  const pos = (typeof currentModeratorFencePos === 'function')
+    ? currentModeratorFencePos()
+    : ((typeof state !== 'undefined' && state && state.lastGeo) ? state.lastGeo : null);
+  const maxAgeMs = arrivalUnlockMaxAgeMs();
+  const check = (typeof liveLocationInsideAssignmentFence === 'function')
+    ? liveLocationInsideAssignmentFence(asgn, pos, { maxAgeMs })
+    : { known: false, inside: false, reason: 'nolocation' };
+  return { asgn, pos, check, maxAgeMs };
+}
+
+function welcomeArrivalBannerCopy(fenceCheck, equipmentReady, unlockedHint) {
+  const inFence = !!(fenceCheck && fenceCheck.known && fenceCheck.inside);
+  const gate = (typeof arrivalUnlockHelper === 'function')
+    ? arrivalUnlockHelper('worklog', fenceCheck, equipmentReady)
+    : { unlocked: !!(equipmentReady && inFence), helper: '' };
+  const unlocked = unlockedHint != null ? !!unlockedHint : !!gate.unlocked;
+  const title = unlocked
+    ? 'You are at the assigned location'
+    : (!equipmentReady && !inFence
+      ? 'Pack equipment and reach the assigned location'
+      : (!equipmentReady ? 'Pack your equipment first' : 'Waiting for the assigned location'));
+  const sub = unlocked
+    ? 'Confirm your arrival to start the session worklog.'
+    : (gate.helper || 'Confirm Arrival unlocks when required equipment is packed and you are inside the assigned address area.');
+  return { title, sub, unlocked, gate };
+}
+
+function applyArrivalUnlockUi(check, eqOk) {
+  const worklogGate = arrivalUnlockHelper('worklog', check, eqOk);
+  const arrivedGate = arrivalUnlockHelper('arrived', check, eqOk);
+  const worklogUnlocked = !!worklogGate.unlocked;
+  const arrivedUnlocked = !!arrivedGate.unlocked;
   document.querySelectorAll('.worklog-btn-arrival').forEach(btn => {
     if (!btn || btn.classList.contains('worklog-btn-start')) return;
-    btn.disabled = !unlocked;
-    btn.classList.toggle('worklog-btn-disabled', !unlocked);
-    btn.classList.toggle('worklog-btn-primary', unlocked);
+    btn.disabled = !worklogUnlocked;
+    btn.classList.toggle('worklog-btn-disabled', !worklogUnlocked);
+    btn.classList.toggle('worklog-btn-primary', worklogUnlocked);
     btn.title = arrivalUnlockTitle('worklog', check, eqOk);
   });
   const welcome = document.getElementById('welcomeArrivalBtn');
+  const banner = document.getElementById('welcomeWorklogBanner');
   if (welcome) {
-    welcome.disabled = !unlocked;
+    welcome.disabled = !worklogUnlocked;
     welcome.title = arrivalUnlockTitle('worklog', check, eqOk);
+    welcome.classList.toggle('btn-primary', worklogUnlocked);
+    welcome.classList.toggle('btn-secondary', !worklogUnlocked);
+  }
+  if (banner) {
+    banner.classList.toggle('waiting', !worklogUnlocked);
+    banner.classList.toggle('ready', worklogUnlocked);
+    const copy = welcomeArrivalBannerCopy(check, eqOk, worklogUnlocked);
+    const titleEl = banner.querySelector('.welcome-worklog-banner-title');
+    const subEl = banner.querySelector('.welcome-worklog-banner-sub');
+    if (titleEl) titleEl.textContent = copy.title;
+    if (subEl) subEl.textContent = copy.sub;
   }
   const arrived = document.getElementById('ent_arrived_btn');
   if (arrived) {
-    arrived.disabled = !unlocked;
-    arrived.classList.toggle('entry-arrived-btn-disabled', !unlocked);
+    arrived.disabled = !arrivedUnlocked;
+    arrived.classList.toggle('entry-arrived-btn-disabled', !arrivedUnlocked);
     arrived.title = arrivalUnlockTitle('arrived', check, eqOk);
   }
+}
+
+let _arrivalUnlockPingBusy = false;
+function refreshArrivalUnlockControls() {
+  const ctx = resolveArrivalUnlockContext();
+  const { asgn, check } = ctx;
+  if (asgn && check && check.reason === 'nogeocode' && typeof geocodeAddress === 'function') {
+    const addr = check.address || assignmentFenceAddress(asgn);
+    if (addr) {
+      geocodeAddress(addr).then(() => {
+        if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
+      }).catch(() => {});
+    }
+  }
+  const eqOk = (typeof requiredEquipmentPacked === 'function') ? requiredEquipmentPacked() : true;
+  applyArrivalUnlockUi(check, eqOk);
+
+  const needsFresh = check.reason === 'stale' || check.reason === 'nolocation';
+  if (!needsFresh || _arrivalUnlockPingBusy || typeof pingModeratorLocation !== 'function') return;
+  if (typeof isModTrackingEnabled === 'function' && !isModTrackingEnabled()) return;
+  _arrivalUnlockPingBusy = true;
+  pingModeratorLocation({ syncReason: 'arrival_unlock', forceFresh: false })
+    .finally(() => { _arrivalUnlockPingBusy = false; })
+    .then(() => {
+      const next = resolveArrivalUnlockContext();
+      applyArrivalUnlockUi(next.check, eqOk);
+    })
+    .catch(() => {});
 }
 
 function loadGeocodeCache() {
@@ -15600,11 +15862,32 @@ function recordGeoPing(ping, opts) {
   const next = Object.assign({}, map[id] || {}, ping, { at: ping.at || Date.now() });
   map[id] = next;
   saveGeoPings(map);
-  if (opts.fromCloud) return;
   const myId = String((typeof moderatorGeoOrbitId === 'function')
     ? moderatorGeoOrbitId()
     : ((state && state.modProfile && state.modProfile.orbitLoginId) || '')).toLowerCase();
-  if (!state || !myId || myId !== id) return;
+  const isSelf = !!(state && myId && myId === id);
+  if (opts.fromCloud) {
+    if (isSelf) {
+      const keepLocal = (typeof shouldKeepLocalLastGeo === 'function')
+        ? shouldKeepLocalLastGeo(state.lastGeo, next)
+        : false;
+      if (!keepLocal) {
+        state.lastGeo = {
+          lat: next.lat,
+          lng: next.lng,
+          at: next.at,
+          role: next.role,
+          name: next.name,
+          accuracy: next.accuracy,
+          syncReason: next.syncReason || 'cloud',
+        };
+        try { saveState(); } catch (_) {}
+        if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
+      }
+    }
+    return;
+  }
+  if (!isSelf) return;
   state.lastGeo = {
     lat: next.lat,
     lng: next.lng,
@@ -19940,11 +20223,12 @@ table, td, div, h1, h2, h3, p { font-family: 'Segoe UI', Arial, sans-serif !impo
 </html>
 `;
 
-// Public URL for the Twilight mod app · used as the CTA target in the
-// moderator assignment email. Lives near the email config so it's
-// easy to find and update without hunting through the template body.
-// Empty string is allowed (the CTA still renders but points at #).
-const ORBIT_APP_URL = 'https://dk-centific.github.io/Orbit-Tracker/';
+// Canonical public URL for the Twilight mod app · moderator assignment
+// emails, previews, and any "Open Twilight App" CTA. Do not point this
+// at Orbit-Tracker or Kilo-Checklist (legacy apps / wrong bookmarks).
+const TWILIGHT_APP_PUBLIC_URL = 'https://dk-centific.github.io/Twilight-Tracker/';
+// Legacy placeholder name in email templates ({orbitAppUrl}).
+const ORBIT_APP_URL = TWILIGHT_APP_PUBLIC_URL;
 
 // Subject line for moderator assignment emails. Keeps it scannable
 // in a busy inbox: short, lead with the participant first name and
@@ -20014,7 +20298,7 @@ function fillModEmailTemplate(template, data) {
   // URL goes into href + VML · same handling as the participant template's
   // agreement button: not re-escaped because it's already an admin-controlled
   // safe value, and escaping would corrupt the URL.
-  const url = data.orbitAppUrl || ORBIT_APP_URL || '#';
+  const url = data.orbitAppUrl || TWILIGHT_APP_PUBLIC_URL || ORBIT_APP_URL || '#';
   return template
     .replace(/\{moderatorName\}/g,        safe(data.moderatorName))
     .replace(/\{participantName\}/g,      safe(data.participantName))
@@ -20466,7 +20750,7 @@ async function sendModBookingEmails(assignment) {
       participantPhone:   phone,
       teamMemberLine:     teamMemberLine,
       backupLine:         backupLine,
-      orbitAppUrl:        ORBIT_APP_URL,
+      orbitAppUrl:        TWILIGHT_APP_PUBLIC_URL,
       // New field · lets the template render a "(you're on backup)"
       // hint above the details card so backups know their role at a
       // glance. The template fill helper hides the row when this is
@@ -24244,6 +24528,36 @@ function bookingMinToInput(min) {
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+function assignmentCoerceClockMin(val, fallback) {
+  const n = Number(val);
+  if (!Number.isFinite(n) || n < 0) return fallback != null ? fallback : 0;
+  return n;
+}
+
+function assignmentDurationMin(startMin, endMin) {
+  const s = assignmentCoerceClockMin(startMin, 0);
+  let e = assignmentCoerceClockMin(endMin, s);
+  if (e <= s) e += 24 * 60;
+  return e - s;
+}
+
+function assignmentNormalizeStoredEndMin(startMin, endMin) {
+  const s = assignmentCoerceClockMin(startMin, BOOKING_DEFAULT_START_MIN);
+  let e = assignmentCoerceClockMin(endMin, bookingDefaultEndFromStart(s));
+  if (e <= s) e = bookingNormalizeEndMin(s, bookingWrapClockMin(e));
+  return e;
+}
+
+function assignmentTimeHintHTML(startMin, endMin) {
+  const s = assignmentCoerceClockMin(startMin, 0);
+  const e = assignmentCoerceClockMin(endMin, s);
+  const dur = assignmentDurationMin(s, e);
+  const shortWarn = dur < BOOKING_DEFAULT_DURATION_MIN
+    ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>'
+    : '';
+  return `${fmtTimeOfDay(bookingWrapClockMin(s))} – ${fmtTimeOfDay(bookingWrapClockMin(e))} · ${fmtDurationHours(dur)}${shortWarn}`;
+}
+
 function bookingNormalizeEndMin(startMin, endClockMin) {
   if (endClockMin == null) return bookingDefaultEndFromStart(startMin);
   if (endClockMin <= startMin) return endClockMin + (24 * 60);
@@ -24271,6 +24585,67 @@ function bookingLooksLikeAddress(value) {
   const q = String(value || '').trim();
   return !!(q && /\d/.test(q));
 }
+
+/* BOOKING_MANUAL_PART_BEGIN
+ * Assignment modal: Participant name + Address can be typed (or prefilled
+ * from the roster and then overridden). Shared by edit/create modal + save.
+ */
+function bookingComposePersonName(part) {
+  if (!part) return '';
+  return [part.firstName, part.lastName].filter(Boolean).join(' ').trim();
+}
+
+function assignmentManualParticipantSnapshot(m) {
+  const name = String((m && m.participantName) || '').trim();
+  const addr = String((m && m.participantAddress) || '').trim();
+  const split = (typeof splitAssignmentPersonName === 'function')
+    ? splitAssignmentPersonName(name)
+    : (function (full) {
+        const parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+        return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') };
+      })(name);
+  return { name, addr, split };
+}
+
+function assignmentModalHasParticipant(m) {
+  if (!m) return false;
+  if (m.participantOrbitId) return true;
+  const snap = assignmentManualParticipantSnapshot(m);
+  if (snap.name || snap.addr) return true;
+  const ov = m.participantOverride || {};
+  return !!(
+    String(ov.firstName || '').trim()
+    || String(ov.lastName || '').trim()
+    || String(ov.address || '').trim()
+  );
+}
+
+function applyManualParticipantFieldsToData(participantData, m, live) {
+  const out = Object.assign({}, participantData || {});
+  const snap = assignmentManualParticipantSnapshot(m);
+  const liveName = bookingComposePersonName(live);
+  const liveAddr = live
+    ? ((typeof formatParticipantAddressLine === 'function')
+        ? formatParticipantAddressLine(live)
+        : [live.address, live.state, live.zipCode].filter(Boolean).join(', '))
+    : '';
+  if (snap.name) {
+    out.firstName = snap.split.firstName;
+    out.lastName = snap.split.lastName;
+  }
+  if (m && (m.participantAddress != null)) {
+    out.address = snap.addr;
+    if (snap.addr && snap.addr !== String(liveAddr || '').trim()) {
+      out.state = '';
+      out.zipCode = '';
+    }
+  }
+  const nameChanged = !!(snap.name && snap.name !== liveName);
+  const addrChanged = !!(snap.addr && snap.addr !== String(liveAddr || '').trim());
+  const custom = !live || nameChanged || addrChanged;
+  return { participantData: out, custom: !!(custom && (snap.name || snap.addr)) };
+}
+/* BOOKING_MANUAL_PART_END */
 
 function bookingCurrentAddress() {
   const clean = (v) => (typeof sanitizeSharePointPlainText === 'function')
@@ -24438,6 +24813,48 @@ function initBookingOnedataOpener() {
   if (a && typeof ONEDATA_BOOKED_SESSIONS_URL === 'string') {
     a.setAttribute('href', ONEDATA_BOOKED_SESSIONS_URL);
   }
+}
+
+async function onBookingRefreshOnedataClick() {
+  const btn = document.getElementById('bookingRefreshOnedata');
+  if (btn && btn.disabled) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('is-syncing');
+    btn.setAttribute('aria-busy', 'true');
+  }
+  try {
+    if (typeof fetchAssignmentsFromPA === 'function') {
+      await fetchAssignmentsFromPA();
+    }
+    if (typeof isBookingOpen === 'function' && isBookingOpen()) {
+      if (typeof syncBookingDashboardFromState === 'function') {
+        syncBookingDashboardFromState({ animate: false, force: true });
+      } else if (typeof refreshBookingSessions === 'function') {
+        refreshBookingSessions({ force: true });
+      }
+    } else if (typeof refreshAssignmentViewQuietly === 'function') {
+      refreshAssignmentViewQuietly();
+    }
+    if (typeof showToast === 'function') showToast('Booking data refreshed from OneData', 'success', 3200);
+    else if (typeof toast === 'function') toast('Booking data refreshed from OneData');
+  } catch (_) {
+    if (typeof showToast === 'function') showToast('Refresh failed — showing cached data', 'error', 4000);
+    else if (typeof toast === 'function') toast('Refresh failed — showing cached data');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('is-syncing');
+      btn.removeAttribute('aria-busy');
+    }
+  }
+}
+
+function initBookingOnedataRefresh() {
+  const btn = document.getElementById('bookingRefreshOnedata');
+  if (!btn || btn._bookingRefreshWired) return;
+  btn._bookingRefreshWired = true;
+  btn.addEventListener('click', () => { onBookingRefreshOnedataClick(); });
 }
 
 // OneData origin for Booking session cards.
@@ -28645,7 +29062,21 @@ function openAssignmentModal(dateStr, slotMin, opts) {
     // a popup (openParticipantOverrideModal), so no UI-open-state
     // needs to live on adminState.modal here.
     participantOverride: opts.participantOverride || null,
+    participantName: opts.participantName || '',
+    participantAddress: opts.participantAddress || '',
+    odLocked: !!opts.odLocked,
+    teamSearch: opts.teamSearch || '',
+    teamPickOpen: !!opts.teamPickOpen,
+    rosterOpen: !!opts.rosterOpen,
   };
+  if (!adminState.modal.participantName && opts.participantOverride) {
+    adminState.modal.participantName = (typeof bookingComposePersonName === 'function')
+      ? bookingComposePersonName(opts.participantOverride)
+      : '';
+  }
+  if (!adminState.modal.participantAddress && opts.participantOverride && opts.participantOverride.address) {
+    adminState.modal.participantAddress = String(opts.participantOverride.address || '').trim();
+  }
   renderAssignmentModal();
   showAsgnModal();
 }
@@ -28704,12 +29135,22 @@ function openEditAssignmentModal(asgnId) {
     }
   }
 
+  const pd = a.participantData || {};
+  const savedName = [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim();
+  const savedAddr = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : (pd.address || '');
+  const odLocked = (typeof assignmentIsOdOrigin === 'function') ? assignmentIsOdOrigin(a) : false;
+  const startMin = assignmentCoerceClockMin(a.startMin, BOOKING_DEFAULT_START_MIN);
+  const endMin = assignmentNormalizeStoredEndMin(startMin, a.endMin);
+  const editTeam = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
+
   adminState.modal = {
     kind: 'editAssignment',
     editingId: asgnId,
     date: a.date,
-    startMin: a.startMin,
-    endMin: a.endMin,
+    startMin: startMin,
+    endMin: endMin,
     teamId: a.teamId,
     participantOrbitId: a.participantOrbitId,
     inlineTeamCreate: false,
@@ -28719,6 +29160,12 @@ function openEditAssignmentModal(asgnId) {
     partSearch: '',
     partFilter: 'all',
     partPage: 1,
+    participantName: savedName,
+    participantAddress: savedAddr,
+    odLocked,
+    teamSearch: editTeam ? editTeam.name : '',
+    teamPickOpen: false,
+    rosterOpen: false,
     // Pre-seeded override from saved participantData (if it diverged
     // from live). The edit popup opens on demand via the inline
     // trigger button rendered in the parent modal.
@@ -28973,6 +29420,9 @@ function renderAssignmentModal() {
   if (typeof m.partSearch !== 'string') m.partSearch = '';
   if (typeof m.partFilter !== 'string') m.partFilter = 'all';
   if (typeof m.partPage !== 'number')   m.partPage = 1;
+  if (typeof m.teamSearch !== 'string') m.teamSearch = '';
+  if (typeof m.teamPickOpen !== 'boolean') m.teamPickOpen = false;
+  if (typeof m.rosterOpen !== 'boolean') m.rosterOpen = false;
 
   // Compute booking status once for the whole roster · O(assignments) one-shot
   // pass, then O(1) lookup per row. Avoids re-scanning every assignment for
@@ -29038,82 +29488,84 @@ function renderAssignmentModal() {
   const pagedOptions = participantOptions.slice(pageStart, pageEnd);
 
   const teamSelect = (() => {
+    const newTeamBtn = `
+      <button type="button" class="btn btn-ghost asgn-new-team-btn" id="asgnNewTeamBtn" title="Create a new team">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        New team
+      </button>`;
     if (adminState.teams.length === 0) {
       return `
-        <div style="display: flex; gap: 8px; align-items: stretch;">
-          <div style="flex:1; padding: 10px 12px; font-size: 14px; color: var(--text3); border: 0.5px dashed var(--border-strong); border-radius: var(--r); background: var(--bg3); letter-spacing: -0.005em;">No teams yet · create one to start.</div>
-          <button class="btn btn-ghost" id="asgnNewTeamBtn" style="flex-shrink: 0; white-space: nowrap;" title="Create a new team">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-            New team
-          </button>
+        <div class="asgn-team-pick-row">
+          <div class="asgn-team-search-wrap">
+            <input type="search" id="asgnTeamSearch" class="asgn-team-search" placeholder="No teams yet · create one" disabled>
+          </div>
+          ${newTeamBtn}
         </div>
         <div class="asgn-field-hint">Pick an existing team or create one inline.</div>
       `;
     }
-    // Classify every team for this assignment's date + window. Teams
-    // with hour conflicts are still SHOWN in the dropdown so admin
-    // understands why they're filtered · but they're disabled and
-    // labeled with the reason. This avoids the "where did Team Foo
-    // go?" mystery that hard-filtering would create.
-    //
-    // Compatibility list also drives the auto-deselect step below:
-    // if the currently-selected team is no longer compatible (admin
-    // changed the date/time after picking the team), we surface a
-    // warning banner under the dropdown.
     const teamVerdicts = adminState.teams.map(t => ({
       team: t,
       verdict: (m.date && m.startMin != null && m.endMin != null)
         ? checkTeamHoursForAssignment(t, m.date, m.startMin, m.endMin)
         : { ok: true, reason: 'ok', conflicts: [], summary: '' },
     }));
-    const options = teamVerdicts.map(({ team: t, verdict }) => {
-      const label = `${escapeHTML(t.name)} · ${(t.primaryIds || []).map(id => escapeHTML(getModeratorDisplayName(id))).join(' & ') || '(no mods)'}`;
-      const suffix = verdict.ok ? '' : ` · ${escapeHTML(verdict.summary)}`;
-      const disabled = !verdict.ok ? 'disabled' : '';
-      const selected = m.teamId === t.id ? 'selected' : '';
-      return `<option value="${t.id}" ${selected} ${disabled}>${label}${suffix}</option>`;
-    }).join('');
-    // If admin had picked a team that's now incompatible (e.g., they
-    // moved the assignment date after picking), call it out clearly so
-    // the save attempt below doesn't seem to fail "silently". Save is
-    // also blocked at submission time.
-    const selectedVerdict = teamVerdicts.find(tv => tv.team.id === m.teamId);
+    const teamQ = String(m.teamSearch || '').trim().toLowerCase();
+    const filteredTeams = teamVerdicts.filter(({ team: t }) => {
+      if (!teamQ) return true;
+      const modNames = (t.primaryIds || []).map(id => getModeratorDisplayName(id)).join(' ');
+      const hay = [t.name, modNames].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(teamQ);
+    });
+    const teamList = filteredTeams.length
+      ? filteredTeams.map(({ team: t, verdict }) => {
+          const modLine = (t.primaryIds || []).map(id => escapeHTML(getModeratorDisplayName(id))).join(' & ') || '(no mods)';
+          const isSelected = String(m.teamId) === String(t.id);
+          const conflict = verdict.ok ? '' : ` · ${escapeHTML(verdict.summary)}`;
+          return `
+            <button type="button" class="asgn-team-pick-item ${isSelected ? 'selected' : ''} ${verdict.ok ? '' : 'is-conflict'}"
+                    data-team-id="${escapeHTML(String(t.id))}" ${verdict.ok ? '' : 'data-conflict="1"'}
+                    title="${verdict.ok ? '' : escapeHTML(verdict.summary)}">
+              <span class="asgn-team-pick-name">${escapeHTML(t.name)}</span>
+              <span class="asgn-team-pick-mods">${modLine}${conflict}</span>
+            </button>`;
+        }).join('')
+      : '<div class="asgn-team-pick-empty">No teams match your search.</div>';
+    const selectedVerdict = teamVerdicts.find(tv => String(tv.team.id) === String(m.teamId));
     const incompatibleSelectionWarning = (selectedVerdict && !selectedVerdict.verdict.ok)
-      ? `<div class="team-avail-summary none-yes" style="margin-top: 10px;">⚠ ${escapeHTML(selectedVerdict.verdict.summary)} · pick a different team or change the time.</div>`
+      ? `<div class="team-avail-summary none-yes" style="margin-top: 8px;">⚠ ${escapeHTML(selectedVerdict.verdict.summary)} · pick a different team or change the time.</div>`
       : '';
+    const showTeamList = m.teamPickOpen || teamQ.length > 0;
     return `
-      <div style="display: flex; gap: 8px; align-items: stretch;">
-        <select id="asgnTeamSelect" style="flex: 1;">
-          ${options}
-        </select>
-        <button class="btn btn-ghost" id="asgnNewTeamBtn" style="flex-shrink: 0; white-space: nowrap;" title="Create a new team">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-            <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
-          </svg>
-          New team
-        </button>
+      <div class="asgn-team-pick-row">
+        <div class="asgn-team-search-wrap">
+          <input type="search" id="asgnTeamSearch" class="asgn-team-search"
+                 placeholder="Search teams by name or moderator…"
+                 value="${escapeHTML(m.teamSearch || '')}" autocomplete="off">
+          <div class="asgn-team-pick-list" id="asgnTeamPickList"${showTeamList ? '' : ' hidden'}>${teamList}</div>
+        </div>
+        ${newTeamBtn}
       </div>
       ${incompatibleSelectionWarning}
       ${(() => {
-        // Existing availability-count summary for the picked team on the chosen date
-        if (!m.teamId) return '<div class="asgn-field-hint">Pick an existing team or create one inline.</div>';
-        const team = adminState.teams.find(t => t.id === m.teamId);
-        if (!team || !m.date) return '<div class="asgn-field-hint">Pick an existing team or create one inline.</div>';
+        if (!m.teamId) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
+        const team = adminState.teams.find(t => String(t.id) === String(m.teamId));
+        if (!team || !m.date) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
         const av = (typeof getTeamAvailabilityForDate === 'function')
           ? getTeamAvailabilityForDate(team, m.date) : null;
-        if (!av || av.total === 0) return '<div class="asgn-field-hint">Pick an existing team or create one inline.</div>';
+        if (!av || av.total === 0) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
         let cls = 'partial', label = '';
         if (av.yes === av.total) { cls = 'all-yes'; label = `✓ All ${av.total} mods available on ${escapeHTML(m.date)}`; }
         else if (av.yes === 0)   { cls = (av.no === 0 ? 'no-date' : 'none-yes'); label = av.unsub === av.total ? `⚠ No availability submitted yet` : `✗ No mods available on ${escapeHTML(m.date)}`; }
         else                     { cls = 'partial'; label = `⚠ ${av.yes} of ${av.total} available · ${av.no} unavailable${av.unsub > 0 ? ', ' + av.unsub + ' unsubmitted' : ''}`; }
-        return `<div class="team-avail-summary ${cls}" style="margin-top: 10px;">${label}</div>`;
+        return `<div class="team-avail-summary ${cls}" style="margin-top: 8px;">${label}</div>`;
       })()}
     `;
   })();
 
   // Time picker · start/end as <input type="time">
-  const startVal = bookingMinToInput(m.startMin);
-  const endVal   = bookingMinToInput(m.endMin);
+  const startVal = bookingMinToInput(assignmentCoerceClockMin(m.startMin, BOOKING_DEFAULT_START_MIN));
+  const endVal   = bookingMinToInput(assignmentCoerceClockMin(m.endMin, bookingDefaultEndFromStart(m.startMin)));
 
   const participantList = pagedOptions.length === 0
     ? (q || m.partFilter !== 'all'
@@ -29294,7 +29746,7 @@ function renderAssignmentModal() {
           <span style="color: var(--text3); font-size: 14px;">→</span>
           <input type="time" id="asgnEndTime" value="${endVal}" style="flex: 1;">
         </div>
-        <div class="asgn-field-hint" id="asgnTimeHint">${fmtTimeOfDay(bookingWrapClockMin(m.startMin))} – ${fmtTimeOfDay(bookingWrapClockMin(m.endMin))} · ${fmtDurationHours(m.endMin - m.startMin)}${(m.endMin - m.startMin) < BOOKING_DEFAULT_DURATION_MIN ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>' : ''}</div>
+        <div class="asgn-field-hint" id="asgnTimeHint">${assignmentTimeHintHTML(m.startMin, m.endMin)}</div>
       </div>
 
       <div class="asgn-field">
@@ -29303,23 +29755,44 @@ function renderAssignmentModal() {
       </div>
 
       <div class="asgn-field">
-        <label class="asgn-field-label">Participant</label>
-        ${filterPillsHTML}
-        <div class="part-pick-search-wrap">
-          <span class="part-pick-search-icon" aria-hidden="true">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-              <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
-          </span>
-          <input type="search" class="part-pick-search" id="asgnPartSearch"
-                 placeholder="Search by name, email, phone, address…"
-                 value="${escapeHTML(m.partSearch || '')}">
-        </div>
-        <div class="part-pick-list">${participantList}</div>
-        ${paginationHTML}
-        <div class="asgn-field-hint">${participantHint}</div>
+        <label class="asgn-field-label">Participant name</label>
+        <input type="text" id="asgnPartName" value="${escapeHTML(m.participantName || '')}" placeholder="First and last name" ${m.odLocked ? 'readonly' : ''} autocomplete="off">
+        <div class="asgn-field-hint">${m.odLocked
+          ? 'This session is from OneData. Name stays with OD.'
+          : 'Type a name, or pick someone from the roster below to fill it in. You can still edit after picking.'}</div>
       </div>
+      <div class="asgn-field">
+        <label class="asgn-field-label">Address</label>
+        <textarea id="asgnPartAddress" rows="2" placeholder="Street, city, state, ZIP" ${m.odLocked ? 'readonly' : ''}>${escapeHTML(m.participantAddress || '')}</textarea>
+        <div class="asgn-field-hint">${m.odLocked
+          ? 'This session is from OneData. Address stays with OD.'
+          : 'Type an address even if the person is missing from the master list.'}</div>
+      </div>
+
+      <details class="asgn-field asgn-roster-disclosure" id="asgnRosterDisclosure"${m.rosterOpen ? ' open' : ''}>
+        <summary class="asgn-roster-summary">
+          <span class="asgn-field-label asgn-roster-summary-label">Roster</span>
+          <span class="asgn-roster-summary-meta">${participantHint}${m.participantOrbitId ? ' · selected' : ''}</span>
+          <svg class="details-arrow" width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3l4 5-4 5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary>
+        <div class="asgn-roster-body">
+          ${filterPillsHTML}
+          <div class="part-pick-search-wrap">
+            <span class="part-pick-search-icon" aria-hidden="true">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <input type="search" class="part-pick-search" id="asgnPartSearch"
+                   placeholder="Search by name, email, phone, address…"
+                   value="${escapeHTML(m.partSearch || '')}">
+          </div>
+          <div class="part-pick-list">${participantList}</div>
+          ${paginationHTML}
+          <div class="asgn-field-hint">${participantHint}${m.odLocked ? '' : ' · optional · pick to fill name and address above'}</div>
+        </div>
+      </details>
       ${(() => {
         // =================================================================
         // Per-booking participant info override · popup trigger
@@ -29525,7 +29998,7 @@ function renderAssignmentModal() {
     <div class="asgn-modal-foot">
       <button class="btn btn-ghost" id="asgnCancelBtn">Cancel</button>
       ${(() => {
-        if (!(m.teamId && m.participantOrbitId)) {
+        if (!(m.teamId && (typeof assignmentModalHasParticipant === 'function' ? assignmentModalHasParticipant(m) : m.participantOrbitId))) {
           return `<button class="btn btn-primary" id="asgnSaveBtn" disabled>${isEdit ? 'Save changes' : 'Save'}</button>`;
         }
         const sel = allParticipants.find(p => {
@@ -29564,55 +30037,150 @@ function renderAssignmentModal() {
     return h * 60 + m;
   };
   const paintAsgnTimeHint = (startMin, endMin) => {
-    adminState.modal.startMin = startMin;
-    adminState.modal.endMin   = endMin;
-    const dur = endMin - startMin;
-    const shortWarn = dur < BOOKING_DEFAULT_DURATION_MIN
-      ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>'
-      : '';
-    if (timeHint) {
-      timeHint.innerHTML = `${fmtTimeOfDay(bookingWrapClockMin(startMin))} – ${fmtTimeOfDay(bookingWrapClockMin(endMin))} · ${fmtDurationHours(dur)}${shortWarn}`;
-    }
+    const s = assignmentCoerceClockMin(startMin, 0);
+    let e = assignmentCoerceClockMin(endMin, s);
+    if (e <= s) e = bookingNormalizeEndMin(s, bookingWrapClockMin(e));
+    adminState.modal.startMin = s;
+    adminState.modal.endMin = e;
+    if (timeHint) timeHint.innerHTML = assignmentTimeHintHTML(s, e);
+    if (endEl) endEl.value = bookingMinToInput(e);
   };
   startEl.addEventListener('change', () => {
     const startMin = readAsgnClock(startEl);
     if (startMin == null) return;
-    const endMin = bookingDefaultEndFromStart(startMin);
-    if (endEl) endEl.value = bookingMinToInput(endMin);
-    paintAsgnTimeHint(startMin, endMin);
+    if (m.kind !== 'editAssignment') {
+      const endMin = bookingDefaultEndFromStart(startMin);
+      if (endEl) endEl.value = bookingMinToInput(endMin);
+      paintAsgnTimeHint(startMin, endMin);
+      renderAssignmentModal();
+      return;
+    }
+    const endClock = readAsgnClock(endEl);
+    if (endClock == null) {
+      paintAsgnTimeHint(startMin, adminState.modal.endMin);
+    } else {
+      paintAsgnTimeHint(startMin, bookingNormalizeEndMin(startMin, endClock));
+    }
+    renderAssignmentModal();
   });
   endEl.addEventListener('change', () => {
     const startMin = readAsgnClock(startEl);
     const endClock = readAsgnClock(endEl);
     if (startMin == null || endClock == null) return;
-    const endMin = bookingNormalizeEndMin(startMin, endClock);
-    if (endEl) endEl.value = bookingMinToInput(endMin);
-    paintAsgnTimeHint(startMin, endMin);
+    paintAsgnTimeHint(startMin, bookingNormalizeEndMin(startMin, endClock));
+    renderAssignmentModal();
   });
 
-  const teamSel = document.getElementById('asgnTeamSelect');
-  if (teamSel) {
-    teamSel.addEventListener('change', e => {
-      adminState.modal.teamId = parseInt(e.target.value, 10);
+  const teamSearchEl = document.getElementById('asgnTeamSearch');
+  const teamPickList = document.getElementById('asgnTeamPickList');
+  if (teamSearchEl) {
+    teamSearchEl.addEventListener('focus', () => {
+      adminState.modal.teamPickOpen = true;
+      if (teamPickList) teamPickList.hidden = false;
+    });
+    teamSearchEl.addEventListener('input', e => {
+      adminState.modal.teamSearch = e.target.value;
+      adminState.modal.teamPickOpen = true;
+      const list = document.getElementById('asgnTeamPickList');
+      if (list) list.hidden = false;
+      renderAssignmentModal();
+      requestAnimationFrame(() => {
+        const el = document.getElementById('asgnTeamSearch');
+        if (el) {
+          el.focus();
+          const len = el.value.length;
+          try { el.setSelectionRange(len, len); } catch (_) {}
+        }
+      });
+    });
+    teamSearchEl.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (!adminState.modal) return;
+        adminState.modal.teamPickOpen = false;
+        const list = document.getElementById('asgnTeamPickList');
+        if (list) list.hidden = true;
+      }, 160);
+    });
+  }
+  if (teamPickList) {
+    teamPickList.querySelectorAll('.asgn-team-pick-item').forEach(item => {
+      item.addEventListener('mousedown', e => e.preventDefault());
+      item.addEventListener('click', () => {
+        if (item.dataset.conflict === '1') return;
+        const teamId = parseInt(item.dataset.teamId, 10);
+        const team = adminState.teams.find(t => String(t.id) === String(teamId));
+        adminState.modal.teamId = teamId;
+        adminState.modal.teamSearch = team ? team.name : '';
+        adminState.modal.teamPickOpen = false;
+        renderAssignmentModal();
+      });
+    });
+  }
+  const rosterDetails = document.getElementById('asgnRosterDisclosure');
+  if (rosterDetails) {
+    rosterDetails.addEventListener('toggle', () => {
+      adminState.modal.rosterOpen = rosterDetails.open;
+    });
+  }
+  const newTeamBtn = document.getElementById('asgnNewTeamBtn');
+  if (newTeamBtn) {
+    newTeamBtn.addEventListener('click', () => {
+      adminState.modal.inlineTeamCreate = true;
       renderAssignmentModal();
     });
   }
-  document.getElementById('asgnNewTeamBtn').addEventListener('click', () => {
-    adminState.modal.inlineTeamCreate = true;
-    renderAssignmentModal();
-  });
+  const refreshAsgnManualSaveButton = () => {
+    const btn = document.getElementById('asgnSaveBtn');
+    const cur = adminState.modal;
+    if (!btn || !cur) return;
+    if (btn.getAttribute('title') && /already booked on this team/i.test(btn.getAttribute('title') || '')) return;
+    const ok = !!(cur.teamId && (typeof assignmentModalHasParticipant === 'function'
+      ? assignmentModalHasParticipant(cur)
+      : cur.participantOrbitId));
+    btn.disabled = !ok;
+  };
+  const nameInput = document.getElementById('asgnPartName');
+  if (nameInput) {
+    nameInput.addEventListener('input', e => {
+      if (!adminState.modal || adminState.modal.odLocked) return;
+      adminState.modal.participantName = e.target.value;
+      refreshAsgnManualSaveButton();
+    });
+  }
+  const addrInput = document.getElementById('asgnPartAddress');
+  if (addrInput) {
+    addrInput.addEventListener('input', e => {
+      if (!adminState.modal || adminState.modal.odLocked) return;
+      adminState.modal.participantAddress = e.target.value;
+      refreshAsgnManualSaveButton();
+    });
+  }
   document.querySelectorAll('.part-pick-item').forEach(item => {
     item.addEventListener('click', () => {
       const newPid = item.dataset.pid;
-      // If admin picks a DIFFERENT participant than the one currently in
-      // the modal, drop any in-progress participantOverride · the override
-      // was scoped to the previous person, and carrying it over would
-      // silently apply their custom email/phone/address to the new person.
-      // Same-participant re-clicks (e.g., toggling) preserve the override.
+      if (adminState.modal.participantOrbitId === newPid) {
+        if (adminState.modal.odLocked) return;
+        adminState.modal.participantOrbitId = null;
+        adminState.modal.participantOverride = null;
+        renderAssignmentModal();
+        return;
+      }
       if (adminState.modal.participantOrbitId !== newPid) {
         adminState.modal.participantOverride = null;
       }
       adminState.modal.participantOrbitId = newPid;
+      const picked = (adminState.participants ? normalizeParticipants() : []).find(p => {
+        const id = pickField(p.raw, 'orbitId', 'orbitLoginId', 'orbit_login_id', 'id', 'email') || p.email || (p.firstName + p.lastName);
+        return id === newPid;
+      });
+      if (picked) {
+        adminState.modal.participantName = (typeof bookingComposePersonName === 'function')
+          ? bookingComposePersonName(picked)
+          : [picked.firstName, picked.lastName].filter(Boolean).join(' ').trim();
+        adminState.modal.participantAddress = (typeof formatParticipantAddressLine === 'function')
+          ? (formatParticipantAddressLine(picked) || picked.address || '')
+          : (picked.address || '');
+      }
       renderAssignmentModal();
     });
   });
@@ -29715,6 +30283,17 @@ function renderAssignmentModal() {
 // this popup correctly defers background fetches just like the parent
 // modal does.
 // =====================================================================
+function participantOverrideFieldValue(field, ov, livePart, savedPd) {
+  const override = ov || {};
+  if (Object.prototype.hasOwnProperty.call(override, field)) {
+    return override[field] != null ? override[field] : '';
+  }
+  const liveVal = livePart && livePart[field] != null ? String(livePart[field]).trim() : '';
+  if (liveVal) return livePart[field];
+  if (savedPd && savedPd[field] != null) return savedPd[field];
+  return '';
+}
+
 function openParticipantOverrideModal() {
   const m = adminState.modal;
   if (!m || !m.participantOrbitId) return;
@@ -29728,18 +30307,23 @@ function openParticipantOverrideModal() {
     return id === m.participantOrbitId;
   });
 
+  // When editing an existing booking, fall back to the saved
+  // participantData on the assignment row so address/name/email stay
+  // filled even if the live participant list is stale or missing.
+  const editingAsgn = (m.kind === 'editAssignment' && m.editingId)
+    ? (adminState.assignments || []).find(x => x.id === m.editingId)
+    : null;
+  const savedPd = editingAsgn && editingAsgn.participantData ? editingAsgn.participantData : null;
+
   // For each field, the popup's input shows the CURRENT effective value:
-  // override value if set, else live participant value. This means
-  // "Edit again" opens the popup with the previously-applied override
-  // already filled in (admin sees what they previously typed). For a
-  // fresh override, the popup opens with the live values pre-filled,
-  // letting admin tweak from a known starting point rather than a
-  // blank slate.
+  // override value if set, else live participant value, else saved
+  // booking participantData. This means "Edit again" opens the popup
+  // with the previously-applied override already filled in (admin sees
+  // what they previously typed). For a fresh override, the popup opens
+  // with the live/saved values pre-filled, letting admin tweak from a
+  // known starting point rather than a blank slate.
   const ov = m.participantOverride || {};
-  const cur = (field) => {
-    if (Object.prototype.hasOwnProperty.call(ov, field)) return ov[field] != null ? ov[field] : '';
-    return sel && sel[field] != null ? sel[field] : '';
-  };
+  const cur = (field) => participantOverrideFieldValue(field, ov, sel, savedPd);
 
   // Bail if a popup is already open (e.g. double-click on the trigger).
   // Without this, two stacked popups would each Apply their own values
@@ -29844,6 +30428,14 @@ function openParticipantOverrideModal() {
       if (newVal !== liveVal) final[f] = typed;
     }
     adminState.modal.participantOverride = Object.keys(final).length > 0 ? final : null;
+    if (adminState.modal) {
+      const fn = (modal.querySelector('.asgn-part-override-input[data-pf="firstName"]') || {}).value || '';
+      const ln = (modal.querySelector('.asgn-part-override-input[data-pf="lastName"]') || {}).value || '';
+      const addr = (modal.querySelector('.asgn-part-override-input[data-pf="address"]') || {}).value || '';
+      adminState.modal.participantName = [fn, ln].filter(v => String(v || '').trim()).join(' ').trim()
+        || adminState.modal.participantName || '';
+      if (addr != null) adminState.modal.participantAddress = String(addr).trim();
+    }
     close();
     renderAssignmentModal(); // Refresh the chip / button in parent modal.
   };
@@ -29882,7 +30474,8 @@ function openParticipantOverrideModal() {
 
 async function saveAssignment() {
   const m = adminState.modal;
-  if (!m.teamId || !m.participantOrbitId) return;
+  if (!m.teamId) return;
+  if (typeof assignmentModalHasParticipant === 'function' ? !assignmentModalHasParticipant(m) : !m.participantOrbitId) return;
   const isEdit = m.kind === 'editAssignment';
 
   const team = adminState.teams.find(t => t.id === m.teamId);
@@ -30122,6 +30715,15 @@ async function saveAssignment() {
     if (orig) participantData = orig.participantData;
   }
 
+  let manualCustom = false;
+  if (!m.odLocked && typeof applyManualParticipantFieldsToData === 'function') {
+    const applied = applyManualParticipantFieldsToData(participantData, m, participant);
+    participantData = applied.participantData;
+    manualCustom = !!applied.custom;
+  } else if (!participantData) {
+    participantData = {};
+  }
+
   // Apply per-booking participant info override on top of the resolved
   // data. m.participantOverride is set when admin used the "Edit
   // participant info for this booking" inline panel. Any keys present
@@ -30189,7 +30791,7 @@ async function saveAssignment() {
       // explicit flag documents intent. Once set, sticks even if a
       // later edit clears the override · admin can manually re-fetch
       // master-list data by Undo-override-ing in the modal.
-      _customParticipantInfo: m.participantOverride && Object.keys(m.participantOverride).length > 0
+      _customParticipantInfo: (m.participantOverride && Object.keys(m.participantOverride).length > 0) || manualCustom
         ? true
         : (existing._customParticipantInfo || false),
       modSnapshots: modSnapshots,
@@ -30244,7 +30846,7 @@ async function saveAssignment() {
       endMin: m.endMin,
       participantOrbitId: m.participantOrbitId,
       participantData: participantData,
-      _customParticipantInfo: !!(m.participantOverride && Object.keys(m.participantOverride).length > 0),
+      _customParticipantInfo: !!(m.participantOverride && Object.keys(m.participantOverride).length > 0) || manualCustom,
       modSnapshots: modSnapshots,
       status: 'Booked',
       comment: '',
@@ -34333,6 +34935,15 @@ async function fetchSessionStateRows() {
 
 function ingestGeoPingsFromSessionRows(rows) {
   if (!Array.isArray(rows)) return;
+  rows.forEach(r => {
+    if (!r) return;
+    const addr = String(r.assignmentAddress || '').trim();
+    const lat = Number(r.assignmentLat);
+    const lng = Number(r.assignmentLng);
+    if (addr && Number.isFinite(lat) && Number.isFinite(lng) && typeof seedGeocodeCacheEntry === 'function') {
+      seedGeocodeCacheEntry(addr, lat, lng);
+    }
+  });
   const best = (typeof pickBestCloudLastGeo === 'function')
     ? pickBestCloudLastGeo(rows)
     : new Map();
@@ -34354,6 +34965,7 @@ function ingestGeoPingsFromSessionRows(rows) {
       at: ping.at,
     }, { fromCloud: true });
   });
+  if (typeof scheduleArrivalUnlockUiRefresh === 'function') scheduleArrivalUnlockUiRefresh();
 }
 
 // Return the newest SessionState row per (orbitLoginId, assignmentId)
@@ -40934,9 +41546,10 @@ function renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, is
   }
 
   if (myIdx < arrivedIdx && teamIdx < arrivedIdx) {
-    prefetchAssignmentFenceGeocode(asgn);
-    const fencePos = currentModeratorFencePos();
-    const fenceCheck = liveLocationInsideAssignmentFence(asgn, fencePos);
+    const unlockCtx = (typeof resolveArrivalUnlockContext === 'function')
+      ? resolveArrivalUnlockContext(asgn)
+      : { check: { known: false, inside: false, reason: 'nolocation' } };
+    const fenceCheck = unlockCtx.check;
     const gate = arrivalUnlockHelper('worklog', fenceCheck, equipmentReady);
     const unlocked = !!gate.unlocked;
     const helper = unlocked

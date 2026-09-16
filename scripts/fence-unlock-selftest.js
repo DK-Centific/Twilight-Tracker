@@ -46,6 +46,8 @@ vm.runInContext(src.slice(begin, end + '/* FENCE_UNLOCK_END */'.length), context
 
 const {
   lastGeoIsFreshEnough,
+  cachedFenceDestForAssignment,
+  seedGeocodeCacheEntry,
   liveLocationInsideAssignmentFence,
   isWorklogUnlockedByGeofence,
   isArrivedControlUnlocked,
@@ -63,8 +65,10 @@ function assert(name, cond) {
 console.log('Fence unlock self-test');
 
 const now = Date.now();
-assert('fresh lastGeo is fresh', lastGeoIsFreshEnough({ at: now }, 15 * 60 * 1000));
-assert('stale lastGeo is not fresh', !lastGeoIsFreshEnough({ at: now - 40 * 60 * 1000 }, 15 * 60 * 1000));
+assert('fresh lastGeo is fresh', lastGeoIsFreshEnough({ lat: 47.6, lng: -122.3, at: now }, 15 * 60 * 1000));
+assert('coords without timestamp still count for fence preview',
+  lastGeoIsFreshEnough({ lat: 47.6446, lng: -122.1370 }, 15 * 60 * 1000));
+assert('stale lastGeo is not fresh', !lastGeoIsFreshEnough({ lat: 47.6, lng: -122.3, at: now - 40 * 60 * 1000 }, 15 * 60 * 1000));
 
 assert('no assignment stays locked', liveLocationInsideAssignmentFence(null, { lat: 1, lng: 2, at: now }).reason === 'noassignment');
 assert('no address is treated as inside (legacy skip)', liveLocationInsideAssignmentFence({ id: 'a' }, { lat: 1, lng: 2, at: now }).inside === true);
@@ -80,6 +84,14 @@ assert('outside fence keeps worklog locked', isWorklogUnlockedByGeofence(asgn, f
 assert('unknown location keeps worklog locked', isWorklogUnlockedByGeofence(asgn, null) === false);
 assert('arrived needs booked session + fence', isArrivedControlUnlocked(asgn, insidePos) === true);
 assert('arrived stays locked without session', isArrivedControlUnlocked(null, insidePos) === false);
+
+const latLngAsgn = { id: 'b', address: '456 Oak Ave', assignmentLat: 47.6446, assignmentLng: -122.1370 };
+assert('assignment lat/lng seeds fence without geocode cache',
+  cachedFenceDestForAssignment(latLngAsgn) && cachedFenceDestForAssignment(latLngAsgn).lat === 47.6446);
+assert('seeded assignment coords unlock worklog inside fence',
+  isWorklogUnlockedByGeofence(latLngAsgn, insidePos) === true);
+assert('inside fence unlocks even when lastGeo has no timestamp',
+  liveLocationInsideAssignmentFence(latLngAsgn, { lat: 47.6446, lng: -122.1370 }).inside === true);
 
 if (failed) {
   console.error(failed + ' fence unlock checks failed');

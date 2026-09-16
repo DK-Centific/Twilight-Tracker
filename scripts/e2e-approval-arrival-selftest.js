@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: E2E approval / arrival / session-date fixes (v1.3.091626n).
+/* Self-test: E2E approval / arrival / session-date fixes (v1.3.091626s).
  * Covers contradictory Approved+Rejected copy, undo-arrival confirm,
  * Reviewer side-panel openers, session-date chrome, and arrival helper copy.
  */
@@ -27,8 +27,8 @@ function assert(name, cond, detail) {
 
 console.log('E2E approval / arrival / session-date self-test');
 
-assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert('APP_VERSION is 1.3.091626t', /const APP_VERSION = '1\.3\.091626t'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626t'));
 
 assert(
   'Approved panel does not render leftover Rejected-by copy',
@@ -75,6 +75,23 @@ assert(
     && /all required equipment is packed/.test(src)
     && /you are inside the assigned address area/.test(src)
     && /Confirm Arrival unlocks when /.test(src)
+);
+
+assert(
+  'arrival unlock uses shared context + welcome banner refresh',
+  /function resolveArrivalUnlockContext\(/.test(src)
+    && /function applyArrivalUnlockUi\(/.test(src)
+    && /id="welcomeWorklogBanner"/.test(src)
+    && /scheduleArrivalUnlockUiRefresh/.test(src)
+);
+
+assert(
+  'welcome home shows equipment checklist with wired confirm button',
+  /operator-home-setup/.test(src)
+    && /equipmentCardHTML\(\)/.test(src)
+    && /bindEquipmentRows\(\)/.test(src)
+    && /Confirm equipment packed/.test(src)
+    && (/eq-confirm-packed-btn/.test(html) || /eq-confirm-packed-btn/.test(src))
 );
 
 const escapeBegin = src.indexOf('function escapeHTML(s)');

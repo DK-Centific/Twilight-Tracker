@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 
 console.log('Booking end-from-start +8h self-test');
 
-assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert('APP_VERSION is 1.3.091626w', /const APP_VERSION = '1\.3\.091626w'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626w'));
 assert('duration constant is 8 hours', /const BOOKING_DEFAULT_DURATION_MIN = 8 \* 60/.test(src));
 assert('default end is start + duration',
   /const BOOKING_DEFAULT_END_MIN = BOOKING_DEFAULT_START_MIN \+ BOOKING_DEFAULT_DURATION_MIN/.test(src));
@@ -81,8 +81,10 @@ assert('Book button still passes the chosen timeslot through',
 assert('OD-mapped rows still keep a supplied end time',
   /startMin: dateInfo \? dateInfo\.startMin : 8 \* 60/.test(src)
     && /endMin: dateInfo \? dateInfo\.endMin : 17 \* 60/.test(src));
-assert('edit assignment keeps the saved end until start changes',
-  /kind: 'editAssignment'[\s\S]{0,220}endMin: a\.endMin/.test(src));
+assert('edit assignment normalizes saved end for overnight mirror',
+  /assignmentNormalizeStoredEndMin\(startMin, a\.endMin\)/.test(src));
+assert('edit start change does not force default +8h end',
+  /m\.kind !== 'editAssignment'/.test(src) && /bookingDefaultEndFromStart\(startMin\)/.test(src));
 
 console.log('');
 console.log(failed ? `FAILED ${failed} · passed ${passed}` : `All ${passed} checks passed`);
