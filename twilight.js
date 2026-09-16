@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626a';
-const APP_UPDATED_AT = '09/16/2026 00:50';
+const APP_VERSION = '1.3.091626b';
+const APP_UPDATED_AT = '09/16/2026 01:40';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2704,8 +2704,10 @@ function scenarioFlowTileHTML(station, data, sc) {
   const done = isScenarioComplete(sd);
   const skipped = isScenarioSkipped(sd);
   const stateClass = done ? 'is-done' : skipped ? 'is-skipped' : isScenarioInProgress(sd) ? 'is-progress' : '';
+  const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
   return `
-    <article class="sc-flow-tile ${stateClass}" data-num="${escapeHTML(String(sc.num))}" data-key="${escapeHTML(station.key)}">
+    <article class="sc-flow-tile ${stateClass}${pencil ? ' has-scen-pencil' : ''}" data-num="${escapeHTML(String(sc.num))}" data-key="${escapeHTML(station.key)}">
+      ${pencil}
       <div class="sc-flow-face">
         <div class="sc-flow-tile-top">
           <div class="sc-flow-num" aria-hidden="true">${escapeHTML(String(sc.num))}</div>
@@ -3111,7 +3113,7 @@ function bindScenarioFlow() {
     if (nextBtn) nextBtn.addEventListener('click', e => { e.stopPropagation(); stepScenarioFlow(1); });
     vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
       tile.addEventListener('click', e => {
-        if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow, .cal-rig-card, label')) return;
+        if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow, .cal-rig-card, .sc-scen-pencil, label')) return;
         const num = tile.getAttribute('data-num');
         if (!num) return;
         _scenarioFlowFocusNum = num;
@@ -3569,11 +3571,12 @@ function renderStation(key, opts) {
             const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
             const rf = scenarioUsesRecordFlow(station, sc);
             const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
+            const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
             return `
-              <tr class="${rowClass}" data-num="${sc.num}">
+              <tr class="${rowClass}${pencil ? ' has-scen-pencil' : ''}" data-num="${sc.num}" data-key="${escapeHTML(station.key)}">
                 <td class="col-num">${sc.num}</td>
                 <td class="col-id">${escapeHTML(sc.id)}</td>
-                <td class="col-name">${escapeHTML(sc.name)}${vehIcon}${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}</td>
+                <td class="col-name">${pencil}${escapeHTML(sc.name)}${vehIcon}${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}</td>
                 <td class="col-iter">${isCalRigScenario(sc) ? '<span class="iter-auto" title="Mark Rig 1 and Rig 2 in the Status column">Rigs</span>' : (rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter))}</td>
                 <td class="col-status">${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
                 ${station.type === 'capture' ? `
@@ -3596,8 +3599,10 @@ function renderStation(key, opts) {
           const iterClass = iters >= (sc.iter || ITERATION_TARGET) ? 'iter-met' : iters > 0 ? 'iter-progress' : '';
           const rf = scenarioUsesRecordFlow(station, sc);
           const vehIcon = (stationHasVehicleReminders(station.key) && VEHICLE_SCENARIO_IDS.has(String(sc.id))) ? VEH_REMINDER_ICON_HTML : '';
+          const pencil = typeof scenarioStationTilePencilHTML === 'function' ? scenarioStationTilePencilHTML(station, sc) : '';
           return `
-            <div class="scenario-card">
+            <div class="scenario-card${pencil ? ' has-scen-pencil' : ''}" data-num="${sc.num}" data-key="${escapeHTML(station.key)}">
+              ${pencil}
               <div class="scenario-card-head">
                 <div class="scenario-card-num">${sc.num}</div>
                 <div>
@@ -4001,6 +4006,7 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
   // gate is active. Runs every render so it survives renderApp() rebuilds.
   if (typeof decorateApprovalGate === 'function') decorateApprovalGate(c, station);
   bindScenarioFlow();
+  if (typeof bindScenarioStationTilePencils === 'function') bindScenarioStationTilePencils(c);
 }
 
 /* =====================================================================
@@ -36295,9 +36301,11 @@ function ingestCalGuideFromSessionRows(rows) {
 /* SCENARIO_CATALOG_BEGIN */
 /* =====================================================================
    ADMIN CHECKLIST · Stations & scenarios catalog
-   Pencil on each scenario tile opens the same cal-guide / team-feedback
-   edit chrome. Edits persist as ss_app_setting_scenario_catalog with a
-   changelog + undo. Live STATIONS lists are overlaid from the catalog.
+   Admin → Checklist tiles keep their editor. Master Admin who switches
+   into the station / checklist shell also gets a top-right pencil on
+   each live scenario tile (Master-Admin-only). Same
+   ss_app_setting_scenario_catalog row, changelog + undo. Live STATIONS
+   lists are overlaid from the catalog.
    ===================================================================== */
 const SCENARIO_CATALOG_SETTING_ID = 'ss_app_setting_scenario_catalog';
 const SCENARIO_CATALOG_ASSIGNMENT_ID = 'app_setting_scenario_catalog';
@@ -36306,6 +36314,22 @@ const SCENARIO_CATALOG_CHANGELOG_MAX = 80;
 
 function scenarioCatalogKey(stationKey, num) {
   return String(stationKey || '') + '|' + String(num || '');
+}
+
+function scenarioCatalogEditAllowed(input) {
+  input = input || {};
+  if (input.isReviewer) return false;
+  if (input.isMasterAdmin) return true;
+  if (input.isAdmin && input.adminAppActive) return true;
+  return false;
+}
+
+/* Station / checklist cover-flow tiles: Master Admin only. Regular Admin
+   keeps the Admin → Checklist tab editor, not live station pencils. */
+function scenarioStationTileEditAllowed(input) {
+  input = input || {};
+  if (input.isReviewer) return false;
+  return !!input.isMasterAdmin;
 }
 
 function cloneScenarioCatalogFields(sc) {
@@ -36517,6 +36541,8 @@ function collectScenarioCatalogFromSessionRows(rows) {
   g.collectScenarioCatalogFromSessionRows = collectScenarioCatalogFromSessionRows;
   g.preferNewerScenarioCatalog = preferNewerScenarioCatalog;
   g.applyScenarioCatalogToStations = applyScenarioCatalogToStations;
+  g.scenarioCatalogEditAllowed = scenarioCatalogEditAllowed;
+  g.scenarioStationTileEditAllowed = scenarioStationTileEditAllowed;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 /* SCENARIO_CATALOG_END */
 
@@ -36540,6 +36566,64 @@ function ingestScenarioCatalogFromSessionRows(rows) {
   _scenarioCatalog = preferNewerScenarioCatalog(_scenarioCatalog, incoming);
   saveScenarioCatalogCache(_scenarioCatalog);
   return _scenarioCatalog;
+}
+
+function liveScenarioCatalogEditAllowed() {
+  const reviewer = typeof state !== 'undefined' && state && !!state.isReviewer;
+  const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  const admin = typeof state !== 'undefined' && state && !!state.isAdmin;
+  const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+  return scenarioCatalogEditAllowed({
+    isReviewer: reviewer,
+    isMasterAdmin: master,
+    isAdmin: admin,
+    adminAppActive: !!(adminApp && adminApp.classList.contains('active')),
+  });
+}
+
+function liveScenarioStationTileEditAllowed() {
+  const reviewer = typeof state !== 'undefined' && state && !!state.isReviewer;
+  const master = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  return scenarioStationTileEditAllowed({ isReviewer: reviewer, isMasterAdmin: master });
+}
+
+function scenarioStationTilePencilHTML(station, sc) {
+  if (!liveScenarioStationTileEditAllowed()) return '';
+  const name = (sc && (sc.name || sc.id)) || 'scenario';
+  return `<button type="button" class="sc-scen-pencil" data-station="${escapeHTML(station && station.key)}" data-num="${escapeHTML(String(sc && sc.num))}" aria-label="Edit ${escapeHTML(name)}" title="Edit scenario">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M11.4 2.6l2 2-8.1 8.1H3.3v-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M10.2 3.8l2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+  </button>`;
+}
+
+function bindScenarioStationTilePencils(root) {
+  if (!root) return;
+  root.querySelectorAll('.sc-scen-pencil').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!liveScenarioStationTileEditAllowed()) return;
+      openScenarioCatalogEditor(btn.dataset.station, btn.dataset.num, { fromStation: true });
+    });
+  });
+}
+
+function refreshScenarioCatalogSurfaces() {
+  try {
+    const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+    if (adminApp && adminApp.classList.contains('active')
+        && typeof adminState !== 'undefined' && adminState && adminState.tab === 'checklist') {
+      const host = document.getElementById('adminTabBody');
+      if (host && typeof renderAdminChecklist === 'function') renderAdminChecklist(host);
+    }
+  } catch (_) {}
+  try {
+    const adminApp = typeof document !== 'undefined' ? document.getElementById('adminApp') : null;
+    const inStationView = !adminApp || !adminApp.classList.contains('active');
+    if (inStationView && typeof renderApp === 'function') renderApp();
+  } catch (_) {}
 }
 
 function scenarioCatalogAdminName() {
@@ -36654,6 +36738,8 @@ function scenarioCatalogEditorHTML(stationKey, num) {
   const st = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS))
     ? STATIONS.find(s => s.key === stationKey) : null;
   const sc = liveScenarioDef(stationKey, num) || builtinScenarioFields(stationKey, num) || {};
+  const catalog = normalizeScenarioCatalog(_scenarioCatalog);
+  const last = lastUndoableScenarioChange(catalog);
   return `
     <div class="tf-composer scen-editor">
       <div class="tf-draft-hint">${escapeHTML((st && st.label) || stationKey)} · #${escapeHTML(String(num))}</div>
@@ -36665,9 +36751,45 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       <textarea class="tf-note" id="scenEditDesc" rows="5" placeholder="What the moderator should do">${escapeHTML(sc.description || '')}</textarea>
       <label class="tf-draft-hint" for="scenEditIter">Required iterations</label>
       <input class="tf-title" id="scenEditIter" type="number" min="1" max="99" value="${escapeHTML(String(sc.iter || 1))}">
+      <div class="cl-hero-actions scen-edit-actions">
+        <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenEditUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
+      </div>
       <div class="tf-send-error" id="scenEditError"></div>
+      <div class="scen-edit-log">
+        <div class="cl-station-label">Change log</div>
+        ${renderScenarioChangelogHTML(catalog)}
+      </div>
     </div>
   `;
+}
+
+function bindScenarioCatalogEditorChrome() {
+  const body = document.getElementById('scenCatalogBody');
+  if (!body) return;
+  const refill = () => {
+    const modal = document.getElementById('scenCatalogModal');
+    if (!modal || !modal.classList.contains('open')) return;
+    body.innerHTML = scenarioCatalogEditorHTML(modal.dataset.station, modal.dataset.num);
+    bindScenarioCatalogEditorChrome();
+    const title = document.getElementById('scenEditTitle');
+    if (title) title.focus();
+  };
+  body.querySelectorAll('.scen-log-undo').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await persistScenarioCatalogUndo(btn.dataset.chg);
+      refill();
+    });
+  });
+  const undoLast = body.querySelector('#scenEditUndoLastBtn');
+  if (undoLast) {
+    undoLast.addEventListener('click', async () => {
+      const hit = lastUndoableScenarioChange(_scenarioCatalog);
+      if (hit) {
+        await persistScenarioCatalogUndo(hit.id);
+        refill();
+      }
+    });
+  }
 }
 
 function collectScenarioCatalogEditorDraft() {
@@ -36728,7 +36850,13 @@ function buildScenarioCatalogEditorModal() {
   document.body.appendChild(modal);
 }
 
-function openScenarioCatalogEditor(stationKey, num) {
+function openScenarioCatalogEditor(stationKey, num, opts) {
+  opts = opts || {};
+  if (opts.fromStation) {
+    if (!liveScenarioStationTileEditAllowed()) return;
+  } else if (!liveScenarioCatalogEditAllowed()) {
+    return;
+  }
   buildScenarioCatalogEditorModal();
   const overlay = document.getElementById('scenCatalogOverlay');
   const modal = document.getElementById('scenCatalogModal');
@@ -36737,6 +36865,7 @@ function openScenarioCatalogEditor(stationKey, num) {
   modal.dataset.station = stationKey;
   modal.dataset.num = String(num);
   body.innerHTML = scenarioCatalogEditorHTML(stationKey, num);
+  bindScenarioCatalogEditorChrome();
   overlay.hidden = false;
   modal.hidden = false;
   requestAnimationFrame(() => {
@@ -36801,10 +36930,7 @@ async function submitScenarioCatalogEditor() {
   }
   closeScenarioCatalogEditor();
   if (typeof toast === 'function') toast('Scenario updated');
-  if (adminState && adminState.tab === 'checklist') {
-    const host = document.getElementById('adminTabBody');
-    if (host) renderAdminChecklist(host);
-  }
+  refreshScenarioCatalogSurfaces();
 }
 
 async function persistScenarioCatalogUndo(changeId) {
@@ -36814,10 +36940,7 @@ async function persistScenarioCatalogUndo(changeId) {
   result.catalog.publishedBy = scenarioCatalogAdminName();
   await persistScenarioCatalogRecord(result.catalog);
   if (typeof toast === 'function') toast('Edit undone');
-  if (adminState && adminState.tab === 'checklist') {
-    const host = document.getElementById('adminTabBody');
-    if (host) renderAdminChecklist(host);
-  }
+  refreshScenarioCatalogSurfaces();
 }
 
 // Builds the modal DOM once. Cached on window so subsequent opens are

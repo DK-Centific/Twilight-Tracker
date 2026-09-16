@@ -28,6 +28,8 @@ const {
   buildScenarioCatalogPayload,
   collectScenarioCatalogFromSessionRows,
   normalizeScenarioCatalog,
+  scenarioCatalogEditAllowed,
+  scenarioStationTileEditAllowed,
 } = context;
 
 let failed = 0;
@@ -79,6 +81,36 @@ assert('collect reads the published catalog', collected && collected.changelog.l
 
 const empty = normalizeScenarioCatalog(null);
 assert('normalize null is empty catalog', empty && empty.changelog.length === 0);
+
+assert('Admin Checklist editor allows Admin in admin app', scenarioCatalogEditAllowed({
+  isAdmin: true, adminAppActive: true, isMasterAdmin: false, isReviewer: false,
+}));
+assert('Admin Checklist editor allows Master Admin', scenarioCatalogEditAllowed({
+  isAdmin: true, adminAppActive: false, isMasterAdmin: true, isReviewer: false,
+}));
+assert('Reviewer cannot edit catalog', !scenarioCatalogEditAllowed({
+  isAdmin: false, adminAppActive: false, isMasterAdmin: false, isReviewer: true,
+}));
+assert('regular Admin outside admin app cannot edit catalog', !scenarioCatalogEditAllowed({
+  isAdmin: true, adminAppActive: false, isMasterAdmin: false, isReviewer: false,
+}));
+assert('station-tile pencils are Master Admin only', scenarioStationTileEditAllowed({
+  isMasterAdmin: true, isReviewer: false,
+}) && !scenarioStationTileEditAllowed({
+  isMasterAdmin: false, isReviewer: false, isAdmin: true,
+}) && !scenarioStationTileEditAllowed({
+  isMasterAdmin: true, isReviewer: true,
+}));
+
+const fullSrc = src;
+assert('station tiles render a Master-Admin pencil helper', /function scenarioStationTilePencilHTML\(/.test(fullSrc)
+  && /function liveScenarioStationTileEditAllowed\(/.test(fullSrc)
+  && /bindScenarioStationTilePencils/.test(fullSrc));
+assert('cover-flow tiles include the station pencil', /function scenarioFlowTileHTML\(/.test(fullSrc)
+  && /scenarioStationTilePencilHTML\(station, sc\)/.test(fullSrc));
+assert('editor from station tiles requires Master Admin', /opts\.fromStation/.test(fullSrc)
+  && /liveScenarioStationTileEditAllowed\(\)/.test(fullSrc));
+assert('save refreshes station view as well as Checklist', /function refreshScenarioCatalogSurfaces\(/.test(fullSrc));
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');

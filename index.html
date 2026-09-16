@@ -6539,6 +6539,33 @@ input#ent_lakitu.lakitu-invalid {
   cursor: pointer;
 }
 .cl-scen-pencil:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.sc-scen-pencil {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.sc-scen-pencil:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.sc-flow-tile.has-scen-pencil { position: relative; }
+.sc-flow-tile.has-scen-pencil .sc-flow-tile-top { padding-right: 42px; }
+.scenario-card { position: relative; }
+.scenario-card.has-scen-pencil { padding-right: 52px; }
+.scenario-table td.col-name { position: relative; }
+.scenario-table tr.has-scen-pencil td.col-name { padding-right: 48px; }
+.scenario-table .sc-scen-pencil { top: 6px; right: 6px; width: 36px; height: 36px; }
+#scenCatalogModal .scen-edit-log { margin-top: 16px; }
+#scenCatalogModal .scen-edit-actions { margin: 12px 0 4px; }
 .cl-scen-num {
   font-family: var(--font-num);
   font-size: 11px;
@@ -6581,7 +6608,8 @@ input#ent_lakitu.lakitu-invalid {
 #scenCatalogModal .tf-note { width: 100%; min-height: 120px; }
 @media (max-width: 760px) {
   .cl-scen-grid { grid-template-columns: 1fr; }
-  .cl-scen-pencil { width: 44px; height: 44px; }
+  .cl-scen-pencil,
+  .sc-scen-pencil { width: 44px; height: 44px; }
 }
 
 /* Top tabs (Overview / Moderator Hub / Performance) */
@@ -16961,7 +16989,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091626a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091626b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
