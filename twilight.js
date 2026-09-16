@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626j';
-const APP_UPDATED_AT = '09/16/2026 03:28';
+const APP_VERSION = '1.3.091626n';
+const APP_UPDATED_AT = '09/16/2026 04:08';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -8294,6 +8294,7 @@ function closeBookingPage() {
   if (typeof adminState === 'undefined' || !adminState) return;
   adminState.bookingOpen = false;
   document.body.classList.remove('booking-open');
+  if (typeof applyBookingWeekAssignScrollLock === 'function') applyBookingWeekAssignScrollLock(false);
   const panicFab = document.getElementById('panicFab');
   if (panicFab) panicFab.classList.remove('is-booking-hidden');
   const page = document.getElementById('bookingPage');
@@ -16984,15 +16985,15 @@ function activitiesThemeColors() {
   const cs = getComputedStyle(document.documentElement);
   const pick = (name, fallback) => (cs.getPropertyValue(name) || fallback).trim();
   return {
-    bg: pick('--bg', '#F7F7F2'),
-    bg2: pick('--bg2', '#FFFFFF'),
-    well: pick('--well-bg', '#F0F0E8'),
-    text: pick('--text', '#3C3C3B'),
-    text2: pick('--text2', 'rgba(60,60,59,0.62)'),
-    text3: pick('--text3', '#94948C'),
-    brand: pick('--brand', '#C68A00'),
-    accent: pick('--accent', '#C68A00'),
-    border: pick('--border', 'rgba(60,60,59,0.08)'),
+    bg: pick('--bg', '#E4EBE3'),
+    bg2: pick('--bg2', '#F3F0E9'),
+    well: pick('--well-bg', '#EEEBE4'),
+    text: pick('--text', '#242420'),
+    text2: pick('--text2', '#6A7066'),
+    text3: pick('--text3', 'rgba(36,36,32,0.48)'),
+    brand: pick('--brand', '#0E7C96'),
+    accent: pick('--accent', '#C5A059'),
+    border: pick('--border', '#C5CEC1'),
     isDark: document.documentElement.getAttribute('data-theme') === 'dark',
   };
 }
@@ -17008,11 +17009,11 @@ function applyActivitiesMapTheme(map) {
   const land = c.isDark ? '#1A1C1E' : c.bg;
   const water = c.isDark ? '#15191E' : '#D9E4EC';
   const park = c.isDark ? '#1E2420' : '#E4EAD9';
-  const road = c.isDark ? '#2A2E32' : '#FFFFFF';
-  const roadCasing = c.isDark ? '#0E1012' : '#D5D5CB';
-  const building = c.isDark ? '#22262A' : '#E8E8DE';
+  const road = c.isDark ? '#2A2E32' : '#E4EBE3';
+  const roadCasing = c.isDark ? '#0E1012' : '#C5CEC1';
+  const building = c.isDark ? '#22262A' : '#DDE5DB';
   const label = c.text;
-  const labelHalo = c.isDark ? 'rgba(14,15,17,0.85)' : 'rgba(247,247,242,0.9)';
+  const labelHalo = c.isDark ? 'rgba(14,15,17,0.85)' : 'rgba(228,235,227,0.9)';
 
   try { map.setPaintProperty('background', 'background-color', land); } catch (_) {}
   // OpenMapTiles / OpenFreeMap layer ids vary slightly · best-effort recolor.
@@ -24870,12 +24871,24 @@ function bookingPrefersReducedMotion() {
   }
 }
 
+function applyBookingWeekAssignScrollLock(weekAssignOpen) {
+  const lock = !!weekAssignOpen;
+  document.body.classList.toggle('booking-week-assign-open', lock);
+  const page = document.getElementById('bookingPage');
+  if (page) page.classList.toggle('is-week-assign-open', lock);
+  const body = document.getElementById('bookingSubtabBody');
+  if (lock && body) body.scrollTop = 0;
+}
+
 function applyBookingMotionChrome() {
   const grid = document.querySelector('#bookingSubtabBody .bk-dash-grid');
   const assign = document.querySelector('#bookingSubtabBody .bk-assign');
   const panel = document.getElementById('bookingAssignPanel');
   const toggle = document.getElementById('bookingAssignToggle');
-  if (!grid || !assign) return;
+  if (!grid || !assign) {
+    applyBookingWeekAssignScrollLock(false);
+    return;
+  }
   const view = bookingViewMode();
   const assignOpen = bookingAssignIsOpen();
   const collapsible = view === 'week';
@@ -24884,6 +24897,7 @@ function applyBookingMotionChrome() {
   grid.classList.toggle('is-month', view === 'month');
   grid.classList.toggle('is-assign-open', assignOpen);
   grid.classList.toggle('is-assign-collapsed', !assignOpen);
+  applyBookingWeekAssignScrollLock(view === 'week' && assignOpen);
 
   assign.classList.toggle('is-open', assignOpen);
   assign.classList.toggle('is-collapsible', collapsible);
@@ -25399,6 +25413,7 @@ function bindBookingDashboardEvents() {
   const body = document.getElementById('bookingSubtabBody');
   if (!body || typeof isBookingOpen !== 'function' || !isBookingOpen()) return;
   armBookingMotion();
+  applyBookingMotionChrome();
   if (typeof paintBookingHeliosWeather === 'function') paintBookingHeliosWeather();
 
   body.querySelectorAll('.bk-view-btn').forEach(btn => {
@@ -36953,6 +36968,27 @@ function redoScenarioCatalogChange(catalog, changeId) {
   return { catalog: next, redone: entry };
 }
 
+function resolveScenarioCatalogEditorName(session) {
+  session = session || {};
+  let raw = String(session.username || '').trim();
+  if (raw) {
+    if (typeof canonicalAdminUsername === 'function') {
+      const canon = canonicalAdminUsername(raw);
+      if (canon) return String(canon);
+    }
+    if (raw.toLowerCase() === 'admin-orbit') return 'Admin-Twilight';
+    return raw;
+  }
+  const profile = session.modProfile || {};
+  const display = String(profile.name || '').trim();
+  if (display) return display;
+  const first = String(profile.firstName || '').trim();
+  const last = String(profile.lastName || '').trim();
+  const full = (first + ' ' + last).trim();
+  if (full) return full;
+  return 'Admin';
+}
+
 function applyScenarioCatalogEdit(catalog, stationKey, num, draft, adminName) {
   const next = normalizeScenarioCatalog(catalog);
   const key = scenarioCatalogKey(stationKey, num);
@@ -36968,7 +37004,7 @@ function applyScenarioCatalogEdit(catalog, stationKey, num, draft, adminName) {
   const entry = {
     id: 'chg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     at: new Date().toISOString(),
-    by: adminName || 'Admin',
+    by: String(adminName || '').trim() || 'Admin',
     stationKey,
     num: String(num),
     before,
@@ -37025,6 +37061,7 @@ function collectScenarioCatalogFromSessionRows(rows) {
   g.scenarioCatalogKey = scenarioCatalogKey;
   g.cloneScenarioCatalogFields = cloneScenarioCatalogFields;
   g.normalizeScenarioCatalog = normalizeScenarioCatalog;
+  g.resolveScenarioCatalogEditorName = resolveScenarioCatalogEditorName;
   g.applyScenarioCatalogEdit = applyScenarioCatalogEdit;
   g.undoScenarioCatalogChange = undoScenarioCatalogChange;
   g.redoScenarioCatalogChange = redoScenarioCatalogChange;
@@ -37147,9 +37184,15 @@ function refreshScenarioCatalogSurfaces() {
 }
 
 function scenarioCatalogAdminName() {
-  if (typeof state !== 'undefined' && state) {
-    if (state.username) return state.username;
-    if (state.modProfile && state.modProfile.name) return state.modProfile.name;
+  const session = (typeof state !== 'undefined' && state) ? state : {};
+  if (typeof resolveScenarioCatalogEditorName === 'function') {
+    return resolveScenarioCatalogEditorName(session);
+  }
+  const raw = String(session.username || '').trim();
+  if (raw) return raw;
+  if (session.modProfile && session.modProfile.name) {
+    const display = String(session.modProfile.name).trim();
+    if (display) return display;
   }
   return 'Admin';
 }
