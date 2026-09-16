@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Soft Sage Parchment light tokens (v1.3.091626k). */
+/* Self-test: Soft Sage Parchment + muted gold (v1.3.091626l). */
 'use strict';
 
 const fs = require('fs');
@@ -50,10 +50,11 @@ assert('--input-bg is #EEEBE4', /--input-bg:#EEEBE4/.test(light));
 assert('--tile-bg is parchment wash', /--tile-bg:rgba\(243,240,233,0\.85\)/.test(light));
 assert('--text is #242420', /--text:#242420/.test(light));
 assert('--text2 is #6A7066', /--text2:#6A7066/.test(light));
-assert('--accent is #E07A2B', /--accent:#E07A2B/.test(light));
-assert('--accent-ink is #1A1714', /--accent-ink:#1A1714/.test(light));
-assert('--accent-dim is #C46822', /--accent-dim:#C46822/.test(light));
-assert('--accent-soft is coral wash', /--accent-soft:rgba\(224,122,43,0\.12\)/.test(light));
+assert('--accent is muted gold #C5A059', /--accent:#C5A059/.test(light));
+assert('--accent-ink is #2A2620', /--accent-ink:#2A2620/.test(light));
+assert('--accent-dim is #A8884A', /--accent-dim:#A8884A/.test(light));
+assert('--accent-soft is gold wash', /--accent-soft:rgba\(197,160,89,0\.14\)/.test(light));
+assert('light accent is not coral', !/#E07A2B/.test(light));
 assert('--border is #C5CEC1', /--border:#C5CEC1/.test(light));
 assert('--brand is #0E7C96', /--brand:#0E7C96/.test(light));
 assert('no pure white in Helios light tokens', !/#fff(?:fff)?/i.test(light));
@@ -68,13 +69,20 @@ assert('light cards use card-bg + top highlight',
     && html.includes('inset 0 1px 0 var(--card-highlight)'));
 assert('light inputs use inward --bg3 shadow',
   html.includes('box-shadow: inset 3px 4px 10px var(--bg3) !important;'));
-assert('selected pills use raised bg2 + coral ring',
+assert('selected pills use raised bg2 + gold ring',
   html.includes('0 0 0 2px var(--accent)')
     && html.includes('[data-theme="light"] .admin-tab.active'));
 assert('booking light neu-light is not white',
   html.includes('--bk-neu-light: #F8F6F0') && !html.includes('--bk-neu-light: #FFFFFF'));
-assert('APP_VERSION is 1.3.091626k', /const APP_VERSION = '1\.3\.091626k'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626k'));
+assert('moon PNG is in the repo', fs.existsSync(path.join(root, 'icons', 'ov-moon-face.png')));
+assert('moon orb uses PNG plus SVG fallback',
+  html.includes("url('icons/ov-moon-face.png')")
+    && html.includes("data:image/svg+xml")
+    && /ov-solar-orb\.is-moon[\s\S]{0,800}background-image:/.test(html));
+assert('moon fallback is not a coral disc',
+  !/\.ov-solar-orb\.is-moon[\s\S]{0,400}#E07A2B/.test(html));
+assert('APP_VERSION is 1.3.091626l', /const APP_VERSION = '1\.3\.091626l'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626l'));
 
 console.log(failed ? `\n${failed} failed, ${passed} passed` : `\n${passed} passed`);
 process.exit(failed ? 1 : 0);

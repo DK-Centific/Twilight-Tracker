@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626k';
-const APP_UPDATED_AT = '09/16/2026 03:50';
+const APP_VERSION = '1.3.091626l';
+const APP_UPDATED_AT = '09/16/2026 03:55';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -16991,7 +16991,7 @@ function activitiesThemeColors() {
     text2: pick('--text2', '#6A7066'),
     text3: pick('--text3', 'rgba(36,36,32,0.48)'),
     brand: pick('--brand', '#0E7C96'),
-    accent: pick('--accent', '#E07A2B'),
+    accent: pick('--accent', '#C5A059'),
     border: pick('--border', '#C5CEC1'),
     isDark: document.documentElement.getAttribute('data-theme') === 'dark',
   };
