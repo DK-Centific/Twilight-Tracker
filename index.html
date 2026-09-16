@@ -6579,22 +6579,28 @@ input#ent_lakitu.lakitu-invalid {
 .scenario-table tr.has-scen-pencil td.col-name { padding-right: 48px; }
 .scenario-table .sc-scen-pencil { top: 6px; right: 6px; width: 36px; height: 36px; }
 #scenCatalogModal .scen-edit-log { margin-top: 16px; }
+#scenCatalogModal .scen-edit-draft-note { margin: 8px 0 14px; }
 #scenCatalogModal .scen-edit-actions { margin: 12px 0 4px; }
 #scenCatalogModal .scen-edit-rig { margin-top: 12px; pointer-events: auto; }
 #scenCatalogModal .scen-edit-rig:empty { display: none; }
-#scenCatalogModal .cal-rig-card { margin: 0; pointer-events: auto; }
-#scenCatalogModal .cal-rig-check {
-  position: relative;
+#scenCatalogModal .cal-rig-card-editor {
+  margin: 0;
+  pointer-events: auto;
+}
+#scenCatalogModal .cal-rig-edit-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
   pointer-events: auto;
   cursor: pointer;
 }
-#scenCatalogModal .cal-rig-input {
-  pointer-events: auto;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  margin: 0;
+#scenCatalogModal .cal-rig-edit-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .cl-scen-num {
   font-family: var(--font-num);
@@ -6623,9 +6629,29 @@ input#ent_lakitu.lakitu-invalid {
   background: var(--bg3);
 }
 .scen-log-row.is-undone { opacity: 0.55; }
+.scen-log-row.is-active {
+  border: 0.5px solid transparent;
+}
+#scenCatalogModal .scen-log-row.is-undone.is-redoable {
+  opacity: 0.78;
+  border: 0.5px dashed var(--border-strong);
+  cursor: pointer;
+}
+#scenCatalogModal .scen-log-row.is-undone.is-redoable:hover,
+#scenCatalogModal .scen-log-row.is-undone.is-redoable:focus-visible {
+  opacity: 1;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  outline: none;
+}
+#scenCatalogModal .scen-log-row.is-undone .scen-log-sum {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
 .scen-log-main { flex: 1; min-width: 0; }
 .scen-log-sum { font-size: 13.5px; font-weight: 600; }
-.scen-log-undo {
+.scen-log-undo,
+.scen-log-redo {
   flex: 0 0 auto;
   min-height: 36px;
   padding: 6px 12px;
@@ -6634,6 +6660,11 @@ input#ent_lakitu.lakitu-invalid {
   background: var(--bg);
   font-weight: 650;
   cursor: pointer;
+}
+.scen-log-redo {
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 #scenCatalogModal .tf-note { width: 100%; min-height: 120px; }
 @media (max-width: 760px) {
@@ -17019,7 +17050,7 @@ button.perf-stat-chip.scheduled.active {
   <span id="toastText"></span>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091626e" defer></script>
+<script src="twilight.js?v=twilight-1.3.091626h" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

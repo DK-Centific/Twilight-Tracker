@@ -34,14 +34,23 @@ assert('checkbox card CSS is high-contrast', /cal-rig-card/.test(html) && /min-h
 assert('desktop/web Uploaded buttons are enlarged', /scenario-card-list \.scenario-status-btn\.s-uploaded/.test(html)
   && /scenario-table \.scenario-status-btn\.s-uploaded/.test(html)
   && /min-height: 42px/.test(html));
-assert('editor modal hosts the same cal-rig-card', /scenEditRigHost/.test(src)
+assert('editor modal hosts a dedicated cal-rig-card-editor', /scenEditRigHost/.test(src)
   && /function scenarioCatalogEditorRigHTML\(/.test(src)
+  && /cal-rig-card-editor/.test(src)
+  && /cal-rig-edit-toggle/.test(src)
   && !/scenEditIter/.test(src));
 assert('editor save publishes rig flags', /draft\.rig1Completed/.test(src)
   && /function applyScenarioCatalogRigsToSession\(/.test(src)
-  && /function paintScenarioCatalogEditorRigHost\(/.test(src));
-assert('editor card CSS is interactive', /#scenCatalogModal \.cal-rig-input/.test(html)
-  && /#scenCatalogModal \.cal-rig-check/.test(html));
+  && /function paintScenarioCatalogEditorRigHost\(/.test(src)
+  && /function applyScenarioCatalogEditorRigVisuals\(/.test(src)
+  && /function submitScenarioCatalogEditor\(/.test(src));
+assert('editor undo does not publish rigs until save', /function applyScenarioCatalogEditorDraftUndo\(/.test(src)
+  && !/applyScenarioCatalogRigsToSession\(/.test(src.slice(src.indexOf('function applyScenarioCatalogEditorDraftUndo'), src.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor card CSS is interactive', /#scenCatalogModal \.cal-rig-card-editor/.test(html)
+  && /#scenCatalogModal \.cal-rig-edit-toggle/.test(html)
+  && /pointer-events: auto/.test(html));
+assert('isCalRigScenario trims and ignores case', /function isCalRigScenario\(/.test(src)
+  && /trim\(\)\.toUpperCase\(\)/.test(src.slice(src.indexOf('function isCalRigScenario'), src.indexOf('function isCalRigScenario') + 280)));
 
 // Exercise the same completion rules the app uses.
 function applyCalRigChecks(sd, sc, rig1, rig2) {

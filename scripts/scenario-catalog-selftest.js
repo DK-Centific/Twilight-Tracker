@@ -8,6 +8,7 @@ const vm = require('vm');
 
 const srcPath = path.join(__dirname, '..', 'twilight.js');
 const src = fs.readFileSync(srcPath, 'utf8');
+const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const begin = src.indexOf('/* SCENARIO_CATALOG_BEGIN */');
 const end = src.indexOf('/* SCENARIO_CATALOG_END */');
 if (begin < 0 || end < 0 || end <= begin) {
@@ -23,7 +24,9 @@ const {
   scenarioCatalogKey,
   applyScenarioCatalogEdit,
   undoScenarioCatalogChange,
+  redoScenarioCatalogChange,
   lastUndoableScenarioChange,
+  lastRedoableScenarioChange,
   scenarioCatalogPatchSummary,
   buildScenarioCatalogPayload,
   collectScenarioCatalogFromSessionRows,
@@ -31,6 +34,10 @@ const {
   scenarioCatalogEditAllowed,
   scenarioStationTileEditAllowed,
   scenarioCatalogRigFlagsFromFields,
+  scenarioCatalogIdIsCalRig,
+  buildScenarioCatalogEditorRigCardHTML,
+  scenarioCatalogResolvedFields,
+  scenarioCatalogDraftEqualsPublished,
 } = context;
 
 let failed = 0;
@@ -77,12 +84,30 @@ assert('save without iter keeps the previous iteration target', noIter.changed
 const last = lastUndoableScenarioChange(first.catalog);
 assert('last undoable is the new edit', last && last.id === first.entry.id);
 
+const sourceBeforeUndo = first.catalog.changelog.find(e => e.id === first.entry.id);
+assert('source changelog entry starts active', sourceBeforeUndo && !sourceBeforeUndo.undone);
+
 const undone = undoScenarioCatalogChange(first.catalog, first.entry.id);
 assert('undo marks the entry undone', undone.undone && undone.undone.undone);
 assert('undo restores override or clears it', !undone.catalog.overrides['station1|01']
   || undone.catalog.overrides['station1|01'].name === first.entry.before.name);
 assert('undone entry is no longer last-undoable', !lastUndoableScenarioChange(undone.catalog)
   || lastUndoableScenarioChange(undone.catalog).id !== first.entry.id);
+assert('undo clones so the source catalog entry stays active', sourceBeforeUndo && !sourceBeforeUndo.undone);
+assert('undone entry is last-redoable', lastRedoableScenarioChange(undone.catalog)
+  && lastRedoableScenarioChange(undone.catalog).id === first.entry.id);
+
+const redone = redoScenarioCatalogChange(undone.catalog, first.entry.id);
+assert('redo clears the undone flag', redone.redone && !redone.redone.undone);
+assert('redo restores the after override', redone.catalog.overrides['station1|01']
+  && redone.catalog.overrides['station1|01'].name === first.entry.after.name);
+assert('redone entry is last-undoable again', lastUndoableScenarioChange(redone.catalog)
+  && lastUndoableScenarioChange(redone.catalog).id === first.entry.id);
+assert('redo of an active entry is a no-op', !redoScenarioCatalogChange(redone.catalog, first.entry.id).redone);
+assert('draft fingerprint matches after redo', typeof scenarioCatalogDraftEqualsPublished === 'function'
+  && scenarioCatalogDraftEqualsPublished(redone.catalog, first.catalog));
+assert('draft fingerprint differs after undo', typeof scenarioCatalogDraftEqualsPublished === 'function'
+  && !scenarioCatalogDraftEqualsPublished(undone.catalog, first.catalog));
 
 const payload = buildScenarioCatalogPayload(first.catalog);
 assert('payload uses scenario catalog setting id', payload.sessionStateId === 'ss_app_setting_scenario_catalog');
@@ -132,17 +157,63 @@ assert('editor has no Required iterations field', !/Required iterations/.test(fu
 assert('editor draft no longer writes iter from a number field', /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
   && !/scenEditIter/.test(fullSrc)
   && /description: desc \? desc\.value\.trim\(\) : ''/.test(fullSrc));
-assert('editor shows cal-rig-card for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
+assert('editor shows a dedicated cal-rig-card-editor for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
   && /scenEditRigHost/.test(fullSrc)
-  && /calRigChecksHTML\(/.test(fullSrc)
+  && /function buildScenarioCatalogEditorRigCardHTML\(/.test(fullSrc)
+  && /cal-rig-card-editor/.test(fullSrc)
+  && /cal-rig-edit-toggle/.test(fullSrc)
   && /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc));
+assert('editor does not reuse the live station calRigChecksHTML card', (() => {
+  const start = fullSrc.indexOf('function scenarioCatalogEditorRigHTML');
+  const end = fullSrc.indexOf('function applyScenarioCatalogRigsToSession');
+  if (start < 0 || end < 0 || end <= start) return false;
+  return !/calRigChecksHTML\(/.test(fullSrc.slice(start, end));
+})());
 assert('editor rig card is draft-editable until save', /function paintScenarioCatalogEditorRigHost\(/.test(fullSrc)
   && /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
   && /draft\.rig1Completed/.test(fullSrc)
   && /draft\.rig2Completed/.test(fullSrc)
-  && /applyScenarioCatalogRigsToSession\(/.test(fullSrc));
-assert('editor checkboxes are not session-lock gated', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
-  && !/applyCalRigInputFromElement\(inp\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'))));
+  && /applyScenarioCatalogRigsToSession\(/.test(fullSrc)
+  && /function applyScenarioCatalogEditorRigVisuals\(/.test(fullSrc));
+assert('editor toggles are buttons, not hidden station checkboxes', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
+  && /cal-rig-edit-toggle/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard')))
+  && !/applyCalRigInputFromElement\(inp\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard')))
+  && !/\.cal-rig-input/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor does not rebuild the card on every toggle', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
+  && !/paintScenarioCatalogEditorRigHost\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor refill does not wait for the open animation', /function bindScenarioCatalogEditorChrome\(/.test(fullSrc)
+  && /if \(!modal \|\| modal\.hidden\) return;/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'), fullSrc.indexOf('function collectScenarioCatalogEditorDraft'))));
+assert('editor undo/redo is draft-only until save', /function applyScenarioCatalogEditorDraftUndo\(/.test(fullSrc)
+  && /function applyScenarioCatalogEditorDraftRedo\(/.test(fullSrc)
+  && /function beginScenarioCatalogEditorDraft\(/.test(fullSrc)
+  && /function discardScenarioCatalogEditorDraft\(/.test(fullSrc)
+  && /refill\(\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'), fullSrc.indexOf('function collectScenarioCatalogEditorDraft')))
+  && !/persistScenarioCatalogRecord\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'), fullSrc.indexOf('function collectScenarioCatalogEditorDraft')))
+  && !/applyScenarioCatalogUndoLocal\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'), fullSrc.indexOf('function collectScenarioCatalogEditorDraft'))));
+const draftUndoFn = fullSrc.slice(fullSrc.indexOf('function applyScenarioCatalogEditorDraftUndo'), fullSrc.indexOf('function applyScenarioCatalogEditorDraftRedo'));
+assert('draft undo does not persist or touch the live session', /undoScenarioCatalogChange\(_scenarioCatalogDraft/.test(draftUndoFn)
+  && !/saveScenarioCatalogCache/.test(draftUndoFn)
+  && !/persistScenarioCatalogRecord/.test(draftUndoFn)
+  && !/applyScenarioCatalogRigsToSession/.test(draftUndoFn)
+  && !/refreshScenarioCatalogSurfaces/.test(draftUndoFn));
+const draftRedoFn = fullSrc.slice(fullSrc.indexOf('function applyScenarioCatalogEditorDraftRedo'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'));
+assert('draft redo does not persist or touch the live session', /redoScenarioCatalogChange\(_scenarioCatalogDraft/.test(draftRedoFn)
+  && !/saveScenarioCatalogCache/.test(draftRedoFn)
+  && !/persistScenarioCatalogRecord/.test(draftRedoFn)
+  && !/applyScenarioCatalogRigsToSession/.test(draftRedoFn));
+assert('cancel/close discards the editor draft', /function closeScenarioCatalogEditor\(/.test(fullSrc)
+  && /discardScenarioCatalogEditorDraft\(\)/.test(fullSrc.slice(fullSrc.indexOf('function closeScenarioCatalogEditor'), fullSrc.indexOf('function persistScenarioCatalogRecord'))));
+assert('save publishes the draft catalog', /function submitScenarioCatalogEditor\(/.test(fullSrc)
+  && /_scenarioCatalogDraft/.test(fullSrc.slice(fullSrc.indexOf('function submitScenarioCatalogEditor'), fullSrc.indexOf('function applyScenarioCatalogUndoLocal')))
+  && /persistScenarioCatalogRecord\(catalog\)/.test(fullSrc.slice(fullSrc.indexOf('function submitScenarioCatalogEditor'), fullSrc.indexOf('function applyScenarioCatalogUndoLocal'))));
+assert('changelog marks undone rows as redoable in the editor', /draftMode: true/.test(fullSrc)
+  && /scen-log-redo/.test(fullSrc)
+  && /tap to redo/.test(fullSrc)
+  && /is-redoable/.test(fullSrc)
+  && /scen-log-row\.is-undone\[data-chg\]/.test(fullSrc));
+assert('editor rig flags do not fall back to the live session row', /function scenarioCatalogEditorRigFlags\(/.test(fullSrc)
+  && /rig1: false, rig2: false/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML')))
+  && !/state\.stations\[stationKey\]/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorRigFlags'), fullSrc.indexOf('function scenarioCatalogEditorRigHTML'))));
 
 const rigFlags = scenarioCatalogRigFlagsFromFields(
   { rig1Completed: true, rig2Completed: false },
@@ -170,6 +241,47 @@ const undoneRigs = undoScenarioCatalogChange(onlyRigs.catalog, onlyRigs.entry.id
 assert('undo restores previous rig flags', undoneRigs.undone
   && !undoneRigs.catalog.overrides['station1|01'].rig1Completed
   && !undoneRigs.catalog.overrides['station1|01'].rig2Completed);
+const redoneRigs = redoScenarioCatalogChange(undoneRigs.catalog, onlyRigs.entry.id);
+assert('redo restores published rig flags', redoneRigs.redone
+  && redoneRigs.catalog.overrides['station1|01'].rig1Completed
+  && redoneRigs.catalog.overrides['station1|01'].rig2Completed);
+
+assert('resolved fields prefer draft override over live tiles', typeof scenarioCatalogResolvedFields === 'function'
+  && scenarioCatalogResolvedFields('station1', '01', {
+    overrides: { 'station1|01': { num: '01', id: 'CAL_EXT', name: 'Draft title', description: 'from draft' } },
+    changelog: [],
+  }).name === 'Draft title');
+
+assert('cal id helper trims and ignores case', typeof scenarioCatalogIdIsCalRig === 'function'
+  && scenarioCatalogIdIsCalRig(' cal_ext ')
+  && scenarioCatalogIdIsCalRig({ id: 'Cal_Gnd' })
+  && !scenarioCatalogIdIsCalRig({ id: 'CAL_PHONE' })
+  && !scenarioCatalogIdIsCalRig({ id: '3' }));
+
+const editorCard = typeof buildScenarioCatalogEditorRigCardHTML === 'function'
+  ? buildScenarioCatalogEditorRigCardHTML({ rig1: true, rig2: false })
+  : '';
+assert('editor card HTML is a dedicated interactive control', /cal-rig-card-editor/.test(editorCard)
+  && /Catalog default · editable/.test(editorCard)
+  && /cal-rig-edit-toggle/.test(editorCard)
+  && /aria-pressed="true"/.test(editorCard)
+  && /aria-pressed="false"/.test(editorCard)
+  && !/cal-rig-input/.test(editorCard)
+  && !/type="checkbox"/.test(editorCard)
+  && !/Mark each rig/.test(editorCard)
+  && !/Approval review unlocks/.test(editorCard));
+const emptyCard = typeof buildScenarioCatalogEditorRigCardHTML === 'function'
+  ? buildScenarioCatalogEditorRigCardHTML({ rig1: false, rig2: false })
+  : '';
+assert('editor card still renders when both rigs are off', /cal-rig-card-editor/.test(emptyCard)
+  && /Rig 1/.test(emptyCard)
+  && /Rig 2/.test(emptyCard));
+
+assert('APP_VERSION is 1.3.091626h', /const APP_VERSION = '1\.3\.091626h'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626h'));
+assert('changelog redo styles distinguish undone rows', /#scenCatalogModal \.scen-log-row\.is-undone\.is-redoable/.test(html)
+  && /\.scen-log-redo/.test(html)
+  && /text-decoration: line-through/.test(html));
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');

@@ -47,6 +47,12 @@ assert(
   /openExternalAppWindow\(href, a\.getAttribute\('data-appr-win'\)[\s\S]{0,40}\{ layout: 'sidePanel' \}\)/.test(src)
 );
 assert(
+  'Approval click is captured so Reviewer and Admin share the side panel',
+  /document\.addEventListener\('click', onApprovalExternalOpenClick, true\)/.test(src)
+    && /function bindApprovalExternalOpeners\(root\)/.test(src)
+    && /bindApprovalExternalOpeners\(panel\)/.test(src)
+);
+assert(
   'no iframe embed on Approval panel',
   !/appr-icon-row[\s\S]{0,400}<iframe/.test(src)
 );
