@@ -30,6 +30,7 @@ const {
   normalizeScenarioCatalog,
   scenarioCatalogEditAllowed,
   scenarioStationTileEditAllowed,
+  scenarioCatalogRigFlagsFromFields,
 } = context;
 
 let failed = 0;
@@ -135,8 +136,40 @@ assert('editor shows cal-rig-card for CAL_EXT / CAL_GND', /function scenarioCata
   && /scenEditRigHost/.test(fullSrc)
   && /calRigChecksHTML\(/.test(fullSrc)
   && /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc));
-assert('editor rig card reuses station persist helper', /function applyCalRigInputFromElement\(/.test(fullSrc)
-  && /applyCalRigInputFromElement\(inp\)/.test(fullSrc));
+assert('editor rig card is draft-editable until save', /function paintScenarioCatalogEditorRigHost\(/.test(fullSrc)
+  && /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
+  && /draft\.rig1Completed/.test(fullSrc)
+  && /draft\.rig2Completed/.test(fullSrc)
+  && /applyScenarioCatalogRigsToSession\(/.test(fullSrc));
+assert('editor checkboxes are not session-lock gated', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
+  && !/applyCalRigInputFromElement\(inp\)/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'))));
+
+const rigFlags = scenarioCatalogRigFlagsFromFields(
+  { rig1Completed: true, rig2Completed: false },
+  { rig1: false, rig2: true }
+);
+assert('catalog rig flags prefer explicit fields', rigFlags.rig1 === true && rigFlags.rig2 === false);
+
+const onlyRigs = applyScenarioCatalogEdit(
+  {
+    overrides: {
+      'station1|01': { num: '01', id: 'CAL_EXT', name: 'Air Cal', iter: 2, description: 'Hold the board high' },
+    },
+    changelog: [],
+  },
+  'station1',
+  '01',
+  { name: 'Air Cal', id: 'CAL_EXT', description: 'Hold the board high', rig1Completed: true, rig2Completed: true },
+  'Admin-Twilight'
+);
+assert('rig-only save is a catalog change', onlyRigs.changed && onlyRigs.entry.after.rig1Completed === true
+  && onlyRigs.entry.after.rig2Completed === true);
+assert('changelog names Rig 1 / Rig 2', /Rig 1/.test(onlyRigs.entry.summary) && /Rig 2/.test(onlyRigs.entry.summary));
+
+const undoneRigs = undoScenarioCatalogChange(onlyRigs.catalog, onlyRigs.entry.id);
+assert('undo restores previous rig flags', undoneRigs.undone
+  && !undoneRigs.catalog.overrides['station1|01'].rig1Completed
+  && !undoneRigs.catalog.overrides['station1|01'].rig2Completed);
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');
