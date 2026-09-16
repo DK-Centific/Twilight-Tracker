@@ -181,6 +181,8 @@ assert('editor toggles are buttons, not hidden station checkboxes', /function bi
   && !/\.cal-rig-input/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
 assert('editor does not rebuild the card on every toggle', /function bindScenarioCatalogEditorRigCard\(/.test(fullSrc)
   && !/paintScenarioCatalogEditorRigHost\(/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorRigCard'), fullSrc.indexOf('function bindScenarioCatalogEditorChrome'))));
+assert('editor refill does not wait for the open animation', /function bindScenarioCatalogEditorChrome\(/.test(fullSrc)
+  && /if \(!modal \|\| modal\.hidden\) return;/.test(fullSrc.slice(fullSrc.indexOf('function bindScenarioCatalogEditorChrome'), fullSrc.indexOf('function collectScenarioCatalogEditorDraft'))));
 assert('editor undo/redo is draft-only until save', /function applyScenarioCatalogEditorDraftUndo\(/.test(fullSrc)
   && /function applyScenarioCatalogEditorDraftRedo\(/.test(fullSrc)
   && /function beginScenarioCatalogEditorDraft\(/.test(fullSrc)

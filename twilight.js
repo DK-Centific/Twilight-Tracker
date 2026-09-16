@@ -37109,7 +37109,7 @@ function bindScenarioCatalogEditorChrome() {
   if (!body) return;
   const refill = () => {
     const modal = document.getElementById('scenCatalogModal');
-    if (!modal || !modal.classList.contains('open')) return;
+    if (!modal || modal.hidden) return;
     body.innerHTML = scenarioCatalogEditorHTML(modal.dataset.station, modal.dataset.num);
     bindScenarioCatalogEditorChrome();
     const title = document.getElementById('scenEditTitle');
@@ -37255,9 +37255,9 @@ function openScenarioCatalogEditor(stationKey, num, opts) {
   bindScenarioCatalogEditorChrome();
   overlay.hidden = false;
   modal.hidden = false;
+  overlay.classList.add('open');
+  modal.classList.add('open');
   requestAnimationFrame(() => {
-    overlay.classList.add('open');
-    modal.classList.add('open');
     const title = document.getElementById('scenEditTitle');
     if (title) title.focus();
   });
