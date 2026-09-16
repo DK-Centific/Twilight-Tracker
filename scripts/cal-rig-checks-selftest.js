@@ -22,6 +22,7 @@ console.log('Calibration rig checkbox self-test');
 assert('isCalRigScenario exists', /function isCalRigScenario\(/.test(src));
 assert('normalizeCalRigFlags exists', /function normalizeCalRigFlags\(/.test(src));
 assert('applyCalRigChecks exists', /function applyCalRigChecks\(/.test(src));
+assert('applyCalRigInputFromElement exists', /function applyCalRigInputFromElement\(/.test(src));
 assert('calRigChecksHTML exists', /function calRigChecksHTML\(/.test(src));
 assert('scenarioIterControlHTML hides Iteration for CAL', /function scenarioIterControlHTML\(/.test(src)
   && /isCalRigScenario\(sc\)\) return ''/.test(src));
@@ -30,6 +31,12 @@ assert('rig labels are Rig 1 / Rig 2 Completed', /Rig 1 Completed/.test(src) && 
 assert('uncheck clears Calibrated or Uploaded', /sd\.status === 'Calibrated' \|\| sd\.status === 'Uploaded'/.test(src));
 assert('desktop table no longer shows Iteration stepper for CAL', /isCalRigScenario\(sc\) \? '<span class="iter-auto"/.test(src));
 assert('checkbox card CSS is high-contrast', /cal-rig-card/.test(html) && /min-height: 52px/.test(html));
+assert('desktop/web Uploaded buttons are enlarged', /scenario-card-list \.scenario-status-btn\.s-uploaded/.test(html)
+  && /scenario-table \.scenario-status-btn\.s-uploaded/.test(html)
+  && /min-height: 42px/.test(html));
+assert('editor modal hosts the same cal-rig-card', /scenEditRigHost/.test(src)
+  && /function scenarioCatalogEditorRigHTML\(/.test(src)
+  && !/scenEditIter/.test(src));
 
 // Exercise the same completion rules the app uses.
 function applyCalRigChecks(sd, sc, rig1, rig2) {
