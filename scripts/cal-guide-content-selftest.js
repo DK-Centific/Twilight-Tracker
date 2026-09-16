@@ -41,6 +41,12 @@ const {
   calGuideLineList,
   calGuideCalloutPreviewText,
   renderCalGuideBannerEditorHtml,
+  renderCalGuideCalloutToolbar,
+  renderCalGuideStyleToolbar,
+  calGuideSanitizeHtml,
+  calGuideNormalizeHexColor,
+  calGuideNormalizeFontColorHtml,
+  calGuideColorSpanHtml,
 } = context;
 
 let failed = 0;
@@ -209,6 +215,50 @@ assert('edit banner has a clickable summary card', /cg-callout-summary/.test(ban
 assert('edit banner keeps the editor fields in the card', /data-cg-field="bannerBody"/.test(bannerEditor));
 assert('callout preview uses live warning copy',
   /Recording rejections/.test(calGuideCalloutPreviewText('banner', defaults.banner)));
+assert('shared style toolbar has bold italic underline and colors',
+  typeof renderCalGuideStyleToolbar === 'function'
+  && /data-cg-cmd="bold"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-cmd="italic"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-cmd="underline"/.test(renderCalGuideStyleToolbar())
+  && /data-cg-text-color="red"/.test(renderCalGuideStyleToolbar())
+  && !/data-cg-icon/.test(renderCalGuideStyleToolbar())
+  && !/data-cg-block-accent/.test(renderCalGuideStyleToolbar()));
+assert('callout toolbar still has icons plus shared style controls',
+  typeof renderCalGuideCalloutToolbar === 'function'
+  && /data-cg-icon/.test(renderCalGuideCalloutToolbar('warn', 'amber'))
+  && /data-cg-block-accent/.test(renderCalGuideCalloutToolbar('warn', 'amber'))
+  && /data-cg-cmd="underline"/.test(renderCalGuideCalloutToolbar('warn', 'amber')));
+assert('banner editor still uses the shared callout toolbar',
+  /data-cg-cmd="bold"/.test(bannerEditor) && /data-cg-text-color/.test(bannerEditor));
+assert('callout bind still uses shared rich-text commands',
+  /function bindCalGuideIntroEditors\(/.test(src)
+  && /function bindCalGuideRichTextCommands\(/.test(src)
+  && /bindCalGuideRichTextCommands\(block/.test(src));
+assert('hex color normalizes 6-digit and rgb',
+  typeof calGuideNormalizeHexColor === 'function'
+  && calGuideNormalizeHexColor('#EF4444') === '#ef4444'
+  && calGuideNormalizeHexColor('rgb(239, 68, 68)') === '#ef4444');
+assert('color span helper writes inline hex',
+  typeof calGuideColorSpanHtml === 'function'
+  && calGuideColorSpanHtml('Hold', '#ef4444') === '<span style="color:#ef4444">Hold</span>');
+assert('font color HTML becomes a colored span',
+  typeof calGuideNormalizeFontColorHtml === 'function'
+  && calGuideNormalizeFontColorHtml('<font color="#ef4444">Hold</font>') === '<span style="color:#ef4444">Hold</span>'
+  && /<strong>Hi<\/strong>/.test(calGuideNormalizeFontColorHtml('<font color="#C47A6A"><strong>Hi</strong></font>')));
+assert('sanitize preserves hex color on span after apply',
+  typeof calGuideSanitizeHtml === 'function'
+  && /color:#ef4444/.test(calGuideSanitizeHtml(calGuideColorSpanHtml('<strong>Hold</strong>', '#ef4444')))
+  && /<strong>Hold<\/strong>/.test(calGuideSanitizeHtml(calGuideColorSpanHtml('<strong>Hold</strong>', '#ef4444')))
+  && !/<font/i.test(calGuideSanitizeHtml('<font color="#ef4444">Hold</font>')));
+assert('sanitize normalizes leftover font color tags',
+  calGuideSanitizeHtml('<font color="#ef4444">Hold</font>') === '<span style="color:#ef4444">Hold</span>'
+  && /color:#ef4444/.test(calGuideSanitizeHtml('<font color="rgb(239, 68, 68)">Hold</font>')));
+assert('color swatches wrap spans and keep the selection',
+  /function calGuideApplyTextColor\(/.test(src)
+  && /calGuideApplyTextColor\(color, lastEdit, savedRange\)/.test(src)
+  && /pointerdown/.test(src.slice(src.indexOf('function bindCalGuideRichTextCommands'), src.indexOf('function bindCalGuideEditor')))
+  && /preventDefault/.test(src.slice(src.indexOf('function bindCalGuideRichTextCommands'), src.indexOf('function bindCalGuideEditor')))
+  && !/execCommand\(\s*['"]foreColor['"]/.test(src));
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

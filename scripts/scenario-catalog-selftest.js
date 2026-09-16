@@ -38,6 +38,12 @@ const {
   buildScenarioCatalogEditorRigCardHTML,
   scenarioCatalogResolvedFields,
   scenarioCatalogDraftEqualsPublished,
+  scenarioDescriptionLooksLikeHtml,
+  scenarioDescriptionToSafeHtml,
+  scenarioDescriptionDisplayHTML,
+  scenarioDescriptionBlockHTML,
+  scenarioDescriptionSanitizeHtml,
+  collectScenarioDescriptionFromEditor,
 } = context;
 
 let failed = 0;
@@ -156,7 +162,17 @@ assert('save refreshes station view as well as Checklist', /function refreshScen
 assert('editor has no Required iterations field', !/Required iterations/.test(fullSrc) && !/scenEditIter/.test(fullSrc));
 assert('editor draft no longer writes iter from a number field', /function collectScenarioCatalogEditorDraft\(/.test(fullSrc)
   && !/scenEditIter/.test(fullSrc)
-  && /description: desc \? desc\.value\.trim\(\) : ''/.test(fullSrc));
+  && /collectScenarioDescriptionFromEditor\(desc\)/.test(fullSrc));
+assert('editor description is a Cal Guide style rich editor', /function scenarioCatalogEditorHTML\(/.test(fullSrc)
+  && /scen-desc-editor/.test(fullSrc)
+  && /contenteditable="true"/.test(fullSrc.slice(fullSrc.indexOf('function scenarioCatalogEditorHTML'), fullSrc.indexOf('function paintScenarioCatalogEditorRigHost')))
+  && /renderCalGuideStyleToolbar/.test(fullSrc)
+  && /function bindScenarioCatalogEditorDesc\(/.test(fullSrc)
+  && /bindCalGuideRichTextCommands/.test(fullSrc)
+  && !/<textarea class="tf-note" id="scenEditDesc"/.test(fullSrc));
+assert('tiles and station views render sanitized description HTML', /scenarioDescriptionBlockHTML\(sc\.description/.test(fullSrc)
+  && /scenarioDescriptionBlockHTML\(\(over && over\.description\)/.test(fullSrc)
+  && !/escapeHTML\(sc\.description\)/.test(fullSrc));
 assert('editor shows a dedicated cal-rig-card-editor for CAL_EXT / CAL_GND', /function scenarioCatalogEditorRigHTML\(/.test(fullSrc)
   && /scenEditRigHost/.test(fullSrc)
   && /function buildScenarioCatalogEditorRigCardHTML\(/.test(fullSrc)
@@ -277,11 +293,71 @@ assert('editor card still renders when both rigs are off', /cal-rig-card-editor/
   && /Rig 1/.test(emptyCard)
   && /Rig 2/.test(emptyCard));
 
-assert('APP_VERSION is 1.3.091626h', /const APP_VERSION = '1\.3\.091626h'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626h'));
+assert('APP_VERSION is 1.3.091626j', /const APP_VERSION = '1\.3\.091626j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091626j'));
 assert('changelog redo styles distinguish undone rows', /#scenCatalogModal \.scen-log-row\.is-undone\.is-redoable/.test(html)
   && /\.scen-log-redo/.test(html)
   && /text-decoration: line-through/.test(html));
+assert('scenario editor reuses Cal Guide rich CSS', /#scenCatalogModal \.scen-desc-editor/.test(html)
+  && /\.tf-editor\.cg-rich/.test(html)
+  && /\.cg-callout-tools/.test(html));
+
+assert('plain description is not treated as HTML', typeof scenarioDescriptionLooksLikeHtml === 'function'
+  && !scenarioDescriptionLooksLikeHtml('Hold the board high')
+  && !scenarioDescriptionLooksLikeHtml('use <3 seconds')
+  && scenarioDescriptionLooksLikeHtml('<strong>Hold</strong> the board'));
+assert('plain description stays readable', typeof scenarioDescriptionToSafeHtml === 'function'
+  && scenarioDescriptionToSafeHtml('Hold the board high') === 'Hold the board high'
+  && scenarioDescriptionToSafeHtml('line1\nline2') === 'line1<br>line2');
+assert('rich description keeps color and style', typeof scenarioDescriptionDisplayHTML === 'function'
+  && /<strong>Hold<\/strong>/.test(scenarioDescriptionDisplayHTML('<span style="color:#ef4444"><strong>Hold</strong></span> the board'))
+  && /color:#ef4444/.test(scenarioDescriptionDisplayHTML('<span style="color:#ef4444"><strong>Hold</strong></span> the board')));
+assert('description sanitize strips script XSS', typeof scenarioDescriptionSanitizeHtml === 'function'
+  && /Hi/.test(scenarioDescriptionSanitizeHtml('<script>alert(1)</script>Hi'))
+  && !/<script/i.test(scenarioDescriptionSanitizeHtml('<script>alert(1)</script>Hi'))
+  && !/\sonerror/i.test(scenarioDescriptionSanitizeHtml('<div onerror=alert(1)>Hi</div>')));
+assert('description tile wrapper uses the class', typeof scenarioDescriptionBlockHTML === 'function'
+  && scenarioDescriptionBlockHTML('', 'cl-scen-desc') === ''
+  && /cl-scen-desc/.test(scenarioDescriptionBlockHTML('Hold the board', 'cl-scen-desc'))
+  && /Hold the board/.test(scenarioDescriptionBlockHTML('Hold the board', 'cl-scen-desc')));
+assert('editor collect reads contenteditable innerHTML', typeof collectScenarioDescriptionFromEditor === 'function'
+  && collectScenarioDescriptionFromEditor({ isContentEditable: true, innerHTML: '<strong>Hold</strong>' }) === '<strong>Hold</strong>'
+  && collectScenarioDescriptionFromEditor({ isContentEditable: true, innerHTML: '<br>' }) === ''
+  && collectScenarioDescriptionFromEditor({ isContentEditable: false, value: '  Hold the board  ' }) === 'Hold the board');
+assert('font color input is normalized to a hex span', typeof scenarioDescriptionSanitizeHtml === 'function'
+  && scenarioDescriptionSanitizeHtml('<font color="#ef4444">Hold</font>') === '<span style="color:#ef4444">Hold</span>'
+  && /color:#ef4444/.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>'))
+  && /Hold/.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>'))
+  && !/<font/i.test(scenarioDescriptionDisplayHTML('<font color="#ef4444">Hold</font>')));
+assert('collect keeps applied hex color on a span',
+  /color:#ef4444/.test(collectScenarioDescriptionFromEditor({
+    isContentEditable: true,
+    innerHTML: '<span style="color:#ef4444">Hold</span>',
+  }))
+  && collectScenarioDescriptionFromEditor({
+    isContentEditable: true,
+    innerHTML: '<font color="#ef4444">Hold</font>',
+  }) === '<span style="color:#ef4444">Hold</span>');
+assert('color swatches wrap spans instead of font/foreColor', /function calGuideApplyTextColor\(/.test(fullSrc)
+  && /calGuideApplyTextColor\(color, lastEdit, savedRange\)/.test(fullSrc)
+  && /pointerdown/.test(fullSrc.slice(fullSrc.indexOf('function bindCalGuideRichTextCommands'), fullSrc.indexOf('function bindCalGuideEditor')))
+  && !/execCommand\(\s*['"]foreColor['"]/.test(fullSrc));
+assert('tile description CSS does not force descendant color',
+  !/\.cl-scen-desc\s+[^{]+\{[^}]*\bcolor:/.test(html)
+  && !/\.scenario-desc\s+[^{]+\{[^}]*\bcolor:/.test(html)
+  && !/\.sc-flow-desc\s+[^{]+\{[^}]*\bcolor:/.test(html));
+
+const richEdit = applyScenarioCatalogEdit(
+  { overrides: {}, changelog: [] },
+  'station1',
+  '01',
+  { name: 'Air Cal · styled', id: 'CAL_EXT', description: '<span style="color:#ef4444"><strong>Hold</strong> high</span>' },
+  'Admin-Twilight'
+);
+assert('changelog tracks rich description changes', richEdit.changed
+  && /description/.test(richEdit.entry.summary)
+  && /<strong>Hold<\/strong>/.test(richEdit.entry.after.description)
+  && /color:#ef4444/.test(richEdit.entry.after.description));
 
 if (failed) {
   console.error(failed + ' scenario catalog checks failed');

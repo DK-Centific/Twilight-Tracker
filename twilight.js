@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626h';
-const APP_UPDATED_AT = '09/16/2026 03:05';
+const APP_VERSION = '1.3.091626j';
+const APP_UPDATED_AT = '09/16/2026 03:28';
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -2805,7 +2805,7 @@ function scenarioFlowTileHTML(station, data, sc) {
           <div class="sc-flow-copy">
             <div class="sc-flow-name">${escapeHTML(sc.name)}${vehIcon}</div>
             <div class="sc-flow-id">${escapeHTML(sc.id)}</div>
-            ${sc.description ? `<div class="sc-flow-desc">${escapeHTML(sc.description)}</div>` : ''}
+            ${scenarioDescriptionBlockHTML(sc.description, 'sc-flow-desc')}
           </div>
         </div>
         <div class="sc-flow-actions">
@@ -3667,7 +3667,7 @@ function renderStation(key, opts) {
               <tr class="${rowClass}${pencil ? ' has-scen-pencil' : ''}" data-num="${sc.num}" data-key="${escapeHTML(station.key)}">
                 <td class="col-num">${sc.num}</td>
                 <td class="col-id">${escapeHTML(sc.id)}</td>
-                <td class="col-name">${pencil}${escapeHTML(sc.name)}${vehIcon}${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}</td>
+                <td class="col-name">${pencil}${escapeHTML(sc.name)}${vehIcon}${scenarioDescriptionBlockHTML(sc.description, 'scenario-desc')}</td>
                 <td class="col-iter">${isCalRigScenario(sc) ? '<span class="iter-auto" title="Mark Rig 1 and Rig 2 in the Status column">Rigs</span>' : (rf ? '<span class="iter-auto" title="Counted automatically when recording is confirmed">' + iters + ' / ' + (sc.iter || 1) + '</span>' : iterStepperHTML(station.key, sc.num, iters, iterClass, sc.iter))}</td>
                 <td class="col-status">${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}</td>
                 ${station.type === 'capture' ? `
@@ -3699,7 +3699,7 @@ function renderStation(key, opts) {
                 <div>
                   <div class="scenario-card-title">${escapeHTML(sc.name)}${vehIcon}</div>
                   <div class="scenario-card-id">${escapeHTML(sc.id)}</div>
-                  ${sc.description ? `<div class="scenario-desc">${escapeHTML(sc.description)}</div>` : ''}
+                  ${scenarioDescriptionBlockHTML(sc.description, 'scenario-desc')}
                 </div>
               </div>
               <div class="scenario-card-controls">
@@ -36001,8 +36001,52 @@ function calGuideStripHtml(html) {
     .trim();
 }
 
-function calGuideSanitizeHtml(html) {
+function calGuideNormalizeHexColor(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(s)) {
+    if (s.length === 4) {
+      return ('#' + s.charAt(1) + s.charAt(1) + s.charAt(2) + s.charAt(2) + s.charAt(3) + s.charAt(3)).toLowerCase();
+    }
+    return s.toLowerCase();
+  }
+  const rgb = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgb) {
+    const hex = n => ('0' + Math.max(0, Math.min(255, Number(n))).toString(16)).slice(-2);
+    return '#' + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
+  }
+  return '';
+}
+
+function calGuideColorSpanHtml(innerHtml, color) {
+  const hex = calGuideNormalizeHexColor(color);
+  if (!hex) return String(innerHtml == null ? '' : innerHtml);
+  return '<span style="color:' + hex + '">' + String(innerHtml == null ? '' : innerHtml) + '</span>';
+}
+
+function calGuideNormalizeFontColorHtml(html) {
   let s = String(html || '');
+  let prev = '';
+  while (s !== prev) {
+    prev = s;
+    s = s.replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+      const attrSrc = String(attrs || '');
+      const colorAttr = attrSrc.match(/color\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const styleAttr = attrSrc.match(/style\s*=\s*("([^"]*)"|'([^']*)')/i);
+      let color = '';
+      if (colorAttr) color = calGuideNormalizeHexColor(colorAttr[2] || colorAttr[3] || colorAttr[4] || '');
+      if (!color && styleAttr) {
+        const m = String(styleAttr[2] || styleAttr[3] || '').match(/color\s*:\s*([^;]+)/i);
+        if (m) color = calGuideNormalizeHexColor(m[1]);
+      }
+      const body = inner == null ? '' : inner;
+      return color ? calGuideColorSpanHtml(body, color) : body;
+    });
+  }
+  return s;
+}
+
+function calGuideSanitizeHtml(html) {
+  let s = calGuideNormalizeFontColorHtml(html);
   s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
   s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   s = s.replace(/javascript:/gi, '');
@@ -36303,6 +36347,25 @@ function renderCalGuideSectionsHtml(content) {
   return stamp + sections + checklist;
 }
 
+function renderCalGuideTextStyleControls() {
+  const textBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
+    return `<button type="button" class="tf-swatch" data-accent="${id}" data-cg-text-color="${id}" title="Text ${id}"></button>`;
+  }).join('');
+  return `
+      <button type="button" class="tf-tool-btn" data-cg-cmd="bold" title="Bold"><strong>B</strong></button>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="italic" title="Italic"><em>I</em></button>
+      <button type="button" class="tf-tool-btn" data-cg-cmd="underline" title="Underline"><u>U</u></button>
+      <span class="tf-draft-hint">Text</span>
+      ${textBtns}`;
+}
+
+function renderCalGuideStyleToolbar() {
+  return `
+    <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Style">
+      ${renderCalGuideTextStyleControls()}
+    </div>`;
+}
+
 function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
   const noneOn = selectedIcon ? '' : ' is-on';
   const noneBtn = `<button type="button" class="tf-icon-btn${noneOn}" data-cg-icon="" title="No icon">–</button>`;
@@ -36316,9 +36379,6 @@ function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
     const on = selectedAccent === id ? ' is-on' : '';
     return `<button type="button" class="tf-swatch${on}" data-accent="${id}" data-cg-block-accent="${id}" title="Block ${id}"></button>`;
   }).join('');
-  const textBtns = Object.keys(CAL_GUIDE_ACCENTS).map(id => {
-    return `<button type="button" class="tf-swatch" data-accent="${id}" data-cg-text-color="${id}" title="Text ${id}"></button>`;
-  }).join('');
   return `
     <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Icon">
       ${icons}
@@ -36327,10 +36387,7 @@ function renderCalGuideCalloutToolbar(selectedIcon, selectedAccent) {
     <div class="tf-toolbar cg-callout-tools" role="group" aria-label="Style">
       <span class="tf-draft-hint">Block</span>
       ${accentBtns}
-      <span class="tf-draft-hint">Text</span>
-      <button type="button" class="tf-tool-btn" data-cg-cmd="bold" title="Bold"><strong>B</strong></button>
-      <button type="button" class="tf-tool-btn" data-cg-cmd="italic" title="Italic"><em>I</em></button>
-      ${textBtns}
+      ${renderCalGuideTextStyleControls()}
     </div>`;
 }
 
@@ -36500,6 +36557,9 @@ function collectCalGuideEditorDraft(root) {
   g.calGuideLineList = calGuideLineList;
   g.calGuideSanitizeHtml = calGuideSanitizeHtml;
   g.calGuideStripHtml = calGuideStripHtml;
+  g.calGuideNormalizeHexColor = calGuideNormalizeHexColor;
+  g.calGuideNormalizeFontColorHtml = calGuideNormalizeFontColorHtml;
+  g.calGuideColorSpanHtml = calGuideColorSpanHtml;
   g.cloneCalGuideDefaults = cloneCalGuideDefaults;
   g.cloneCalGuideIntroDefaults = cloneCalGuideIntroDefaults;
   g.normalizeCalGuideContent = normalizeCalGuideContent;
@@ -36520,6 +36580,9 @@ function collectCalGuideEditorDraft(root) {
   g.collectCalGuideEditorDraft = collectCalGuideEditorDraft;
   g.calGuideCalloutPreviewText = calGuideCalloutPreviewText;
   g.wrapCalGuideCalloutEditor = wrapCalGuideCalloutEditor;
+  g.renderCalGuideCalloutToolbar = renderCalGuideCalloutToolbar;
+  g.renderCalGuideStyleToolbar = renderCalGuideStyleToolbar;
+  g.renderCalGuideTextStyleControls = renderCalGuideTextStyleControls;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 /* CAL_GUIDE_CONTENT_END */
 
@@ -36607,6 +36670,71 @@ function scenarioCatalogIdIsCalRig(scOrId) {
   const raw = (scOrId && typeof scOrId === 'object') ? scOrId.id : scOrId;
   const id = String(raw == null ? '' : raw).trim().toUpperCase();
   return id === 'CAL_EXT' || id === 'CAL_GND';
+}
+
+function scenarioDescriptionLooksLikeHtml(raw) {
+  return /<\/?(?:p|div|span|strong|b|em|i|u|br|ul|ol|li|font)\b/i.test(String(raw || ''));
+}
+
+function scenarioDescriptionEscapePlain(raw) {
+  const s = String(raw == null ? '' : raw);
+  if (typeof escapeHTML === 'function') return escapeHTML(s);
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function scenarioDescriptionSanitizeHtml(html) {
+  const normalized = (typeof calGuideNormalizeFontColorHtml === 'function')
+    ? calGuideNormalizeFontColorHtml(html)
+    : String(html || '').replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+      const colorAttr = String(attrs || '').match(/color\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const raw = colorAttr ? (colorAttr[2] || colorAttr[3] || colorAttr[4] || '') : '';
+      const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(raw).trim()) ? String(raw).trim().toLowerCase() : '';
+      return hex ? ('<span style="color:' + hex + '">' + inner + '</span>') : inner;
+    });
+  if (typeof calGuideSanitizeHtml === 'function') return calGuideSanitizeHtml(normalized);
+  let s = String(normalized || '');
+  s = s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  s = s.replace(/javascript:/gi, '');
+  s = s.replace(/<\/?(?:iframe|object|embed|link|meta|form|input|button|textarea|select)[^>]*>/gi, '');
+  return s;
+}
+
+function scenarioDescriptionToSafeHtml(raw) {
+  const s = String(raw == null ? '' : raw);
+  if (!s) return '';
+  if (scenarioDescriptionLooksLikeHtml(s) || /&(?:#\d+|#x[0-9a-f]+|lt|gt|amp|quot|nbsp);/i.test(s)) {
+    return scenarioDescriptionSanitizeHtml(s);
+  }
+  return scenarioDescriptionEscapePlain(s).replace(/\r?\n/g, '<br>');
+}
+
+function scenarioDescriptionIsBlank(raw) {
+  const s = String(raw == null ? '' : raw);
+  if (typeof calGuideStripHtml === 'function') return !calGuideStripHtml(s);
+  return !s.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scenarioDescriptionDisplayHTML(raw) {
+  const html = scenarioDescriptionToSafeHtml(raw);
+  return scenarioDescriptionIsBlank(html) ? '' : html;
+}
+
+function scenarioDescriptionBlockHTML(raw, className) {
+  const html = scenarioDescriptionDisplayHTML(raw);
+  if (!html) return '';
+  return '<div class="' + String(className || 'scenario-desc') + '">' + html + '</div>';
+}
+
+function collectScenarioDescriptionFromEditor(el) {
+  if (!el) return '';
+  const raw = el.isContentEditable ? el.innerHTML : String(el.value || '');
+  const html = scenarioDescriptionSanitizeHtml(raw);
+  return scenarioDescriptionIsBlank(html) ? '' : html.trim();
 }
 
 function scenarioCatalogEditorRigBoxHTML(on) {
@@ -36915,6 +37043,12 @@ function collectScenarioCatalogFromSessionRows(rows) {
   g.scenarioCatalogRigFlagsFromFields = scenarioCatalogRigFlagsFromFields;
   g.scenarioCatalogIdIsCalRig = scenarioCatalogIdIsCalRig;
   g.buildScenarioCatalogEditorRigCardHTML = buildScenarioCatalogEditorRigCardHTML;
+  g.scenarioDescriptionLooksLikeHtml = scenarioDescriptionLooksLikeHtml;
+  g.scenarioDescriptionToSafeHtml = scenarioDescriptionToSafeHtml;
+  g.scenarioDescriptionDisplayHTML = scenarioDescriptionDisplayHTML;
+  g.scenarioDescriptionBlockHTML = scenarioDescriptionBlockHTML;
+  g.scenarioDescriptionSanitizeHtml = scenarioDescriptionSanitizeHtml;
+  g.collectScenarioDescriptionFromEditor = collectScenarioDescriptionFromEditor;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
 /* SCENARIO_CATALOG_END */
 
@@ -37090,7 +37224,6 @@ function renderAdminChecklist(body) {
           <div class="cl-scen-grid">
             ${(st.scenarios || []).map(sc => {
               const over = catalog.overrides[scenarioCatalogKey(st.key, sc.num)];
-              const desc = String((over && over.description) || sc.description || '');
               return `
                 <article class="cl-scen-tile" data-station="${escapeHTML(st.key)}" data-num="${escapeHTML(String(sc.num))}">
                   <button type="button" class="cl-scen-pencil" data-station="${escapeHTML(st.key)}" data-num="${escapeHTML(String(sc.num))}" aria-label="Edit ${escapeHTML(sc.name || sc.id)}" title="Edit scenario">
@@ -37102,7 +37235,7 @@ function renderAdminChecklist(body) {
                   <div class="cl-scen-num">${escapeHTML(String(sc.num))}</div>
                   <div class="cl-scen-id">${escapeHTML(String(sc.id))}</div>
                   <div class="cl-scen-name">${escapeHTML(sc.name || '')}</div>
-                  ${desc ? `<div class="cl-scen-desc">${escapeHTML(desc)}</div>` : ''}
+                  ${scenarioDescriptionBlockHTML((over && over.description) || sc.description || '', 'cl-scen-desc')}
                   <div class="cl-scen-meta">${sc.recordFlow ? 'Record flow' : (isCalRigScenario(sc) ? 'Rig 1 / Rig 2' : (Number(sc.iter) > 0 ? Number(sc.iter) + ' iter' : ''))}</div>
                 </article>
               `;
@@ -37199,7 +37332,10 @@ function scenarioCatalogEditorHTML(stationKey, num) {
       <label class="tf-draft-hint" for="scenEditId">Scenario ID</label>
       <input class="tf-title" id="scenEditId" maxlength="40" placeholder="CAL_EXT" value="${escapeHTML(sc.id || '')}">
       <label class="tf-draft-hint" for="scenEditDesc">Description / instructions</label>
-      <textarea class="tf-note" id="scenEditDesc" rows="5" placeholder="What the moderator should do">${escapeHTML(sc.description || '')}</textarea>
+      <div class="scen-desc-editor cg-callout-editor-body">
+        ${typeof renderCalGuideStyleToolbar === 'function' ? renderCalGuideStyleToolbar() : ''}
+        <div class="tf-editor cg-rich" contenteditable="true" role="textbox" id="scenEditDesc" data-placeholder="What the moderator should do" aria-label="Description / instructions">${scenarioDescriptionToSafeHtml(sc.description)}</div>
+      </div>
       <div id="scenEditRigHost" class="scen-edit-rig" data-rig1="${flags.rig1 ? '1' : '0'}" data-rig2="${flags.rig2 ? '1' : '0'}">${scenarioCatalogEditorRigHTML(stationKey, num, sc, flags)}</div>
       <div class="cl-hero-actions scen-edit-actions">
         <button type="button" class="cal-guide-ack-btn tf-secondary" id="scenEditUndoLastBtn" ${last ? '' : 'disabled'}>Undo last edit</button>
@@ -37349,7 +37485,19 @@ function bindScenarioCatalogEditorChrome() {
   if (idEl) {
     idEl.addEventListener('input', refreshScenarioCatalogEditorRigHost);
   }
+  bindScenarioCatalogEditorDesc();
   bindScenarioCatalogEditorRigCard();
+}
+
+function bindScenarioCatalogEditorDesc() {
+  const desc = document.getElementById('scenEditDesc');
+  if (!desc || !desc.isContentEditable) return;
+  let lastEdit = desc;
+  desc.addEventListener('focus', () => { lastEdit = desc; });
+  const host = desc.closest('.scen-desc-editor') || desc.parentElement || desc;
+  if (typeof bindCalGuideRichTextCommands === 'function') {
+    bindCalGuideRichTextCommands(host, () => lastEdit);
+  }
 }
 
 function collectScenarioCatalogEditorDraft() {
@@ -37361,7 +37509,7 @@ function collectScenarioCatalogEditorDraft() {
   const draft = {
     name: title ? title.value.trim() : '',
     id: idEl ? idEl.value.trim() : '',
-    description: desc ? desc.value.trim() : '',
+    description: collectScenarioDescriptionFromEditor(desc),
   };
   const live = modal
     ? (liveScenarioDef(modal.dataset.station, modal.dataset.num) || {})
@@ -37960,19 +38108,115 @@ function bindCalGuideIntroEditors(root) {
         block.querySelectorAll('[data-cg-block-accent]').forEach(b => b.classList.toggle('is-on', b === btn));
       });
     });
-    block.querySelectorAll('[data-cg-cmd]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (lastEdit) lastEdit.focus();
-        try { document.execCommand(btn.getAttribute('data-cg-cmd'), false, null); } catch (_) {}
-      });
+    bindCalGuideRichTextCommands(block, () => lastEdit);
+  });
+}
+
+function calGuideRangeInEditor(range, editor) {
+  if (!range || !editor) return false;
+  const node = range.commonAncestorContainer;
+  return !!(editor === node || (editor.contains && editor.contains(node)));
+}
+
+function calGuideCloneSelectedRange(editor) {
+  if (typeof window === 'undefined' || !window.getSelection) return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount < 1) return null;
+  const range = sel.getRangeAt(0);
+  if (editor && !calGuideRangeInEditor(range, editor)) return null;
+  try { return range.cloneRange(); } catch (_) { return null; }
+}
+
+function calGuideRestoreRange(range) {
+  if (!range || typeof window === 'undefined' || !window.getSelection) return false;
+  const sel = window.getSelection();
+  try {
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return true;
+  } catch (_) { return false; }
+}
+
+function calGuideExpandRangeToWord(range) {
+  if (!range || !range.collapsed) return range;
+  const node = range.startContainer;
+  if (!node || node.nodeType !== 3) return range;
+  const text = String(node.nodeValue || '');
+  let start = range.startOffset;
+  let end = range.endOffset;
+  while (start > 0 && /[^\s]/.test(text.charAt(start - 1))) start -= 1;
+  while (end < text.length && /[^\s]/.test(text.charAt(end))) end += 1;
+  if (end > start) {
+    range.setStart(node, start);
+    range.setEnd(node, end);
+  }
+  return range;
+}
+
+function calGuideApplyTextColor(color, editor, range) {
+  const hex = calGuideNormalizeHexColor(color);
+  if (!hex || !editor || typeof document === 'undefined') return false;
+  try { if (editor.focus) editor.focus(); } catch (_) {}
+  if (range) calGuideRestoreRange(range);
+  const sel = (typeof window !== 'undefined' && window.getSelection) ? window.getSelection() : null;
+  if (!sel || sel.rangeCount < 1) return false;
+  let next = sel.getRangeAt(0);
+  if (!calGuideRangeInEditor(next, editor)) return false;
+  if (next.collapsed) calGuideExpandRangeToWord(next);
+  if (next.collapsed) return false;
+  const span = document.createElement('span');
+  span.setAttribute('style', 'color:' + hex);
+  try {
+    span.appendChild(next.extractContents());
+    next.insertNode(span);
+  } catch (_) {
+    return false;
+  }
+  try {
+    const painted = document.createRange();
+    painted.selectNodeContents(span);
+    sel.removeAllRanges();
+    sel.addRange(painted);
+  } catch (_) {}
+  return true;
+}
+
+function bindCalGuideRichTextCommands(root, getLastEdit) {
+  if (!root) return;
+  const editorOf = () => (typeof getLastEdit === 'function' ? getLastEdit() : getLastEdit);
+  let savedRange = calGuideCloneSelectedRange(editorOf());
+  const remember = () => {
+    const range = calGuideCloneSelectedRange(editorOf());
+    if (range) savedRange = range;
+  };
+  root.querySelectorAll('[contenteditable="true"]').forEach(ed => {
+    ed.addEventListener('mouseup', remember);
+    ed.addEventListener('keyup', remember);
+    ed.addEventListener('focus', remember);
+  });
+  const keepSelection = e => { e.preventDefault(); };
+  root.querySelectorAll('[data-cg-cmd], [data-cg-text-color]').forEach(btn => {
+    btn.addEventListener('mousedown', keepSelection);
+    btn.addEventListener('pointerdown', keepSelection);
+  });
+  root.querySelectorAll('[data-cg-cmd]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const lastEdit = editorOf();
+      if (lastEdit && lastEdit.focus) lastEdit.focus();
+      if (savedRange) calGuideRestoreRange(savedRange);
+      try { document.execCommand(btn.getAttribute('data-cg-cmd'), false, null); } catch (_) {}
+      remember();
     });
-    block.querySelectorAll('[data-cg-text-color]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const id = btn.getAttribute('data-cg-text-color');
-        const color = (CAL_GUIDE_ACCENTS && CAL_GUIDE_ACCENTS[id]) || '#6B8F71';
-        if (lastEdit) lastEdit.focus();
-        try { document.execCommand('foreColor', false, color); } catch (_) {}
-      });
+  });
+  root.querySelectorAll('[data-cg-text-color]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const id = btn.getAttribute('data-cg-text-color');
+      const color = (CAL_GUIDE_ACCENTS && CAL_GUIDE_ACCENTS[id]) || '#6B8F71';
+      const lastEdit = editorOf();
+      calGuideApplyTextColor(color, lastEdit, savedRange);
+      remember();
     });
   });
 }
