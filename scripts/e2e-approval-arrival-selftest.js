@@ -27,7 +27,7 @@ function assert(name, cond, detail) {
 
 console.log('E2E approval / arrival / session-date self-test');
 
-assert('APP_VERSION is 1.3.091726e', /const APP_VERSION = '1\.3\.091726e'/.test(src)
+assert('APP_VERSION is 1.3.091726f', /const APP_VERSION = '1\.3\.091726f'/.test(src)
   && html.includes('twilight.js?v=twilight-1.3.091726b'));
 
 assert(

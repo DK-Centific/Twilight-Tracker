@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-17 · Cursor (Composer) · New-build refresh banner  
+**Last updated:** 2026-09-17 · Cursor (Composer) · Booking Refresh sync status  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,9 +9,9 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091726e` (pushing) |
+| **`main` version** | `1.3.091726f` (pushing) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
-| **Last merged** | New-build refresh banner (admin/mod/reviewer) + v1.3.091726d booking/session fixes |
+| **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
 
 ### Recently shipped on `main` (Sep 16)

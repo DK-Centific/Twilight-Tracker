@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726e';
-const APP_UPDATED_AT = '09/17/2026 12:28';
+const APP_VERSION = '1.3.091726f';
+const APP_UPDATED_AT = '09/17/2026 12:58';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -24981,6 +24981,50 @@ function initBookingOnedataOpener() {
   }
 }
 
+function setBookingRefreshStatus(text, stateCls) {
+  const el = document.getElementById('bookingRefreshStatus');
+  if (!el) return;
+  const msg = String(text || '').trim();
+  el.textContent = msg;
+  el.className = 'bk-sync-status' + (stateCls ? ' ' + stateCls : '');
+  el.hidden = !msg;
+}
+
+function bookingRefreshStatusFromFetchInfo(info) {
+  info = info || {};
+  const at = (() => {
+    const d = info.fetchedAt ? new Date(info.fetchedAt) : new Date();
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  })();
+  const nAsgn = info.assignmentCount != null
+    ? info.assignmentCount
+    : ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || []).length;
+  const nTeam = info.teamCount != null
+    ? info.teamCount
+    : ((typeof adminState !== 'undefined' && adminState && adminState.teams) || []).length;
+  const bookingsLabel = `${nAsgn} booking${nAsgn === 1 ? '' : 's'}`;
+  const teamsLabel = `${nTeam} team${nTeam === 1 ? '' : 's'}`;
+  if (info.error) {
+    return {
+      cls: 'is-warn',
+      text: `Sync incomplete · ${info.error} · showing cached ${bookingsLabel}, ${teamsLabel} · ${at}`,
+      toastKind: 'error',
+    };
+  }
+  if (info.httpStatus && info.httpStatus >= 400) {
+    return {
+      cls: 'is-warn',
+      text: `Sync incomplete · server returned ${info.httpStatus} · ${bookingsLabel}, ${teamsLabel} · ${at}`,
+      toastKind: 'error',
+    };
+  }
+  return {
+    cls: 'is-ok',
+    text: `Fully synced · ${bookingsLabel}, ${teamsLabel} updated · ${at}`,
+    toastKind: 'success',
+  };
+}
+
 async function onBookingRefreshOnedataClick() {
   const btn = document.getElementById('bookingRefreshOnedata');
   if (btn && btn.disabled) return;
@@ -24989,6 +25033,7 @@ async function onBookingRefreshOnedataClick() {
     btn.classList.add('is-syncing');
     btn.setAttribute('aria-busy', 'true');
   }
+  setBookingRefreshStatus('Syncing booking data from OneData…', 'is-syncing');
   try {
     if (typeof fetchAssignmentsFromPA === 'function') {
       await fetchAssignmentsFromPA();
@@ -25002,11 +25047,18 @@ async function onBookingRefreshOnedataClick() {
     } else if (typeof refreshAssignmentViewQuietly === 'function') {
       refreshAssignmentViewQuietly();
     }
-    if (typeof showToast === 'function') showToast('Booking data refreshed from OneData', 'success', 3200);
-    else if (typeof toast === 'function') toast('Booking data refreshed from OneData');
+    const info = (typeof adminState !== 'undefined' && adminState && adminState._asgnFetchInfo)
+      ? adminState._asgnFetchInfo
+      : {};
+    const status = bookingRefreshStatusFromFetchInfo(info);
+    setBookingRefreshStatus(status.text, status.cls);
+    if (typeof showToast === 'function') showToast(status.text, status.toastKind, 4200);
+    else if (typeof toast === 'function') toast(status.text);
   } catch (_) {
-    if (typeof showToast === 'function') showToast('Refresh failed — showing cached data', 'error', 4000);
-    else if (typeof toast === 'function') toast('Refresh failed — showing cached data');
+    const status = bookingRefreshStatusFromFetchInfo({ error: 'Refresh failed' });
+    setBookingRefreshStatus(status.text, status.cls);
+    if (typeof showToast === 'function') showToast(status.text, 'error', 4500);
+    else if (typeof toast === 'function') toast(status.text);
   } finally {
     if (btn) {
       btn.disabled = false;
