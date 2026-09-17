@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726f';
-const APP_UPDATED_AT = '09/17/2026 12:58';
+const APP_VERSION = '1.3.091726r';
+const APP_UPDATED_AT = '09/17/2026 16:32';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1146,6 +1146,7 @@ function renderApp() {
   if (typeof isStationAccordionMode === 'function') _lastAccordionMode = isStationAccordionMode();
 
   if (isNavigation) replayPageEnter(document.getElementById('content'));
+  if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
 }
 
 // Returns the operator's display name · preferring firstName from the moderator
@@ -4977,9 +4978,11 @@ function getModListSortValue(mod, key) {
   }
   if (key === 'phone') return f.phoneNumber || '';
   if (key === 'centificEmail') return f.centificEmail || '';
-  if (key === 'status') return (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, f))
-    ? 'Deactivated'
-    : 'Active';
+  if (key === 'status') {
+    if (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, f)) return 'Deactivated';
+    if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(f.orbitLoginId)) return 'Wasted';
+    return 'Active';
+  }
   return '';
 }
 
@@ -7239,6 +7242,16 @@ function directoryRoleIsAdmin(row) {
 function directoryRoleIsModerator(row) {
   return canonicalizeDirectoryLoginRole(directoryLoginRole(row)) === 'Mod';
 }
+
+function modStrikeEligible(row) {
+  if (!row) return false;
+  if (typeof directoryRoleIsAdmin === 'function' && directoryRoleIsAdmin(row)) return false;
+  if (typeof directoryRoleIsReviewer === 'function' && directoryRoleIsReviewer(row)) return false;
+  if (typeof directoryRoleIsMasterAdmin === 'function' && directoryRoleIsMasterAdmin(row)) return false;
+  const c = canonicalizeDirectoryLoginRole(directoryLoginRole(row));
+  if (c === 'Mod') return true;
+  return !c;
+}
 function directoryRoleIsReviewer(row) {
   return canonicalizeDirectoryLoginRole(directoryLoginRole(row)) === 'Reviewer';
 }
@@ -8692,7 +8705,9 @@ function computeOverviewMetrics() {
   // Reviewer / the full directory). Then filter by team membership if a
   // team is selected, and by mod selection if a single mod is chosen.
   let modList = allMods.filter(m => (
-    typeof directoryRoleIsModerator === 'function' ? directoryRoleIsModerator(m) : false
+    typeof modStrikeEligible === 'function' ? modStrikeEligible(m) : (
+      typeof directoryRoleIsModerator === 'function' ? directoryRoleIsModerator(m) : false
+    )
   ));
   if (f.teamId !== 'all') {
     const team = allTeams.find(t => String(t.id) === String(f.teamId));
@@ -10157,6 +10172,9 @@ function renderPerformance(body) {
     }
   }
   if (typeof ensureTeamSessionAssignments === 'function') ensureTeamSessionAssignments();
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
   ensurePerfSessionStateRows().then(() => {
     // SessionState data carries the Lakitu URLs that the per-row pills
     // need. On first render the rows array is still empty so every
@@ -10217,6 +10235,7 @@ function renderPerformance(body) {
   body.innerHTML = `
     ${renderPerfSectionTabsHTML()}
     <div id="subtabBody">
+    ${(typeof renderPerfStrikeCheckpointBannerHTML === 'function') ? renderPerfStrikeCheckpointBannerHTML() : ''}
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by status">
       ${renderStatusTile('all',        statusCounts.all,        'All')}
       ${renderStatusTile('completed',  statusCounts.completed,  'Done')}
@@ -10705,12 +10724,18 @@ function renderPerfModTilesHTML(search) {
       : null;
     const chipsOpen = open && statusScope === 'all';
 
+    const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(orbitId) : MOD_STRIKE_MAX_STARS;
+    const strikeLocked = (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(orbitId);
+    const perfStrike = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
+
     return `
-      <details class="perf-tile" data-tile-id="${tileId}" ${open ? 'open' : ''}>
+      <details class="perf-tile ${strikeLocked ? 'is-strike-locked' : ''}${perfStrike ? ' has-mod-strike' : ''}" data-tile-id="${tileId}" data-mod-orbit="${escapeHTML(String(orbitId || ''))}" ${open ? 'open' : ''}>
         <summary class="perf-tile-head">
-          <div class="perf-tile-avatar mod">${escapeHTML(perfInitials(name))}</div>
+          ${(typeof renderModAvatarHTML === 'function')
+            ? renderModAvatarHTML(perfInitials(name), { perf: true, strikeLocked: strikeLocked, orbitId: orbitId })
+            : `<div class="perf-tile-avatar mod">${escapeHTML(perfInitials(name))}</div>`}
           <div class="perf-tile-title-block">
-            <div class="perf-tile-title">${escapeHTML(name)}</div>
+            <div class="perf-tile-title">${escapeHTML(name)} ${perfStrike && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, orbitId) : ''}</div>
             <div class="perf-tile-sub">${escapeHTML(teamSub)}</div>
             <div class="perf-tile-stats">
               ${perfStatChipHTML(tileId, 'completed', completed, 'done', chipsOpen, activeFilter)}
@@ -10722,6 +10747,7 @@ function renderPerfModTilesHTML(search) {
             <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </summary>
+        ${perfStrike && (typeof renderModStrikeOverlayHTML === 'function') ? renderModStrikeOverlayHTML(orbitId) : ''}
         ${open ? renderPerfTileBodyHTML(tileId, bookings, null, search) : ''}
       </details>
     `;
@@ -14847,6 +14873,9 @@ function ingestAppSettingsFromSessionRows(rows) {
   if (typeof ingestSessionLinkOverridesFromSessionRows === 'function') {
     ingestSessionLinkOverridesFromSessionRows(rows);
   }
+  if (typeof ingestModeratorStrikesFromSessionRows === 'function') {
+    ingestModeratorStrikesFromSessionRows(rows);
+  }
 }
 
 loadDeactivatedUsersCache();
@@ -17657,9 +17686,11 @@ function renderModListView() {
   const addBtn = document.getElementById('modAddUserBtn');
   if (addBtn) addBtn.addEventListener('click', () => openModUserModal('create'));
 
+  if (typeof wireModStrikeActions === 'function') wireModStrikeActions(wrap);
+
   wrap.querySelectorAll('.mod-card-head').forEach(head => {
     head.addEventListener('click', (e) => {
-      if (e.target.closest('.mod-edit-btn') || e.target.closest('.mod-fb-btn')) return;
+      if (e.target.closest('.mod-edit-btn') || e.target.closest('.mod-fb-btn') || e.target.closest('.mod-strike-overlay')) return;
       const card = head.closest('.mod-card');
       const idx = parseInt(card.dataset.idx, 10);
       if (adminState.expandedMods[idx]) {
@@ -17736,20 +17767,30 @@ function renderModTableHTML(mods) {
     const origIdx = (adminState.moderators || []).indexOf(m);
     const idx = origIdx >= 0 ? origIdx : i;
     const deactivated = !!(f.deactivated || (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, m)));
+    const strikeLocked = !deactivated && (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(f.orbitLoginId);
+    const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(f.orbitLoginId) : MOD_STRIKE_MAX_STARS;
+    const showStrike = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
     return `
-      <tr class="${deactivated ? 'is-deactivated' : ''}">
+      <tr class="${deactivated ? 'is-deactivated' : (strikeLocked ? 'is-strike-locked' : '')}" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">
         <td>
           <div class="mod-table-name">
-            <div class="mod-avatar mod-avatar-sm">${escapeHTML(avatarLetters(f.firstName, f.lastName))}</div>
+            ${(typeof renderModAvatarHTML === 'function')
+              ? renderModAvatarHTML(avatarLetters(f.firstName, f.lastName), { small: true, strikeLocked: strikeLocked, orbitId: f.orbitLoginId })
+              : `<div class="mod-avatar mod-avatar-sm">${escapeHTML(avatarLetters(f.firstName, f.lastName))}</div>`}
             <span>${escapeHTML(name)}</span>
+            ${showStrike && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, f.orbitLoginId) : ''}
           </div>
         </td>
         <td class="mod-table-mono">${escapeHTML(f.orbitLoginId || '—')}</td>
         <td><span class="mod-role-pill">${escapeHTML(directoryLoginRoleLabel(f.LoginRole))}</span></td>
-        <td>${modUserStatusPillHTML(deactivated)}</td>
+        <td>${modUserStatusPillHTML(f.orbitLoginId, m)}</td>
         <td>${escapeHTML(f.phoneNumber || '—')}</td>
         <td>${f.centificEmail ? `<a href="mailto:${escapeForUrl(f.centificEmail)}">${escapeHTML(f.centificEmail)}</a>` : '—'}</td>
         <td class="mod-table-actions">
+          ${showStrike ? `
+            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="strike" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Strike</button>
+            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="reset" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Reset</button>
+          ` : ''}
           <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${idx}">Edit</button>
           <button type="button" class="btn btn-ghost mod-fb-btn" data-mod-idx="${idx}" data-mod-login="${escapeHTML(f.orbitLoginId || '')}">Send feedback</button>
         </td>
@@ -17979,10 +18020,14 @@ function renderModUserModal() {
   }
 }
 
-function modUserStatusPillHTML(deactivated) {
-  return deactivated
-    ? `<span class="mod-status-pill is-deactivated">Deactivated</span>`
-    : `<span class="mod-status-pill is-active">Active</span>`;
+function modUserStatusPillHTML(orbitId, row) {
+  if (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, row)) {
+    return `<span class="mod-status-pill is-deactivated">Deactivated</span>`;
+  }
+  if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) {
+    return '<span class="mod-strike-status-plain">Wasted</span>';
+  }
+  return `<span class="mod-status-pill is-active">Active</span>`;
 }
 
 function readModUserFormValues() {
@@ -18295,16 +18340,22 @@ function renderModAssignmentView() {
       const fn = pickField(m, 'firstName', 'first_name', 'FirstName', 'First Name');
       const ln = pickField(m, 'lastName',  'last_name',  'LastName',  'Last Name');
       const fullName = [fn, ln].filter(Boolean).join(' ').trim() || id;
+      const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : MOD_STRIKE_MAX_STARS;
+      const strikeLocked = (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(id);
+      const showStrike = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
       html += `
-        <div class="mod-asgn-row">
+        <div class="mod-asgn-row${showStrike ? ' has-mod-strike' : ''}${strikeLocked ? ' is-strike-locked' : ''}" data-mod-orbit="${escapeHTML(String(id || ''))}">
           <div class="mod-asgn-mod">
-            <div class="mod-avatar" style="width: 38px; height: 38px;">${escapeHTML(avatarLetters(fn, ln))}</div>
+            ${(typeof renderModAvatarHTML === 'function')
+              ? renderModAvatarHTML(avatarLetters(fn, ln), { strikeLocked: strikeLocked, orbitId: id })
+              : `<div class="mod-avatar" style="width: 38px; height: 38px;">${escapeHTML(avatarLetters(fn, ln))}</div>`}
             <div>
-              <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.015em;">${escapeHTML(fullName)}</div>
+              <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.015em;">${escapeHTML(fullName)} ${showStrike && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, id) : ''}</div>
               <div style="font-size: 12px; color: var(--text3); font-family: var(--font-num); margin-top: 1px;">${escapeHTML(id)}</div>
             </div>
             <span class="mod-asgn-count">${list.length} assignment${list.length === 1 ? '' : 's'}</span>
           </div>
+          ${showStrike && (typeof renderModStrikeOverlayHTML === 'function') ? renderModStrikeOverlayHTML(id) : ''}
           <div class="mod-asgn-items">
             ${list.map(a => {
               const team = adminState.teams.find(t => t.id === a.teamId);
@@ -18346,9 +18397,10 @@ function renderModAssignmentView() {
       </div>`;
   }
   wrap.innerHTML = html;
+  if (typeof wireModStrikeActions === 'function') wireModStrikeActions(wrap);
   wrap.querySelectorAll('.mod-card-head').forEach(head => {
     head.addEventListener('click', (e) => {
-      if (e.target.closest('.mod-fb-btn') || e.target.closest('.mod-edit-btn')) return;
+      if (e.target.closest('.mod-fb-btn') || e.target.closest('.mod-edit-btn') || e.target.closest('.mod-strike-overlay')) return;
       const card = head.closest('.mod-card');
       const idx = parseInt(card.dataset.idx, 10);
       if (adminState.expandedMods[idx]) {
@@ -18450,9 +18502,13 @@ function modCardHTML(m, i, role) {
 
   const isExpanded = !!adminState.expandedMods[i];
 
+  const accountStatus = (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m))
+    ? 'Deactivated'
+    : ((typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) ? 'wasted · 0 stars' : 'Active');
+
   const rows = [
     { label: 'Twilight Login ID', value: orbitId, mono: true },
-    { label: 'Status', value: (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? 'Deactivated' : 'Active' },
+    { label: 'Status', value: accountStatus },
     { label: 'First Name', value: firstName },
     { label: 'Last Name', value: lastName },
     { label: 'Phone Number', value: phone, link: phone ? `tel:${escapeForUrl(phone)}` : null },
@@ -18467,13 +18523,20 @@ function modCardHTML(m, i, role) {
     { label: 'Login Role', value: directoryLoginRoleLabel(loginRole) },
   ];
 
+  const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(orbitId) : MOD_STRIKE_MAX_STARS;
+  const strikeLocked = (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(orbitId);
+  const showStrikeActions = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
+
   return `
-    <div class="mod-card ${isExpanded ? 'expanded' : ''} ${hasResolvedName ? '' : 'incomplete-profile'}" data-idx="${i}">
+    <div class="mod-card ${isExpanded ? 'expanded' : ''} ${hasResolvedName ? '' : 'incomplete-profile'}${strikeLocked ? ' is-strike-locked' : ''}" data-idx="${i}" data-mod-orbit="${escapeHTML(String(orbitId || ''))}">
       <div class="mod-card-head" tabindex="0" role="button" aria-expanded="${isExpanded}">
-        <div class="mod-avatar">${escapeHTML(avatarLetters(firstName, lastName))}</div>
+        ${(typeof renderModAvatarHTML === 'function')
+          ? renderModAvatarHTML(avatarLetters(firstName, lastName), { strikeLocked: strikeLocked, orbitId: orbitId })
+          : `<div class="mod-avatar">${escapeHTML(avatarLetters(firstName, lastName))}</div>`}
         <div class="mod-name-block">
           <div class="mod-name">
             ${escapeHTML(fullName)}${role === 'backup' ? ' <span class="mod-role-badge">BU</span>' : ''}${(typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? ' <span class="mod-status-pill is-deactivated">Deactivated</span>' : ''}${hasResolvedName ? '' : ' <span class="mod-incomplete-badge" title="No first/last name found in Excel for this moderator · showing orbit login ID instead. Add the name columns to the row to fix.">Incomplete</span>'}
+            ${showStrikeActions && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, orbitId) : ''}
           </div>
           <div class="mod-id">${escapeHTML(orbitId || '·')}</div>
         </div>
@@ -18494,6 +18557,7 @@ function modCardHTML(m, i, role) {
           </div>
         </div>
       </div>
+      ${showStrikeActions && (typeof renderModStrikeOverlayHTML === 'function') ? renderModStrikeOverlayHTML(orbitId) : ''}
     </div>
   `;
 }
@@ -22661,6 +22725,12 @@ async function fetchAssignmentsFromPA() {
   }
   if (typeof renderMySessionSection === 'function') renderMySessionSection();
 
+  try {
+    if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+      maybeRunModStrikeNineAmCheckpoint({ silent: true });
+    }
+  } catch (_) {}
+
   return { teams: mergedTeams, assignments: mergedAssignments };
 }
 
@@ -22688,6 +22758,753 @@ function parseYMD(s) {
   // Otherwise let coerceToDate handle Excel serials, etc.
   return coerceToDate(s);
 }
+
+const MOD_STRIKE_MAX_STARS = 3;
+const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
+const MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes';
+let _modStrikeIngestInFlight = false;
+let _modStrikePersistTimer = null;
+
+function modStrikeOrbitKey(orbitId) {
+  return String(orbitId || '').trim().toLowerCase();
+}
+
+function loadModStrikeStore() {
+  try {
+    const raw = localStorage.getItem(MOD_STRIKE_LS_KEY);
+    if (!raw) return { mods: {}, checkpoints: {} };
+    const p = JSON.parse(raw);
+    return {
+      mods: (p && p.mods && typeof p.mods === 'object') ? p.mods : {},
+      checkpoints: (p && p.checkpoints && typeof p.checkpoints === 'object') ? p.checkpoints : {},
+    };
+  } catch (_) {
+    return { mods: {}, checkpoints: {} };
+  }
+}
+
+function saveModStrikeStore(store) {
+  try { localStorage.setItem(MOD_STRIKE_LS_KEY, JSON.stringify(store)); } catch (_) {}
+  if (!_modStrikeIngestInFlight && typeof schedulePersistModeratorStrikesSetting === 'function') {
+    schedulePersistModeratorStrikesSetting();
+  }
+}
+
+function schedulePersistModeratorStrikesSetting() {
+  if (_modStrikePersistTimer) clearTimeout(_modStrikePersistTimer);
+  _modStrikePersistTimer = setTimeout(() => {
+    _modStrikePersistTimer = null;
+    if (typeof persistModeratorStrikesSetting === 'function') {
+      persistModeratorStrikesSetting().catch(() => {});
+    }
+  }, 450);
+}
+
+function ingestModeratorStrikesFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== MODERATOR_STRIKES_SETTING_ID && id !== 'app_setting_moderator_strikes') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (!parsed || typeof parsed !== 'object') return;
+  if (parsed.key !== 'moderatorStrikes') return;
+  const mods = (parsed.mods && typeof parsed.mods === 'object') ? parsed.mods : null;
+  const checkpoints = (parsed.checkpoints && typeof parsed.checkpoints === 'object') ? parsed.checkpoints : null;
+  if (!mods && !checkpoints) return;
+  const cur = loadModStrikeStore();
+  if (_modStrikePersistTimer) {
+    clearTimeout(_modStrikePersistTimer);
+    _modStrikePersistTimer = null;
+  }
+  _modStrikeIngestInFlight = true;
+  saveModStrikeStore({
+    mods: mods || cur.mods,
+    checkpoints: checkpoints || cur.checkpoints,
+  });
+  _modStrikeIngestInFlight = false;
+  if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
+  if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
+}
+
+async function persistModeratorStrikesSetting() {
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const store = loadModStrikeStore();
+  const payload = {
+    sessionStateId: MODERATOR_STRIKES_SETTING_ID,
+    assignmentId: 'app_setting_moderator_strikes',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'moderatorStrikes',
+      mods: store.mods,
+      checkpoints: store.checkpoints,
+      updatedAt: new Date().toISOString(),
+      updatedBy: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+    }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Moderator-strikes setting write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+function getModStrikeStars(orbitId) {
+  const key = modStrikeOrbitKey(orbitId);
+  if (!key) return MOD_STRIKE_MAX_STARS;
+  const store = loadModStrikeStore();
+  const rec = store.mods[key];
+  if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
+  const n = Number(rec.stars);
+  if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
+  return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(n)));
+}
+
+function isModeratorStrikeLocked(orbitId) {
+  return getModStrikeStars(orbitId) === 0;
+}
+
+const MOD_STRIKE_WARN_ACK_LS_KEY = 'centific_mod_strike_warn_ack_v1';
+
+function modStrikeOperatorOrbitId() {
+  if (typeof state === 'undefined' || !state) return '';
+  if (state.appView && state.appView !== 'moderator') return '';
+  const fromProfile = (state.modProfile && typeof pickField === 'function')
+    ? pickField(state.modProfile, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'loginId', 'username', 'id')
+    : (state.modProfile && state.modProfile.orbitLoginId);
+  return String(state.username || fromProfile || '').trim();
+}
+
+function getModStrikeWarningLevel(orbitId) {
+  if (!orbitId) return 0;
+  const lost = MOD_STRIKE_MAX_STARS - getModStrikeStars(orbitId);
+  return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, lost));
+}
+
+function modStrikeWarningMessageHTML(level) {
+  if (level >= 3) {
+    return 'Due to noncompliance with project expectations, your account has been locked and is under review.<br><br>Please contact the Twilight team if there is any dispute.';
+  }
+  const n = level >= 2 ? 2 : 1;
+  return 'Our records show you did not complete the previous session. This is <strong>Warning ' + n + '</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team if this is incorrect.';
+}
+
+function modStrikeWarningMessage(level) {
+  if (level >= 3) {
+    return 'Due to noncompliance with project expectations, your account has been locked and is under review. Please contact the Twilight team if there is any dispute.';
+  }
+  const n = level >= 2 ? 2 : 1;
+  return `Our records show you did not complete the previous session. This is warning ${n} to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team if this is incorrect.`;
+}
+
+function loadModStrikeWarnAckStore() {
+  try {
+    const raw = localStorage.getItem(MOD_STRIKE_WARN_ACK_LS_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return (p && typeof p === 'object') ? p : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function modStrikeWarnAckKey(orbitId, level) {
+  return modStrikeOrbitKey(orbitId) + ':' + String(level);
+}
+
+function ackModStrikeWarning(orbitId, level) {
+  const key = modStrikeWarnAckKey(orbitId, level);
+  if (!key || key === ':') return;
+  const store = loadModStrikeWarnAckStore();
+  store[key] = new Date().toISOString();
+  try { localStorage.setItem(MOD_STRIKE_WARN_ACK_LS_KEY, JSON.stringify(store)); } catch (_) {}
+}
+
+function shouldShowModStrikeWarningModal(orbitId, level) {
+  if (level < 1 || level > 2) return false;
+  const store = loadModStrikeWarnAckStore();
+  return !store[modStrikeWarnAckKey(orbitId, level)];
+}
+
+function isModAppStrikeLocked() {
+  if (typeof state === 'undefined' || !state || state.appView !== 'moderator') return false;
+  if (state.isAdmin || state.isReviewer) return false;
+  const orbitId = modStrikeOperatorOrbitId();
+  return !!(orbitId && typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId));
+}
+
+function ensureModStrikeModeratorChrome() {
+  const app = document.getElementById('app');
+  if (!app) return { overlay: null, modal: null };
+  let overlay = document.getElementById('modStrikeLockOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'modStrikeLockOverlay';
+    overlay.className = 'mod-strike-mod-overlay';
+    overlay.innerHTML = `
+      <div class="mod-strike-mod-panel" role="alertdialog" aria-modal="true" aria-labelledby="modStrikeLockTitle">
+        <h2 id="modStrikeLockTitle">Account locked</h2>
+        <p class="mod-strike-mod-msg" id="modStrikeLockMsg"></p>
+        <button type="button" class="btn btn-primary" id="modStrikeLogoutBtn">Log out</button>
+      </div>`;
+    app.appendChild(overlay);
+    const logoutBtn = overlay.querySelector('#modStrikeLogoutBtn');
+    if (logoutBtn && !logoutBtn._modStrikeWired) {
+      logoutBtn._modStrikeWired = true;
+      logoutBtn.addEventListener('click', () => {
+        if (typeof logoutAndClearOperatorState === 'function') logoutAndClearOperatorState();
+        if (typeof revealLoginScreen === 'function') revealLoginScreen();
+      });
+    }
+  }
+  let modal = document.getElementById('modStrikeWarnModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modStrikeWarnModal';
+    modal.className = 'mod-strike-mod-overlay mod-strike-warn-modal';
+    modal.innerHTML = `
+      <div class="mod-strike-mod-panel" role="alertdialog" aria-modal="true" aria-labelledby="modStrikeWarnTitle">
+        <h2 id="modStrikeWarnTitle">Session compliance warning</h2>
+        <p class="mod-strike-mod-msg" id="modStrikeWarnMsg"></p>
+        <button type="button" class="btn btn-primary" id="modStrikeWarnAckBtn">I understand</button>
+      </div>`;
+    app.appendChild(modal);
+    const ackBtn = modal.querySelector('#modStrikeWarnAckBtn');
+    if (ackBtn && !ackBtn._modStrikeWired) {
+      ackBtn._modStrikeWired = true;
+      ackBtn.addEventListener('click', () => {
+        const level = parseInt(modal.dataset.warnLevel || '0', 10);
+        const orbitId = modal.dataset.orbitId || '';
+        if (orbitId && level) ackModStrikeWarning(orbitId, level);
+        modal.classList.remove('open');
+      });
+    }
+  }
+  return { overlay: overlay, modal: modal };
+}
+
+function syncModStrikeModeratorChrome() {
+  if (typeof state === 'undefined' || !state || state.appView !== 'moderator') return;
+  const orbitId = modStrikeOperatorOrbitId();
+  if (!orbitId) return;
+  const chrome = ensureModStrikeModeratorChrome();
+  const overlay = chrome.overlay;
+  const modal = chrome.modal;
+  const app = document.getElementById('app');
+  const level = getModStrikeWarningLevel(orbitId);
+
+  if (level >= 3) {
+    if (modal) modal.classList.remove('open');
+    if (overlay) {
+      const msg = overlay.querySelector('#modStrikeLockMsg');
+      if (msg) msg.innerHTML = modStrikeWarningMessageHTML(3);
+      overlay.classList.add('open');
+    }
+    if (app) app.classList.add('mod-strike-app-locked');
+    return;
+  }
+
+  if (overlay) overlay.classList.remove('open');
+  if (app) app.classList.remove('mod-strike-app-locked');
+
+  if (level >= 1 && level <= 2 && modal && shouldShowModStrikeWarningModal(orbitId, level)) {
+    const msg = modal.querySelector('#modStrikeWarnMsg');
+    if (msg) msg.innerHTML = modStrikeWarningMessageHTML(level);
+    modal.dataset.warnLevel = String(level);
+    modal.dataset.orbitId = orbitId;
+    modal.classList.add('open');
+  } else if (modal) {
+    modal.classList.remove('open');
+  }
+}
+
+function setModStrikeStars(orbitId, stars, entry) {
+  const key = modStrikeOrbitKey(orbitId);
+  if (!key) return;
+  const store = loadModStrikeStore();
+  const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
+  const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
+  const log = Array.isArray(prev.log) ? prev.log.slice() : [];
+  if (entry) log.unshift(entry);
+  const rec = { stars: n, log: log.slice(0, 20) };
+  if (n === 0) rec.lockedAt = new Date().toISOString();
+  store.mods[key] = rec;
+  saveModStrikeStore(store);
+}
+
+function manualModStrike(orbitId, reason) {
+  const cur = getModStrikeStars(orbitId);
+  if (cur <= 0) return cur;
+  setModStrikeStars(orbitId, cur - 1, {
+    at: new Date().toISOString(),
+    kind: 'manual',
+    reason: reason || 'Admin strike',
+    by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+  });
+  return getModStrikeStars(orbitId);
+}
+
+function resetModStrikeStars(orbitId) {
+  setModStrikeStars(orbitId, MOD_STRIKE_MAX_STARS, {
+    at: new Date().toISOString(),
+    kind: 'reset',
+    reason: 'Stars reset',
+    by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+  });
+  const ack = loadModStrikeWarnAckStore();
+  const prefix = modStrikeOrbitKey(orbitId) + ':';
+  let changed = false;
+  Object.keys(ack).forEach(k => {
+    if (k.startsWith(prefix)) {
+      delete ack[k];
+      changed = true;
+    }
+  });
+  if (changed) {
+    try { localStorage.setItem(MOD_STRIKE_WARN_ACK_LS_KEY, JSON.stringify(ack)); } catch (_) {}
+  }
+}
+
+function renderModStarsHTML(stars, maxStars, orbitId) {
+  maxStars = maxStars || MOD_STRIKE_MAX_STARS;
+  const n = Math.max(0, Math.min(maxStars, Number(stars) || 0));
+  const orbitAttr = orbitId
+    ? ` data-mod-stars-orbit="${escapeHTML(String(orbitId))}"`
+    : '';
+  let out = '<span class="mod-stars"' + orbitAttr + ' aria-label="' + escapeHTML(String(n) + ' of ' + maxStars + ' stars') + '">';
+  for (let i = 0; i < maxStars; i++) {
+    out += `<span class="mod-star${i < n ? '' : ' is-empty'}" data-star-idx="${i}" aria-hidden="true">★</span>`;
+  }
+  return out + '</span>';
+}
+
+function renderModStrikeOverlayHTML(orbitId) {
+  if (!orbitId) return '';
+  return `
+    <div class="mod-strike-overlay">
+      <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="strike" data-mod-orbit="${escapeHTML(String(orbitId))}">Strike</button>
+      <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="reset" data-mod-orbit="${escapeHTML(String(orbitId))}">Reset</button>
+    </div>`;
+}
+
+function renderTeamModChipHTML(orbitId, opts) {
+  opts = opts || {};
+  const backup = !!opts.backup;
+  const id = String(orbitId || '').trim();
+  if (!id) return '';
+  const m = (typeof getModeratorByOrbitId === 'function') ? getModeratorByOrbitId(id) : null;
+  const showStrike = m && (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
+  const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : MOD_STRIKE_MAX_STARS;
+  const strikeLocked = (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(id);
+  const title = backup
+    ? ('Backup moderator · ' + getModeratorDisplayName(id))
+    : getModeratorDisplayName(id);
+  const wastedOnAvatar = strikeLocked && (typeof renderModStrikeWastedLabelHTML === 'function')
+    ? renderModStrikeWastedLabelHTML({ orbitId: id, onAvatar: true })
+    : '';
+  const stars = showStrike && (typeof renderModStarsHTML === 'function')
+    ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, id)
+    : '';
+  const overlay = showStrike && (typeof renderModStrikeOverlayHTML === 'function')
+    ? renderModStrikeOverlayHTML(id)
+    : '';
+  return `
+    <span class="team-mod-chip${backup ? ' backup' : ''}${showStrike ? ' has-mod-strike' : ''}${strikeLocked ? ' is-strike-locked' : ''}" data-mod-orbit="${escapeHTML(id)}" title="${escapeHTML(title)}">
+      <span class="team-mod-chip-avatar-wrap">${wastedOnAvatar}<span class="team-mod-chip-avatar">${escapeHTML(getModeratorAvatarLetters(id))}</span></span>
+      ${escapeHTML(getModeratorShortName(id))}${stars}
+      ${overlay}
+    </span>`;
+}
+
+function renderModStrikeWastedLabelHTML(opts) {
+  opts = opts || {};
+  const lg = opts.large ? ' is-lg' : '';
+  const onAvatar = opts.onAvatar ? ' mod-strike-wasted-on-avatar' : '';
+  const orbitAttr = opts.orbitId
+    ? ` data-mod-orbit="${escapeHTML(String(opts.orbitId))}"`
+    : '';
+  return `<span class="mod-strike-wasted-word${lg}${onAvatar}"${orbitAttr} aria-label="Account locked">wasted</span>`;
+}
+
+function renderModAvatarHTML(letters, opts) {
+  opts = opts || {};
+  const small = !!opts.small;
+  const perf = !!opts.perf;
+  const strikeLocked = !!opts.strikeLocked;
+  const orbitId = opts.orbitId || '';
+  const wrapCls = 'mod-avatar-wrap'
+    + (small ? ' mod-avatar-wrap-sm' : '')
+    + (perf ? ' mod-avatar-wrap-perf' : '');
+  const avatarInner = perf
+    ? `<div class="perf-tile-avatar mod">${escapeHTML(letters)}</div>`
+    : `<div class="mod-avatar${small ? ' mod-avatar-sm' : ''}">${escapeHTML(letters)}</div>`;
+  const wasted = strikeLocked && (typeof renderModStrikeWastedLabelHTML === 'function')
+    ? renderModStrikeWastedLabelHTML({ orbitId: orbitId, onAvatar: true })
+    : '';
+  return `<div class="${wrapCls}">${avatarInner}${wasted}</div>`;
+}
+
+function renderModStrikeLockedLabelHTML(opts) {
+  return renderModStrikeWastedLabelHTML(opts);
+}
+
+function modStrikeCssEscape(s) {
+  if (typeof CSS !== 'undefined' && CSS.escape) return CSS.escape(String(s));
+  return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function runModStrikeRemoveAnim(host, orbitId, done) {
+  done = typeof done === 'function' ? done : function () {};
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    done();
+  };
+  const cur = getModStrikeStars(orbitId);
+  if (cur <= 0) { finish(); return; }
+  const wrap = host && host.querySelector('.mod-stars');
+  const idx = cur - 1;
+  let starEl = wrap && wrap.querySelector(`.mod-star[data-star-idx="${idx}"]:not(.is-empty)`);
+  if (!starEl && wrap) {
+    const filled = wrap.querySelectorAll('.mod-star:not(.is-empty)');
+    starEl = filled.length ? filled[filled.length - 1] : null;
+  }
+  if (!starEl) { finish(); return; }
+  const onEnd = (e) => {
+    if (e && e.target !== starEl) return;
+    starEl.removeEventListener('animationend', onEnd);
+    finish();
+  };
+  starEl.classList.add('is-strike-removing');
+  starEl.addEventListener('animationend', onEnd);
+  setTimeout(finish, 3200);
+}
+
+function modStrikeRunWastedEnter(orbitId) {
+  const esc = modStrikeCssEscape(orbitId);
+  document.querySelectorAll(`.mod-strike-wasted-word[data-mod-orbit="${esc}"]`).forEach(el => {
+    el.classList.remove('mod-strike-wasted-exit');
+    void el.offsetWidth;
+    el.classList.add('mod-strike-wasted-enter');
+  });
+}
+
+function modStrikeRunWastedExit(orbitId, done) {
+  done = typeof done === 'function' ? done : function () {};
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    done();
+  };
+  const esc = modStrikeCssEscape(orbitId);
+  const els = document.querySelectorAll(`.mod-strike-wasted-word[data-mod-orbit="${esc}"]`);
+  if (!els.length) { finish(); return; }
+  let pending = els.length;
+  els.forEach(el => {
+    el.classList.remove('mod-strike-wasted-enter');
+    el.classList.add('mod-strike-wasted-exit');
+    el.addEventListener('animationend', () => {
+      pending -= 1;
+      if (pending <= 0) finish();
+    }, { once: true });
+  });
+  setTimeout(finish, 650);
+}
+
+function modStrikeRunStarsBlinkIn(orbitId) {
+  const esc = modStrikeCssEscape(orbitId);
+  document.querySelectorAll(`[data-mod-stars-orbit="${esc}"] .mod-star:not(.is-empty)`).forEach(st => {
+    st.classList.remove('is-strike-removing', 'mod-star-blink-in');
+    void st.offsetWidth;
+    st.classList.add('mod-star-blink-in');
+  });
+}
+
+function modStrikeRefreshUi() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  if (adminState.tab === 'moderators' && typeof renderModerators === 'function') {
+    renderModerators();
+    return;
+  }
+  if (adminState.tab === 'performance') {
+    const body = document.getElementById('adminContent');
+    if (body && typeof renderPerformance === 'function') renderPerformance(body);
+    return;
+  }
+  if (typeof rerenderTeamsPanelInPlace === 'function') rerenderTeamsPanelInPlace();
+}
+
+function addDaysToYmd(ymdStr, delta) {
+  const d = parseYMD(String(ymdStr || '').split('T')[0]);
+  if (!d || isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + delta);
+  return ymd(d);
+}
+
+function isPastModStrikeCheckpointHour() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Los_Angeles',
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(new Date());
+    const hour = Number((parts.find(p => p.type === 'hour') || {}).value);
+    return Number.isFinite(hour) && hour >= 9;
+  } catch (_) {
+    return false;
+  }
+}
+
+function teamBookingOnDateForStrike(teamId, ymd) {
+  if (teamId == null || teamId === '' || !ymd) return null;
+  const rows = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+    .filter(a => a && String(a.teamId) === String(teamId) && String(a.date) === String(ymd));
+  for (const a of rows) {
+    if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
+    return a;
+  }
+  return null;
+}
+
+function isAssignmentCompleteForStrike(a) {
+  if (!a) return false;
+  if (a.status === 'Completed') return true;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'completed';
+}
+
+function buildModStrikeCheckpointReport() {
+  const yesterday = addDaysToYmd(getPSTDateString(), -1);
+  const teams = [];
+  for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
+    if (!t) continue;
+    const primaries = (t.primaryIds || []).filter(Boolean);
+    if (primaries.length !== 2) continue;
+    const booking = teamBookingOnDateForStrike(t.id, yesterday);
+    if (!booking) continue;
+    teams.push({
+      teamId: t.id,
+      teamName: t.name || 'Team',
+      completed: isAssignmentCompleteForStrike(booking),
+      assignmentId: booking.id,
+      primaryIds: primaries.slice(),
+    });
+  }
+  return {
+    yesterday,
+    pastGate: isPastModStrikeCheckpointHour(),
+    teams,
+  };
+}
+
+function maybeRunModStrikeNineAmCheckpoint(opts) {
+  opts = opts || {};
+  const report = buildModStrikeCheckpointReport();
+  if (typeof adminState !== 'undefined' && adminState) {
+    adminState._modStrikeCheckpointReport = report;
+  }
+  if (!report.pastGate || !report.yesterday) return report;
+
+  const todayPst = getPSTDateString();
+  const store = loadModStrikeStore();
+  const ck = store.checkpoints[todayPst];
+  if (ck && ck.applied) return report;
+
+  let struck = 0;
+  for (const row of report.teams) {
+    if (row.completed) continue;
+    for (const orbitId of row.primaryIds) {
+      const before = getModStrikeStars(orbitId);
+      if (before <= 0) continue;
+      setModStrikeStars(orbitId, before - 1, {
+        at: new Date().toISOString(),
+        kind: 'auto',
+        reason: `9 AM checkpoint · ${row.teamName} session ${report.yesterday} not completed`,
+        teamId: row.teamId,
+        assignmentId: row.assignmentId,
+      });
+      struck++;
+    }
+  }
+  store.checkpoints[todayPst] = {
+    applied: true,
+    appliedAt: new Date().toISOString(),
+    struck,
+    yesterday: report.yesterday,
+  };
+  saveModStrikeStore(store);
+  if (!opts.silent && struck > 0 && typeof toast === 'function') {
+    toast(`Auto-strike: ${struck} star(s) removed for incomplete sessions (${report.yesterday})`);
+  }
+  return report;
+}
+
+function renderPerfStrikeCheckpointBannerHTML() {
+  const rep = (typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
+    ? adminState._modStrikeCheckpointReport
+    : buildModStrikeCheckpointReport();
+  if (!rep || !rep.teams || !rep.teams.length) return '';
+  const done = rep.teams.filter(t => t.completed).length;
+  const missed = rep.teams.length - done;
+  const gateNote = rep.pastGate
+    ? 'After 9:00 AM PT, incomplete two-mod teams lose one star per primary.'
+    : 'Checkpoint runs at 9:00 AM PT (not reached yet today).';
+  const rows = rep.teams.map(t => `
+    <li class="mod-strike-check-row ${t.completed ? 'is-done' : 'is-missed'}">
+      <span class="mod-strike-check-team">${escapeHTML(t.teamName)}</span>
+      <span class="mod-strike-check-status">${t.completed ? 'Completed' : 'Not completed'}</span>
+    </li>`).join('');
+  return `
+    <div class="mod-strike-check-banner" role="region" aria-label="Yesterday session checkpoint">
+      <div class="mod-strike-check-head">
+        <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
+        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete</span>
+      </div>
+      <p class="mod-strike-check-hint">${escapeHTML(gateNote)}</p>
+      <ul class="mod-strike-check-list">${rows}</ul>
+    </div>`;
+}
+
+let _modStrikeActionBusyKey = '';
+let _modStrikeBusyClearTimer = null;
+
+function modStrikeOrbitBusyKey(orbitId) {
+  return modStrikeOrbitKey(orbitId);
+}
+
+function modStrikeBeginAction(orbitId) {
+  const k = modStrikeOrbitBusyKey(orbitId);
+  if (!k) return;
+  _modStrikeActionBusyKey = k;
+  if (_modStrikeBusyClearTimer) clearTimeout(_modStrikeBusyClearTimer);
+  _modStrikeBusyClearTimer = setTimeout(() => {
+    if (_modStrikeActionBusyKey === k) _modStrikeActionBusyKey = '';
+    _modStrikeBusyClearTimer = null;
+  }, 5000);
+}
+
+function modStrikeEndAction(orbitId) {
+  const k = modStrikeOrbitBusyKey(orbitId);
+  if (!k || _modStrikeActionBusyKey !== k) return;
+  _modStrikeActionBusyKey = '';
+  if (_modStrikeBusyClearTimer) {
+    clearTimeout(_modStrikeBusyClearTimer);
+    _modStrikeBusyClearTimer = null;
+  }
+}
+
+function handleModStrikeActionClick(e, btn) {
+  e.preventDefault();
+  e.stopPropagation();
+  const orbitId = btn.getAttribute('data-mod-orbit') || '';
+  const action = btn.getAttribute('data-mod-strike') || '';
+  if (!orbitId || !action) return;
+  const orbitBusy = modStrikeOrbitBusyKey(orbitId);
+  if (!orbitBusy) return;
+  if (action === 'reset') modStrikeEndAction(orbitId);
+  else if (_modStrikeActionBusyKey === orbitBusy) return;
+  const host = btn.closest('.mod-card, tr, .perf-tile, .mod-asgn-row, .team-mod-chip');
+
+  const release = () => { modStrikeEndAction(orbitId); };
+
+  if (action === 'strike') {
+    const before = getModStrikeStars(orbitId);
+    if (before <= 0) return;
+    modStrikeBeginAction(orbitId);
+    const applyStrike = () => {
+      try {
+        manualModStrike(orbitId, 'Admin manual strike');
+        const after = getModStrikeStars(orbitId);
+        modStrikeRefreshUi();
+        requestAnimationFrame(() => {
+          if (after === 0) modStrikeRunWastedEnter(orbitId);
+        });
+        if (typeof toast === 'function') {
+          toast(after === 0
+            ? 'Strike applied · wasted'
+            : `Strike applied · ${after} star(s) remaining`);
+        }
+      } finally {
+        release();
+      }
+    };
+    if (host) {
+      runModStrikeRemoveAnim(host, orbitId, applyStrike);
+    } else {
+      applyStrike();
+    }
+    return;
+  }
+
+  if (action === 'reset') {
+    modStrikeBeginAction(orbitId);
+    const applyReset = () => {
+      try {
+        resetModStrikeStars(orbitId);
+        modStrikeRefreshUi();
+        requestAnimationFrame(() => modStrikeRunStarsBlinkIn(orbitId));
+        if (typeof toast === 'function') toast(`Stars reset to ${MOD_STRIKE_MAX_STARS}`);
+      } finally {
+        release();
+      }
+    };
+    if (isModeratorStrikeLocked(orbitId)) {
+      modStrikeRunWastedExit(orbitId, applyReset);
+    } else {
+      applyReset();
+    }
+  }
+}
+
+function ensureModStrikeActionDelegation() {
+  if (typeof document === 'undefined' || document._modStrikeDelegated) return;
+  document._modStrikeDelegated = true;
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mod-strike-action');
+    if (!btn || !btn.closest('#adminApp')) return;
+    handleModStrikeActionClick(e, btn);
+  });
+}
+
+function wireModStrikeActions(root) {
+  ensureModStrikeActionDelegation();
+}
+
 function fmtTimeOfDay(min) {
   const h = Math.floor(min / 60);
   const m = min % 60;
@@ -24382,7 +25199,7 @@ function bindTeamsPanelEvents() {
       if (card._teamOpenWired) return;
       card._teamOpenWired = true;
       card.addEventListener('click', e => {
-        if (e.target.closest('.team-action-btn')) return;
+        if (e.target.closest('.team-action-btn') || e.target.closest('.mod-strike-overlay')) return;
         const teamId = parseInt(card.dataset.teamId, 10);
         if (!Number.isFinite(teamId)) return;
         adminState._selectedTeam = teamId;
@@ -24547,19 +25364,17 @@ function teamCardHTML(team) {
         <div class="team-roster-members">
         ${primaries.length === 0
           ? '<span class="team-empty-roster">No moderators assigned</span>'
-          : primaries.map(id => `
-              <span class="team-mod-chip" title="${escapeHTML(getModeratorDisplayName(id))}">
-                <span class="team-mod-chip-avatar">${escapeHTML(getModeratorAvatarLetters(id))}</span>
-                ${escapeHTML(getModeratorShortName(id))}
-              </span>
-            `).join('')
+          : primaries.map(id => (
+              (typeof renderTeamModChipHTML === 'function')
+                ? renderTeamModChipHTML(id, { backup: false })
+                : `<span class="team-mod-chip" title="${escapeHTML(getModeratorDisplayName(id))}"><span class="team-mod-chip-avatar">${escapeHTML(getModeratorAvatarLetters(id))}</span>${escapeHTML(getModeratorShortName(id))}</span>`
+            )).join('')
         }
-        ${backups.map(id => `
-          <span class="team-mod-chip backup" title="Backup moderator · ${escapeHTML(getModeratorDisplayName(id))}">
-            <span class="team-mod-chip-avatar">${escapeHTML(getModeratorAvatarLetters(id))}</span>
-            ${escapeHTML(getModeratorShortName(id))}
-          </span>
-        `).join('')}
+        ${backups.map(id => (
+          (typeof renderTeamModChipHTML === 'function')
+            ? renderTeamModChipHTML(id, { backup: true })
+            : `<span class="team-mod-chip backup" title="Backup moderator · ${escapeHTML(getModeratorDisplayName(id))}"><span class="team-mod-chip-avatar">${escapeHTML(getModeratorAvatarLetters(id))}</span>${escapeHTML(getModeratorShortName(id))}</span>`
+        )).join('')}
         </div>
         ${teamLivePillHTML(team)}
       </div>
@@ -33946,6 +34761,7 @@ function startAdminApp() {
   });
 }
 function startAdminAppAfterLogin() {
+  if (typeof ensureModStrikeActionDelegation === 'function') ensureModStrikeActionDelegation();
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
   if (typeof wireBookingPage === 'function') wireBookingPage();
   if (typeof stopModeratorGeofence === 'function') stopModeratorGeofence();
@@ -33980,6 +34796,7 @@ function startAdminAppAfterLogin() {
   ensureGeoPingBroadcast();
   // Render
   renderAdmin();
+  if (typeof ensureModStrikeActionDelegation === 'function') ensureModStrikeActionDelegation();
   // Trigger initial moderator load if landing on Moderator Hub
   // (default tab is Overview, so we wait until user clicks)
   // Pre-fetch availability in the background so team chips + sbm picker have data
@@ -33989,7 +34806,13 @@ function startAdminAppAfterLogin() {
   // have scheduled (the data ALL goes to Excel via the write flow, but the
   // local cache is per-browser). When ASSIGNMENT_PA_READ_URL isn't set yet,
   // this is a no-op and the admin keeps seeing local-only data.
-  if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
+  if (typeof fetchAssignmentsFromPA === 'function') {
+    fetchAssignmentsFromPA().then(() => {
+      if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+        maybeRunModStrikeNineAmCheckpoint({ silent: true });
+      }
+    }).catch(() => {});
+  }
   if (typeof refreshModTrackingSetting === 'function') {
     refreshModTrackingSetting().then(() => {
       if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
@@ -36175,6 +36998,7 @@ function getMyLatestStatusForAssignment(asgnId) {
 // timestamp. Used by the admin view modal so each event shows once even if
 // PA returned the same row twice or the operator double-clicked.
 function isSessionLocked(asgn) {
+  if (typeof isModAppStrikeLocked === 'function' && isModAppStrikeLocked()) return true;
   // If an explicit assignment is passed, check that one. Otherwise resolve to
   // the carousel-active assignment so the lock state always reflects the
   // session the operator is currently viewing.
@@ -46182,6 +47006,11 @@ async function blockDeactivatedLogin(orbitId) {
   return true;
 }
 
+function blockStrikeLockedLogin(orbitId) {
+  // Locked moderators may sign in to read the lock message and log out from the app overlay.
+  return false;
+}
+
 async function enterPasswordlessAdmin(enteredName) {
   const enteredAdminName = canonicalAdminUsername(enteredName);
   try {
@@ -46236,6 +47065,11 @@ async function doLogin() {
         _loginInFlight = false;
         return;
       }
+      if (blockStrikeLockedLogin(canonicalAdminUsername(v))) {
+        setLoginLoading(false);
+        _loginInFlight = false;
+        return;
+      }
     } catch (_) {}
     setLoginLoading(false);
     _loginInFlight = false;
@@ -46271,6 +47105,11 @@ async function doLogin() {
         typedPassword = '';
         clearPendingAuth();
         if (await blockDeactivatedLogin(loginId)) {
+          setLoginLoading(false);
+          _loginInFlight = false;
+          return;
+        }
+        if (blockStrikeLockedLogin(loginId)) {
           setLoginLoading(false);
           _loginInFlight = false;
           return;
@@ -46330,6 +47169,13 @@ async function doLogin() {
     }));
     const orbitId = profile.orbitLoginId || loginId;
     if (await blockDeactivatedLogin(orbitId)) {
+      typedPassword = '';
+      clearPendingAuth();
+      setLoginLoading(false);
+      _loginInFlight = false;
+      return;
+    }
+    if (blockStrikeLockedLogin(orbitId)) {
       typedPassword = '';
       clearPendingAuth();
       setLoginLoading(false);

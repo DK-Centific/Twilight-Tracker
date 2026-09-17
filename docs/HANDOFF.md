@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-17 · Cursor (Composer) · Booking Refresh sync status  
+**Last updated:** 2026-09-17 · Cursor (Composer) · Moderator strikes SessionState sync (Option A)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091726f` (pushing) |
+| **`main` version** | `1.3.091726r` (local only · strikes sync via SessionState app setting) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
@@ -82,6 +82,17 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
   - Screenshots: `docs/screenshots/booking-refresh-onedata-button.png`, `docs/screenshots/booking-edit-participant-prefilled.png`
 
 **Not done yet:** David has not typed **push** — nothing live on GitHub Pages yet. Legacy **Kilo-Checklist** / **Orbit-Tracker** GitHub Pages still need redirect pages if old bookmarks should auto-forward (separate repos).
+
+---
+
+## WIP — moderator strikes (`1.3.091726r`, local)
+
+- **3 stars max · 0 stars = wasted / in-app lock** (separate from Excel **Deactivated**); sign-in allowed so mod sees lock message
+- **Moderator Hub**, **Performance**, **Teams** chips — Strike / Reset for field mods (`modStrikeEligible`)
+- **9 AM PT auto-strike:** two-primary teams, yesterday booking incomplete → −1 star per primary (once per PST day per project when cloud sync works)
+- **Cloud sync (Option A):** `ss_app_setting_moderator_strikes` in **SessionState** — same pattern as deactivated users · read on `fetchSessionStateRows` · debounced write on strike/reset/checkpoint · **no new PA URL** if SessionState overwrite already works
+- Local cache: `centific_moderator_strikes_v1`
+- Test: `node scripts/mod-strike-selftest.js`
 
 ---
 

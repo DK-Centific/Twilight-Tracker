@@ -16,7 +16,7 @@
 <link rel="manifest" href="manifest.json">
 <title>Centific Data Collection · Project Twilight</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,500&family=JetBrains+Mono:wght@400;500&family=Passion+One&display=swap" rel="stylesheet">
 <style>
 /* =========================================================
    CENTIFIC KILO DESIGN · Project Twilight (electric blue)
@@ -7391,6 +7391,7 @@ input#ent_lakitu.lakitu-invalid {
 .mod-table tr:last-child td { border-bottom: none; }
 .mod-table-name {
   display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap;
   font-weight: 600;
 }
 .mod-avatar-sm {
@@ -7437,6 +7438,191 @@ input#ent_lakitu.lakitu-invalid {
   border-color: rgba(252, 165, 165, 0.28);
 }
 .mod-table tr.is-deactivated td { opacity: 0.72; }
+/* Strike lock · GTA-style “wasted” lettering (lowercase, red, black stroke) */
+.mod-strike-wasted-word,
+.mod-strike-locked-word {
+  display: inline-block;
+  font-family: "Passion One", Impact, "Arial Black", sans-serif;
+  font-weight: 400;
+  font-size: 1.05rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  color: #e21e26;
+  -webkit-text-stroke: 1.75px #000;
+  paint-order: stroke fill;
+  text-shadow:
+    2px 2px 0 #000,
+    -1px 0 0 #000,
+    1px 0 0 #000,
+    0 -1px 0 #000,
+    0 1px 0 #000;
+  filter: drop-shadow(0 0 0.45px #fff) drop-shadow(0 0 0.45px #fff);
+  vertical-align: middle;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.mod-strike-wasted-word.is-lg,
+.mod-strike-locked-word.is-lg {
+  font-size: 1.35rem;
+  -webkit-text-stroke-width: 2px;
+}
+.mod-table-name .mod-strike-wasted-word { font-size: 1.2rem; }
+.perf-tile-title .mod-strike-wasted-word { font-size: 1.25rem; margin-left: 8px; }
+.mod-name .mod-strike-wasted-word { font-size: 1.15rem; }
+@keyframes mod-strike-wasted-enter {
+  0% { opacity: 0; transform: scale(0.35); }
+  65% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes mod-strike-wasted-exit {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.88); }
+}
+.mod-strike-wasted-word.mod-strike-wasted-enter {
+  animation: mod-strike-wasted-enter 0.72s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+}
+.mod-strike-wasted-word.mod-strike-wasted-exit {
+  animation: mod-strike-wasted-exit 0.48s ease forwards;
+}
+.mod-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  overflow: visible;
+}
+.mod-avatar-wrap-sm {
+  width: 28px;
+  height: 28px;
+}
+.mod-avatar-wrap-perf {
+  width: 36px;
+  height: 36px;
+}
+.mod-avatar-wrap .mod-avatar,
+.mod-avatar-wrap .perf-tile-avatar {
+  width: 100%;
+  height: 100%;
+}
+.mod-strike-wasted-on-avatar {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1.06);
+  margin: 0;
+  width: 132%;
+  max-width: none;
+  text-align: center;
+  font-size: 1.28rem;
+  line-height: 0.88;
+  letter-spacing: -0.05em;
+  -webkit-text-stroke: 2px #000;
+  text-shadow:
+    2px 2px 0 #000,
+    -1px 0 0 #000,
+    1px 0 0 #000,
+    0 -1px 0 #000,
+    0 1px 0 #000;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.mod-avatar-wrap-sm .mod-strike-wasted-on-avatar {
+  font-size: 0.84rem;
+  -webkit-text-stroke-width: 1.5px;
+  width: 138%;
+  transform: translate(-50%, -50%) scale(1.05);
+}
+.mod-avatar-wrap-perf .mod-strike-wasted-on-avatar {
+  font-size: 1.08rem;
+  -webkit-text-stroke-width: 1.75px;
+  width: 130%;
+}
+@keyframes mod-strike-wasted-enter-avatar {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.35); }
+  65% { opacity: 1; transform: translate(-50%, -50%) scale(1.18); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+}
+@keyframes mod-strike-wasted-exit-avatar {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1.06); }
+  to { opacity: 0; transform: translate(-50%, -50%) scale(0.88); }
+}
+.mod-strike-wasted-on-avatar.mod-strike-wasted-enter {
+  animation: mod-strike-wasted-enter-avatar 0.72s cubic-bezier(0.34, 1.35, 0.64, 1) forwards;
+}
+.mod-strike-wasted-on-avatar.mod-strike-wasted-exit {
+  animation: mod-strike-wasted-exit-avatar 0.48s ease forwards;
+}
+.mod-strike-status-plain {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e21e26;
+  letter-spacing: 0.02em;
+}
+#app.mod-strike-app-locked > *:not(.mod-strike-mod-overlay) {
+  pointer-events: none;
+  user-select: none;
+}
+.mod-strike-mod-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.78);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease;
+}
+.mod-strike-mod-overlay.open {
+  opacity: 1;
+  pointer-events: all;
+}
+.mod-strike-mod-panel {
+  width: min(420px, 100%);
+  padding: 22px 20px 18px;
+  border-radius: var(--rl, 14px);
+  background: var(--card-bg, #1a1a1a);
+  border: 0.5px solid var(--border, rgba(255,255,255,0.12));
+  box-shadow: var(--shadow-md, 0 12px 40px rgba(0,0,0,0.45));
+  text-align: center;
+}
+.mod-strike-mod-panel h2 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.mod-strike-mod-msg {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text2, rgba(255,255,255,0.78));
+  text-align: left;
+}
+.mod-strike-mod-msg strong {
+  font-weight: 700;
+  color: var(--text, rgba(255,255,255,0.95));
+}
+.mod-strike-warn-modal .mod-strike-mod-panel {
+  text-align: left;
+}
+.mod-strike-warn-modal .mod-strike-mod-msg {
+  text-align: left;
+}
+.mod-strike-warn-modal #modStrikeWarnAckBtn {
+  width: 100%;
+}
+.mod-table tr.is-strike-locked td { opacity: 0.88; }
+.mod-card.is-strike-locked {
+  border-color: color-mix(in srgb, #f59e0b 45%, var(--border));
+}
+.perf-tile.is-strike-locked .perf-tile-head {
+  border-left: 3px solid #f59e0b;
+}
 .mod-user-deactivate-row {
   margin-top: 18px;
   padding: 16px 16px 14px;
@@ -7603,6 +7789,144 @@ input#ent_lakitu.lakitu-invalid {
   min-height: 0;
 }
 .mod-card.expanded .mod-detail { grid-template-rows: 1fr; }
+
+.mod-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.mod-star {
+  font-size: 13px;
+  line-height: 1;
+  color: var(--accent);
+}
+.mod-star.is-empty {
+  color: var(--text3);
+  opacity: 0.35;
+}
+@keyframes mod-star-strike-away {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  8%, 24%, 40% { opacity: 0.12; transform: scale(1); }
+  16%, 32%, 48% { opacity: 1; transform: scale(1); }
+  72% { opacity: 0.2; transform: scale(0.95); }
+  100% { opacity: 0; transform: scale(0.25); visibility: hidden; }
+}
+@keyframes mod-star-blink-in {
+  0% { opacity: 0; transform: scale(0.35); }
+  12%, 28%, 44% { opacity: 1; transform: scale(1); }
+  20%, 36%, 52% { opacity: 0.15; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.mod-star.is-strike-removing {
+  animation: mod-star-strike-away 2.6s ease-in-out forwards;
+}
+.mod-star.mod-star-blink-in {
+  animation: mod-star-blink-in 2.4s ease-in-out forwards;
+}
+.mod-name .mod-stars { margin-left: 6px; }
+.mod-strike-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.mod-card:hover .mod-strike-overlay,
+.perf-tile.has-mod-strike:hover .mod-strike-overlay,
+.mod-asgn-row.has-mod-strike:hover .mod-strike-overlay,
+.team-mod-chip.has-mod-strike:hover .mod-strike-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+.perf-tile.has-mod-strike,
+.mod-asgn-row.has-mod-strike,
+.team-mod-chip.has-mod-strike {
+  position: relative;
+}
+.team-mod-chip-avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.team-mod-chip .mod-strike-overlay {
+  border-radius: 10px;
+  gap: 4px;
+}
+.team-mod-chip .mod-strike-overlay .btn {
+  font-size: 10px;
+  padding: 4px 8px;
+}
+.team-mod-chip .mod-stars {
+  margin-left: 4px;
+}
+.team-mod-chip .mod-star { font-size: 10px; }
+.team-mod-chip .mod-strike-wasted-on-avatar {
+  font-size: 0.42rem;
+  -webkit-text-stroke-width: 1px;
+}
+.mod-asgn-row .mod-strike-overlay {
+  border-radius: var(--rl, 14px);
+}
+.mod-strike-overlay .btn {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+.mod-strike-check-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--rl);
+  border: 0.5px solid var(--border);
+  background: var(--bg3);
+}
+.mod-strike-check-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.mod-strike-check-meta {
+  color: var(--text3);
+  font-size: 12px;
+}
+.mod-strike-check-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text3);
+}
+.mod-strike-check-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+.mod-strike-check-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+.mod-strike-check-row.is-done .mod-strike-check-status { color: var(--success, #22c55e); }
+.mod-strike-check-row.is-missed .mod-strike-check-status { color: #f59e0b; }
+.perf-tile-title .mod-stars { margin-left: 6px; }
 
 .mod-detail-list {
   margin-top: 14px;
@@ -17412,7 +17736,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091726f" defer></script>
+<script src="twilight.js?v=twilight-1.3.091726r" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
