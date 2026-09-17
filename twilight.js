@@ -36,8 +36,10 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726d';
-const APP_UPDATED_AT = '09/17/2026 12:05';
+const APP_VERSION = '1.3.091726e';
+const APP_UPDATED_AT = '09/17/2026 12:28';
+const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
+const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
 const ENFORCE_MOD_AVAILABILITY = false;
 // When false, sessions shorter than BOOKING_DEFAULT_DURATION_MIN (8h) may be saved.
@@ -7074,6 +7076,97 @@ function escapeHTML(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function parseAppVersionFromSource(src) {
+  const m = String(src || '').match(/const APP_VERSION = '([^']+)'/);
+  return m ? m[1] : '';
+}
+
+function fetchLatestAppVersion() {
+  if (typeof location === 'undefined' || String(location.protocol) === 'file:') return Promise.resolve('');
+  const url = 'twilight.js?v=build-check-' + Date.now();
+  return fetch(url, { cache: 'no-store' })
+    .then(res => (res && res.ok) ? res.text() : '')
+    .then(parseAppVersionFromSource)
+    .catch(() => '');
+}
+
+function dismissedAppBuildVersion() {
+  try { return String(sessionStorage.getItem(APP_BUILD_DISMISS_KEY) || '').trim(); } catch (_) { return ''; }
+}
+
+function setDismissedAppBuildVersion(ver) {
+  try { sessionStorage.setItem(APP_BUILD_DISMISS_KEY, String(ver || '')); } catch (_) {}
+}
+
+function syncAppUpdateBannerLayout() {
+  const banner = document.getElementById('appUpdateBanner');
+  if (!banner || !banner.classList.contains('is-visible')) {
+    document.documentElement.classList.remove('app-update-banner-open');
+    document.documentElement.style.removeProperty('--app-update-banner-h');
+    return;
+  }
+  const h = Math.ceil(banner.getBoundingClientRect().height) || 52;
+  document.documentElement.style.setProperty('--app-update-banner-h', h + 'px');
+  document.documentElement.classList.add('app-update-banner-open');
+}
+
+function hideAppUpdateBanner() {
+  const banner = document.getElementById('appUpdateBanner');
+  if (!banner) return;
+  banner.classList.remove('is-visible');
+  banner.setAttribute('aria-hidden', 'true');
+  syncAppUpdateBannerLayout();
+}
+
+function showAppUpdateBanner(remoteVer) {
+  const banner = document.getElementById('appUpdateBanner');
+  const textEl = document.getElementById('appUpdateBannerText');
+  if (!banner || !textEl || !remoteVer) return;
+  if (remoteVer === APP_VERSION) return;
+  if (dismissedAppBuildVersion() === remoteVer) return;
+  textEl.textContent = `New build available (v${remoteVer}). You are on v${APP_VERSION}. Refresh to get the latest fixes.`;
+  banner.classList.add('is-visible');
+  banner.setAttribute('aria-hidden', 'false');
+  syncAppUpdateBannerLayout();
+}
+
+function wireAppUpdateBanner(remoteVer) {
+  const refreshBtn = document.getElementById('appUpdateBannerRefresh');
+  const laterBtn = document.getElementById('appUpdateBannerLater');
+  if (refreshBtn && !refreshBtn.dataset.wired) {
+    refreshBtn.dataset.wired = '1';
+    refreshBtn.addEventListener('click', () => { location.reload(); });
+  }
+  if (laterBtn && !laterBtn.dataset.wired) {
+    laterBtn.dataset.wired = '1';
+    laterBtn.addEventListener('click', () => {
+      setDismissedAppBuildVersion(remoteVer || dismissedAppBuildVersion());
+      hideAppUpdateBanner();
+    });
+  }
+}
+
+function checkForNewAppBuild() {
+  return fetchLatestAppVersion().then(remoteVer => {
+    if (!remoteVer || remoteVer === APP_VERSION) return;
+    wireAppUpdateBanner(remoteVer);
+    showAppUpdateBanner(remoteVer);
+  });
+}
+
+function startAppBuildWatcher() {
+  if (startAppBuildWatcher._started) return;
+  startAppBuildWatcher._started = true;
+  if (typeof location !== 'undefined' && String(location.protocol) === 'file:') return;
+  const run = () => { checkForNewAppBuild().catch(() => {}); };
+  run();
+  setInterval(run, APP_BUILD_CHECK_INTERVAL_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') run();
+  });
+  window.addEventListener('resize', () => syncAppUpdateBannerLayout());
 }
 
 
@@ -46649,6 +46742,8 @@ function init() {
     const li = document.getElementById('loginUsername');
     if (li && document.getElementById('loginScreen').style.display !== 'none') li.focus();
   }, 100);
+
+  if (typeof startAppBuildWatcher === 'function') startAppBuildWatcher();
 }
 
 document.addEventListener('DOMContentLoaded', init);

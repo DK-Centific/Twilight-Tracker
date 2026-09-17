@@ -24,8 +24,10 @@ function assert(name, cond, detail) {
 
 console.log('Booking end-from-start +8h self-test');
 
-assert('APP_VERSION is 1.3.091726d', /const APP_VERSION = '1\.3\.091726d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091726d'));
+assert('APP_VERSION is 1.3.091726e', /const APP_VERSION = '1\.3\.091726e'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091726e'));
+assert('app build update banner wired', /function startAppBuildWatcher/.test(src)
+  && html.includes('id="appUpdateBanner"'));
 assert('8h minimum does not block saves by default',
   /const ENFORCE_BOOKING_MIN_DURATION = false/.test(src)
     && /ENFORCE_BOOKING_MIN_DURATION[\s\S]{0,80}sessionDurMin/.test(src));
