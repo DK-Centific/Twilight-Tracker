@@ -36,8 +36,12 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091626x';
-const APP_UPDATED_AT = '09/16/2026 15:55';
+const APP_VERSION = '1.3.091726d';
+const APP_UPDATED_AT = '09/17/2026 12:05';
+// When false, moderator availability sheets do not block or warn in Booking/Teams.
+const ENFORCE_MOD_AVAILABILITY = false;
+// When false, sessions shorter than BOOKING_DEFAULT_DURATION_MIN (8h) may be saved.
+const ENFORCE_BOOKING_MIN_DURATION = false;
 // Four physical rigs, each carrying two named cameras. Camera NAMES
 // repeat across rigs (Starlit + Grouper on Rigs 1-2; Phantom + Sailfish
 // on Rigs 3-4), so camera IDs are rig-scoped: `${rig}_${name}` →
@@ -5032,9 +5036,27 @@ function getAssignedLakituUrl() {
   return '';
 }
 
-function isSessionWrapUpDone(asgn) {
+function assignmentTeamSessionComplete(asgn) {
   if (!asgn) return false;
   if (asgn.status === 'Completed') return true;
+  if (state && state.sessionCompletedAt) {
+    const sd = String(state.sessionDate || '').trim();
+    const booked = String(asgn.date || '').trim();
+    if (!booked || !sd || sd === booked) return true;
+  }
+  try {
+    const derived = (typeof deriveLatestStatusFromSessionState === 'function')
+      ? deriveLatestStatusFromSessionState(asgn.id) : null;
+    if (derived && (derived.status === 'session_done' || derived.status === 'office_checkout')) return true;
+    if (derived && typeof statusOrderIdx === 'function'
+        && statusOrderIdx(derived.status) >= statusOrderIdx('session_done')) return true;
+  } catch (_) {}
+  return false;
+}
+
+function isSessionWrapUpDone(asgn) {
+  if (!asgn) return false;
+  if (typeof assignmentTeamSessionComplete === 'function' && assignmentTeamSessionComplete(asgn)) return true;
   try {
     const my = (typeof getMyLatestStatusForAssignment === 'function')
       ? getMyLatestStatusForAssignment(asgn.id) : null;
@@ -5081,6 +5103,29 @@ function getOpenTeamSession(teamId) {
     } catch (_) {}
     return true;
   }) || null;
+}
+
+// Session-first rule: one active booking per team per calendar day.
+function findActiveTeamBookingOnDate(teamId, ymd, excludeAsgnId) {
+  if (teamId == null || teamId === '' || !ymd) return null;
+  const rows = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  for (const a of rows) {
+    if (!a || String(a.teamId) !== String(teamId)) continue;
+    if (String(a.date) !== String(ymd)) continue;
+    if (excludeAsgnId && String(a.id) === String(excludeAsgnId)) continue;
+    if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) continue;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) continue;
+    } catch (_) {}
+    return a;
+  }
+  return null;
+}
+
+function findReusableTeamByPrimarySet(teams, primaryIds) {
+  const modKey = normalizedPrimaryModSetKey(primaryIds);
+  if (!modKey) return null;
+  return (teams || []).find(t => t && normalizedPrimaryModSetKey(t.primaryIds) === modKey) || null;
 }
 
 function teamSessionStatusInfo(team) {
@@ -5268,12 +5313,14 @@ function ensureTeamSessionAssignments() {
 
 function startNewTeamSession(team) {
   if (!team) return null;
-  const open = getOpenTeamSession(team.id);
-  if (open) {
-    stampTeamOpenSession(team, open);
-    return open;
-  }
   const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : new Date().toISOString().slice(0, 10);
+  const existingToday = (typeof findActiveTeamBookingOnDate === 'function')
+    ? findActiveTeamBookingOnDate(team.id, today, null)
+    : null;
+  if (existingToday) {
+    stampTeamOpenSession(team, existingToday);
+    return existingToday;
+  }
   const asgn = {
     id: 'asgn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     teamId: team.id,
@@ -5285,9 +5332,9 @@ function startNewTeamSession(team) {
     participantData: { address: team.teamAddress || '' },
     modSnapshots: snapshotTeamSessionMods(team),
     status: 'Booked',
-    comment: 'team-session',
+    comment: '',
     savedAt: new Date().toISOString(),
-    source: 'team-session',
+    source: 'booking',
   };
   adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
   adminState.assignments.push(asgn);
@@ -24548,11 +24595,19 @@ function assignmentNormalizeStoredEndMin(startMin, endMin) {
   return e;
 }
 
+function assignmentModalNormalizeEndMin(startMin, endMin) {
+  const s = assignmentCoerceClockMin(startMin, 0);
+  let e = assignmentCoerceClockMin(endMin, s);
+  if (e <= s) e = bookingNormalizeEndMin(s, bookingWrapClockMin(e));
+  return e;
+}
+
 function assignmentTimeHintHTML(startMin, endMin) {
   const s = assignmentCoerceClockMin(startMin, 0);
-  const e = assignmentCoerceClockMin(endMin, s);
+  const e = assignmentModalNormalizeEndMin(s, endMin);
   const dur = assignmentDurationMin(s, e);
-  const shortWarn = dur < BOOKING_DEFAULT_DURATION_MIN
+  const shortWarn = (typeof ENFORCE_BOOKING_MIN_DURATION !== 'undefined' && ENFORCE_BOOKING_MIN_DURATION
+    && dur < BOOKING_DEFAULT_DURATION_MIN)
     ? ' <span style="color: var(--amber-text); font-weight: 600;">· shorter than the standard 8-hour day</span>'
     : '';
   return `${fmtTimeOfDay(bookingWrapClockMin(s))} – ${fmtTimeOfDay(bookingWrapClockMin(e))} · ${fmtDurationHours(dur)}${shortWarn}`;
@@ -25924,7 +25979,11 @@ function bindBookingDashboardEvents() {
     const startClock = bookingClockToMin(startInput.value);
     if (startClock == null) return;
     adminState.bookingStartMin = startClock;
-    adminState.bookingEndMin = bookingDefaultEndFromStart(startClock);
+    if (!adminState.bookingEndUserSet) {
+      adminState.bookingEndMin = bookingDefaultEndFromStart(startClock);
+    } else {
+      adminState.bookingEndMin = bookingNormalizeEndMin(startClock, adminState.bookingEndMin);
+    }
     renderAssignment();
   });
   if (endInput) endInput.addEventListener('change', () => {
@@ -25932,6 +25991,7 @@ function bindBookingDashboardEvents() {
     const endClock = bookingClockToMin(endInput.value);
     if (startClock == null || endClock == null) return;
     adminState.bookingStartMin = startClock;
+    adminState.bookingEndUserSet = true;
     adminState.bookingEndMin = bookingNormalizeEndMin(startClock, endClock);
     renderAssignment();
   });
@@ -25987,6 +26047,7 @@ function bindBookingDashboardEvents() {
         teamId: adminState._selectedTeam || undefined,
         startMin,
         endMin,
+        endMinUserSet: !!adminState.bookingEndUserSet,
         participantOrbitId: part ? bookingParticipantId(part) : undefined,
         partSearch: part
           ? ([part.firstName, part.lastName].filter(Boolean).join(' ') || part.address || '')
@@ -28739,8 +28800,19 @@ function saveTeam() {
     if (!TEAMLOG_PA_WRITE_URL) {
       newTeam._pending = true;
     }
+    const reuseTeam = (typeof findReusableTeamByPrimarySet === 'function')
+      ? findReusableTeamByPrimarySet(adminState.teams, m.primaryIds)
+      : null;
+    if (reuseTeam) {
+      appAlert({
+        title: 'Team already exists',
+        message: `A team with the same primary moderators already exists as <strong>${escapeHTML(reuseTeam.name || 'Unnamed team')}</strong>. Use that team on bookings instead of creating a duplicate.`,
+        html: true,
+        variant: 'warning',
+      });
+      return;
+    }
     adminState.teams.push(newTeam);
-    try { startNewTeamSession(newTeam); } catch (_) {}
     if (TEAMLOG_PA_WRITE_URL) {
       writeTeamToTeamLog(newTeam, 'active').then(r => {
         if (r.ok) {
@@ -29037,6 +29109,14 @@ function openTeamDeleteGuardModal(teamId, buckets) {
 }
 
 /* ----------- Assignment Modal ----------- */
+function assignmentModalTeamDisplayName(teamId, fallbackName) {
+  if (teamId == null || teamId === '') return '';
+  const t = (adminState.teams || []).find(x => String(x.id) === String(teamId));
+  if (t && t.name) return String(t.name).trim();
+  const fb = fallbackName != null ? String(fallbackName).trim() : '';
+  return fb;
+}
+
 // Opens the assignment modal for creating a new booking.
 //   dateStr  · YYYY-MM-DD, the date the booking is for.
 //   slotMin  · minutes-from-midnight where the slot was clicked. Used as
@@ -29084,9 +29164,18 @@ function openAssignmentModal(dateStr, slotMin, opts) {
     participantAddress: opts.participantAddress || '',
     odLocked: !!opts.odLocked,
     teamSearch: opts.teamSearch || '',
+    teamSearchMode: opts.teamSearchMode || null,
+    teamName: opts.teamName || '',
     teamPickOpen: !!opts.teamPickOpen,
     rosterOpen: !!opts.rosterOpen,
+    endMinUserSet: opts.endMinUserSet != null ? !!opts.endMinUserSet : (opts.endMin != null),
   };
+  if (!adminState.modal.teamSearch && teamId != null) {
+    adminState.modal.teamSearch = assignmentModalTeamDisplayName(teamId, '');
+  }
+  if (adminState.modal.teamSearchMode !== 'search' && adminState.modal.teamSearchMode !== 'display') {
+    adminState.modal.teamSearchMode = adminState.modal.teamSearch ? 'display' : 'search';
+  }
   if (!adminState.modal.participantName && opts.participantOverride) {
     adminState.modal.participantName = (typeof bookingComposePersonName === 'function')
       ? bookingComposePersonName(opts.participantOverride)
@@ -29161,7 +29250,7 @@ function openEditAssignmentModal(asgnId) {
   const odLocked = (typeof assignmentIsOdOrigin === 'function') ? assignmentIsOdOrigin(a) : false;
   const startMin = assignmentCoerceClockMin(a.startMin, BOOKING_DEFAULT_START_MIN);
   const endMin = assignmentNormalizeStoredEndMin(startMin, a.endMin);
-  const editTeam = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
+  const teamLabel = assignmentModalTeamDisplayName(a.teamId, a.teamName);
 
   adminState.modal = {
     kind: 'editAssignment',
@@ -29181,9 +29270,12 @@ function openEditAssignmentModal(asgnId) {
     participantName: savedName,
     participantAddress: savedAddr,
     odLocked,
-    teamSearch: editTeam ? editTeam.name : '',
+    teamSearch: teamLabel,
+    teamSearchMode: teamLabel ? 'display' : 'search',
+    teamName: a.teamName || teamLabel,
     teamPickOpen: false,
     rosterOpen: false,
+    endMinUserSet: true,
     // Pre-seeded override from saved participantData (if it diverged
     // from live). The edit popup opens on demand via the inline
     // trigger button rendered in the parent modal.
@@ -29402,6 +29494,22 @@ function renderAssignmentModal() {
       //
       // If the admin closes the modal without saving, closeAsgnModal()
       // prunes this pending entry so it doesn't pollute the team list.
+      const reuseTeam = (typeof findReusableTeamByPrimarySet === 'function')
+        ? findReusableTeamByPrimarySet(adminState.teams, adminState.modal.inlineTeamPrimaryIds)
+        : null;
+      if (reuseTeam) {
+        adminState.modal.teamId = reuseTeam.id;
+        adminState.modal.teamSearch = reuseTeam.name || '';
+        adminState.modal.teamName = reuseTeam.name || '';
+        adminState.modal.teamSearchMode = 'display';
+        adminState.modal.inlineTeamCreate = false;
+        adminState.modal.inlineTeamName = '';
+        adminState.modal.inlineTeamPrimaryIds = [];
+        adminState.modal.inlineTeamBackupIds = [];
+        renderAssignmentModal();
+        toast(`Using existing team "${reuseTeam.name || 'team'}" · same moderators`);
+        return;
+      }
       const newTeam = {
         id: nextTeamId(),
         name: name,
@@ -29413,6 +29521,9 @@ function renderAssignmentModal() {
       adminState.teams.push(newTeam);
       // Auto-select the newly created team and exit inline mode
       adminState.modal.teamId = newTeam.id;
+      adminState.modal.teamName = newTeam.name;
+      adminState.modal.teamSearch = newTeam.name;
+      adminState.modal.teamSearchMode = 'display';
       adminState.modal.inlineTeamCreate = false;
       adminState.modal.inlineTeamName = '';
       adminState.modal.inlineTeamPrimaryIds = [];
@@ -29439,6 +29550,13 @@ function renderAssignmentModal() {
   if (typeof m.partFilter !== 'string') m.partFilter = 'all';
   if (typeof m.partPage !== 'number')   m.partPage = 1;
   if (typeof m.teamSearch !== 'string') m.teamSearch = '';
+  if (m.teamSearchMode !== 'search' && m.teamSearchMode !== 'display') {
+    m.teamSearchMode = (m.teamId != null && assignmentModalTeamDisplayName(m.teamId, m.teamName)) ? 'display' : 'search';
+  }
+  if (m.teamSearchMode === 'display' && m.teamId != null) {
+    const committed = assignmentModalTeamDisplayName(m.teamId, m.teamName);
+    if (committed) m.teamSearch = committed;
+  }
   if (typeof m.teamPickOpen !== 'boolean') m.teamPickOpen = false;
   if (typeof m.rosterOpen !== 'boolean') m.rosterOpen = false;
 
@@ -29528,9 +29646,10 @@ function renderAssignmentModal() {
         ? checkTeamHoursForAssignment(t, m.date, m.startMin, m.endMin)
         : { ok: true, reason: 'ok', conflicts: [], summary: '' },
     }));
-    const teamQ = String(m.teamSearch || '').trim().toLowerCase();
+    const inTeamSearchMode = m.teamSearchMode === 'search';
+    const teamQ = inTeamSearchMode ? String(m.teamSearch || '').trim().toLowerCase() : '';
     const filteredTeams = teamVerdicts.filter(({ team: t }) => {
-      if (!teamQ) return true;
+      if (!inTeamSearchMode || !teamQ) return true;
       const modNames = (t.primaryIds || []).map(id => getModeratorDisplayName(id)).join(' ');
       const hay = [t.name, modNames].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(teamQ);
@@ -29553,7 +29672,7 @@ function renderAssignmentModal() {
     const incompatibleSelectionWarning = (selectedVerdict && !selectedVerdict.verdict.ok)
       ? `<div class="team-avail-summary none-yes" style="margin-top: 8px;">⚠ ${escapeHTML(selectedVerdict.verdict.summary)} · pick a different team or change the time.</div>`
       : '';
-    const showTeamList = m.teamPickOpen || teamQ.length > 0;
+    const showTeamList = inTeamSearchMode && m.teamPickOpen;
     return `
       <div class="asgn-team-pick-row">
         <div class="asgn-team-search-wrap">
@@ -29569,6 +29688,15 @@ function renderAssignmentModal() {
         if (!m.teamId) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
         const team = adminState.teams.find(t => String(t.id) === String(m.teamId));
         if (!team || !m.date) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
+        const dayClash = (typeof findActiveTeamBookingOnDate === 'function')
+          ? findActiveTeamBookingOnDate(m.teamId, m.date, m.editingId || null)
+          : null;
+        if (dayClash) {
+          return `<div class="team-avail-summary none-yes" style="margin-top: 8px;">⚠ This team already has a session on ${escapeHTML(m.date)} · one session per team per day.</div>`;
+        }
+        if (typeof ENFORCE_MOD_AVAILABILITY !== 'undefined' && !ENFORCE_MOD_AVAILABILITY) {
+          return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
+        }
         const av = (typeof getTeamAvailabilityForDate === 'function')
           ? getTeamAvailabilityForDate(team, m.date) : null;
         if (!av || av.total === 0) return '<div class="asgn-field-hint">Search and pick a team, or create one inline.</div>';
@@ -30053,8 +30181,7 @@ function renderAssignmentModal() {
   };
   const paintAsgnTimeHint = (startMin, endMin) => {
     const s = assignmentCoerceClockMin(startMin, 0);
-    let e = assignmentCoerceClockMin(endMin, s);
-    if (e <= s) e = bookingNormalizeEndMin(s, bookingWrapClockMin(e));
+    const e = assignmentModalNormalizeEndMin(s, endMin);
     adminState.modal.startMin = s;
     adminState.modal.endMin = e;
     if (timeHint) timeHint.innerHTML = assignmentTimeHintHTML(s, e);
@@ -30063,7 +30190,7 @@ function renderAssignmentModal() {
   startEl.addEventListener('change', () => {
     const startMin = readAsgnClock(startEl);
     if (startMin == null) return;
-    if (m.kind !== 'editAssignment') {
+    if (m.kind !== 'editAssignment' && !m.endMinUserSet) {
       const endMin = bookingDefaultEndFromStart(startMin);
       if (endEl) endEl.value = bookingMinToInput(endMin);
       paintAsgnTimeHint(startMin, endMin);
@@ -30082,6 +30209,7 @@ function renderAssignmentModal() {
     const startMin = readAsgnClock(startEl);
     const endClock = readAsgnClock(endEl);
     if (startMin == null || endClock == null) return;
+    adminState.modal.endMinUserSet = true;
     paintAsgnTimeHint(startMin, bookingNormalizeEndMin(startMin, endClock));
     renderAssignmentModal();
   });
@@ -30090,14 +30218,36 @@ function renderAssignmentModal() {
   const teamPickList = document.getElementById('asgnTeamPickList');
   if (teamSearchEl) {
     teamSearchEl.addEventListener('focus', () => {
-      adminState.modal.teamPickOpen = true;
+      const mod = adminState.modal;
+      if (!mod) return;
+      if (mod.teamSearchMode === 'display') {
+        requestAnimationFrame(() => {
+          const el = document.getElementById('asgnTeamSearch');
+          if (el) {
+            try { el.select(); } catch (_) {}
+          }
+        });
+        return;
+      }
+      mod.teamPickOpen = true;
       if (teamPickList) teamPickList.hidden = false;
     });
     teamSearchEl.addEventListener('input', e => {
-      adminState.modal.teamSearch = e.target.value;
-      adminState.modal.teamPickOpen = true;
-      const list = document.getElementById('asgnTeamPickList');
-      if (list) list.hidden = false;
+      const mod = adminState.modal;
+      if (!mod) return;
+      const val = e.target.value;
+      mod.teamSearch = val;
+      if (mod.teamSearchMode === 'display') {
+        const committed = assignmentModalTeamDisplayName(mod.teamId, mod.teamName);
+        if (!String(val).trim() || val !== committed) {
+          mod.teamSearchMode = 'search';
+          if (!String(val).trim()) mod.teamId = null;
+        } else {
+          renderAssignmentModal();
+          return;
+        }
+      }
+      mod.teamPickOpen = true;
       renderAssignmentModal();
       requestAnimationFrame(() => {
         const el = document.getElementById('asgnTeamSearch');
@@ -30111,9 +30261,13 @@ function renderAssignmentModal() {
     teamSearchEl.addEventListener('blur', () => {
       setTimeout(() => {
         if (!adminState.modal) return;
-        adminState.modal.teamPickOpen = false;
-        const list = document.getElementById('asgnTeamPickList');
-        if (list) list.hidden = true;
+        const mod = adminState.modal;
+        if (mod.teamSearchMode === 'search' && mod.teamId != null && String(mod.teamSearch || '').trim()) {
+          mod.teamSearchMode = 'display';
+          mod.teamSearch = assignmentModalTeamDisplayName(mod.teamId, mod.teamName);
+        }
+        mod.teamPickOpen = false;
+        renderAssignmentModal();
       }, 160);
     });
   }
@@ -30122,10 +30276,12 @@ function renderAssignmentModal() {
       item.addEventListener('mousedown', e => e.preventDefault());
       item.addEventListener('click', () => {
         if (item.dataset.conflict === '1') return;
-        const teamId = parseInt(item.dataset.teamId, 10);
-        const team = adminState.teams.find(t => String(t.id) === String(teamId));
-        adminState.modal.teamId = teamId;
+        const teamIdRaw = item.dataset.teamId;
+        const team = adminState.teams.find(t => String(t.id) === String(teamIdRaw));
+        adminState.modal.teamId = team ? team.id : teamIdRaw;
+        adminState.modal.teamName = team ? team.name : '';
         adminState.modal.teamSearch = team ? team.name : '';
+        adminState.modal.teamSearchMode = 'display';
         adminState.modal.teamPickOpen = false;
         renderAssignmentModal();
       });
@@ -30493,6 +30649,27 @@ async function saveAssignment() {
   if (typeof assignmentModalHasParticipant === 'function' ? !assignmentModalHasParticipant(m) : !m.participantOrbitId) return;
   const isEdit = m.kind === 'editAssignment';
 
+  m.startMin = assignmentCoerceClockMin(m.startMin, BOOKING_DEFAULT_START_MIN);
+  m.endMin = assignmentModalNormalizeEndMin(m.startMin, m.endMin);
+  const sessionDurMin = assignmentDurationMin(m.startMin, m.endMin);
+  if (sessionDurMin <= 0) {
+    await appAlert({
+      title: 'Invalid session times',
+      message: 'End time must be after start time. Adjust the times and try again.',
+      variant: 'warning',
+    });
+    return;
+  }
+  if (typeof ENFORCE_BOOKING_MIN_DURATION !== 'undefined' && ENFORCE_BOOKING_MIN_DURATION
+      && sessionDurMin < BOOKING_DEFAULT_DURATION_MIN) {
+    await appAlert({
+      title: 'Session shorter than 8 hours',
+      message: `This booking is ${fmtDurationHours(sessionDurMin)}. The minimum is ${fmtDurationHours(BOOKING_DEFAULT_DURATION_MIN)} · extend the end time or turn off the minimum-duration rule.`,
+      variant: 'warning',
+    });
+    return;
+  }
+
   const team = adminState.teams.find(t => t.id === m.teamId);
 
   // Hard guard: prevent SAME-TEAM duplicates. Belt-and-suspenders with
@@ -30616,6 +30793,29 @@ async function saveAssignment() {
   // We re-run the check here and reject with an explanation modal. The
   // admin can either pick a different team (use the dropdown which now
   // shows compatible options) or close and adjust the time.
+  if (team && m.date) {
+    const teamDayClash = (typeof findActiveTeamBookingOnDate === 'function')
+      ? findActiveTeamBookingOnDate(m.teamId, m.date, m.editingId || null)
+      : null;
+    if (teamDayClash) {
+      const dObj = parseYMD(m.date);
+      const dLabel = dObj
+        ? dObj.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+        : m.date;
+      const otherPart = teamDayClash.participantData
+        ? [teamDayClash.participantData.firstName, teamDayClash.participantData.lastName].filter(Boolean).join(' ')
+        : '';
+      const partLabel = otherPart || 'another participant';
+      await appAlert({
+        title: 'Team already booked that day',
+        message: `<strong>${escapeHTML(team.name || 'This team')}</strong> already has an active session on <strong>${escapeHTML(dLabel)}</strong> (${escapeHTML(partLabel)}). Each team can run only one session per day · pick a different team or date, or cancel the existing booking first.`,
+        html: true,
+        variant: 'warning',
+      });
+      return;
+    }
+  }
+
   if (team) {
     const verdict = checkTeamHoursForAssignment(team, m.date, m.startMin, m.endMin);
     if (!verdict.ok) {
@@ -34319,6 +34519,10 @@ function pickBetterScenario(local, cloud) {
   const cr = scenarioProgressRank(c);
   if (cr > lr) return Object.assign({}, c);
   if (lr > cr) return Object.assign({}, l);
+  const lDone = (typeof isScenarioDoneForStation === 'function') && isScenarioDoneForStation(l);
+  const cDone = (typeof isScenarioDoneForStation === 'function') && isScenarioDoneForStation(c);
+  if (cDone && !lDone) return Object.assign({}, c);
+  if (lDone && !cDone) return Object.assign({}, l);
   const out = Object.assign({}, l);
   if ((c.iterations || 0) > (l.iterations || 0)) out.iterations = c.iterations;
   if ((String(c.notes || '').trim().length) > (String(l.notes || '').trim().length)) out.notes = c.notes;
@@ -34461,6 +34665,17 @@ function parseLastActiveMs(v) {
     return Math.round((n - 25569) * 86400 * 1000);
   }
   return 0;
+}
+
+// Teammate SessionState rows with sessionDate = today stay live for the
+// full field day; the 6h window only drops prior-day leftovers.
+function isStaleSessionStateWrite(lastActive, syncableState) {
+  const atMs = parseLastActiveMs(lastActive);
+  if (!atMs) return false;
+  const cloudDay = String((syncableState && syncableState.sessionDate) || '').trim();
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  if (cloudDay && today && cloudDay === today) return false;
+  return (Date.now() - atMs) > (6 * 60 * 60 * 1000);
 }
 
 function buildSessionStateCloudPayload(asgn, reason) {
@@ -35184,6 +35399,9 @@ function mergeTeammateState(syncableState) {
     if (!current || incoming > current) state.officeCheckedOutAt = incoming;
   }
   if (syncableState.recordLakituUrl)    state.recordLakituUrl    = String(syncableState.recordLakituUrl);
+  if (syncableState.calGuideAck && typeof syncableState.calGuideAck === 'object' && !state.calGuideAck) {
+    state.calGuideAck = Object.assign({}, syncableState.calGuideAck);
+  }
   if (syncableState.equipment)          state.equipment          = { ...state.equipment, ...syncableState.equipment };
   if (syncableState.stations) {
     // Keep the more-complete scenario on each row so a teammate who
@@ -35429,7 +35647,7 @@ const STATION_KEY_TO_STATUS = {
   station4:        'station_4_done',
 };
 
-// Wrap-up checklist items shown after Station 3 Submit. Edit freely.
+// Wrap-up checklist items shown after Station 4 Submit (last station). Edit freely.
 // Revised 5/14/2026: the previous list was oriented around physical device
 // handling (Device A / Device B / cellphone selfie / equipment reset).
 // Workflow has shifted to a Lakitu-centric upload flow · these items
@@ -35821,6 +36039,7 @@ function isSessionLocked(asgn) {
       : (typeof getOperatorAssignment === 'function' ? getOperatorAssignment() : null);
   }
   if (!asgn) return false;
+  if (typeof assignmentTeamSessionComplete === 'function' && assignmentTeamSessionComplete(asgn)) return true;
   const my = (typeof getMyLatestStatusForAssignment === 'function') ? getMyLatestStatusForAssignment(asgn.id) : null;
   if (!my) return false;
   if (my.status === 'session_done' || my.status === 'office_checkout') return true;
@@ -41744,6 +41963,10 @@ function syncBookedParticipantName() {
 
 // ---------- Wrap-up checklist modal ----------
 function openWrapUpModal(asgn) {
+  if (typeof isSessionLocked === 'function' && isSessionLocked(asgn)) {
+    if (typeof showToast === 'function') showToast('This session is already complete.', 'info', 3200);
+    return;
+  }
   const itemsState = WRAPUP_CHECKLIST.map(() => false);
 
   const overlay = document.createElement('div');
@@ -43596,6 +43819,7 @@ function _availIsYes(v) {
   return s === 'yes' || s === 'y' || s === 'true' || s === '1' || s === '✓' || s === 'x';
 }
 function getModAvailabilityForDate(modId, ymdDate) {
+  if (typeof ENFORCE_MOD_AVAILABILITY !== 'undefined' && !ENFORCE_MOD_AVAILABILITY) return 'yes';
   if (!modId || !ymdDate) return 'unsubmitted';
   const rows = (adminState && adminState.availability) || loadAvailabilityCache();
   const idx = indexLatestAvailability(rows);
@@ -43625,6 +43849,9 @@ function getModAvailabilityForDate(modId, ymdDate) {
 // returns 'unsubmitted'). Null is a clearer signal for the team-filter
 // path · admin shouldn't penalize teams whose mods haven't submitted.
 function getModAvailabilityHoursForDate(modId, ymdDate) {
+  if (typeof ENFORCE_MOD_AVAILABILITY !== 'undefined' && !ENFORCE_MOD_AVAILABILITY) {
+    return { available: true, startHour: 0, endHour: 24, startMin: 0, endMin: 24 * 60, shiftTag: '' };
+  }
   if (!modId || !ymdDate) return null;
   const rows = (adminState && adminState.availability) || loadAvailabilityCache();
   const idx = indexLatestAvailability(rows);
@@ -43657,6 +43884,11 @@ function getModAvailabilityHoursForDate(modId, ymdDate) {
 
 // Convenience for a whole team on a date · returns counts.
 function getTeamAvailabilityForDate(team, ymdDate) {
+  if (typeof ENFORCE_MOD_AVAILABILITY !== 'undefined' && !ENFORCE_MOD_AVAILABILITY) {
+    const ids = [...(team.primaryIds || []), ...getTeamBackupIds(team)].filter(Boolean);
+    const n = ids.length;
+    return { yes: n, no: 0, unsub: 0, total: n };
+  }
   const ids = [...(team.primaryIds || []), ...getTeamBackupIds(team)].filter(Boolean);
   let yes = 0, no = 0, unsub = 0;
   for (const id of ids) {
@@ -43708,11 +43940,17 @@ function getTeamAvailabilityForDate(team, ymdDate) {
  * that want backup-strict behavior can extend the ids list. */
 function checkTeamHoursForAssignment(team, ymdDate, startMin, endMin) {
   const result = { ok: true, reason: 'ok', conflicts: [], summary: '' };
-  if (!team || !ymdDate || startMin == null || endMin == null || endMin <= startMin) {
+  if (typeof ENFORCE_MOD_AVAILABILITY !== 'undefined' && !ENFORCE_MOD_AVAILABILITY) {
+    return result;
+  }
+  const durMin = (startMin != null && endMin != null && typeof assignmentDurationMin === 'function')
+    ? assignmentDurationMin(startMin, endMin) : 0;
+  if (!team || !ymdDate || startMin == null || endMin == null || durMin <= 0) {
     result.ok = false; result.reason = 'no-primaries';
     result.summary = 'Invalid team or time window';
     return result;
   }
+  const effectiveEnd = assignmentModalNormalizeEndMin(startMin, endMin);
   const primaryIds = (team.primaryIds || []).filter(Boolean);
   if (primaryIds.length === 0) {
     // Empty teams aren't blocked by THIS check, but they don't pass cleanly
@@ -43749,7 +43987,7 @@ function checkTeamHoursForAssignment(team, ymdDate, startMin, endMin) {
     // "Either mod covers this slot" rather than implying they were
     // pinned to a specific shift.
     if (hours.shiftTag === 'Either') eitherCount++;
-    if (startMin < hours.startMin || endMin > hours.endMin) {
+    if (startMin < hours.startMin || effectiveEnd > hours.endMin) {
       result.conflicts.push({
         modId: id, modName,
         availStart: hours.startMin, availEnd: hours.endMin,
@@ -44055,16 +44293,11 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
   // sessionDate. 6 hours is generous enough to cover real-world
   // multi-hour sessions while excluding stale prior-day data.
   const teammateAt = result.row.lastActive || '';
-  const teammateAtMs = parseLastActiveMs(teammateAt);
-  const STALENESS_MS = 6 * 60 * 60 * 1000;  // 6 hours
-  if (teammateAtMs) {
-    const age = Date.now() - teammateAtMs;
-    if (age > STALENESS_MS) {
-      if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
-      // Stale teammate → drop polling back to idle cadence.
-      if (typeof adminState !== 'undefined' && adminState) adminState._lastTeammateLiveAt = null;
-      return;
-    }
+  if (typeof isStaleSessionStateWrite === 'function'
+      && isStaleSessionStateWrite(teammateAt, cloud)) {
+    if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
+    if (typeof adminState !== 'undefined' && adminState) adminState._lastTeammateLiveAt = null;
+    return;
   }
 
   // TEAMMATE COMPLETED THEIR SESSION: hide banner. Banner is for live
@@ -44396,15 +44629,12 @@ async function checkAndOfferSelfSync(prefetchedRows) {
     return false;
   }
 
-  // Staleness guard: ignore prior-day leftovers (same 6h window as the
-  // teammate check).
-  if (winnerActive) {
-    const age = Date.now() - new Date(winnerActive).getTime();
-    if (age > 6 * 60 * 60 * 1000) {
-      if (typeof hideSelfSyncBanner === 'function') hideSelfSyncBanner();
-      if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = null;
-      return false;
-    }
+  // Staleness guard: ignore prior-day leftovers (same rule as teammate check).
+  if (winnerActive && typeof isStaleSessionStateWrite === 'function'
+      && isStaleSessionStateWrite(winnerActive, result.syncableState)) {
+    if (typeof hideSelfSyncBanner === 'function') hideSelfSyncBanner();
+    if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = null;
+    return false;
   }
 
   // Mark self-live so the poll cadence stays ACTIVE (the other browser

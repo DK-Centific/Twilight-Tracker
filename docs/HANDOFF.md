@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-16 · Cursor (Composer) · Bugbot fixes  
+**Last updated:** 2026-09-17 · Cursor (Composer) · Booking team picker + session-first + 8h gate off  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,10 +9,10 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091626x` (pushed) |
-| **Live site** | https://dk-centific.github.io/Twilight-Tracker/ (deploying `x`) |
-| **Last merged** | Direct push — manual booking duplicate checks + E2E version sync |
-| **Local branch** | `main` · clean |
+| **`main` version** | `1.3.091726d` (pushing) |
+| **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
+| **Last merged** | Session-first team/day rules, booking edit team picker, no 8h save gate, handoff fixes |
+| **Local branch** | `main` |
 
 ### Recently shipped on `main` (Sep 16)
 

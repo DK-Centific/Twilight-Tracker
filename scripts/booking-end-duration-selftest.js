@@ -24,8 +24,13 @@ function assert(name, cond, detail) {
 
 console.log('Booking end-from-start +8h self-test');
 
-assert('APP_VERSION is 1.3.091626x', /const APP_VERSION = '1\.3\.091626x'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626x'));
+assert('APP_VERSION is 1.3.091726d', /const APP_VERSION = '1\.3\.091726d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091726d'));
+assert('8h minimum does not block saves by default',
+  /const ENFORCE_BOOKING_MIN_DURATION = false/.test(src)
+    && /ENFORCE_BOOKING_MIN_DURATION[\s\S]{0,80}sessionDurMin/.test(src));
+assert('create start change respects custom end',
+  /!m\.endMinUserSet/.test(src) && /endMinUserSet = true/.test(src));
 assert('duration constant is 8 hours', /const BOOKING_DEFAULT_DURATION_MIN = 8 \* 60/.test(src));
 assert('default end is start + duration',
   /const BOOKING_DEFAULT_END_MIN = BOOKING_DEFAULT_START_MIN \+ BOOKING_DEFAULT_DURATION_MIN/.test(src));
