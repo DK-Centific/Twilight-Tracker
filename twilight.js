@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818b';
-const APP_UPDATED_AT = '09/18/2026 16:30';
+const APP_VERSION = '1.3.091818c';
+const APP_UPDATED_AT = '09/18/2026 16:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8910,7 +8910,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     const rep = buildModStrikeCheckpointReport();
     (rep.teams || []).forEach(row => {
       if (!teamMatch(row.teamId)) return;
-      if (row.skipped || !row.flagIncomplete) return;
+      if (row.skipped || row.resolved || !row.flagIncomplete) return;
       const strikeAsgn = (row.assignmentId != null)
         ? ((adminState.assignments || []).find(x => String(x.id) === String(row.assignmentId))
           || (filteredAsgns || []).find(x => String(x.id) === String(row.assignmentId)))
@@ -24095,11 +24095,17 @@ function modStrikeRefreshUi() {
   if (typeof adminState === 'undefined' || !adminState) return;
   if (adminState.tab === 'moderators' && typeof renderModerators === 'function') {
     renderModerators();
+    if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+      syncOverviewLiveStatusStrikeAttention();
+    }
     return;
   }
   if (adminState.tab === 'performance') {
     const body = document.getElementById('adminTabBody');
     if (body && typeof renderPerformance === 'function') renderPerformance(body);
+    if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+      syncOverviewLiveStatusStrikeAttention();
+    }
     return;
   }
   if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
@@ -24107,6 +24113,9 @@ function modStrikeRefreshUi() {
     return;
   }
   if (typeof rerenderTeamsPanelInPlace === 'function') rerenderTeamsPanelInPlace();
+  if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
+  }
 }
 
 function addDaysToYmd(ymdStr, delta) {
@@ -24229,10 +24238,18 @@ function modStrikeCheckpointSkippedTeamIds(todayPst) {
   return new Set(Object.keys(map).filter(k => map[k]));
 }
 
+function modStrikeCheckpointResolvedTeamIds(todayPst) {
+  const store = loadModStrikeStore();
+  const ck = store.checkpoints[String(todayPst || '')];
+  const map = (ck && ck.resolvedTeams && typeof ck.resolvedTeams === 'object') ? ck.resolvedTeams : {};
+  return new Set(Object.keys(map).filter(k => map[k]));
+}
+
 function buildModStrikeCheckpointReport() {
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
   const todayPst = getPSTDateString();
   const skipped = modStrikeCheckpointSkippedTeamIds(todayPst);
+  const resolved = modStrikeCheckpointResolvedTeamIds(todayPst);
   const teams = [];
   for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
     if (!t) continue;
@@ -24249,6 +24266,7 @@ function buildModStrikeCheckpointReport() {
       pastSessionEnd,
       flagIncomplete: pastSessionEnd && !completed,
       skipped: skipped.has(String(t.id)),
+      resolved: resolved.has(String(t.id)),
       assignmentId: booking.id,
       primaryIds: primaries.slice(),
     });
@@ -24275,12 +24293,14 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   if (ck && ck.applied) return report;
 
   const skippedTeams = modStrikeCheckpointSkippedTeamIds(todayPst);
+  const resolvedTeams = modStrikeCheckpointResolvedTeamIds(todayPst);
   if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
   const ckRow = store.checkpoints[todayPst];
   if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
   let struck = 0;
   for (const row of report.teams) {
-    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))) continue;
+    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))
+        || resolvedTeams.has(String(row.teamId))) continue;
     if (!row.pastSessionEnd) continue;
     if (ckRow.teamAutoStrike[String(row.teamId)]) continue;
     for (const orbitId of row.primaryIds) {
@@ -24298,7 +24318,8 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
     ckRow.teamAutoStrike[String(row.teamId)] = true;
   }
   const allResolved = report.teams.every(t => {
-    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))) return true;
+    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))
+        || resolvedTeams.has(String(t.teamId))) return true;
     if (!t.pastSessionEnd) return false;
     return !!ckRow.teamAutoStrike[String(t.teamId)];
   });
@@ -24335,6 +24356,21 @@ function skipModStrikeCheckpointTeam(teamId) {
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
 }
 
+function resolveModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const todayPst = getPSTDateString();
+  const store = loadModStrikeStore();
+  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
+  const ck = store.checkpoints[todayPst];
+  if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
+  ck.resolvedTeams[id] = true;
+  saveModStrikeStore(store);
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
+}
+
 function modStrikeCheckpointAttentionActive() {
   if (typeof isPastModStrikeCheckpointHour !== 'function' || !isPastModStrikeCheckpointHour()) {
     return false;
@@ -24343,7 +24379,7 @@ function modStrikeCheckpointAttentionActive() {
     ? buildModStrikeCheckpointReport()
     : null;
   if (!rep || !Array.isArray(rep.teams)) return false;
-  return rep.teams.some(t => t.flagIncomplete && !t.skipped);
+  return rep.teams.some(t => t.flagIncomplete && !t.skipped && !t.resolved);
 }
 
 function syncOverviewLiveStatusStrikeAttention() {
@@ -24375,7 +24411,7 @@ async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
   if (!id) return;
   const rep = buildModStrikeCheckpointReport();
   const row = (rep.teams || []).find(t => String(t.teamId) === id);
-  if (!row || !row.flagIncomplete || row.skipped) return;
+  if (!row || !row.flagIncomplete || row.skipped || row.resolved) return;
 
   const { lines, strikable } = modStrikeCheckpointStrikePreviewLines(row);
   if (!strikable.length) {
@@ -24404,6 +24440,9 @@ async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
     const after = getModStrikeStars(item.orbitId);
     results.push(`${item.name}: ${after} star(s) remaining`);
   }
+  if (typeof resolveModStrikeCheckpointTeam === 'function') {
+    resolveModStrikeCheckpointTeam(id);
+  }
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
   else if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
     syncOverviewLiveStatusStrikeAttention();
@@ -24423,19 +24462,24 @@ function renderPerfStrikeCheckpointBannerHTML() {
   if (!rep || !rep.teams || !rep.teams.length) return '';
   const done = rep.teams.filter(t => t.completed).length;
   const skippedCount = rep.teams.filter(t => t.skipped && !t.completed).length;
-  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.pastSessionEnd).length;
-  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped).length;
+  const resolvedCount = rep.teams.filter(t => t.resolved && t.flagIncomplete && !t.skipped).length;
+  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.resolved && !t.pastSessionEnd).length;
+  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped && !t.resolved).length;
   const gateNote = rep.pastGate
-    ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed (unless skipped).'
+    ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed. Resolve each incomplete team with Strike or Skip.'
     : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that team today.';
   const rows = rep.teams.map(t => {
     const rowCls = t.completed ? 'is-done'
-      : (t.skipped ? 'is-skipped' : (t.flagIncomplete ? 'is-missed' : 'is-pending'));
+      : (t.skipped ? 'is-skipped'
+        : (t.resolved && t.flagIncomplete ? 'is-struck'
+          : (t.flagIncomplete ? 'is-missed' : 'is-pending')));
     let statusHtml = '';
     if (t.completed) {
       statusHtml = '<span class="mod-strike-check-status">Completed</span>';
     } else if (t.skipped) {
       statusHtml = '<span class="mod-strike-check-status">Skipped</span>';
+    } else if (t.resolved && t.flagIncomplete) {
+      statusHtml = '<span class="mod-strike-check-status">Strike applied</span>';
     } else if (!t.pastSessionEnd) {
       statusHtml = '<span class="mod-strike-check-status">In progress · before session end</span>';
     } else {
@@ -24455,7 +24499,7 @@ function renderPerfStrikeCheckpointBannerHTML() {
     <div class="mod-strike-check-banner" id="modStrikeCheckpointBanner" role="region" aria-label="Yesterday session checkpoint">
       <div class="mod-strike-check-head">
         <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
-        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
+        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}${resolvedCount ? (' · ' + resolvedCount + ' struck') : ''}</span>
       </div>
       <p class="mod-strike-check-hint">${escapeHTML(gateNote)}</p>
       <ul class="mod-strike-check-list">${rows}</ul>
