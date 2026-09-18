@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728g';
-const APP_UPDATED_AT = '09/18/2026 04:35';
+const APP_VERSION = '1.3.091728h';
+const APP_UPDATED_AT = '09/18/2026 10:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8699,8 +8699,14 @@ function computeOverviewMetrics() {
 
   // Filtered assignments (by date + team + mod)
   const inDateRange = (ms) => (startMs === null) || (ms >= startMs && ms <= endMs);
+  const assignmentInOverviewScope = (a) => {
+    if (f.timeScope === 'day' && typeof perfBookingOverlapsPacificDay === 'function') {
+      return perfBookingOverlapsPacificDay(a);
+    }
+    return inDateRange(asgnStartMs(a));
+  };
   const filteredAsgns = allAsgns.filter(a =>
-    inDateRange(asgnStartMs(a)) && teamMatch(a.teamId) && modMatch(a)
+    assignmentInOverviewScope(a) && teamMatch(a.teamId) && modMatch(a)
   );
 
   // ----- Tile metrics
@@ -8893,6 +8899,8 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
 
   (filteredAsgns || []).forEach(a => {
     if (!a || a.teamId == null || a.teamId === '') return;
+    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+        && !perfAssignmentVisibleInAdminQueue(a)) return;
     if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return;
     if (typeof assignmentHasModeratorArrivalCheckIn !== 'function'
         || !assignmentHasModeratorArrivalCheckIn(a)) return;
@@ -9481,6 +9489,20 @@ function assignmentHasModeratorArrivalCheckIn(a) {
 // Classify an assignment into one of three buckets for the perf view.
 // Cancelled / Unassigned are excluded entirely · they aren't performance
 // signal.
+function assignmentPerfSessionStarted(a) {
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id)
+    : null;
+  if (!live || !live.status) return false;
+  if (live.status === 'session_done' || live.status === 'office_checkout') return false;
+  if (typeof statusOrderIdx === 'function') {
+    const arrivedIdx = statusOrderIdx('arrived');
+    const idx = statusOrderIdx(live.status);
+    if (arrivedIdx >= 0 && idx >= arrivedIdx) return true;
+  }
+  return false;
+}
+
 function classifyBookingForPerf(a) {
   if (!a) return null;
   if (a.status === 'Cancelled' || a.status === 'Unassigned') return null;
@@ -9495,19 +9517,26 @@ function classifyBookingForPerf(a) {
   const live = (typeof getLatestStatusForAssignment === 'function')
     ? getLatestStatusForAssignment(a.id)
     : null;
+  const pastEnd = (typeof isPastAssignmentSessionEnd === 'function')
+    && isPastAssignmentSessionEnd(a);
+  const inWindow = !pastEnd && (typeof assignmentBookingSessionStartMs === 'function')
+    && (() => {
+      const startMs = assignmentBookingSessionStartMs(a);
+      const endMs = assignmentBookingSessionEndMs(a);
+      const now = Date.now();
+      return Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now < endMs;
+    })();
   // Completed · admin marked it Completed OR the mod confirmed wrap-up.
   if (a.status === 'Completed' || (live && live.status === 'session_done')) return 'completed';
-  // In progress · the mod has actually started (any worklog status from
-  // 'arrived' up to 'station_3_done'), OR admin sent the confirmation
-  // email (Notified = team committed). The live signal is stronger and
-  // catches sessions still sitting at assignment-status 'Booked' that
-  // the mod has begun · which is exactly what was hiding the Lakitu
-  // pill before. (session_done is already handled above.)
-  if (live && (typeof statusOrderIdx === 'function') && statusOrderIdx(live.status) >= 0) return 'inprogress';
-  if (a.status === 'Notified') return 'inprogress';
+  // Live while inside the booked window and the mod has arrived (or later).
+  if (inWindow && assignmentPerfSessionStarted(a)) return 'inprogress';
+  // In progress · arrived through wrap-up (but not Live after booked end).
+  if (!pastEnd && assignmentPerfSessionStarted(a)) return 'inprogress';
+  if (!pastEnd && a.status === 'Notified') return 'inprogress';
   // Today's booking with a location ping in the last 2 hours (SessionState
   // or local geo cache) counts as Live even before arrival is confirmed.
-  if (typeof perfAssignmentHasRecentGeoActivity === 'function' && perfAssignmentHasRecentGeoActivity(a)) {
+  if (!pastEnd && typeof perfAssignmentHasRecentGeoActivity === 'function'
+      && perfAssignmentHasRecentGeoActivity(a)) {
     return 'inprogress';
   }
   return 'scheduled'; // 'Booked' (or anything else not Cancelled/Completed)
@@ -9743,8 +9772,35 @@ function renderPerfGeoTrackHTML(a, variant) {
 //          is used everywhere else in the admin app (week view, schedule
 //          grid, etc.). NOT a 7-day rolling window.
 // 'month' = current calendar month (1st of month → last of month).
+function perfBookingOverlapsPacificDay(a, ymd) {
+  const day = String(ymd || ((typeof getPSTDateString === 'function') ? getPSTDateString() : ''));
+  if (!day) return false;
+  const dayStart = (typeof pacificWallClockToMs === 'function')
+    ? pacificWallClockToMs(day, 0)
+    : NaN;
+  const dayEnd = (typeof pacificWallClockToMs === 'function')
+    ? pacificWallClockToMs(addDaysToYmd(day, 1), 0)
+    : NaN;
+  const start = (typeof assignmentBookingSessionStartMs === 'function')
+    ? assignmentBookingSessionStartMs(a)
+    : NaN;
+  const end = (typeof assignmentBookingSessionEndMs === 'function')
+    ? assignmentBookingSessionEndMs(a)
+    : NaN;
+  if (Number.isFinite(start) && Number.isFinite(end) && Number.isFinite(dayStart) && Number.isFinite(dayEnd)) {
+    return start < dayEnd && end > dayStart;
+  }
+  const mat = (typeof assignmentPerfMaterialize === 'function') ? assignmentPerfMaterialize(a) : a;
+  return String((mat && mat.date) || '').split('T')[0] === day;
+}
+
 function perfDateInRange(a, range) {
   if (!range || range === 'all') return true;
+
+  if (range === 'today') {
+    return perfBookingOverlapsPacificDay(a);
+  }
+
   const d = parseYMD(a && a.date);
   if (!d) {
     // Booking with no parseable date · surface it under "all" only.
@@ -9754,10 +9810,6 @@ function perfDateInRange(a, range) {
   }
   d.setHours(0, 0, 0, 0);
   const now = new Date(); now.setHours(0, 0, 0, 0);
-
-  if (range === 'today') {
-    return d.getTime() === now.getTime();
-  }
   if (range === 'week') {
     const wkStart = startOfWeek(now);  // Monday 00:00
     const wkEnd = new Date(wkStart);
@@ -9915,11 +9967,56 @@ function perfTeamMembers(team) {
   return { primary, backup };
 }
 
+// Admin Performance queue: same overnight carry-forward + 9 AM PT gate as
+// the moderator carousel, but progress is read from SessionState (not
+// operator local state).
+function perfTeamBookingCandidates(teamId) {
+  const todayStr = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const raw = (adminState.assignments || []).filter(a =>
+    a && String(a.teamId) === String(teamId)
+    && a.status !== 'Cancelled' && a.status !== 'Unassigned'
+  );
+  const out = [];
+  const seen = new Set();
+  const consider = (asgn) => {
+    if (!asgn || seen.has(String(asgn.id))) return;
+    seen.add(String(asgn.id));
+    out.push(asgn);
+  };
+  raw.forEach(consider);
+  raw.forEach(a => {
+    if (!a || !a.date || !todayStr || String(a.date) >= todayStr) return;
+    const endYmd = (typeof assignmentQueueEndCalendarYmd === 'function')
+      ? assignmentQueueEndCalendarYmd(a)
+      : String(a.date);
+    if (endYmd >= todayStr) consider(a);
+    else if (typeof assignmentSessionStartedNotDone === 'function' && assignmentSessionStartedNotDone(a)) {
+      consider(a);
+    }
+  });
+  out.sort((a, b) => {
+    const aKey = (a.date || '') + '_' + String(a.startMin || 0).padStart(4, '0') + '_' + (a.id || '');
+    const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
+    return aKey.localeCompare(bKey);
+  });
+  const sequenced = (typeof applySameTeamSequentialBookingGate === 'function')
+    ? applySameTeamSequentialBookingGate(out)
+    : out;
+  return (typeof applyAdminBookingQueueGate === 'function')
+    ? applyAdminBookingQueueGate(sequenced, todayStr)
+    : sequenced;
+}
+
+function perfAssignmentVisibleInAdminQueue(a) {
+  if (!a || !a.id) return false;
+  if (a.teamId == null || a.teamId === '') return true;
+  const visible = perfTeamBookingCandidates(a.teamId);
+  return visible.some(x => String(x.id) === String(a.id));
+}
+
 // All bookings for a team · used in team-tile expansion.
 function perfTeamBookings(teamId) {
-  return (adminState.assignments || []).filter(a =>
-    a && String(a.teamId) === String(teamId) && classifyBookingForPerf(a)
-  );
+  return perfTeamBookingCandidates(teamId).filter(a => classifyBookingForPerf(a));
 }
 
 // All bookings a mod was on (primary or backup at time of booking).
@@ -9928,8 +10025,8 @@ function perfTeamBookings(teamId) {
 // session.
 function perfModBookings(modOrbitId) {
   const lc = String(modOrbitId || '').toLowerCase();
-  return (adminState.assignments || []).filter(a => {
-    if (!a || !classifyBookingForPerf(a)) return false;
+  const matched = (adminState.assignments || []).filter(a => {
+    if (!a) return false;
     // A booking counts for a mod if EITHER:
     //   (1) they were captured on it at booking time (modSnapshots) · keeps
     //       credit for a mod who has since left the team, OR
@@ -9952,6 +10049,7 @@ function perfModBookings(modOrbitId) {
     const ids = [...(team.primaryIds || []), ...(team.backupIds || [])];
     return ids.some(id => String(id || '').toLowerCase() === lc);
   });
+  return matched.filter(a => perfAssignmentVisibleInAdminQueue(a) && classifyBookingForPerf(a));
 }
 
 // Sort comparator factory. spec: { key: 'date'|'status', dir: 'asc'|'desc' }
@@ -24031,11 +24129,36 @@ function pacificWallClockToMs(ymd, minutesFromMidnight) {
   return utc;
 }
 
+function assignmentPerfMaterialize(a) {
+  if (!a) return a;
+  let date = a.date;
+  let startMin = a.startMin;
+  let endMin = a.endMin;
+  if ((startMin == null || endMin == null || !date) && a.assignedDate) {
+    const info = (typeof parseAssignedDate === 'function') ? parseAssignedDate(a.assignedDate) : null;
+    if (info) {
+      if (!date) date = info.date;
+      if (startMin == null) startMin = info.startMin;
+      if (endMin == null) endMin = info.endMin;
+    }
+  }
+  if (date === a.date && startMin === a.startMin && endMin === a.endMin) return a;
+  return Object.assign({}, a, { date, startMin, endMin });
+}
+
+function assignmentBookingSessionStartMs(a) {
+  const m = assignmentPerfMaterialize(a);
+  if (!m || !m.date) return NaN;
+  const s = assignmentCoerceClockMin(m.startMin, 0);
+  return pacificWallClockToMs(String(m.date), s);
+}
+
 function assignmentBookingSessionEndMs(a) {
-  if (!a || !a.date) return NaN;
-  const s = assignmentCoerceClockMin(a.startMin, 0);
-  const endNorm = assignmentModalNormalizeEndMin(s, a.endMin);
-  const endYmd = endNorm > 24 * 60 ? addDaysToYmd(String(a.date), 1) : String(a.date);
+  const m = assignmentPerfMaterialize(a);
+  if (!m || !m.date) return NaN;
+  const s = assignmentCoerceClockMin(m.startMin, 0);
+  const endNorm = assignmentModalNormalizeEndMin(s, m.endMin);
+  const endYmd = endNorm > 24 * 60 ? addDaysToYmd(String(m.date), 1) : String(m.date);
   const endMinOnDay = endNorm > 24 * 60 ? (endNorm - 24 * 60) : endNorm;
   return pacificWallClockToMs(endYmd, endMinOnDay);
 }
@@ -43469,6 +43592,54 @@ function operatorInProgressAssignment(candidates) {
 
 function operatorOpenBookingAssignment(candidates) {
   return operatorInProgressAssignment(candidates);
+}
+
+function adminOpenBookingAssignment(candidates) {
+  const list = candidates || [];
+  for (const a of list) {
+    if (typeof assignmentSessionStartedNotDone === 'function' && assignmentSessionStartedNotDone(a)) {
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) continue;
+      } catch (_) {}
+      return a;
+    }
+  }
+  const now = Date.now();
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  for (const a of list) {
+    if (!a || !a.date || !today || String(a.date) >= today) continue;
+    const endMs = (typeof assignmentBookingSessionEndMs === 'function')
+      ? assignmentBookingSessionEndMs(a)
+      : NaN;
+    if (!Number.isFinite(endMs) || now >= endMs) continue;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) continue;
+    } catch (_) {}
+    return a;
+  }
+  return null;
+}
+
+function applyAdminBookingQueueGate(list, todayPst) {
+  const today = String(todayPst || getPSTDateString());
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
+  const inProg = adminOpenBookingAssignment(list);
+  const blocker = bookingQueueGateBlocker(list, today);
+
+  return (list || []).filter(a => {
+    if (!a) return false;
+    if (inProg && String(a.id) === String(inProg.id)) return true;
+    if (blocker && String(a.id) === String(blocker.id)) return true;
+    if (inProg && String(a.id) !== String(inProg.id)) return false;
+    if (blocker && String(a.date) >= today && !gateOpen) return false;
+    if (blocker && String(a.date) >= today && gateOpen) {
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(blocker)) return true;
+      } catch (_) {}
+      return false;
+    }
+    return true;
+  });
 }
 
 function applySameTeamSequentialBookingGate(list) {

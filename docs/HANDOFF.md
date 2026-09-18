@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor (Composer) · Overview live = mod check-in (v1.3.091728g pushed)  
+**Last updated:** 2026-09-18 · Cursor Cloud Agent · Admin Performance overnight Live + 9 AM queue gate (PR draft)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728g`** (Overview: check-in-only live teams + Live status UI) |
+| **`main` version** | **`1.3.091728g`** on `main` · **`1.3.091728h`** on branch `cursor/perf-overnight-live-9am-gate-ff76` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
@@ -30,7 +30,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft · newest |
+| [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft · newest |
+| [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft |
 | [#74](https://github.com/DK-Centific/Twilight-Tracker/pull/74) | `cursor/assignment-od-excel-roundtrip-8e44` | Round-trip OneData keys on Assignment Excel save | Draft |
 | [#68](https://github.com/DK-Centific/Twilight-Tracker/pull/68) | `cursor/card-controls-gap-9563` | Space out scenario card video pills | Draft |
 | [#61](https://github.com/DK-Centific/Twilight-Tracker/pull/61) | `cursor/horizontal-no-clip-9563` | Stop clipping Horizontal view cards | Open (not draft) |
