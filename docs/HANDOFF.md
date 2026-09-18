@@ -30,7 +30,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft · newest |
+| [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft · newest |
+| [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
 | [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft |
 | [#74](https://github.com/DK-Centific/Twilight-Tracker/pull/74) | `cursor/assignment-od-excel-roundtrip-8e44` | Round-trip OneData keys on Assignment Excel save | Draft |
 | [#68](https://github.com/DK-Centific/Twilight-Tracker/pull/68) | `cursor/card-controls-gap-9563` | Space out scenario card video pills | Draft |
@@ -50,6 +51,16 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 - Review PR #108 on localhost (typed name/address on Booking)
 - Type **push** when a draft PR is ready to merge to `main` and go live
 - Power Automate flow updates (see `docs/power-automate-*.md`) when Excel write behavior changes
+
+---
+
+## What this session did (2026-09-18)
+
+- **PR [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112)** · `cursor/activities-map-perf-today-6662` · **v1.3.091818a**
+  - Activities Map **Today** uses `perfDateInRange` (overnight Sep17→Sep18) instead of calendar `assignment.date`
+  - Map assignments + team list respect `perfAssignmentVisibleInAdminQueue` (9 AM next-session gate)
+  - Self-test: `scripts/activities-map-today-selftest.js`
+- **Next:** David localhost on PR #112; type **push** to merge. Consider merging with #110/#111 if overnight perf not yet on `main`.
 
 ---
 
