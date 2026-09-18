@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728h';
-const APP_UPDATED_AT = '09/18/2026 10:55';
+const APP_VERSION = '1.3.091728k';
+const APP_UPDATED_AT = '09/18/2026 11:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8666,6 +8666,71 @@ function overviewDateRange(scope) {
   return [null, null];
 }
 
+// Geo-demo / training bookings must not inflate Overview booking metrics.
+function assignmentIsDemoBooking(a) {
+  if (!a) return false;
+  if (a.isDemo === true || a.demo === true || a._demo === true) return true;
+  const teamId = String(a.teamId || '');
+  if (teamId.startsWith('demo-team-')) return true;
+  const teamNameRaw = String(a.teamName || a.team || '').trim();
+  if (/^demo-team-/i.test(teamNameRaw)) return true;
+  if (teamId && typeof adminState !== 'undefined' && Array.isArray(adminState.teams)) {
+    const t = adminState.teams.find(x => String(x.id) === teamId);
+    if (t) {
+      if (String(t.id || '').startsWith('demo-team-')) return true;
+      if (t._geoDemo === true || t.isDemo === true) return true;
+    }
+  }
+  if ((a.modSnapshots || []).some(s => {
+    const oid = String(s.orbitLoginId || s.orbitId || '').toLowerCase();
+    return oid.startsWith('demo-');
+  })) return true;
+  const partName = String(a.participantName || a.participant || '').trim();
+  const partId = String(a.participantId || '').trim();
+  if (/^demo[-_]/i.test(partId)) return true;
+  if (/\bfor testing\b/i.test(partName) || /\bfortifying\b/i.test(partName)) return true;
+  if (/\bdemo\b/i.test(partName) && (/\sdemo$/i.test(partName) || /^demo\b/i.test(partName))) {
+    return true;
+  }
+  return false;
+}
+
+function overviewAssignmentInBookedMetricsScope(a) {
+  if (!a) return false;
+  if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return false;
+  if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  return true;
+}
+
+function overviewAssignmentDonutCompleted(a) {
+  if (!overviewAssignmentInBookedMetricsScope(a)) return false;
+  if (a.status === 'Completed') return true;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'completed';
+}
+
+function computeOverviewDonutCounts(filteredAsgns) {
+  const booked = (filteredAsgns || []).filter(overviewAssignmentInBookedMetricsScope);
+  const completedCount = booked.filter(overviewAssignmentDonutCompleted).length;
+  const progressTotal = booked.length;
+  return {
+    completedCount,
+    remainingCount: progressTotal - completedCount,
+    progressTotal,
+  };
+}
+
+// Overview Live teams + list mirror Performance Today: in-progress classifier
+// and same-team 9 AM admin queue visibility (not raw arrival alone).
+function overviewAssignmentIsPerfLive(a) {
+  if (!a || a.teamId == null || a.teamId === '') return false;
+  if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return false;
+  if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+      && !perfAssignmentVisibleInAdminQueue(a)) return false;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'inprogress';
+}
+
 // Pure function: filters + raw state -> metrics object
 function computeOverviewMetrics() {
   const f = adminState.overview;
@@ -8732,14 +8797,10 @@ function computeOverviewMetrics() {
   }
   const totalMods = modList.length;
 
-  // Live teams · moderator confirmed participant check-in (arrived+), session not wrapped up.
+  // Live teams · same rules as Performance Live (classifier + admin queue gate).
   const liveTeamIds = new Set();
   filteredAsgns.forEach(a => {
-    if (a && a.teamId != null && a.teamId !== ''
-        && typeof assignmentHasModeratorArrivalCheckIn === 'function'
-        && assignmentHasModeratorArrivalCheckIn(a)) {
-      liveTeamIds.add(a.teamId);
-    }
+    if (overviewAssignmentIsPerfLive(a)) liveTeamIds.add(a.teamId);
   });
   const totalLiveTeams = liveTeamIds.size;
 
@@ -8762,13 +8823,12 @@ function computeOverviewMetrics() {
   // deleting a team via the Unassign path would inflate booking counts
   // (the old team's rows AND any later re-assignment to a new team
   // would both count).
-  const totalBookings = filteredAsgns.filter(a => !isTerminalStatus(a.status)).length;
+  const totalBookings = filteredAsgns.filter(overviewAssignmentInBookedMetricsScope).length;
 
   // ----- Bookings by day (chart 1)
   const dayBuckets = new Map();   // 'YYYY-MM-DD' -> count
   filteredAsgns.forEach(a => {
-    // Same exclusion as totalBookings · terminal rows don't bucket.
-    if (isTerminalStatus(a.status)) return;
+    if (!overviewAssignmentInBookedMetricsScope(a)) return;
     if (!a.date) return;
     dayBuckets.set(a.date, (dayBuckets.get(a.date) || 0) + 1);
   });
@@ -8801,41 +8861,13 @@ function computeOverviewMetrics() {
   }
 
   // ----- Booking progress (donut chart)
-  // Calculated from the FILTERED ASSIGNMENT LIST, not the participant
-  // roster. Asked-for behavior: "calculate based on the bookings
-  // completed". So the donut answers "what fraction of bookings in
-  // scope are done?" · a direct progress signal that responds to the
-  // time/team/mod filters above.
-  //
-  // Numerator   = bookings with status === 'Completed' (the explicit
-  //               "this session is finished" state set when the team
-  //               wraps up or admin marks complete).
-  // Denominator = active + completed (i.e. all non-terminal bookings).
-  //               Cancelled and Unassigned are excluded because they
-  //               aren't part of "the work" · keeping them in would
-  //               make the donut percentage drop every time admin
-  //               cancels a booking, which is exactly backwards.
-  //
-  // The earlier implementation pulled from the worklog cache and
-  // counted PARTICIPANTS (one per unique participant ID with any
-  // session_done worklog row). Two issues with that approach:
-  //   (a) Worklog cache is mod-driven (populated by mod check-ins
-  //       and station-done events). It can be empty even when
-  //       bookings are legitimately Completed (admin-marked
-  //       completion, retroactive status updates, etc.).
-  //   (b) Denominator was "all participants on the roster" · so a
-  //       fully-completed batch of 10 bookings on a 100-person
-  //       roster only showed 10% on the donut. Numerator/denominator
-  //       were measuring different units.
-  // The new logic is single-unit (bookings) end-to-end so the
-  // percentage is meaningful at any filter scope.
-  const completedBookings = filteredAsgns.filter(a => a.status === 'Completed');
-  const activeBookings    = filteredAsgns.filter(a =>
-    a.status === 'Booked' || a.status === 'Notified'
-  );
-  const completedCount = completedBookings.length;
-  const remainingCount = activeBookings.length;
-  const progressTotal  = completedCount + remainingCount;
+  // Bookings in scope (same filters as above), excluding terminal rows and
+  // geo-demo / training sessions. Numerator = Completed status or Performance
+  // "completed" classifier (session_done); denominator = all booked in scope.
+  const donut = computeOverviewDonutCounts(filteredAsgns);
+  const completedCount = donut.completedCount;
+  const remainingCount = donut.remainingCount;
+  const progressTotal = donut.progressTotal;
 
   const liveTeamSnapshots = (typeof computeOverviewLiveTeamSnapshots === 'function')
     ? computeOverviewLiveTeamSnapshots(filteredAsgns, 3)
@@ -8858,7 +8890,7 @@ function overviewLiveStatusStationLabel(asgn) {
   if (!asgn || typeof perfLiveStatusDisplay !== 'function') return '';
   const label = String((perfLiveStatusDisplay(asgn) || {}).label || '');
   const m = label.match(/St\s*(\d+)/i);
-  return m ? ('ST' + m[1]) : '';
+  return m ? m[1] : '';
 }
 
 function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
@@ -8898,12 +8930,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   }
 
   (filteredAsgns || []).forEach(a => {
-    if (!a || a.teamId == null || a.teamId === '') return;
-    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
-        && !perfAssignmentVisibleInAdminQueue(a)) return;
-    if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return;
-    if (typeof assignmentHasModeratorArrivalCheckIn !== 'function'
-        || !assignmentHasModeratorArrivalCheckIn(a)) return;
+    if (!overviewAssignmentIsPerfLive(a)) return;
     const key = String(a.teamId);
     if (entries.get(key) && entries.get(key).kind === 'flagged') return;
     const team = teams.find(t => String(t.id) === key);
@@ -8934,23 +8961,28 @@ function renderOverviewLiveStatusList(lines) {
   const list = document.getElementById('ovLiveStatusList');
   if (!list) return;
   if (!lines || !lines.length) {
-    list.innerHTML = '<li class="ov-livestatus-empty">No teams checked in for this view</li>';
+    list.innerHTML = '<li class="ov-ls-empty">No teams checked in for this view</li>';
     return;
   }
   list.innerHTML = lines.map(row => {
     const kind = row.kind || 'scheduled';
     const teamName = escapeHTML(row.teamName || 'Team');
-    const pill = escapeHTML(overviewLiveStatusPillLabel(kind));
-    const station = row.station ? escapeHTML(String(row.station)) : '';
+    const pillLabel = escapeHTML(overviewLiveStatusPillLabel(kind));
+    const stationRaw = row.station ? String(row.station).replace(/^ST\s*/i, '').trim() : '';
+    const station = stationRaw ? escapeHTML(stationRaw) : '';
     const stationHtml = station
-      ? ('<span class="ov-livestatus-station" aria-label="Station">' + station + '</span>')
+      ? ('<span class="ov-ls-station" aria-label="Station">ST ' + station + '</span>')
       : '';
     return (
-      '<li class="ov-livestatus-row is-' + kind + '">'
-      + '<div class="ov-livestatus-team" title="' + teamName + '">' + teamName + '</div>'
-      + '<div class="ov-livestatus-meta">'
-      + '<span class="ov-livestatus-pill">' + pill + '</span>'
+      '<li class="ov-ls-row is-' + kind + '">'
+      + '<span class="ov-ls-rail" aria-hidden="true"></span>'
+      + '<div class="ov-ls-main">'
+      + '<div class="ov-ls-team" title="' + teamName + '">' + teamName + '</div>'
+      + '<div class="ov-ls-sub">'
+      + '<span class="ov-ls-dot" aria-hidden="true"></span>'
+      + '<span class="ov-ls-status">' + pillLabel + '</span>'
       + stationHtml
+      + '</div>'
       + '</div>'
       + '</li>'
     );
@@ -12415,7 +12447,7 @@ function renderOverview(body) {
         </div>
         <div class="ov-chart-card ov-chart-donut">
           <div class="ov-chart-head">
-            <div class="ov-chart-title">Participant progress</div>
+            <div class="ov-chart-title">Booking progress</div>
             <div class="ov-chart-sub" id="ovDonutSub"> · </div>
           </div>
           ${donutChartShellHTML()}
@@ -12611,7 +12643,7 @@ function statTileLiveStatusShellHTML() {
         <div class="ov-stat-icon">${icon}</div>
       </div>
       <div class="ov-stat-body ov-stat-body-livestatus">
-        <ul class="ov-livestatus-list" id="ovLiveStatusList" aria-live="polite"></ul>
+        <ul class="ov-ls-list" id="ovLiveStatusList" aria-live="polite"></ul>
         <div class="ov-stat-foot" id="ovFoot-livestatus">Tap for Performance</div>
       </div>
     </div>
@@ -12702,8 +12734,8 @@ function updateOverviewMetrics() {
   setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
   setOverviewTileFoot('moderators', 'In directory');
   setOverviewTileFoot('teams', m.totalLiveTeams === 1
-    ? '1 checked in · Performance'
-    : m.totalLiveTeams + ' checked in · Performance');
+    ? '1 live · Performance'
+    : m.totalLiveTeams + ' live · Performance');
   setOverviewTileFoot('bookings', m.completedCount + ' completed');
   if (typeof renderOverviewLiveStatusList === 'function') {
     renderOverviewLiveStatusList(m.liveTeamSnapshots || []);
@@ -12759,8 +12791,8 @@ function updateOverviewMetrics() {
   //    denominator is bookings.
   const donutSub = document.getElementById('ovDonutSub');
   if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} of ${m.progressTotal} done`
-    : 'No bookings in scope';
+    ? `${m.completedCount} of ${m.progressTotal} booked · excl. demo`
+    : 'No booked sessions in scope';
   animateDonutChart(m.completedCount, m.remainingCount);
 
   // Cache for next animation

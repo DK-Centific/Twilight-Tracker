@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor Cloud Agent · Admin Performance overnight Live + 9 AM queue gate (PR draft)  
+**Last updated:** 2026-09-18 · Cursor Cloud Agent · Overview Live mirrors Performance (PR draft)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728g`** on `main` · **`1.3.091728h`** on branch `cursor/perf-overnight-live-9am-gate-ff76` |
+| **`main` version** | **`1.3.091728h`** on `main` · **`1.3.091728k`** on branch `cursor/overview-live-perf-parity-cf52` (PR #111) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
