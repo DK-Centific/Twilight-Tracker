@@ -6297,6 +6297,8 @@ input#ent_lakitu.lakitu-invalid {
   .brand-text { display: none; }
   .brand-sub { display: none; }
   .user-chip .who { display: none; }
+  .user-chip .nav-mod-stars { margin-left: 0; }
+  .user-chip .nav-mod-stars .mod-star { font-size: 11px; }
   .user-chip { padding: 4px; }
   .progress-pill .label-full { display: none; }
   .nav-sc-axes[hidden] { display: none !important; }
@@ -7834,6 +7836,21 @@ input#ent_lakitu.lakitu-invalid {
   gap: 2px;
   margin-left: 8px;
   vertical-align: middle;
+}
+/* Checklist/moderator nav: live strike stars next to operator chip */
+.user-chip .nav-mod-stars {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.user-chip .nav-mod-stars[hidden] { display: none !important; }
+.user-chip .nav-mod-stars .mod-stars {
+  margin-left: 0;
+  gap: 1px;
+}
+.user-chip .nav-mod-stars .mod-star {
+  font-size: 12px;
 }
 .mod-star {
   font-size: 13px;
@@ -17558,6 +17575,102 @@ button.perf-stat-chip.scheduled.active {
   border-color: var(--accent);
 }
 
+
+/* Arrival check-in alerts A–D · Soft Sage gold #C5A059 */
+.arrival-toast-stack{
+  position:absolute;right:14px;top:14px;width:280px;
+  display:flex;flex-direction:column;gap:8px;z-index:40;
+  pointer-events:none;
+}
+#adminApp .arrival-toast-stack{ top:52px; right:12px; }
+.arrival-toast{
+  pointer-events:auto;
+  background:var(--bg-card, #F3F0E9);
+  border:1px solid rgba(197,160,89,.4);
+  border-left:3px solid #C5A059;
+  border-radius:12px;padding:10px 12px;
+  box-shadow:0 10px 28px rgba(36,36,32,.12);
+  animation:arrivalToastIn .45s cubic-bezier(.23,1,.32,1);
+}
+.arrival-toast.is-reduced{ animation:none; }
+@keyframes arrivalToastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.at-kicker{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#B08F4A}
+.at-title{font-size:13px;font-weight:650;margin-top:2px}
+.at-sub{font-size:11.5px;color:var(--text2,#5E6358);margin-top:2px;line-height:1.3}
+.at-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.at-btn{
+  font-size:11px;font-weight:600;padding:4px 9px;border-radius:7px;
+  border:1px solid var(--border,#C5CEC1);background:#fff;color:var(--text,#242420);cursor:pointer;
+}
+.at-btn.primary{background:#C5A059;border-color:#C5A059;color:#fff}
+.at-more{
+  pointer-events:none;text-align:center;font-size:11px;font-weight:600;color:var(--text2,#5E6358);
+  padding:6px;border-radius:8px;background:rgba(36,36,32,.04);
+}
+.ov-ls-row.is-fresh{
+  background:rgba(197,160,89,.16);
+  box-shadow:inset 0 0 0 1px rgba(197,160,89,.28);
+}
+.ov-ls-row.is-fresh .ov-ls-dot{ background:#C5A059; color:#C5A059; animation:ovLsPulse 1.5s cubic-bezier(.23,1,.32,1) infinite; }
+.ov-ls-row.is-fresh .ov-ls-status{ color:#B08F4A; font-weight:500; }
+.ov-ls-row.is-fresh .ov-ls-rail{ background:#C5A059; }
+.chip-new{
+  margin-left:auto;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:#B08F4A;
+  background:rgba(197,160,89,.22);border-radius:5px;padding:2px 5px;
+}
+.arrivals-pill{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11.5px;font-weight:650;padding:5px 11px;border-radius:999px;
+  background:rgba(36,36,32,.04);border:1px solid var(--border,#C5CEC1);
+  color:var(--text2,#5E6358);cursor:pointer;font-family:var(--font);
+}
+.arrivals-pill.has-unread{
+  background:rgba(197,160,89,.16);border-color:rgba(197,160,89,.4);color:var(--text,#242420);
+}
+.arrivals-pill-dot{
+  width:7px;height:7px;border-radius:50%;background:#C5A059;
+  animation:ovLsPulse 1.5s cubic-bezier(.23,1,.32,1) infinite;
+}
+.rv-arrivals-strip{
+  margin:8px 16px 12px;padding:10px 12px;border-radius:14px;
+  background:#F7F4ED;border:1px solid rgba(197,160,89,.35);
+  box-shadow:inset 0 0 0 1px rgba(197,160,89,.12);
+}
+.rv-arrivals-strip.is-focus{ outline:2px solid #C5A059; outline-offset:2px; }
+.rv-strip-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.rv-strip-label{
+  font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#B08F4A;
+}
+.rv-strip-badge{
+  min-width:18px;height:18px;padding:0 5px;border-radius:999px;
+  background:#C5A059;color:#fff;font-size:10px;font-weight:700;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+.rv-strip-hint{margin-left:auto;font-size:10.5px;color:#8A9084;font-weight:500}
+.rv-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.rv-row{
+  display:grid;grid-template-columns:3px 1fr auto;gap:8px;align-items:center;
+  padding:7px 8px;border-radius:10px;background:var(--bg-card,#F3F0E9);cursor:pointer;
+}
+.rv-row.is-fresh{
+  background:rgba(197,160,89,.16);box-shadow:inset 0 0 0 1px rgba(197,160,89,.28);
+}
+.rv-rail{width:3px;align-self:stretch;border-radius:99px;background:#C5A059;margin:1px 0}
+.rv-team{font-size:13px;font-weight:650}
+.rv-meta{font-size:11px;color:#5E6358;margin-top:1px;display:flex;align-items:center;gap:5px}
+.rv-meta .dot{
+  width:6px;height:6px;border-radius:50%;background:#C5A059;
+  animation:ovLsPulse 1.5s cubic-bezier(.23,1,.32,1) infinite;
+}
+.rv-time{font-size:10.5px;color:#8A9084;font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){
+  .arrival-toast{animation:none!important}
+  .arrivals-pill-dot,.rv-meta .dot,.ov-ls-row.is-fresh .ov-ls-dot{animation:none!important;opacity:.9}
+}
+
+
+
 </style>
 </head>
 <body>
@@ -17655,6 +17768,7 @@ button.perf-stat-chip.scheduled.active {
            title="My Session details">
         <div class="avatar" id="userAvatar">??</div>
         <span class="who" id="userName">Operator</span>
+        <span id="navModStars" class="nav-mod-stars" hidden aria-hidden="true" title="Strike stars"></span>
         <svg class="chip-chevron" width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -18120,7 +18234,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091818f" defer></script>
+<script src="twilight.js?v=twilight-1.3.091818h" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

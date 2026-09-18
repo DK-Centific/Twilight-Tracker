@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818f';
+const APP_VERSION = '1.3.091818h';
 const APP_UPDATED_AT = '09/18/2026 15:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -1663,7 +1663,7 @@ function entryBarHTML() {
             </div>
           </span>
         </span>
-        ${entrySessionLinksHTML({ lakituId: 'ent_lakitu', ringId: 'ent_ring', lakituHref: assignedLakituHref, ringHref: assignedRingHref })}
+        ${entrySessionLinksHTML({ lakituId: 'ent_lakitu', ringId: 'ent_ring', lakituHref: (typeof resolveLakituSessionHref === 'function' ? resolveLakituSessionHref() : assignedLakituHref), ringHref: assignedRingHref })}
       </div>
       <div class="entry-divider"></div>
       <div class="entry-field entry-field-wide">
@@ -1737,13 +1737,41 @@ function mySessionDrawerHTML() {
 // (request: "only leave the Lakitu Session in each acc-inner"). Editing
 // happens in the drawer; this just surfaces the current value per station.
 function resolveLakituSessionHref() {
+  // Mod-pasted session URL wins over Admin-assigned project URL.
+  const pasted = (state && state.participantId) ? String(state.participantId).trim() : '';
+  if (pasted) {
+    const pasteOk = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(pasted))
+      || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(pasted));
+    if (pasteOk && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(pasted)) return pasted;
+  }
+  const record = (state && state.recordLakituUrl) ? String(state.recordLakituUrl).trim() : '';
+  if (record) {
+    const recOk = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(record))
+      || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(record));
+    if (recOk && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(record)) return record;
+  }
   const assigned = (typeof getAssignedLakituUrl === 'function') ? getAssignedLakituUrl() : '';
   if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
-  const v = (state && state.participantId) ? String(state.participantId).trim() : '';
-  if (!v) return '';
-  const ok = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(v))
-    || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(v));
-  if (ok && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(v)) return v;
+  return '';
+}
+
+/** Effective Lakitu for an Admin/Reviewer assignment row: SessionState paste first, else assigned project. */
+function resolveEffectiveLakituUrlForAssignment(asgn, team, override) {
+  const asgnId = asgn && asgn.id;
+  if (asgnId && typeof getLakituUrlForAssignment === 'function') {
+    const pasted = String(getLakituUrlForAssignment(asgnId) || '').trim();
+    if (pasted) {
+      const ok = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(pasted))
+        || (typeof validateLakituUrl === 'function' && validateLakituUrl(pasted) === 'ok')
+        || (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(pasted));
+      if (ok) return pasted;
+    }
+  }
+  if (typeof resolveAssignmentLakituUrl === 'function') {
+    const assigned = resolveAssignmentLakituUrl(asgn, team, override);
+    if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
+    if (assigned) return assigned;
+  }
   return '';
 }
 
@@ -8597,6 +8625,8 @@ function renderAdmin() {
       <h1 class="admin-hero-title">Project Twilight Console</h1>
       <p class="admin-hero-sub">Manage moderators and participants, monitor session performance, and review program-wide activity.</p>
     </div>`;
+  const arrivalCount = (typeof unseenArrivalAssignments === 'function')
+    ? unseenArrivalAssignments().length : 0;
   const tabs = reviewer
     ? `<div class="admin-tabs-row">
       <div class="admin-tabs" role="tablist">
@@ -8605,6 +8635,7 @@ function renderAdmin() {
           <span class="admin-tab-count" id="topApprCount">${pendingApprovalCount() || ''}</span>
         </button>
       </div>
+      ${typeof arrivalNavPillHTML === 'function' ? arrivalNavPillHTML(arrivalCount) : ''}
     </div>`
     : `<div class="admin-tabs-row">
       <div class="admin-tabs" role="tablist">
@@ -8618,12 +8649,17 @@ function renderAdmin() {
         </button>
       </div>
       <div class="admin-header-pills">
+        ${typeof arrivalNavPillHTML === 'function' ? arrivalNavPillHTML(arrivalCount) : ''}
         ${adminModviewPillHTML()}
         ${adminIncidentPillHTML()}
       </div>
     </div>`;
+  const rvStrip = reviewer
+    ? `<section class="rv-arrivals-strip" id="rvArrivalsStrip" aria-label="Live check-in arrivals" hidden></section>`
+    : '';
   c.innerHTML = `
     ${hero}
+    ${rvStrip}
     ${tabs}
     <div id="adminTabBody"></div>
   `;
@@ -8634,6 +8670,8 @@ function renderAdmin() {
   });
   bindAdminModviewPill(c);
   bindAdminIncidentPill(c);
+  if (typeof bindArrivalNavPill === 'function') bindArrivalNavPill(c);
+  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
   renderAdminTabBody({ animate: false });
   // App-wide incoming-approval poll powers the "new requests" banner on
   // any admin tab. Idempotent + inert until APPROVAL_PA_READ_URL is set.
@@ -8941,6 +8979,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
         kind: 'flagged',
         station: '',
         rank: 0,
+        assignmentId: row.assignmentId != null ? row.assignmentId : (strikeAsgn && strikeAsgn.id),
       });
     });
   }
@@ -8958,6 +8997,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
       kind: 'inprogress',
       station: st || '',
       rank: 1,
+      assignmentId: a.id,
     });
   });
 
@@ -8983,20 +9023,31 @@ function renderOverviewLiveStatusList(lines) {
   list.innerHTML = lines.map(row => {
     const kind = row.kind || 'scheduled';
     const teamName = escapeHTML(row.teamName || 'Team');
-    const pillLabel = escapeHTML(overviewLiveStatusPillLabel(kind));
+    const asgnId = row.assignmentId != null ? String(row.assignmentId) : '';
+    const isFresh = !!(asgnId && typeof isArrivalAlertSeen === 'function'
+      && !isArrivalAlertSeen(asgnId)
+      && typeof assignmentHasModeratorArrivalCheckIn === 'function'
+      && (adminState.assignments || []).some(a => String(a.id) === asgnId
+        && assignmentHasModeratorArrivalCheckIn(a)));
+    const statusText = isFresh ? 'Just checked in' : overviewLiveStatusPillLabel(kind);
+    const pillLabel = escapeHTML(statusText);
     const stationRaw = row.station ? String(row.station).replace(/^ST\s*/i, '').trim() : '';
     const station = stationRaw ? escapeHTML(stationRaw) : '';
     const stationHtml = station
       ? ('<span class="ov-ls-station" aria-label="Station">ST ' + station + '</span>')
       : '';
+    const chipHtml = isFresh ? '<span class="chip-new">New</span>' : '';
+    const freshCls = isFresh ? ' is-fresh' : '';
+    const asgnAttr = asgnId ? (' data-asgn-id="' + escapeHTML(asgnId) + '"') : '';
     return (
-      '<li class="ov-ls-row is-' + kind + '">'
+      '<li class="ov-ls-row is-' + kind + freshCls + '"' + asgnAttr + '>'
       + '<span class="ov-ls-rail" aria-hidden="true"></span>'
       + '<div class="ov-ls-main">'
       + '<div class="ov-ls-team" title="' + teamName + '">' + teamName + '</div>'
       + '<div class="ov-ls-sub">'
       + '<span class="ov-ls-dot" aria-hidden="true"></span>'
       + '<span class="ov-ls-status">' + pillLabel + '</span>'
+      + chipHtml
       + stationHtml
       + '</div>'
       + '</div>'
@@ -9424,7 +9475,19 @@ function renderPerfLakituPillHTML(a, cls, variant) {
   if (!showLakitu) {
     return '';
   }
-  const url = getLakituUrlForAssignment(a && a.id);
+  let url = getLakituUrlForAssignment(a && a.id);
+  if (!url && a) {
+    const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+    let team = null;
+    if (a.teamId && typeof teamForAssignment === 'function') team = teamForAssignment(a);
+    else if (a.teamId) team = teams.find(t => t && String(t.id) === String(a.teamId)) || null;
+    const override = (typeof getSessionLinkOverride === 'function') ? getSessionLinkOverride(a.id) : null;
+    if (typeof resolveEffectiveLakituUrlForAssignment === 'function') {
+      url = resolveEffectiveLakituUrlForAssignment(a, team, override) || '';
+    } else if (typeof resolveAssignmentLakituUrl === 'function') {
+      url = resolveAssignmentLakituUrl(a, team, override) || '';
+    }
+  }
   const status = validateLakituUrl(url);
   const isPanel = variant === 'panel';
 
@@ -9537,6 +9600,386 @@ function assignmentHasModeratorArrivalCheckIn(a) {
 // Classify an assignment into one of three buckets for the perf view.
 // Cancelled / Unassigned are excluded entirely · they aren't performance
 // signal.
+
+/* ============================================================
+   ARRIVAL CHECK-IN ALERTS (A toast · B persistent · C nav · D chime)
+   Soft Sage gold #C5A059. Trigger = moderator "I've arrived"
+   (assignmentHasModeratorArrivalCheckIn), NOT office check-in.
+   ============================================================ */
+const ARRIVAL_ALERTS_LS_KEY = 'twilight_arrival_alerts_v1';
+const ARRIVAL_TOAST_MAX = 3;
+const ARRIVAL_TOAST_MS = 7000;
+const ARRIVAL_CHIME_DEBOUNCE_MS = 3000;
+const ARRIVAL_GOLD = '#C5A059';
+
+/** In-memory edge-detect set of assignment ids that already had arrival. */
+let _arrivalPrevArrivedIds = null; // null = not seeded yet
+/** Toast UI state: [{ id, teamName, at }] newest first */
+let _arrivalActiveToasts = [];
+let _arrivalToastTimers = {};
+
+function prefersArrivalReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) { return false; }
+}
+
+function loadArrivalAlertsStore() {
+  try {
+    const raw = localStorage.getItem(ARRIVAL_ALERTS_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') return { seen: {}, lastChimeAt: 0 };
+    return {
+      seen: (parsed.seen && typeof parsed.seen === 'object') ? parsed.seen : {},
+      lastChimeAt: Number(parsed.lastChimeAt) || 0,
+    };
+  } catch (e) {
+    return { seen: {}, lastChimeAt: 0 };
+  }
+}
+
+function saveArrivalAlertsStore(store) {
+  try {
+    localStorage.setItem(ARRIVAL_ALERTS_LS_KEY, JSON.stringify({
+      seen: store.seen || {},
+      lastChimeAt: Number(store.lastChimeAt) || 0,
+    }));
+  } catch (e) { /* ignore quota */ }
+}
+
+function isArrivalAlertSeen(asgnId) {
+  const id = String(asgnId || '');
+  if (!id) return true;
+  const store = loadArrivalAlertsStore();
+  return !!store.seen[id];
+}
+
+function markArrivalAlertSeen(asgnId) {
+  const id = String(asgnId || '');
+  if (!id) return;
+  const store = loadArrivalAlertsStore();
+  store.seen[id] = new Date().toISOString();
+  saveArrivalAlertsStore(store);
+  // Drop toast if showing
+  _arrivalActiveToasts = _arrivalActiveToasts.filter(t => String(t.id) !== id);
+  if (_arrivalToastTimers[id]) {
+    clearTimeout(_arrivalToastTimers[id]);
+    delete _arrivalToastTimers[id];
+  }
+}
+
+function listCurrentArrivalAssignments() {
+  const asgns = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  const out = [];
+  asgns.forEach(a => {
+    if (!a || a.id == null) return;
+    if (typeof assignmentHasModeratorArrivalCheckIn !== 'function') return;
+    if (!assignmentHasModeratorArrivalCheckIn(a)) return;
+    out.push(a);
+  });
+  return out;
+}
+
+function arrivalTeamNameForAssignment(a) {
+  if (!a) return 'Team';
+  const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  const team = teams.find(t => String(t.id) === String(a.teamId));
+  return (team && team.name) || a.teamName || a.team || 'Team';
+}
+
+function unseenArrivalAssignments() {
+  return listCurrentArrivalAssignments().filter(a => !isArrivalAlertSeen(a.id));
+}
+
+function playArrivalChimeOnce() {
+  if (prefersArrivalReducedMotion()) return; // skip sound + anim when reduced
+  const store = loadArrivalAlertsStore();
+  const now = Date.now();
+  if (store.lastChimeAt && (now - store.lastChimeAt) < ARRIVAL_CHIME_DEBOUNCE_MS) return;
+  store.lastChimeAt = now;
+  saveArrivalAlertsStore(store);
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(523.25, ctx.currentTime); // C5 soft
+    o.frequency.exponentialRampToValueAtTime(659.25, ctx.currentTime + 0.12);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.045, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.55);
+    o.connect(g); g.connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.6);
+    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 800);
+  } catch (e) { /* ignore */ }
+}
+
+function ensureArrivalToastStack() {
+  let stack = document.getElementById('ovArrivalToastStack');
+  if (stack) return stack;
+  const host = document.getElementById('adminApp') || document.body;
+  stack = document.createElement('div');
+  stack.id = 'ovArrivalToastStack';
+  stack.className = 'arrival-toast-stack';
+  stack.setAttribute('aria-live', 'polite');
+  if (host && host !== document.body) {
+    const cs = window.getComputedStyle(host);
+    if (cs.position === 'static') host.style.position = 'relative';
+  }
+  host.appendChild(stack);
+  return stack;
+}
+
+function isArrivalReviewerSession() {
+  return typeof isReviewerSession === 'function' && isReviewerSession();
+}
+
+function handleArrivalToastAction(asgnId, act) {
+  const id = String(asgnId || '');
+  if (act === 'dismiss' || act === 'ack') {
+    markArrivalAlertSeen(id);
+    renderArrivalToastStack();
+    syncArrivalCheckInAlertsUI();
+    return;
+  }
+  if (act === 'perf') {
+    markArrivalAlertSeen(id);
+    renderArrivalToastStack();
+    syncArrivalCheckInAlertsUI();
+    if (typeof selectAdminTab === 'function') selectAdminTab('performance');
+    return;
+  }
+  if (act === 'focus-strip') {
+    markArrivalAlertSeen(id);
+    renderArrivalToastStack();
+    syncArrivalCheckInAlertsUI();
+    focusArrivalStripOrLive();
+  }
+}
+
+function renderArrivalToastStack() {
+  const stack = ensureArrivalToastStack();
+  const reviewer = isArrivalReviewerSession();
+  const items = _arrivalActiveToasts.slice();
+  const visible = items.slice(0, ARRIVAL_TOAST_MAX);
+  const more = items.length - visible.length;
+  const reduce = prefersArrivalReducedMotion();
+  stack.innerHTML = visible.map(t => {
+    const title = escapeHTML(t.teamName || 'Team');
+    const primary = reviewer
+      ? `<button type="button" class="at-btn primary" data-arrival-act="ack" data-asgn-id="${escapeHTML(String(t.id))}">Acknowledge</button>
+         <button type="button" class="at-btn" data-arrival-act="focus-strip" data-asgn-id="${escapeHTML(String(t.id))}">View list</button>`
+      : `<button type="button" class="at-btn primary" data-arrival-act="perf" data-asgn-id="${escapeHTML(String(t.id))}">Open Performance</button>
+         <button type="button" class="at-btn" data-arrival-act="dismiss" data-asgn-id="${escapeHTML(String(t.id))}">Dismiss</button>`;
+    return (
+      `<div class="arrival-toast${reduce ? ' is-reduced' : ''}" data-asgn-id="${escapeHTML(String(t.id))}">
+        <div class="at-kicker">Checked in</div>
+        <div class="at-title">${title}</div>
+        <div class="at-sub">Moderator arrived on site · just now</div>
+        <div class="at-actions">${primary}</div>
+      </div>`
+    );
+  }).join('') + (more > 0
+    ? `<div class="at-more">+${more} more arrival${more === 1 ? '' : 's'}</div>`
+    : '');
+  stack.querySelectorAll('[data-arrival-act]').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      handleArrivalToastAction(btn.getAttribute('data-asgn-id'), btn.getAttribute('data-arrival-act'));
+    });
+  });
+}
+
+function pushArrivalToast(asgn) {
+  if (!asgn || asgn.id == null) return;
+  const id = String(asgn.id);
+  if (isArrivalAlertSeen(id)) return;
+  if (_arrivalActiveToasts.some(t => String(t.id) === id)) return;
+  _arrivalActiveToasts.unshift({
+    id,
+    teamName: arrivalTeamNameForAssignment(asgn),
+    at: Date.now(),
+  });
+  renderArrivalToastStack();
+  if (_arrivalToastTimers[id]) clearTimeout(_arrivalToastTimers[id]);
+  _arrivalToastTimers[id] = setTimeout(() => {
+    // Auto-fade toast UI only; persistent B/C remain until mark seen
+    _arrivalActiveToasts = _arrivalActiveToasts.filter(t => String(t.id) !== id);
+    delete _arrivalToastTimers[id];
+    renderArrivalToastStack();
+  }, ARRIVAL_TOAST_MS);
+}
+
+function focusArrivalStripOrLive() {
+  const reviewer = isArrivalReviewerSession();
+  if (reviewer) {
+    const strip = document.getElementById('rvArrivalsStrip');
+    if (strip) {
+      strip.scrollIntoView({ behavior: prefersArrivalReducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
+      strip.classList.add('is-focus');
+      setTimeout(() => strip.classList.remove('is-focus'), 1200);
+    }
+    return;
+  }
+  const live = document.getElementById('ovLiveStatusList');
+  if (live) {
+    live.scrollIntoView({ behavior: prefersArrivalReducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
+    return;
+  }
+  if (typeof selectAdminTab === 'function') selectAdminTab('performance');
+}
+
+function arrivalNavPillHTML(count) {
+  const n = Number(count) || 0;
+  const unread = n > 0 ? ' has-unread' : '';
+  const label = n > 0 ? (`Arrivals · ${n}`) : 'Arrivals';
+  const dot = n > 0 ? '<span class="arrivals-pill-dot" aria-hidden="true"></span>' : '';
+  return `<button type="button" class="arrivals-pill${unread}" id="navArrivals" aria-label="${escapeHTML(label)}">${dot}<span class="arrivals-pill-label">${escapeHTML(label)}</span></button>`;
+}
+
+function bindArrivalNavPill(root) {
+  const host = root || document;
+  const pill = host.querySelector ? host.querySelector('#navArrivals') : document.getElementById('navArrivals');
+  if (!pill || pill._arrivalBound) return;
+  pill._arrivalBound = true;
+  pill.addEventListener('click', () => {
+    const unseen = unseenArrivalAssignments();
+    // Focusing marks them seen? Spec: "Mark seen on dismiss/ack/focus/auto-clear"
+    unseen.forEach(a => markArrivalAlertSeen(a.id));
+    syncArrivalCheckInAlertsUI();
+    focusArrivalStripOrLive();
+  });
+}
+
+function renderReviewerArrivalsStrip() {
+  const strip = document.getElementById('rvArrivalsStrip');
+  if (!strip) return;
+  const unseen = unseenArrivalAssignments();
+  if (!unseen.length) {
+    strip.hidden = true;
+    strip.innerHTML = '';
+    return;
+  }
+  strip.hidden = false;
+  const rows = unseen.map(a => {
+    const name = escapeHTML(arrivalTeamNameForAssignment(a));
+    const id = escapeHTML(String(a.id));
+    return (
+      `<li class="rv-row is-fresh" data-asgn-id="${id}">
+        <span class="rv-rail" aria-hidden="true"></span>
+        <div>
+          <div class="rv-team">${name}</div>
+          <div class="rv-meta"><span class="dot"></span> Just checked in <span class="chip-new">New</span></div>
+        </div>
+        <span class="rv-time">now</span>
+      </li>`
+    );
+  }).join('');
+  strip.innerHTML = (
+    `<div class="rv-strip-head">
+      <span class="rv-strip-label">Live check-ins</span>
+      <span class="rv-strip-badge" id="rvArrivalsBadge">${unseen.length}</span>
+      <span class="rv-strip-hint">Moderator on-site · Soft Sage</span>
+    </div>
+    <ul class="rv-list" id="rvArrivalsList">${rows}</ul>`
+  );
+  strip.querySelectorAll('.rv-row').forEach(row => {
+    row.addEventListener('click', () => {
+      markArrivalAlertSeen(row.getAttribute('data-asgn-id'));
+      syncArrivalCheckInAlertsUI();
+    });
+  });
+}
+
+function syncArrivalNavPill() {
+  const n = unseenArrivalAssignments().length;
+  const pill = document.getElementById('navArrivals');
+  if (!pill) return;
+  const label = n > 0 ? (`Arrivals · ${n}`) : 'Arrivals';
+  pill.classList.toggle('has-unread', n > 0);
+  pill.setAttribute('aria-label', label);
+  const lab = pill.querySelector('.arrivals-pill-label');
+  if (lab) lab.textContent = label;
+  let dot = pill.querySelector('.arrivals-pill-dot');
+  if (n > 0 && !dot) {
+    dot = document.createElement('span');
+    dot.className = 'arrivals-pill-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    pill.insertBefore(dot, pill.firstChild);
+  } else if (n === 0 && dot) {
+    dot.remove();
+  }
+}
+
+function syncArrivalCheckInAlertsUI() {
+  syncArrivalNavPill();
+  if (isArrivalReviewerSession()) renderReviewerArrivalsStrip();
+  // Re-render live list so is-fresh updates
+  if (typeof updateOverviewMetrics === 'function' && typeof adminState !== 'undefined'
+      && adminState && adminState.tab === 'overview') {
+    // Avoid recursion: only refresh list from latest snapshots
+    try {
+      if (typeof computeOverviewMetrics === 'function' && typeof renderOverviewLiveStatusList === 'function') {
+        renderOverviewLiveStatusList(computeOverviewMetrics().liveTeamSnapshots || []);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  renderArrivalToastStack();
+}
+
+/**
+ * Edge-detect arrivals + drive A/B/C/D. Call after SessionState/admin poll
+ * paths that refresh overview/performance.
+ */
+function syncArrivalCheckInAlerts() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+
+  const current = listCurrentArrivalAssignments();
+  const currentIds = new Set(current.map(a => String(a.id)));
+
+  // Auto-clear: if an id is seen-or-toasting but no longer arrived, drop toast;
+  // also prune seen entries that are no longer arrived (optional keep for no re-toast
+  // if they re-arrive in same session — keep seen forever for that id until
+  // they leave arrived range; when they leave, remove from seen so a later
+  // re-arrival can toast again).
+  const store = loadArrivalAlertsStore();
+  let storeDirty = false;
+  Object.keys(store.seen || {}).forEach(id => {
+    if (!currentIds.has(String(id))) {
+      // past arrival window — allow future re-toast if they arrive again
+      delete store.seen[id];
+      storeDirty = true;
+    }
+  });
+  if (storeDirty) saveArrivalAlertsStore(store);
+
+  if (_arrivalPrevArrivedIds === null) {
+    // Seed without toasting on first observation
+    _arrivalPrevArrivedIds = currentIds;
+    syncArrivalCheckInAlertsUI();
+    return;
+  }
+
+  const newly = [];
+  current.forEach(a => {
+    const id = String(a.id);
+    if (_arrivalPrevArrivedIds.has(id)) return;
+    if (isArrivalAlertSeen(id)) return;
+    newly.push(a);
+  });
+  _arrivalPrevArrivedIds = currentIds;
+
+  if (newly.length) {
+    newly.forEach(a => pushArrivalToast(a));
+    playArrivalChimeOnce();
+  }
+  syncArrivalCheckInAlertsUI();
+}
+
 function assignmentPerfSessionStarted(a) {
   const live = (typeof getLatestStatusForAssignment === 'function')
     ? getLatestStatusForAssignment(a.id)
@@ -10180,6 +10623,7 @@ async function ensurePerfSessionStateRows() {
   } finally {
     adminState._perfSSFetching = false;
   }
+  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
   return adminState.perfSessionStateRows;
 }
 
@@ -10230,6 +10674,7 @@ async function refreshPerfLiveData() {
   if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
     updateOverviewMetrics();
   }
+  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
   // Refresh the open side panel too, so its live status / station detail
   // tracks along.
   const panel = document.getElementById('perfPanel');
@@ -12809,6 +13254,7 @@ function updateOverviewMetrics() {
   if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
     syncOverviewLiveStatusStrikeAttention();
   }
+  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
 
   // 2. Update line chart title + sub based on the current filter set so the
   //    chart self-identifies what it's showing without the user having to
@@ -13669,10 +14115,13 @@ function resolveApprovalLakituUrl(appr) {
     const override = (asgn && typeof getSessionLinkOverride === 'function')
       ? getSessionLinkOverride(asgn.id)
       : null;
-    const assigned = (typeof resolveAssignmentLakituUrl === 'function')
-      ? resolveAssignmentLakituUrl(asgn, team, override)
-      : '';
-    if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
+    const effective = (typeof resolveEffectiveLakituUrlForAssignment === 'function')
+      ? resolveEffectiveLakituUrlForAssignment(asgn, team, override)
+      : ((typeof resolveAssignmentLakituUrl === 'function')
+        ? resolveAssignmentLakituUrl(asgn, team, override)
+        : '');
+    if (effective && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(effective)) return effective;
+    if (effective) return effective;
   }
   return (typeof DEFAULT_LAKITU_URL !== 'undefined')
     ? DEFAULT_LAKITU_URL
@@ -23714,9 +24163,22 @@ function ingestModeratorStrikesFromSessionRows(rows) {
     clearTimeout(_modStrikePersistTimer);
     _modStrikePersistTimer = null;
   }
+  const nextMods = mods || cur.mods;
+  // If Admin restored stars remotely, clear local warn acks so lock/warn can reappear on later strikes.
+  if (nextMods && typeof nextMods === 'object' && typeof clearModStrikeWarnAcksForOrbit === 'function') {
+    Object.keys(nextMods).forEach(k => {
+      const prevRec = cur.mods && cur.mods[k];
+      const nextRec = nextMods[k];
+      const prevN = prevRec && prevRec.stars != null ? Number(prevRec.stars) : MOD_STRIKE_MAX_STARS;
+      const nextN = nextRec && nextRec.stars != null ? Number(nextRec.stars) : MOD_STRIKE_MAX_STARS;
+      if (Number.isFinite(prevN) && Number.isFinite(nextN) && nextN > prevN) {
+        clearModStrikeWarnAcksForOrbit(k);
+      }
+    });
+  }
   _modStrikeIngestInFlight = true;
   saveModStrikeStore({
-    mods: mods || cur.mods,
+    mods: nextMods,
     checkpoints: checkpoints || cur.checkpoints,
   });
   _modStrikeIngestInFlight = false;
@@ -23808,16 +24270,20 @@ function modStrikeWarningMessageHTML(level) {
   if (level >= 3) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review.<br><br>Please contact the Twilight team if there is any dispute.';
   }
-  const n = level >= 2 ? 2 : 1;
-  return 'Our records show you did not complete the previous session. This is <strong>Warning ' + n + '</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team if this is incorrect.';
+  if (level >= 2) {
+    return 'Our records show you did not complete the previous session. This is <strong>Warning 2</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
+  }
+  return 'Our records show you did not complete the previous session. This is <strong>Warning 1</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team if this is incorrect.';
 }
 
 function modStrikeWarningMessage(level) {
   if (level >= 3) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review. Please contact the Twilight team if there is any dispute.';
   }
-  const n = level >= 2 ? 2 : 1;
-  return `Our records show you did not complete the previous session. This is warning ${n} to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team if this is incorrect.`;
+  if (level >= 2) {
+    return 'Our records show you did not complete the previous session. This is Warning 2 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
+  }
+  return 'Our records show you did not complete the previous session. This is warning 1 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team if this is incorrect.';
 }
 
 function loadModStrikeWarnAckStore() {
@@ -23916,6 +24382,16 @@ function syncModStrikeModeratorChrome() {
   const app = document.getElementById('app');
   const level = getModStrikeWarningLevel(orbitId);
 
+  // Mirror strike stars into the checklist/moderator nav user-chip.
+  const navStars = document.getElementById('navModStars');
+  if (navStars && typeof renderModStarsHTML === 'function' && typeof getModStrikeStars === 'function') {
+    const stars = getModStrikeStars(orbitId);
+    navStars.innerHTML = renderModStarsHTML(stars, MOD_STRIKE_MAX_STARS, orbitId);
+    navStars.hidden = false;
+    navStars.setAttribute('aria-hidden', 'false');
+    navStars.title = stars + ' of ' + MOD_STRIKE_MAX_STARS + ' stars';
+  }
+
   if (level >= 3) {
     if (modal) modal.classList.remove('open');
     if (overlay) {
@@ -23941,18 +24417,39 @@ function syncModStrikeModeratorChrome() {
   }
 }
 
+function clearModStrikeWarnAcksForOrbit(orbitId) {
+  const prefix = modStrikeOrbitKey(orbitId) + ':';
+  if (!prefix || prefix === ':') return;
+  const ack = loadModStrikeWarnAckStore();
+  let changed = false;
+  Object.keys(ack).forEach(k => {
+    if (k.startsWith(prefix)) {
+      delete ack[k];
+      changed = true;
+    }
+  });
+  if (changed) {
+    try { localStorage.setItem(MOD_STRIKE_WARN_ACK_LS_KEY, JSON.stringify(ack)); } catch (_) {}
+  }
+}
+
 function setModStrikeStars(orbitId, stars, entry) {
   const key = modStrikeOrbitKey(orbitId);
   if (!key) return;
   const store = loadModStrikeStore();
   const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
+  const prevStars = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
   if (entry) log.unshift(entry);
   const rec = { stars: n, log: log.slice(0, 20) };
   if (n === 0) rec.lockedAt = new Date().toISOString();
   store.mods[key] = rec;
   saveModStrikeStore(store);
+  // Stars increased (Admin reset / restore) → clear warn acks so Warning 1/2 can show again later.
+  if (Number.isFinite(prevStars) && n > prevStars && typeof clearModStrikeWarnAcksForOrbit === 'function') {
+    clearModStrikeWarnAcksForOrbit(orbitId);
+  }
 }
 
 function manualModStrike(orbitId, reason) {
@@ -23974,18 +24471,9 @@ function resetModStrikeStars(orbitId) {
     reason: 'Stars reset',
     by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
   });
-  const ack = loadModStrikeWarnAckStore();
-  const prefix = modStrikeOrbitKey(orbitId) + ':';
-  let changed = false;
-  Object.keys(ack).forEach(k => {
-    if (k.startsWith(prefix)) {
-      delete ack[k];
-      changed = true;
-    }
-  });
-  if (changed) {
-    try { localStorage.setItem(MOD_STRIKE_WARN_ACK_LS_KEY, JSON.stringify(ack)); } catch (_) {}
-  }
+  // Belt-and-suspenders: always clear acks on explicit Admin reset.
+  if (typeof clearModStrikeWarnAcksForOrbit === 'function') clearModStrikeWarnAcksForOrbit(orbitId);
+  if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
 }
 
 function renderModStarsHTML(stars, maxStars, orbitId) {
