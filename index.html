@@ -7976,6 +7976,13 @@ input#ent_lakitu.lakitu-invalid {
   min-height: 0;
   line-height: 1.3;
 }
+.mod-strike-check-strike {
+  font-size: 11px;
+  padding: 3px 10px;
+  min-height: 0;
+  line-height: 1.3;
+  border-radius: 999px;
+}
 .perf-tile-title .mod-stars { margin-left: 6px; }
 
 .mod-detail-list {
@@ -14843,6 +14850,33 @@ button.perf-stat-chip.scheduled.active {
   padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
+/* Overview Live status · red attention when 9 AM checkpoint teams need action */
+.ov-stat-livestatus.is-strike-attention {
+  --ov-strike-attn: #ef4444;
+  --ov-strike-attn-soft: rgba(239, 68, 68, 0.45);
+  border-color: color-mix(in srgb, var(--ov-strike-attn) 55%, var(--border));
+  animation: ov-livestatus-strike-glow 2.4s ease-in-out infinite;
+}
+@keyframes ov-livestatus-strike-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--ov-strike-attn) 35%, transparent),
+      0 0 18px -4px var(--ov-strike-attn-soft);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--ov-strike-attn) 55%, transparent),
+      0 0 28px -2px var(--ov-strike-attn-soft);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-stat-livestatus.is-strike-attention {
+    animation: none;
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--ov-strike-attn) 70%, transparent),
+      0 0 16px -4px var(--ov-strike-attn-soft);
+  }
+}
 
 /* Per-tile color tints · drives icon, value, accent stripe, hover shadow */
 .ov-stat-moderators {
@@ -17992,7 +18026,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091818a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091818b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -23,9 +23,20 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091728c',
-  /const APP_VERSION = '1\.3\.091728c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091728c'));
+assert('version bump 091818b',
+  /const APP_VERSION = '1\.3\.091818b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818b'));
+assert('overview live status strike attention glow',
+  /function modStrikeCheckpointAttentionActive/.test(src)
+  && /function syncOverviewLiveStatusStrikeAttention/.test(src)
+  && html.includes('.ov-stat-livestatus.is-strike-attention'));
+assert('perf checkpoint banner strike button',
+  /data-mod-strike-checkpoint-strike/.test(src)
+  && /function confirmAndStrikeModStrikeCheckpointTeam/.test(src)
+  && /mod-strike-check-strike/.test(src));
+assert('live status tile opens performance banner',
+  /scrollTo: 'modStrikeCheckpointBanner'/.test(src)
+  && /id="modStrikeCheckpointBanner"/.test(src));
 assert('strike checkpoint waits for session end',
   /function isPastAssignmentSessionEnd/.test(src)
   && /function assignmentBookingSessionEndMs/.test(src)

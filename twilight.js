@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818a';
-const APP_UPDATED_AT = '09/18/2026 09:15';
+const APP_VERSION = '1.3.091818b';
+const APP_UPDATED_AT = '09/18/2026 16:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12520,7 +12520,9 @@ function renderOverview(body) {
       const kind = tile.dataset.tile;
       if (kind === 'moderators') {
         selectAdminTab('moderators', { subtab: 'moderators', modView: 'list', scrollTo: 'modviewBody' });
-      } else if (kind === 'teams' || kind === 'livestatus') {
+      } else if (kind === 'livestatus') {
+        selectAdminTab('performance', { scrollTo: 'modStrikeCheckpointBanner' });
+      } else if (kind === 'teams') {
         selectAdminTab('performance');
       } else if (kind === 'bookings') {
         if (typeof openBookingPage === 'function') openBookingPage();
@@ -12715,6 +12717,9 @@ function donutChartShellHTML() {
 // Called whenever a filter changes. NEVER re-renders the whole tab.
 // ============================================================
 function updateOverviewMetrics() {
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
   const m = computeOverviewMetrics();
 
   // 1. Tween stat numbers
@@ -12742,6 +12747,9 @@ function updateOverviewMetrics() {
   }
   if (typeof overviewLiveStatusFootText === 'function') {
     setOverviewTileFoot('livestatus', overviewLiveStatusFootText(m.liveTeamSnapshots));
+  }
+  if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
   }
 
   // 2. Update line chart title + sub based on the current filter set so the
@@ -24094,6 +24102,10 @@ function modStrikeRefreshUi() {
     if (body && typeof renderPerformance === 'function') renderPerformance(body);
     return;
   }
+  if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+    updateOverviewMetrics();
+    return;
+  }
   if (typeof rerenderTeamsPanelInPlace === 'function') rerenderTeamsPanelInPlace();
 }
 
@@ -24323,6 +24335,87 @@ function skipModStrikeCheckpointTeam(teamId) {
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
 }
 
+function modStrikeCheckpointAttentionActive() {
+  if (typeof isPastModStrikeCheckpointHour !== 'function' || !isPastModStrikeCheckpointHour()) {
+    return false;
+  }
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport()
+    : null;
+  if (!rep || !Array.isArray(rep.teams)) return false;
+  return rep.teams.some(t => t.flagIncomplete && !t.skipped);
+}
+
+function syncOverviewLiveStatusStrikeAttention() {
+  const tile = document.querySelector('.ov-stat-tile.ov-stat-livestatus[data-tile="livestatus"]');
+  if (!tile) return;
+  tile.classList.toggle('is-strike-attention', modStrikeCheckpointAttentionActive());
+}
+
+function modStrikeCheckpointStrikePreviewLines(row) {
+  const lines = [];
+  const strikable = [];
+  (row.primaryIds || []).forEach(orbitId => {
+    const name = (typeof getModeratorDisplayName === 'function')
+      ? getModeratorDisplayName(orbitId)
+      : String(orbitId);
+    const before = getModStrikeStars(orbitId);
+    if (before <= 0) {
+      lines.push(`${name} (0 stars · no strike)`);
+    } else {
+      lines.push(`${name} (${before}→${before - 1})`);
+      strikable.push({ orbitId, name, before });
+    }
+  });
+  return { lines, strikable };
+}
+
+async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const rep = buildModStrikeCheckpointReport();
+  const row = (rep.teams || []).find(t => String(t.teamId) === id);
+  if (!row || !row.flagIncomplete || row.skipped) return;
+
+  const { lines, strikable } = modStrikeCheckpointStrikePreviewLines(row);
+  if (!strikable.length) {
+    await appAlert({
+      title: 'Cannot strike',
+      message: `All moderators on ${row.teamName} already have 0 stars.`,
+      variant: 'warning',
+    });
+    return;
+  }
+
+  const preview = lines.map(l => escapeHTML(l)).join('<br>');
+  const ok = await appConfirm({
+    title: `Strike ${row.teamName}?`,
+    html: true,
+    message: `<p>This removes 1 star from:</p><p>${preview}</p>`,
+    confirmLabel: 'Strike',
+    cancelLabel: 'Cancel',
+    variant: 'danger',
+  });
+  if (!ok) return;
+
+  const results = [];
+  for (const item of strikable) {
+    manualModStrike(item.orbitId, `Checkpoint banner · ${row.teamName} incomplete`);
+    const after = getModStrikeStars(item.orbitId);
+    results.push(`${item.name}: ${after} star(s) remaining`);
+  }
+  if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
+  else if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
+  }
+
+  await appAlert({
+    title: 'Strike applied',
+    html: true,
+    message: results.map(r => escapeHTML(r)).join('<br>'),
+  });
+}
+
 function renderPerfStrikeCheckpointBannerHTML() {
   const rep = (typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
     ? adminState._modStrikeCheckpointReport
@@ -24347,6 +24440,7 @@ function renderPerfStrikeCheckpointBannerHTML() {
       statusHtml = '<span class="mod-strike-check-status">In progress · before session end</span>';
     } else {
       statusHtml = `<span class="mod-strike-check-status-wrap">
+        <button type="button" class="btn btn-primary mod-strike-check-strike" data-mod-strike-checkpoint-strike="${escapeHTML(String(t.teamId))}">Strike</button>
         <span class="mod-strike-check-status">Not completed</span>
         <button type="button" class="btn btn-ghost mod-strike-check-skip" data-mod-strike-checkpoint-skip="${escapeHTML(String(t.teamId))}">Skip</button>
       </span>`;
@@ -24358,7 +24452,7 @@ function renderPerfStrikeCheckpointBannerHTML() {
     </li>`;
   }).join('');
   return `
-    <div class="mod-strike-check-banner" role="region" aria-label="Yesterday session checkpoint">
+    <div class="mod-strike-check-banner" id="modStrikeCheckpointBanner" role="region" aria-label="Yesterday session checkpoint">
       <div class="mod-strike-check-head">
         <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
         <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
@@ -24463,6 +24557,14 @@ function ensureModStrikeActionDelegation() {
   if (typeof document === 'undefined' || document._modStrikeDelegated) return;
   document._modStrikeDelegated = true;
   document.addEventListener('click', (e) => {
+    const strikeBtn = e.target.closest('[data-mod-strike-checkpoint-strike]');
+    if (strikeBtn && strikeBtn.closest('#adminApp')) {
+      e.preventDefault();
+      if (typeof confirmAndStrikeModStrikeCheckpointTeam === 'function') {
+        void confirmAndStrikeModStrikeCheckpointTeam(strikeBtn.getAttribute('data-mod-strike-checkpoint-strike'));
+      }
+      return;
+    }
     const skipBtn = e.target.closest('[data-mod-strike-checkpoint-skip]');
     if (skipBtn && skipBtn.closest('#adminApp')) {
       e.preventDefault();
