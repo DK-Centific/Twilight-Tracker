@@ -31,10 +31,14 @@
       margin-bottom: 22px;
     }
     .logo {
-      width: 48px; height: 48px; border-radius: 12px;
-      background: linear-gradient(145deg, var(--gold), #8a734f);
-      display: grid; place-items: center; font-weight: 700; color: #1a140c;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      object-fit: contain;
+      background: transparent;
+      padding: 0;
       flex-shrink: 0;
+      display: block;
     }
     h1 { margin: 0 0 6px; font-size: 1.75rem; letter-spacing: -.02em; }
     .sub { color: var(--muted); margin: 0; }
@@ -162,7 +166,7 @@
 <body>
   <div class="wrap">
     <header class="hero">
-      <div class="logo" aria-hidden="true">T</div>
+      <img class="logo" src="images/centific-logo-gold.png" alt="Centific" width="48" height="48" />
       <div>
         <h1>Twilight Checklist</h1>
         <p class="sub">Stations and scenarios for a booked session — super simple, end to end.</p>
