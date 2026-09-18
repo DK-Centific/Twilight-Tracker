@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728k';
-const APP_UPDATED_AT = '09/18/2026 11:50';
+const APP_VERSION = '1.3.091818a';
+const APP_UPDATED_AT = '09/18/2026 09:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -14440,11 +14440,8 @@ function activitiesAssignmentInDateRange(a) {
   if (!a) return false;
   const range = getActivitiesDateRange();
   if (range === 'all') return true;
-  if (range === 'week') return (typeof perfDateInRange === 'function') && perfDateInRange(a, 'week');
-  const todayStr = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-  const d = String(a.date || '').split('T')[0];
-  if (todayStr && d) return d === todayStr;
-  return (typeof perfDateInRange === 'function') && perfDateInRange(a, 'today');
+  if (typeof perfDateInRange !== 'function') return false;
+  return perfDateInRange(a, range === 'week' ? 'week' : 'today');
 }
 
 function listActivitiesTeamsForDateRange() {
@@ -14460,6 +14457,8 @@ function listActivitiesTeamsForDateRange() {
   const ids = new Set();
   asgns.forEach(a => {
     if (!activitiesAssignmentInDateRange(a)) return;
+    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+        && !perfAssignmentVisibleInAdminQueue(a)) return;
     if (a.teamId) ids.add(String(a.teamId));
   });
   return teams.filter(t => ids.has(String(t.id)));
@@ -14474,6 +14473,8 @@ function listActivitiesMapAssignments() {
     if (!a || a.status === 'Cancelled' || a.status === 'Unassigned') return false;
     if (typeof assignmentMatchesActivitiesFocus === 'function' && !assignmentMatchesActivitiesFocus(a)) return false;
     if (!activitiesAssignmentInDateRange(a)) return false;
+    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+        && !perfAssignmentVisibleInAdminQueue(a)) return false;
     return !!(typeof assignmentFenceAddress === 'function' && assignmentFenceAddress(a));
   });
 }
