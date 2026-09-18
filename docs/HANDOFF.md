@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor (Composer) · Overview live = mod check-in (v1.3.091728g pushed)  
+**Last updated:** 2026-09-18 · Cursor Cloud Agent · Admin Performance overnight Live + 9 AM queue gate (PR draft)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
