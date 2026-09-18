@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726r';
-const APP_UPDATED_AT = '09/17/2026 16:32';
+const APP_VERSION = '1.3.091726s';
+const APP_UPDATED_AT = '09/17/2026 17:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10729,7 +10729,7 @@ function renderPerfModTilesHTML(search) {
     const perfStrike = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
 
     return `
-      <details class="perf-tile ${strikeLocked ? 'is-strike-locked' : ''}${perfStrike ? ' has-mod-strike' : ''}" data-tile-id="${tileId}" data-mod-orbit="${escapeHTML(String(orbitId || ''))}" ${open ? 'open' : ''}>
+      <details class="perf-tile ${strikeLocked ? 'is-strike-locked' : ''}" data-tile-id="${tileId}" data-mod-orbit="${escapeHTML(String(orbitId || ''))}" ${open ? 'open' : ''}>
         <summary class="perf-tile-head">
           ${(typeof renderModAvatarHTML === 'function')
             ? renderModAvatarHTML(perfInitials(name), { perf: true, strikeLocked: strikeLocked, orbitId: orbitId })
@@ -10747,7 +10747,6 @@ function renderPerfModTilesHTML(search) {
             <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </summary>
-        ${perfStrike && (typeof renderModStrikeOverlayHTML === 'function') ? renderModStrikeOverlayHTML(orbitId) : ''}
         ${open ? renderPerfTileBodyHTML(tileId, bookings, null, search) : ''}
       </details>
     `;
