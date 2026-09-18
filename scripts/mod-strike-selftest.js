@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818c',
-  /const APP_VERSION = '1\.3\.091818c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818c'));
+assert('version bump 091818d',
+  /const APP_VERSION = '1\.3\.091818d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818d'));
 assert('overview live status strike attention glow',
   /function modStrikeCheckpointAttentionActive/.test(src)
   && /function syncOverviewLiveStatusStrikeAttention/.test(src)

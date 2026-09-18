@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818c';
-const APP_UPDATED_AT = '09/18/2026 16:45';
+const APP_VERSION = '1.3.091818d';
+const APP_UPDATED_AT = '09/18/2026 16:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8702,20 +8702,34 @@ function overviewAssignmentInBookedMetricsScope(a) {
   return true;
 }
 
-function overviewAssignmentDonutCompleted(a) {
+function overviewAssignmentHasTeamCheckIn(a) {
   if (!overviewAssignmentInBookedMetricsScope(a)) return false;
-  if (a.status === 'Completed') return true;
-  return (typeof classifyBookingForPerf === 'function')
-    && classifyBookingForPerf(a) === 'completed';
+  if (typeof assignmentHasModeratorArrivalCheckIn === 'function'
+      && assignmentHasModeratorArrivalCheckIn(a)) {
+    return true;
+  }
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id)
+    : null;
+  if (live && live.status === 'session_done') return true;
+  return false;
 }
 
 function computeOverviewDonutCounts(filteredAsgns) {
   const booked = (filteredAsgns || []).filter(overviewAssignmentInBookedMetricsScope);
-  const completedCount = booked.filter(overviewAssignmentDonutCompleted).length;
-  const progressTotal = booked.length;
+  const teamIdsInScope = new Set();
+  const checkedInTeamIds = new Set();
+  booked.forEach(a => {
+    if (a.teamId == null || a.teamId === '') return;
+    const tid = String(a.teamId);
+    teamIdsInScope.add(tid);
+    if (overviewAssignmentHasTeamCheckIn(a)) checkedInTeamIds.add(tid);
+  });
+  const progressTotal = teamIdsInScope.size;
+  const completedCount = checkedInTeamIds.size;
   return {
     completedCount,
-    remainingCount: progressTotal - completedCount,
+    remainingCount: Math.max(0, progressTotal - completedCount),
     progressTotal,
   };
 }
@@ -8860,10 +8874,10 @@ function computeOverviewMetrics() {
     }
   }
 
-  // ----- Booking progress (donut chart)
-  // Bookings in scope (same filters as above), excluding terminal rows and
-  // geo-demo / training sessions. Numerator = Completed status or Performance
-  // "completed" classifier (session_done); denominator = all booked in scope.
+  // ----- Team check-in (donut chart)
+  // Distinct in-scope teams with a non-demo, non-terminal booking (denominator).
+  // Numerator = teams with moderator arrival check-in (I've arrived → before wrap)
+  // or session_done on any in-scope assignment · not Completed-without-check-in.
   const donut = computeOverviewDonutCounts(filteredAsgns);
   const completedCount = donut.completedCount;
   const remainingCount = donut.remainingCount;
@@ -12447,7 +12461,7 @@ function renderOverview(body) {
         </div>
         <div class="ov-chart-card ov-chart-donut">
           <div class="ov-chart-head">
-            <div class="ov-chart-title">Booking progress</div>
+            <div class="ov-chart-title">Team check-in</div>
             <div class="ov-chart-sub" id="ovDonutSub"> · </div>
           </div>
           ${donutChartShellHTML()}
@@ -12697,16 +12711,16 @@ function donutChartShellHTML() {
         </svg>
         <div class="ov-donut-center">
           <div class="ov-donut-pct" id="ovDonutPct">0%</div>
-          <div class="ov-donut-cap">complete</div>
+          <div class="ov-donut-cap">checked in</div>
         </div>
         <div class="ov-donut-tooltip" id="ovDonutTooltip" style="display:none;">
-          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Completed</div>
-          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">bookings</span></div>
+          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Checked in</div>
+          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">teams</span></div>
         </div>
       </div>
       <div class="ov-donut-legend">
-        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Completed</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendRem"><span class="ov-donut-swatch ov-sw-rem"></span><span>Remaining</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendRem"><span class="ov-donut-swatch ov-sw-rem"></span><span>Not checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
       </div>
     </div>
   `;
@@ -12792,15 +12806,11 @@ function updateOverviewMetrics() {
   // 3. Animate the line chart
   animateLineChart(m.series);
 
-  // 4. Donut sub + tween. Subtitle now reads "K of N bookings done"
-  //    (not "of participants") so it agrees with the donut math.
-  //    Empty-state message also updated · "No bookings in scope"
-  //    rather than "No participants in scope" since the chart's
-  //    denominator is bookings.
+  // 4. Donut sub + tween · team check-in (distinct teams, excl. demo)
   const donutSub = document.getElementById('ovDonutSub');
   if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} of ${m.progressTotal} booked · excl. demo`
-    : 'No booked sessions in scope';
+    ? `${m.completedCount} of ${m.progressTotal} teams checked in · excl. demo`
+    : 'No teams with bookings in scope';
   animateDonutChart(m.completedCount, m.remainingCount);
 
   // Cache for next animation
@@ -13094,10 +13104,10 @@ function setupDonutHover(completed, remaining, total) {
 
   const showTip = (kind) => {
     if (kind === 'done') {
-      tooltipTitle.textContent = 'Completed';
+      tooltipTitle.textContent = 'Checked in';
       tooltipNum.textContent = completed;
     } else {
-      tooltipTitle.textContent = 'Remaining';
+      tooltipTitle.textContent = 'Not checked in';
       tooltipNum.textContent = remaining;
     }
     tooltip.style.display = 'block';
