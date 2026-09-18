@@ -23,9 +23,12 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091726s',
-  /const APP_VERSION = '1\.3\.091726s'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091726s'));
+assert('version bump 091726t',
+  /const APP_VERSION = '1\.3\.091726t'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091726t'));
+assert('perf strike refresh targets tab body only',
+  /modStrikeRefreshUi[\s\S]*?getElementById\('adminTabBody'\)/.test(src)
+  && !/modStrikeRefreshUi[\s\S]*?getElementById\('adminContent'\)/.test(src));
 assert('strikes SessionState app setting sync',
   /MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes'/.test(src)
   && /function persistModeratorStrikesSetting/.test(src)
