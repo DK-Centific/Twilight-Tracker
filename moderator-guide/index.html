@@ -80,11 +80,13 @@
       margin-bottom: 18px;
     }
     .step img {
-      width: 100%; border-radius: 14px; border: 1px solid var(--border);
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 14px;
+      border: 1px solid var(--border);
       background: #0d0f14;
-      min-height: 200px;
-      aspect-ratio: 16 / 9;
-      object-fit: cover;
+      object-fit: contain;
     }
     .step-body { padding: 4px 2px 0; }
     .step-num {
@@ -154,7 +156,7 @@
         <ul class="easy">
           <li>Your <strong>Twilight Login ID</strong> (e.g. <code>David-tw</code>)</li>
           <li>A <strong>booked session</strong> for today (bookings come from OneData)</li>
-          <li><strong>Location permission</strong> in the browser — required for <strong>I’ve arrived</strong> / Confirm Arrival; see <a href="#use">How to use Step 3: Enable location</a></li>
+          <li><strong>Location permission</strong> in the browser — required for <strong>I’ve arrived</strong> / Confirm Arrival; see <a href="#enable-location">How to use Step 3: Enable location</a></li>
         </ul>
         <p class="muted">That’s it. Open the web app, sign in, and follow How to use.</p>
       </div>
@@ -294,7 +296,7 @@
   <script>
     const tabs = document.querySelectorAll('.tabs button');
     const panels = document.querySelectorAll('.panel');
-    function showTab(id) {
+    function showTab(id, { updateHash = true } = {}) {
       tabs.forEach((b) => {
         const on = b.dataset.tab === id;
         b.classList.toggle('active', on);
@@ -305,11 +307,28 @@
         p.classList.toggle('active', on);
         p.hidden = !on;
       });
-      history.replaceState(null, '', '#' + id);
+      if (updateHash) history.replaceState(null, '', '#' + id);
+    }
+    function applyHash() {
+      const raw = (location.hash || '#overview').slice(1);
+      if (!raw) return showTab('overview');
+      // Deep links into How to use (e.g. #enable-location)
+      const el = document.getElementById(raw);
+      if (el && !el.classList.contains('panel')) {
+        const panel = el.closest('.panel');
+        if (panel) showTab(panel.id, { updateHash: false });
+        requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+        return;
+      }
+      if (el && el.classList.contains('panel')) {
+        showTab(raw);
+        return;
+      }
+      showTab('overview');
     }
     tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
-    const hash = (location.hash || '#overview').slice(1);
-    if (document.getElementById(hash)) showTab(hash);
+    window.addEventListener('hashchange', applyHash);
+    applyHash();
   </script>
 </body>
 </html>
