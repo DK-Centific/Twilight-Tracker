@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818h';
+const APP_VERSION = '1.3.091818i';
 const APP_UPDATED_AT = '09/18/2026 15:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -13068,9 +13068,17 @@ function overviewVizStageHTML() {
 // Stat tile shell · Helios metrics-pane card. Values + bar filled by
 // updateOverviewMetrics.
 
+function overviewModStarLadder() {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const out = [];
+  for (let s = max; s >= 0; s--) out.push(s);
+  return out;
+}
+
 function computeOverviewModStarCounts(modList) {
-  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 3;
-  const counts = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const counts = {};
+  for (let s = 0; s <= max; s++) counts[s] = 0;
   (modList || []).forEach(m => {
     const id = m && (m.orbitLoginId || m.orbitId);
     const n = (typeof getModStrikeStars === 'function')
@@ -13083,7 +13091,7 @@ function computeOverviewModStarCounts(modList) {
 }
 
 function overviewModStarsBreakdownShellHTML() {
-  const cells = [3, 2, 1, 0].map(s => (
+  const cells = overviewModStarLadder().map(s => (
     `<span class="ov-mod-star-cell is-${s} is-zero" data-star="${s}">` +
       `<span class="ov-mod-star-label">${s}★</span>` +
       `<span class="ov-mod-star-n" data-ov-mod-star-n="${s}">0</span>` +
@@ -13095,8 +13103,9 @@ function overviewModStarsBreakdownShellHTML() {
 function renderOverviewModStarsBreakdown(counts) {
   const root = document.getElementById('ovModStarsBreakdown');
   if (!root) return;
-  const c = counts || { 0: 0, 1: 0, 2: 0, 3: 0 };
-  [3, 2, 1, 0].forEach(s => {
+  const ladder = overviewModStarLadder();
+  const c = counts || {};
+  ladder.forEach(s => {
     const cell = root.querySelector(`.ov-mod-star-cell[data-star="${s}"]`);
     const nEl = root.querySelector(`[data-ov-mod-star-n="${s}"]`);
     const n = Math.max(0, Number(c[s]) || 0);
@@ -24098,7 +24107,9 @@ function parseYMD(s) {
   return coerceToDate(s);
 }
 
-const MOD_STRIKE_MAX_STARS = 3;
+const MOD_STRIKE_MAX_STARS = 4;
+/** Previous max before 4★ rollout — used once to migrate stored full/partial counts. */
+const MOD_STRIKE_PREV_MAX_STARS = 3;
 const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
 const MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes';
 let _modStrikeIngestInFlight = false;
@@ -24234,6 +24245,22 @@ async function persistModeratorStrikesSetting() {
   }
 }
 
+function migrateModStrikeStarsFromPrevMax(n) {
+  // Preserve warning depth when raising max 3 → 4:
+  // full 3→4, lost-1 2→3, lost-2 1→2, locked 0→0.
+  const prevMax = (typeof MOD_STRIKE_PREV_MAX_STARS === 'number') ? MOD_STRIKE_PREV_MAX_STARS : 3;
+  if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
+  const rounded = Math.round(n);
+  if (rounded <= 0) return 0;
+  if (rounded >= MOD_STRIKE_MAX_STARS) return MOD_STRIKE_MAX_STARS;
+  // Values that still look like the old 0..prevMax scale → keep lost count.
+  if (rounded <= prevMax) {
+    const lost = prevMax - Math.min(prevMax, rounded);
+    return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, MOD_STRIKE_MAX_STARS - lost));
+  }
+  return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, rounded));
+}
+
 function getModStrikeStars(orbitId) {
   const key = modStrikeOrbitKey(orbitId);
   if (!key) return MOD_STRIKE_MAX_STARS;
@@ -24242,7 +24269,7 @@ function getModStrikeStars(orbitId) {
   if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
   const n = Number(rec.stars);
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
-  return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(n)));
+  return migrateModStrikeStarsFromPrevMax(n);
 }
 
 function isModeratorStrikeLocked(orbitId) {
@@ -24267,21 +24294,29 @@ function getModStrikeWarningLevel(orbitId) {
 }
 
 function modStrikeWarningMessageHTML(level) {
-  if (level >= 3) {
+  if (level >= MOD_STRIKE_MAX_STARS) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review.<br><br>Please contact the Twilight team if there is any dispute.';
   }
   if (level >= 2) {
-    return 'Our records show you did not complete the previous session. This is <strong>Warning 2</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
+    const n = Math.max(2, Math.min(MOD_STRIKE_MAX_STARS - 1, level));
+    if (n === 2) {
+      return 'Our records show you did not complete the previous session. This is <strong>Warning 2</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
+    }
+    return 'Our records show you did not complete the previous session. This is <strong>Warning ' + n + '</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
   }
   return 'Our records show you did not complete the previous session. This is <strong>Warning 1</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team if this is incorrect.';
 }
 
 function modStrikeWarningMessage(level) {
-  if (level >= 3) {
+  if (level >= MOD_STRIKE_MAX_STARS) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review. Please contact the Twilight team if there is any dispute.';
   }
   if (level >= 2) {
-    return 'Our records show you did not complete the previous session. This is Warning 2 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
+    const n = Math.max(2, Math.min(MOD_STRIKE_MAX_STARS - 1, level));
+    if (n === 2) {
+      return 'Our records show you did not complete the previous session. This is Warning 2 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
+    }
+    return 'Our records show you did not complete the previous session. This is Warning ' + n + ' to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
   }
   return 'Our records show you did not complete the previous session. This is warning 1 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team if this is incorrect.';
 }
@@ -24310,7 +24345,7 @@ function ackModStrikeWarning(orbitId, level) {
 }
 
 function shouldShowModStrikeWarningModal(orbitId, level) {
-  if (level < 1 || level > 2) return false;
+  if (level < 1 || level >= MOD_STRIKE_MAX_STARS) return false;
   const store = loadModStrikeWarnAckStore();
   return !store[modStrikeWarnAckKey(orbitId, level)];
 }
@@ -24392,11 +24427,11 @@ function syncModStrikeModeratorChrome() {
     navStars.title = stars + ' of ' + MOD_STRIKE_MAX_STARS + ' stars';
   }
 
-  if (level >= 3) {
+  if (level >= MOD_STRIKE_MAX_STARS || (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId))) {
     if (modal) modal.classList.remove('open');
     if (overlay) {
       const msg = overlay.querySelector('#modStrikeLockMsg');
-      if (msg) msg.innerHTML = modStrikeWarningMessageHTML(3);
+      if (msg) msg.innerHTML = modStrikeWarningMessageHTML(MOD_STRIKE_MAX_STARS);
       overlay.classList.add('open');
     }
     if (app) app.classList.add('mod-strike-app-locked');
@@ -24406,7 +24441,7 @@ function syncModStrikeModeratorChrome() {
   if (overlay) overlay.classList.remove('open');
   if (app) app.classList.remove('mod-strike-app-locked');
 
-  if (level >= 1 && level <= 2 && modal && shouldShowModStrikeWarningModal(orbitId, level)) {
+  if (level >= 1 && level < MOD_STRIKE_MAX_STARS && modal && shouldShowModStrikeWarningModal(orbitId, level)) {
     const msg = modal.querySelector('#modStrikeWarnMsg');
     if (msg) msg.innerHTML = modStrikeWarningMessageHTML(level);
     modal.dataset.warnLevel = String(level);
