@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818d';
-const APP_UPDATED_AT = '09/18/2026 16:55';
+const APP_VERSION = '1.3.091818e';
+const APP_UPDATED_AT = '09/18/2026 15:25';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -35801,7 +35801,7 @@ function buildAssignmentExcelRow(a) {
   // Headers per spec:
   // assignmentId, orbitLoginId, firstName, lastName, phoneNumber, centificEmail,
   // personalEmail, lastActive, team, assignedDate, assignedTo, participantOrbitId,
-  // address, phonenumber, teamId, status, comment
+  // address, phonenumber, teamId, status, comment, odScheduleId, bookingGroupId, odStatus
   //
   // For each primary moderator on the team we emit one row. The two NEW columns
   // (assignmentId + participantOrbitId) are what make read-back across admins
@@ -35880,6 +35880,9 @@ function buildAssignmentExcelRow(a) {
       lakituProjectUrl:   a.lakituProjectUrl || '',
       ringDashboardKey:   a.ringDashboardKey || '',
       ringDashboardUrl:   a.ringDashboardUrl || '',
+      odScheduleId:       a.odScheduleId   || '',
+      bookingGroupId:     a.bookingGroupId || '',
+      odStatus:           a.odStatus       || '',
     }];
   }
   return mods.map(mod => ({
@@ -35914,6 +35917,9 @@ function buildAssignmentExcelRow(a) {
     lakituProjectUrl:   a.lakituProjectUrl || '',
     ringDashboardKey:   a.ringDashboardKey || '',
     ringDashboardUrl:   a.ringDashboardUrl || '',
+    odScheduleId:       a.odScheduleId   || '',
+    bookingGroupId:     a.bookingGroupId || '',
+    odStatus:           a.odStatus       || '',
   }));
 }
 
@@ -35923,7 +35929,7 @@ function exportAssignments() {
     return;
   }
   const rows = adminState.assignments.flatMap(buildAssignmentExcelRow);
-  const headers = ['assignmentId','orbitLoginId','firstName','lastName','phoneNumber','centificEmail','personalEmail','lastActive','team','assignedDate','assignedTo','participantOrbitId','address','phonenumber','teamId','status','comment'];
+  const headers = ['assignmentId','orbitLoginId','firstName','lastName','phoneNumber','centificEmail','personalEmail','lastActive','team','assignedDate','assignedTo','participantOrbitId','address','phonenumber','teamId','status','comment','odScheduleId','bookingGroupId','odStatus'];
   const aoa = [headers, ...rows.map(r => headers.map(h => r[h]))];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(aoa);
