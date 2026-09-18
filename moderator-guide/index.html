@@ -117,6 +117,37 @@
     .img-caption {
       font-size: 12px; color: var(--muted); margin: -4px 0 0;
     }
+    .cta-next {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 14px;
+      background: linear-gradient(135deg, rgba(196,165,116,.14), rgba(196,137,137,.12));
+      border: 1px solid rgba(196,165,116,.35);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin: 8px 0 18px;
+      text-decoration: none;
+      color: inherit;
+      transition: border-color .15s, transform .15s;
+    }
+    .cta-next:hover {
+      border-color: var(--gold);
+      transform: translateY(-1px);
+    }
+    .cta-next .cta-label {
+      font-size: 12px; font-weight: 600; letter-spacing: .04em;
+      color: var(--gold); text-transform: uppercase; margin: 0 0 4px;
+    }
+    .cta-next .cta-title {
+      margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--text);
+    }
+    .cta-next .cta-sub { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+    .cta-next .cta-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--gold); color: #1a140c;
+      font-weight: 700; font-size: 15px;
+      padding: 12px 18px; border-radius: 12px;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -133,6 +164,7 @@
     <nav class="tabs" role="tablist" aria-label="Guide sections">
       <button type="button" class="active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
       <button type="button" data-tab="use" role="tab" aria-selected="false">How to use</button>
+      <button type="button" data-tab="panic" role="tab" aria-selected="false">Panic</button>
       <button type="button" data-tab="tips" role="tab" aria-selected="false">Tips</button>
     </nav>
 
@@ -144,10 +176,11 @@
         <p class="muted">Use the tabs above:</p>
         <ul class="easy">
           <li><strong>How to use</strong> — the moderator flow from sign in to session end</li>
-          <li><strong>Tips</strong> — moderator notes on geofence, location, and Inbox feedback</li>
+          <li><strong>Panic</strong> — the red Panic button (bottom-right FAB) for Teams, troubleshooting, and escalation</li>
+          <li><strong>Tips</strong> — moderator notes on geofence, location, Inbox feedback, and Panic practices</li>
         </ul>
         <div class="callout tip">
-          <strong>Need help fast?</strong> <strong>I’ve arrived</strong> (Confirm Arrival) only enables when your location is inside the geofence — check location permission first.
+          <strong>Need help fast?</strong> Tap the red <strong>!</strong> Panic button (bottom-right FAB) anytime — see <a href="#panic">Panic</a> for Teams chat, troubleshooting, and <a href="#panic-escalate">escalation tiers</a>. For arrival: <strong>I’ve arrived</strong> only enables when your location is inside the geofence — check location permission first.
         </div>
       </div>
 
@@ -158,7 +191,7 @@
           <li>A <strong>booked session</strong> for today (bookings come from OneData)</li>
           <li><strong>Location permission</strong> in the browser — required for <strong>I’ve arrived</strong> / Confirm Arrival; see <a href="#enable-location">How to use Step 3: Enable location</a></li>
         </ul>
-        <p class="muted">That’s it. Open the web app, sign in, and follow How to use.</p>
+        <p class="muted">That’s it. Open the web app, sign in, and follow How to use. Keep the <a href="#panic">Panic button</a> in mind if you need help or must escalate.</p>
       </div>
     </section>
 
@@ -254,6 +287,86 @@
         <img src="images/tw-use-8-session-end.png" alt="Step 8: session ends and resets for the next booking" width="1280" height="720" />
         <p class="img-caption">Step 8 — Session complete; reset for next booking</p>
       </div>
+
+      <a class="cta-next" href="#panic" id="cta-panic">
+        <div>
+          <p class="cta-label">Next</p>
+          <p class="cta-title">Learn the Panic button</p>
+          <p class="cta-sub">Red ! FAB — Teams, troubleshooting tips, and escalation tiers</p>
+        </div>
+        <span class="cta-btn">Panic button →</span>
+      </a>
+    </section>
+
+    <!-- ========== PANIC ========== -->
+    <section id="panic" class="panel" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Panic button</h2>
+        <p>The red <strong>!</strong> floating action button (FAB) sits bottom-right on moderator chrome and is always available. Tap it for help: Teams with managers, troubleshooting tips, and emergency escalation tiers.</p>
+        <div class="callout tip">
+          <strong>Always on:</strong> You don’t need to leave the session flow — open Panic from any moderator screen.
+        </div>
+      </div>
+
+      <div class="card step" id="panic-open">
+        <div class="step-body">
+          <h3><span class="step-num">1</span> Find / open the Panic button</h3>
+          <p>Look for the red circular <strong>!</strong> FAB in the bottom-right of the moderator UI. Tap it to open the Panic menu.</p>
+        </div>
+        <img src="images/tw-panic-1-open.png" alt="Step 1: find and open the red Panic FAB" width="1280" height="720" />
+        <p class="img-caption">Step 1 — Tap the red ! FAB (bottom-right)</p>
+      </div>
+
+      <div class="card step" id="panic-communication">
+        <div class="step-body">
+          <h3><span class="step-num">2</span> Communication → Teams managers</h3>
+          <p>Choose <strong>Communication</strong> to open a Teams chat with managers. When the flow prompts you, notify managers in Teams immediately.</p>
+        </div>
+        <img src="images/tw-panic-2-teams.png" alt="Step 2: Communication opens Teams chat with managers" width="1280" height="720" />
+        <p class="img-caption">Step 2 — Communication opens Teams with managers</p>
+      </div>
+
+      <div class="card step" id="panic-troubleshoot">
+        <div class="step-body">
+          <h3><span class="step-num">3</span> Troubleshooting Tips</h3>
+          <p>Use <strong>Troubleshooting Tips</strong> for network problems (Eero bridge, Xfinity, cameras to home WiFi as a last resort), night-specific issues, and FAQ answers — before you escalate.</p>
+        </div>
+        <img src="images/tw-panic-3-troubleshoot.png" alt="Step 3: Troubleshooting Tips for network and night issues" width="1280" height="720" />
+        <p class="img-caption">Step 3 — Network, night issues, and FAQ</p>
+      </div>
+
+      <div class="card step" id="panic-tiers">
+        <div class="step-body">
+          <h3><span class="step-num">4</span> Escalation tiers overview</h3>
+          <p><strong>Emergency · Escalation Tiers</strong> has four levels. Pick the one that matches the situation:</p>
+          <ul class="easy">
+            <li><strong>Handle it yourself</strong> — routine session flow, scripted steps, or normal setup you can resolve</li>
+            <li><strong>Flag in real time</strong> — neighbor confrontation, police arriving, unworkable environment, intoxicated participant, inappropriate conduct toward you, or a participant in visible distress</li>
+            <li><strong>Report afterward (same night)</strong> — canceled or cut-short session, withdrawal request, complaint from participant/neighbor, equipment damage</li>
+            <li><strong>Escalate immediately</strong> — notify the project manager directly (see next step)</li>
+          </ul>
+        </div>
+        <img src="images/tw-panic-4-tiers.png" alt="Step 4: four escalation tiers" width="1280" height="720" />
+        <p class="img-caption">Step 4 — Handle yourself · Flag real time · Report afterward · Escalate immediately</p>
+      </div>
+
+      <div class="card step" id="panic-escalate">
+        <div class="step-body">
+          <h3><span class="step-num">5</span> Escalate immediately options</h3>
+          <p>Use <strong>Escalate immediately</strong> (and notify the project manager directly) for: police contact of any kind, lost/corrupted capture, a consent-form demand you can’t answer, allegation of misconduct, or harm / threat of harm.</p>
+          <ul class="easy">
+            <li><strong>Contact Police</strong> — call <strong>911</strong> if there is danger</li>
+            <li><strong>Data Loss</strong> — lost or corrupted capture</li>
+            <li><strong>NDA / Consent Question</strong> — consent-form demand you can’t answer</li>
+            <li><strong>Misconduct Report</strong> — Environment or Teammate</li>
+          </ul>
+          <div class="callout warn">
+            <strong>Safety first:</strong> If anyone is in danger, call 911. Then escalate and notify the project manager.
+          </div>
+        </div>
+        <img src="images/tw-panic-5-escalate.png" alt="Step 5: Escalate immediately options — police, data loss, NDA, misconduct" width="1280" height="720" />
+        <p class="img-caption">Step 5 — Contact Police · Data Loss · NDA/Consent · Misconduct</p>
+      </div>
     </section>
 
     <!-- ========== TIPS (Moderator caveats) ========== -->
@@ -286,6 +399,20 @@
           <strong>Common mistake:</strong> Waiting for <strong>I’ve arrived</strong> while outside the fence (or with location denied). Fix location first, then the button lights up.
         </div>
       </div>
+
+      <div class="card" id="panic-practices">
+        <h2>Panic button — common practices</h2>
+        <p class="muted">Quick escalation guidance. Full walkthrough: <a href="#panic">Panic</a>.</p>
+        <ul class="easy">
+          <li><strong>Handle yourself</strong> for routine or scripted issues you can resolve on site.</li>
+          <li><strong>Flag in real time</strong> for safety, conduct, police on scene, or an unworkable site.</li>
+          <li><strong>Report same night</strong> for cancel/withdrawal, complaints, or equipment damage.</li>
+          <li><strong>Escalate immediately</strong> + notify the PM for police contact, data loss, consent dead-ends, misconduct, or harm/threat. Call <strong>911</strong> if in danger. Use Teams to notify managers when prompted.</li>
+        </ul>
+        <div class="callout warn">
+          <strong>When in doubt, escalate.</strong> Better to over-communicate than to wait.
+        </div>
+      </div>
     </section>
 
     <footer>
@@ -312,13 +439,24 @@
     function applyHash() {
       const raw = (location.hash || '#overview').slice(1);
       if (!raw) return showTab('overview');
-      // Deep links into How to use (e.g. #enable-location)
+      // Deep links into panels (e.g. #enable-location, #panic-escalate)
       const el = document.getElementById(raw);
       if (el && !el.classList.contains('panel')) {
         const panel = el.closest('.panel');
         if (panel) showTab(panel.id, { updateHash: false });
         requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }));
         return;
+      }
+      // Prefix deep-links: #panic-* without matching id → open panic panel
+      if (raw.startsWith('panic-') || raw === 'panic') {
+        if (el && el.classList.contains('panel')) {
+          showTab('panic');
+          return;
+        }
+        if (!el) {
+          showTab('panic', { updateHash: false });
+          return;
+        }
       }
       if (el && el.classList.contains('panel')) {
         showTab(raw);
