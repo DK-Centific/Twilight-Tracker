@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818e';
-const APP_UPDATED_AT = '09/18/2026 15:25';
+const APP_VERSION = '1.3.091818f';
+const APP_UPDATED_AT = '09/18/2026 15:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8810,6 +8810,7 @@ function computeOverviewMetrics() {
     modList = modList.filter(m => String(m.orbitLoginId || '').toLowerCase() === String(f.moderatorId).toLowerCase());
   }
   const totalMods = modList.length;
+  const modStarCounts = computeOverviewModStarCounts(modList);
 
   // Live teams · same rules as Performance Live (classifier + admin queue gate).
   const liveTeamIds = new Set();
@@ -8889,6 +8890,7 @@ function computeOverviewMetrics() {
 
   return {
     totalMods, totalLiveTeams, totalParticipants, totalBookings,
+    modStarCounts,
     series, completedCount, remainingCount,
     // Expose the donut-specific denominator so the subtitle and
     // tooltip can read "K of N" with N matching what the donut
@@ -12620,6 +12622,44 @@ function overviewVizStageHTML() {
 
 // Stat tile shell · Helios metrics-pane card. Values + bar filled by
 // updateOverviewMetrics.
+
+function computeOverviewModStarCounts(modList) {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 3;
+  const counts = { 0: 0, 1: 0, 2: 0, 3: 0 };
+  (modList || []).forEach(m => {
+    const id = m && (m.orbitLoginId || m.orbitId);
+    const n = (typeof getModStrikeStars === 'function')
+      ? getModStrikeStars(id)
+      : max;
+    const stars = Math.max(0, Math.min(max, Number(n) || 0));
+    counts[stars] = (counts[stars] || 0) + 1;
+  });
+  return counts;
+}
+
+function overviewModStarsBreakdownShellHTML() {
+  const cells = [3, 2, 1, 0].map(s => (
+    `<span class="ov-mod-star-cell is-${s} is-zero" data-star="${s}">` +
+      `<span class="ov-mod-star-label">${s}★</span>` +
+      `<span class="ov-mod-star-n" data-ov-mod-star-n="${s}">0</span>` +
+    `</span>`
+  )).join('');
+  return `<div class="ov-mod-stars" id="ovModStarsBreakdown" aria-label="Strike stars snapshot">${cells}</div>`;
+}
+
+function renderOverviewModStarsBreakdown(counts) {
+  const root = document.getElementById('ovModStarsBreakdown');
+  if (!root) return;
+  const c = counts || { 0: 0, 1: 0, 2: 0, 3: 0 };
+  [3, 2, 1, 0].forEach(s => {
+    const cell = root.querySelector(`.ov-mod-star-cell[data-star="${s}"]`);
+    const nEl = root.querySelector(`[data-ov-mod-star-n="${s}"]`);
+    const n = Math.max(0, Number(c[s]) || 0);
+    if (nEl) nEl.textContent = String(n);
+    if (cell) cell.classList.toggle('is-zero', n === 0);
+  });
+}
+
 function statTileShellHTML(kind, label) {
   const icons = {
     moderators: `<svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.5" stroke="currentColor" stroke-width="1.7"/><circle cx="16" cy="9" r="2.6" stroke="currentColor" stroke-width="1.7"/><path d="M3 19c0-3 2.7-5 6-5s6 2 6 5M14 19c0-2.4 2-4 4.5-4S23 16.6 23 19" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
@@ -12642,6 +12682,7 @@ function statTileShellHTML(kind, label) {
       </div>
       <div class="ov-stat-body">
         <div class="ov-stat-value" data-ov-count="0">0</div>
+        ${kind === 'moderators' ? overviewModStarsBreakdownShellHTML() : ''}
         <div class="ov-stat-bar" aria-hidden="true"><span class="ov-stat-bar-fill" id="ovBar-${kind}"></span></div>
         <div class="ov-stat-foot" id="ovFoot-${kind}"></div>
       </div>
@@ -12752,6 +12793,9 @@ function updateOverviewMetrics() {
   setOverviewTileBar('teams', (m.totalLiveTeams / teamDenom) * 100);
   setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
   setOverviewTileFoot('moderators', 'In directory');
+  if (typeof renderOverviewModStarsBreakdown === 'function') {
+    renderOverviewModStarsBreakdown(m.modStarCounts);
+  }
   setOverviewTileFoot('teams', m.totalLiveTeams === 1
     ? '1 live · Performance'
     : m.totalLiveTeams + ' live · Performance');
