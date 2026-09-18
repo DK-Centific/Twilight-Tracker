@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor Cloud Agent · Activities Map Today = Performance overnight + 9 AM gate (PR draft)  
+**Last updated:** 2026-09-18 · Cursor Cloud Agent · Mod strike checkpoint attention (Live glow + banner Strike, PR #113)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
