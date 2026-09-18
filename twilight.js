@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726t';
-const APP_UPDATED_AT = '09/17/2026 17:25';
+const APP_VERSION = '1.3.091726x';
+const APP_UPDATED_AT = '09/17/2026 21:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -7410,6 +7410,7 @@ const adminState = {
   modUserModal: null,        // { mode:'create'|'edit', values:{}, error:'', saving:false } | null
   activitiesTeamId: '',      // selected team context in the Activities map
   activitiesModeratorId: '', // selected moderator on the Activities map (scoped to the selected team)
+  activitiesDateRange: 'today', // 'all' | 'today' | 'week' · filters team list + map assignment fences
   // Assignment state
   teams: [],                 // [{ id, name, primaryIds: [orbitLoginId,...], backupIds: [orbitLoginId,...] }]
   assignments: [],           // [{ id, teamId, date (YYYY-MM-DD), startMin, endMin, participantOrbitId, participantData, modSnapshots, savedAt }]
@@ -7434,7 +7435,7 @@ const adminState = {
   bookingEndMin: 25 * 60,
   bookingAssignOpen: true,   // Week starts with Assign-a-Team open at the 1.5-row cap
   bookingSessionFilter: 'all', // Sessions list · 'all' | 'od' | 'twilight'
-  bookingSessionScope: 'week', // Sessions list · 'day' | 'week' (week is the default load)
+  bookingSessionScope: 'day', // Sessions list · 'day' | 'week' (default: today only)
   modal: null,               // { kind: 'createTeam' | 'editTeam' | 'createAssignment' | 'viewAssignment', ...payload }
   // Overview dashboard state
   overview: {
@@ -8425,7 +8426,8 @@ function openBookingPage() {
   adminState.bookingEndMin = bookingDefaultEndFromStart(BOOKING_DEFAULT_START_MIN);
   adminState.bookingAssignOpen = true;
   adminState.bookingSessionFilter = 'all';
-  adminState.bookingSessionScope = 'week';
+  adminState.calAnchor = ymd(new Date());
+  adminState.bookingSessionScope = 'day';
   parkHubAssignmentModal();
   document.body.classList.add('booking-open');
   const panicFab = document.getElementById('panicFab');
@@ -13926,12 +13928,64 @@ function isActivitiesModeratorRole(rowOrId) {
 function resetActivitiesFilters() {
   adminState.activitiesTeamId = '';
   adminState.activitiesModeratorId = '';
+  adminState.activitiesDateRange = 'today';
+}
+
+function getActivitiesDateRange() {
+  const r = adminState.activitiesDateRange;
+  if (r === 'all' || r === 'week' || r === 'today') return r;
+  return 'today';
+}
+
+function activitiesAssignmentInDateRange(a) {
+  if (!a) return false;
+  const range = getActivitiesDateRange();
+  if (range === 'all') return true;
+  if (range === 'week') return (typeof perfDateInRange === 'function') && perfDateInRange(a, 'week');
+  const todayStr = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const d = String(a.date || '').split('T')[0];
+  if (todayStr && d) return d === todayStr;
+  return (typeof perfDateInRange === 'function') && perfDateInRange(a, 'today');
+}
+
+function listActivitiesTeamsForDateRange() {
+  const teams = listActivitiesTeams();
+  const range = getActivitiesDateRange();
+  const asgns = (adminState.assignments || []).filter(a =>
+    a && a.status !== 'Cancelled' && a.status !== 'Unassigned'
+  );
+  if (range === 'all') {
+    const ids = new Set(asgns.map(a => String(a.teamId || '')).filter(Boolean));
+    return teams.filter(t => ids.has(String(t.id)));
+  }
+  const ids = new Set();
+  asgns.forEach(a => {
+    if (!activitiesAssignmentInDateRange(a)) return;
+    if (a.teamId) ids.add(String(a.teamId));
+  });
+  return teams.filter(t => ids.has(String(t.id)));
+}
+
+function activitiesMapShowsAllAssignedLocations() {
+  return getActivitiesDateRange() === 'today';
+}
+
+function listActivitiesMapAssignments() {
+  return (adminState.assignments || []).filter(a => {
+    if (!a || a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+    if (typeof assignmentMatchesActivitiesFocus === 'function' && !assignmentMatchesActivitiesFocus(a)) return false;
+    if (!activitiesAssignmentInDateRange(a)) return false;
+    return !!(typeof assignmentFenceAddress === 'function' && assignmentFenceAddress(a));
+  });
 }
 
 function normalizeActivitiesFilterState() {
   if (adminState.activitiesTeamId == null) adminState.activitiesTeamId = '';
   if (adminState.activitiesModeratorId == null) adminState.activitiesModeratorId = '';
-  const activityTeams = listActivitiesTeams();
+  if (adminState.activitiesDateRange == null || adminState.activitiesDateRange === '') {
+    adminState.activitiesDateRange = 'today';
+  }
+  const activityTeams = listActivitiesTeamsForDateRange();
   if (adminState.activitiesTeamId && !activityTeams.some(t => String(t.id) === String(adminState.activitiesTeamId))) {
     // Keep demo team selections across brief roster rebuilds.
     if (!(isGeoDemoMode() && String(adminState.activitiesTeamId).startsWith('demo-team-'))) {
@@ -13986,7 +14040,42 @@ function applyActivitiesTeamFilter(teamId) {
 
 function applyActivitiesResetFilters() {
   resetActivitiesFilters();
+  applyActivitiesDateRange('today');
   applyActivitiesTeamFilter('');
+}
+
+function fillActivitiesTeamSelect(teamSel) {
+  if (!teamSel) return;
+  const activityTeams = listActivitiesTeamsForDateRange();
+  const html = `<option value="">All teams</option>` +
+    activityTeams.map(t => `<option value="${escapeHTML(String(t.id))}">${escapeHTML(t.name || 'Unnamed team')}</option>`).join('');
+  if (teamSel.dataset.optSig !== html) {
+    teamSel.innerHTML = html;
+    teamSel.dataset.optSig = html;
+  }
+  const cur = String(adminState.activitiesTeamId || '');
+  const match = activityTeams.some(t => String(t.id) === cur);
+  if (!match) adminState.activitiesTeamId = '';
+  const next = match ? cur : '';
+  if (teamSel.value !== next) teamSel.value = next;
+}
+
+function applyActivitiesDateRange(range) {
+  adminState.activitiesDateRange = (range === 'all' || range === 'week' || range === 'today') ? range : 'today';
+  normalizeActivitiesFilterState();
+  fillActivitiesTeamSelect(document.getElementById('activitiesTeamSelect'));
+  const nextMods = listActivitiesModeratorOptions();
+  const stillListed = nextMods.some(m =>
+    String(m.id).toLowerCase() === String(adminState.activitiesModeratorId || '').toLowerCase()
+  );
+  if (!stillListed) adminState.activitiesModeratorId = '';
+  fillActivitiesModeratorSelect(document.getElementById('activitiesModeratorSelect'));
+  document.querySelectorAll('[data-activities-range]').forEach(btn => {
+    const on = btn.dataset.activitiesRange === getActivitiesDateRange();
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  refreshActivitiesMapFocus();
 }
 
 function paintActivitiesExtraFilters() {
@@ -14002,11 +14091,13 @@ function paintActivitiesExtraFilters() {
     return;
   }
   normalizeActivitiesFilterState();
-  const activityTeams = listActivitiesTeams();
+  const activityTeams = listActivitiesTeamsForDateRange();
   const directoryMods = listActivitiesModeratorDirectory();
   const teamId = String(adminState.activitiesTeamId || '');
+  const dateRange = getActivitiesDateRange();
   const signature = [
-    'v3',
+    'v4',
+    dateRange,
     activityTeams.map(t => String(t.id) + ':' + (t.name || '')).join('|'),
     directoryMods.map(m => String(m.id) + ':' + (m.name || '')).join('|'),
     isGeoDemoMode() ? 'demo' : 'live',
@@ -14018,6 +14109,13 @@ function paintActivitiesExtraFilters() {
   if (extraFilters.dataset.filterSig !== signature || !document.getElementById('activitiesTeamSelect')) {
     extraFilters.innerHTML = `
       <div class="activities-map-filters">
+        <div class="activities-date-tools bk-sessions-tools">
+          <div class="bk-origin-filter" role="group" aria-label="Activities date range">
+            <button type="button" class="bk-origin-btn${dateRange === 'all' ? ' active' : ''}" data-activities-range="all" aria-pressed="${dateRange === 'all' ? 'true' : 'false'}">All</button>
+            <button type="button" class="bk-origin-btn${dateRange === 'today' ? ' active' : ''}" data-activities-range="today" aria-pressed="${dateRange === 'today' ? 'true' : 'false'}">Today</button>
+            <button type="button" class="bk-origin-btn${dateRange === 'week' ? ' active' : ''}" data-activities-range="week" aria-pressed="${dateRange === 'week' ? 'true' : 'false'}">This Week</button>
+          </div>
+        </div>
         <label class="activities-team-filter" for="activitiesTeamSelect">
           <span class="activities-team-filter-label">Team</span>
           <select class="activities-team-select" id="activitiesTeamSelect">
@@ -14038,6 +14136,14 @@ function paintActivitiesExtraFilters() {
     const teamSel = document.getElementById('activitiesTeamSelect');
     const modSel = document.getElementById('activitiesModeratorSelect');
     if (modSel) modSel.dataset.optSig = activitiesModeratorOptionsHtml(listActivitiesModeratorOptions());
+    if (teamSel) teamSel.dataset.optSig = teamSel.innerHTML;
+    extraFilters.querySelectorAll('[data-activities-range]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.activitiesRange;
+        if (!next || next === getActivitiesDateRange()) return;
+        applyActivitiesDateRange(next);
+      });
+    });
     if (teamSel) {
       teamSel.addEventListener('change', e => {
         applyActivitiesTeamFilter(e.target.value || '');
@@ -14071,8 +14177,13 @@ function paintActivitiesExtraFilters() {
   if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
   const teamSel = document.getElementById('activitiesTeamSelect');
   const modSel = document.getElementById('activitiesModeratorSelect');
-  if (teamSel && teamSel.value !== teamId) teamSel.value = teamId;
+  fillActivitiesTeamSelect(teamSel);
   fillActivitiesModeratorSelect(modSel);
+  document.querySelectorAll('#modviewExtraFilters [data-activities-range]').forEach(btn => {
+    const on = btn.dataset.activitiesRange === getActivitiesDateRange();
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
 }
 
 function getSelectedActivitiesTeam() {
@@ -14152,11 +14263,13 @@ function activitiesViewAddrLine() {
     }
     return 'No location reported yet';
   }
-  const asgns = (adminState.assignments || []).filter(a =>
-    typeof assignmentMatchesActivitiesFocus === 'function'
-    && assignmentMatchesActivitiesFocus(a)
-    && !!assignmentFenceAddress(a)
-  );
+  const asgns = (typeof listActivitiesMapAssignments === 'function')
+    ? listActivitiesMapAssignments()
+    : (adminState.assignments || []).filter(a =>
+      typeof assignmentMatchesActivitiesFocus === 'function'
+      && assignmentMatchesActivitiesFocus(a)
+      && !!assignmentFenceAddress(a)
+    );
   const addrs = [...new Set(asgns.map(a => assignmentFenceAddress(a)).filter(Boolean))];
   if (addrs.length === 1) return addrs[0];
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
@@ -14336,21 +14449,50 @@ function updateActivitiesTeamContext() {
   updateActivitiesMapCaption();
 }
 
+function activitiesMapFocusKey() {
+  const range = (typeof getActivitiesDateRange === 'function') ? getActivitiesDateRange() : 'today';
+  return range + '|' + (adminState.activitiesModeratorId || '') + '|' + (adminState.activitiesTeamId || '');
+}
+
+function scheduleActivitiesPrefetch() {
+  if (_activitiesPrefetchTimer) clearTimeout(_activitiesPrefetchTimer);
+  _activitiesPrefetchTimer = setTimeout(() => {
+    _activitiesPrefetchTimer = null;
+    if (typeof prefetchActivityHomeGeocodes === 'function') prefetchActivityHomeGeocodes();
+  }, 150);
+}
+
+function scheduleActivitiesGeofenceUpdate(opts) {
+  if (opts && typeof opts === 'object') {
+    _activitiesGeofenceQueuedOpts = Object.assign(_activitiesGeofenceQueuedOpts || {}, opts);
+  }
+  if (_activitiesGeofenceRaf) return;
+  _activitiesGeofenceRaf = requestAnimationFrame(() => {
+    _activitiesGeofenceRaf = 0;
+    const o = _activitiesGeofenceQueuedOpts || {};
+    _activitiesGeofenceQueuedOpts = null;
+    if (!_activitiesMap) return;
+    try { placeActivitiesGeofence(_activitiesMap, o); } catch (_) {}
+  });
+}
+
 function refreshActivitiesMapFocus() {
   const teamSel = document.getElementById('activitiesTeamSelect');
   const modSel = document.getElementById('activitiesModeratorSelect');
   if (teamSel) teamSel.value = adminState.activitiesTeamId || '';
   if (modSel) modSel.value = adminState.activitiesModeratorId || '';
   updateActivitiesMapCaption();
-  const nextKey = (adminState.activitiesModeratorId || '') + '|' + (adminState.activitiesTeamId || '');
+  const nextKey = activitiesMapFocusKey();
   const selectionChanged = nextKey !== _activitiesFocusKey;
   _activitiesFocusKey = nextKey;
   if (_activitiesMap) {
     try {
-      placeActivitiesGeofence(_activitiesMap, { animateSelection: selectionChanged });
+      const shouldAnimate = selectionChanged
+        && !!(adminState.activitiesTeamId || adminState.activitiesModeratorId);
+      placeActivitiesGeofence(_activitiesMap, { animateSelection: shouldAnimate });
     } catch (_) {}
   }
-  prefetchActivityHomeGeocodes();
+  scheduleActivitiesPrefetch();
 }
 
 /* =====================================================================
@@ -14670,10 +14812,7 @@ function syncModTrackingUi() {
       if (adminState) adminState.activitiesModeratorId = '';
     }
   }
-  if (typeof _activitiesMap !== 'undefined' && _activitiesMap
-      && typeof placeActivitiesGeofence === 'function') {
-    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
-  }
+  if (typeof scheduleActivitiesGeofenceUpdate === 'function') scheduleActivitiesGeofenceUpdate();
 }
 
 function applyModeratorTrackingMode() {
@@ -15289,6 +15428,11 @@ async function setModTrackingEnabled(enabled) {
 let _geoLastToastAt = 0;
 let _lastGeoSyncAt = 0;
 let _activitiesFocusKey = '';
+let _activitiesGeofencePaintSig = '';
+let _activitiesPrefetchToken = 0;
+let _activitiesPrefetchTimer = null;
+let _activitiesGeofenceRaf = 0;
+let _activitiesGeofenceQueuedOpts = null;
 let _geoPingBc = null;
 let _geoPingListenersReady = false;
 let _activitiesLocalPingPoll = null;
@@ -15494,7 +15638,7 @@ function onRemoteGeoPingsUpdated(incoming) {
     try { localStorage.setItem(GEO_PINGS_KEY, JSON.stringify(local)); } catch (_) {}
   }
   if (_activitiesMap && adminState && adminState.modView === 'activities') {
-    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
+    scheduleActivitiesGeofenceUpdate();
     try { updateActivitiesMapCaption(); } catch (_) {}
   }
 }
@@ -15504,7 +15648,7 @@ function startActivitiesLocalPingPoll() {
   ensureGeoPingBroadcast();
   _activitiesLocalPingPoll = setInterval(() => {
     if (!_activitiesMap || !adminState || adminState.modView !== 'activities') return;
-    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
+    scheduleActivitiesGeofenceUpdate();
   }, 5000);
   // Cloud locations are written about every 30 seconds. Poll often so
   // Admin sees a newly-written SessionState row shortly after it lands.
@@ -15538,9 +15682,7 @@ async function refreshActivitiesCloudPings() {
       return;
     }
     if (typeof adminState !== 'undefined') adminState.perfSessionStateRows = rows;
-    if (_activitiesMap) {
-      try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
-    }
+    if (_activitiesMap) scheduleActivitiesGeofenceUpdate();
     updateActivitiesMapCaption();
   } catch (_) {
     // fetchSessionStateRows logs the actionable failure.
@@ -16390,8 +16532,8 @@ async function pingModeratorLocation(opts) {
       mocked: !!pos.mocked,
       syncReason: opts.syncReason || '',
     }, { skipSync: !!opts.skipSync });
-    if (_activitiesMap) {
-      try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
+    if (_activitiesMap && typeof scheduleActivitiesGeofenceUpdate === 'function') {
+      scheduleActivitiesGeofenceUpdate();
     }
     return pos;
   } catch (err) {
@@ -16923,8 +17065,6 @@ function ensureGeoQaPanel() { hideModeratorGeoUi(); }
 
 function assignmentMatchesActivitiesFocus(a) {
   if (!a || a.status === 'Cancelled') return false;
-  const todayStr = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-  if (todayStr && a.date !== todayStr) return false;
   const focusMod = getSelectedActivitiesModeratorId().toLowerCase();
   const team = getSelectedActivitiesTeam();
   if (focusMod) {
@@ -16978,33 +17118,45 @@ function activitiesFenceFeatures() {
     ? getTeamOfficeAddress(team)
     : (team && team.teamAddress ? String(team.teamAddress).trim() : '');
   addAssignmentFence(teamAddr);
-  const asgns = (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
+  const asgns = (typeof listActivitiesMapAssignments === 'function')
+    ? listActivitiesMapAssignments()
+    : (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
   asgns.forEach(a => addAssignmentFence(assignmentFenceAddress(a)));
   return { type: 'FeatureCollection', features };
 }
 
 async function prefetchActivityHomeGeocodes() {
+  const token = ++_activitiesPrefetchToken;
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
-  const hadAssigned = !!(typeof getActivitiesAssignmentCenter === 'function' && getActivitiesAssignmentCenter());
   if (typeof ensureHqGeocodeSeed === 'function') ensureHqGeocodeSeed();
-  const teamAddrs = (typeof listActivitiesTeamAddressCandidates === 'function' && team)
-    ? listActivitiesTeamAddressCandidates(team)
+  const teamAddrs = (typeof listActivitiesTeamAddressCandidates === 'function' && team
+      && typeof activitiesMapShowsAllAssignedLocations === 'function'
+      && activitiesMapShowsAllAssignedLocations())
+    ? listActivitiesTeamAddressCandidates(team).filter(addr => {
+      const rows = (adminState.assignments || []).filter(a =>
+        String(a.teamId) === String(team.id)
+        && a.status !== 'Cancelled'
+        && a.status !== 'Unassigned'
+        && activitiesAssignmentInDateRange(a)
+        && (typeof assignmentFenceAddress === 'function')
+        && assignmentFenceAddress(a) === addr
+      );
+      return rows.length > 0;
+    })
     : [];
   for (const addr of teamAddrs) {
+    if (token !== _activitiesPrefetchToken) return;
     try { await geocodeAddress(addr); } catch (_) {}
-    if (typeof updateActivitiesMapCaption === 'function') updateActivitiesMapCaption();
   }
-  const asgns = (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
+  const asgns = (typeof listActivitiesMapAssignments === 'function')
+    ? listActivitiesMapAssignments()
+    : (adminState.assignments || []).filter(a => assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a));
   for (const a of asgns) {
+    if (token !== _activitiesPrefetchToken) return;
     try { await geocodeAddress(assignmentFenceAddress(a)); } catch (_) {}
   }
-  if (_activitiesMap) {
-    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
-    if (!hadAssigned && typeof getActivitiesAssignmentCenter === 'function' && getActivitiesAssignmentCenter()
-        && team && typeof playActivitiesSelectionAnimation === 'function') {
-      playActivitiesSelectionAnimation(_activitiesMap);
-    }
-  }
+  if (token !== _activitiesPrefetchToken || !_activitiesMap) return;
+  scheduleActivitiesGeofenceUpdate();
   if (typeof updateActivitiesMapCaption === 'function') updateActivitiesMapCaption();
 }
 
@@ -17037,9 +17189,11 @@ function getActivitiesAssignmentCenter() {
     : (team && team.teamAddress ? String(team.teamAddress).trim() : '');
   const candidates = [];
   if (teamAddr) candidates.push(teamAddr);
-  const asgns = (adminState.assignments || []).filter(a =>
-    assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a)
-  );
+  const asgns = (typeof listActivitiesMapAssignments === 'function')
+    ? listActivitiesMapAssignments()
+    : (adminState.assignments || []).filter(a =>
+      assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a)
+    );
   asgns.forEach(a => candidates.push(assignmentFenceAddress(a)));
   for (const addr of candidates) {
     const q = String(addr || '').trim();
@@ -17184,9 +17338,77 @@ function activitiesPlaceHoverPopup(map, marker, html) {
   });
 }
 
+function buildActivitiesGeofencePaintSig() {
+  const data = activitiesFenceFeatures();
+  const fencePart = (data.features || []).map(f => {
+    const kind = (f.properties && f.properties.kind) || '';
+    const ring = f.geometry && f.geometry.coordinates && f.geometry.coordinates[0];
+    const c = ring && ring[0];
+    if (!c) return kind;
+    return kind + '@' + Number(c[0]).toFixed(4) + ',' + Number(c[1]).toFixed(4);
+  }).join('|');
+  const focus = activitiesMapFocusKey();
+  const trackingOn = typeof isModTrackingEnabled !== 'function' || isModTrackingEnabled();
+  if (!trackingOn) return focus + '::' + fencePart + '::';
+  const team = getSelectedActivitiesTeam();
+  const focusMod = String(getSelectedActivitiesModeratorId() || '').toLowerCase();
+  const pings = loadGeoPings();
+  const teamMemberIds = (t) => {
+    if (!t) return [];
+    const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
+    return (t.primaryIds || []).concat(backups || []);
+  };
+  const lastActivePing = (ids) => {
+    let best = null;
+    (ids || []).forEach(raw => {
+      const id = String(raw || '').toLowerCase();
+      if (!id) return;
+      const ping = pings[id] || Object.values(pings).find(p =>
+        String((p && p.orbitLoginId) || '').toLowerCase() === id
+      );
+      if (!ping || !Number.isFinite(ping.lat) || !Number.isFinite(ping.lng)) return;
+      const at = Number(ping.at) || 0;
+      if (!best || at > best.at) best = { id, ping, at };
+    });
+    return best;
+  };
+  const pingParts = [];
+  if (focusMod) {
+    const ping = pings[focusMod] || Object.values(pings).find(p =>
+      String((p && p.orbitLoginId) || '').toLowerCase() === focusMod
+    );
+    if (ping && Number.isFinite(ping.lat) && Number.isFinite(ping.lng)) {
+      pingParts.push(focusMod + '@' + ping.lat.toFixed(5) + ',' + ping.lng.toFixed(5));
+    }
+  } else if (team) {
+    const best = lastActivePing(teamMemberIds(team));
+    if (best) {
+      pingParts.push(best.id + '@' + best.ping.lat.toFixed(5) + ',' + best.ping.lng.toFixed(5));
+    }
+  } else {
+    const shown = new Set();
+    (typeof listActivitiesTeamsForDateRange === 'function'
+      ? listActivitiesTeamsForDateRange()
+      : (typeof listActivitiesTeams === 'function' ? listActivitiesTeams() : (adminState.teams || []))
+    ).forEach(t => {
+      const best = lastActivePing(teamMemberIds(t));
+      if (best && !shown.has(best.id)) {
+        shown.add(best.id);
+        pingParts.push(best.id + '@' + best.ping.lat.toFixed(5) + ',' + best.ping.lng.toFixed(5));
+      }
+    });
+  }
+  const assigned = getActivitiesAssignmentCenter();
+  const assignPart = assigned
+    ? ('asgn@' + assigned.lat.toFixed(5) + ',' + assigned.lng.toFixed(5))
+    : '';
+  return focus + '::' + fencePart + '::' + pingParts.join('|') + '::' + assignPart;
+}
+
 async function playActivitiesSelectionAnimation(map) {
   if (!map) return;
-  const focusKey = (adminState.activitiesModeratorId || '') + '|' + (adminState.activitiesTeamId || '');
+  const focusKey = activitiesMapFocusKey();
+  if (_activitiesCameraLocked && focusKey === _activitiesCameraFocusKey) return;
   cancelActivitiesCameraAnimation(map);
   const token = _activitiesCameraToken;
   _activitiesCameraLocked = false;
@@ -17240,6 +17462,8 @@ function placeActivitiesGeofence(map, opts) {
   opts = opts || {};
   if (!map || !map.isStyleLoaded || !map.isStyleLoaded()) return;
   const data = activitiesFenceFeatures();
+  const paintSig = buildActivitiesGeofencePaintSig();
+  const sameVisual = paintSig === _activitiesGeofencePaintSig && !opts.animateSelection;
   const src = map.getSource('twilight-geofence');
   if (src) {
     src.setData(data);
@@ -17272,6 +17496,13 @@ function placeActivitiesGeofence(map, opts) {
     map.setPaintProperty('twilight-geofence-line', 'line-width', 2.5);
     map.setPaintProperty('twilight-geofence-line', 'line-opacity', 0.9);
   } catch (_) {}
+
+  if (sameVisual) {
+    updateActivitiesMapCaption();
+    if (opts.animateSelection) playActivitiesSelectionAnimation(map);
+    return;
+  }
+  _activitiesGeofencePaintSig = paintSig;
 
   document.querySelectorAll('.geo-mod-marker, .activities-map-marker, .geo-place-marker').forEach(el => {
     try { if (el.__marker) el.__marker.remove(); } catch (_) {}
@@ -17421,6 +17652,18 @@ function destroyActivitiesMap() {
   stopActivitiesLocalPingPoll();
   _activitiesCameraToken += 1;
   _activitiesCameraLocked = false;
+  _activitiesGeofencePaintSig = '';
+  _activitiesFocusKey = '';
+  _activitiesPrefetchToken += 1;
+  if (_activitiesPrefetchTimer) {
+    clearTimeout(_activitiesPrefetchTimer);
+    _activitiesPrefetchTimer = null;
+  }
+  if (_activitiesGeofenceRaf) {
+    cancelAnimationFrame(_activitiesGeofenceRaf);
+    _activitiesGeofenceRaf = 0;
+    _activitiesGeofenceQueuedOpts = null;
+  }
   if (_activitiesMap) {
     try { _activitiesMap.remove(); } catch (_) {}
     _activitiesMap = null;
@@ -17547,6 +17790,21 @@ function ensureActivitiesMapThemeObserver() {
   });
 }
 
+function activitiesMapShellMounted() {
+  return !!(document.getElementById('activitiesMap') && _activitiesMap);
+}
+
+function refreshModActivitiesViewInPlace() {
+  updateActivitiesMapCaption();
+  const status = document.getElementById('activitiesTrackingStatus');
+  if (status && typeof modTrackingStatusText === 'function') {
+    status.textContent = modTrackingStatusText(isModTrackingEnabled());
+  }
+  if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+  scheduleActivitiesPrefetch();
+  if (!_activitiesLocalPingPoll) startActivitiesLocalPingPoll();
+}
+
 function initActivitiesMap() {
   const el = document.getElementById('activitiesMap');
   if (!el) return;
@@ -17560,7 +17818,11 @@ function initActivitiesMap() {
     });
     return;
   }
-  destroyActivitiesMap();
+  if (_activitiesMap) {
+    try { _activitiesMap.remove(); } catch (_) {}
+    _activitiesMap = null;
+    _activitiesGeofencePaintSig = '';
+  }
   const styleUrl = activitiesMapStyleUrl();
   _activitiesMapStyleKey = styleUrl;
   _activitiesMap = new maplibregl.Map({
@@ -17581,6 +17843,8 @@ function initActivitiesMap() {
     try { _activitiesMap.resize(); } catch (_) {}
     const fallback = document.getElementById('activitiesMapFallback');
     if (fallback) fallback.hidden = true;
+    startActivitiesLocalPingPoll();
+    scheduleActivitiesPrefetch();
   });
   _activitiesMap.on('error', (e) => {
     console.warn('[Twilight] Activities map error:', e && (e.error || e));
@@ -17596,6 +17860,10 @@ function initActivitiesMap() {
 function renderModActivitiesView() {
   const wrap = document.getElementById('modviewBody');
   if (!wrap) return;
+  if (activitiesMapShellMounted() && wrap.querySelector('#activitiesVizContainer')) {
+    refreshModActivitiesViewInPlace();
+    return;
+  }
   destroyActivitiesMap();
   wrap.innerHTML = `
     <div class="activities-viz-outer" id="activitiesVizContainer">
@@ -17626,15 +17894,7 @@ function renderModActivitiesView() {
     </div>`;
   // Defer so the inset well has layout before MapLibre measures it.
   requestAnimationFrame(() => initActivitiesMap());
-  prefetchActivityHomeGeocodes();
-  startActivitiesLocalPingPoll();
   ensureGeoPingBroadcast();
-  // Prefer local / demo pins immediately. Cloud SessionState READ is
-  // currently failing live (HTTP 502 NoResponse). Soft-fail and keep
-  // showing whatever is already in localStorage, with a visible warning.
-  if (_activitiesMap) {
-    try { placeActivitiesGeofence(_activitiesMap); } catch (_) {}
-  }
   updateActivitiesMapCaption();
   refreshActivitiesCloudPings();
   if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
@@ -25625,6 +25885,48 @@ function applyManualParticipantFieldsToData(participantData, m, live) {
   const custom = !live || nameChanged || addrChanged;
   return { participantData: out, custom: !!(custom && (snap.name || snap.addr)) };
 }
+
+function odBookingAddressBaseline(participantData) {
+  const pd = participantData || {};
+  const line = (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(pd)
+    : '';
+  return String(line || pd.address || '').trim();
+}
+
+function syncOdBookingAddressOverride(m) {
+  if (!m || !m.odLocked) return;
+  const snap = assignmentManualParticipantSnapshot(m);
+  const typed = snap.addr;
+  let baseline = String(m._odAddressBaseline || '').trim();
+  if (!baseline && m.kind === 'editAssignment' && m.editingId) {
+    const row = (adminState.assignments || []).find(x => x.id === m.editingId);
+    baseline = odBookingAddressBaseline(row && row.participantData);
+    m._odAddressBaseline = baseline;
+  }
+  const ov = Object.assign({}, m.participantOverride || {});
+  if (typed && typed !== baseline) {
+    ov.address = m.participantAddress;
+  } else {
+    delete ov.address;
+  }
+  m.participantOverride = Object.keys(ov).length ? ov : null;
+}
+
+function applyOdBookingAddressFromModal(participantData, m) {
+  const out = Object.assign({}, participantData || {});
+  const snap = assignmentManualParticipantSnapshot(m);
+  const typed = snap.addr;
+  if (!typed) return { participantData: out, custom: false };
+  const baseline = odBookingAddressBaseline(participantData)
+    || String((m && m._odAddressBaseline) || '').trim();
+  out.address = typed;
+  if (typed !== baseline) {
+    out.state = '';
+    out.zipCode = '';
+  }
+  return { participantData: out, custom: typed !== baseline };
+}
 /* BOOKING_MANUAL_PART_END */
 
 function bookingCurrentAddress() {
@@ -26665,6 +26967,9 @@ function bookingSetSelectedDate(dateStr, opts) {
 
 function renderBookingDashboardHTML() {
   ensureCalAnchor();
+  if (adminState.bookingSessionScope !== 'day' && adminState.bookingSessionScope !== 'week') {
+    adminState.bookingSessionScope = 'day';
+  }
   if (adminState.bookingStartMin == null) adminState.bookingStartMin = BOOKING_DEFAULT_START_MIN;
   if (adminState.bookingEndMin == null) adminState.bookingEndMin = BOOKING_DEFAULT_END_MIN;
   const view = bookingViewMode();
@@ -30207,6 +30512,7 @@ function openEditAssignmentModal(asgnId) {
     ? formatParticipantAddressLine(pd)
     : (pd.address || '');
   const odLocked = (typeof assignmentIsOdOrigin === 'function') ? assignmentIsOdOrigin(a) : false;
+  const odBaselineAddr = odBookingAddressBaseline(pd);
   const startMin = assignmentCoerceClockMin(a.startMin, BOOKING_DEFAULT_START_MIN);
   const endMin = assignmentNormalizeStoredEndMin(startMin, a.endMin);
   const teamLabel = assignmentModalTeamDisplayName(a.teamId, a.teamName);
@@ -30239,6 +30545,7 @@ function openEditAssignmentModal(asgnId) {
     // from live). The edit popup opens on demand via the inline
     // trigger button rendered in the parent modal.
     participantOverride: savedOverride,
+    _odAddressBaseline: odLocked ? odBaselineAddr : '',
   };
   renderAssignmentModal();
   showAsgnModal();
@@ -30868,9 +31175,9 @@ function renderAssignmentModal() {
       </div>
       <div class="asgn-field">
         <label class="asgn-field-label">Address</label>
-        <textarea id="asgnPartAddress" rows="2" placeholder="Street, city, state, ZIP" ${m.odLocked ? 'readonly' : ''}>${escapeHTML(m.participantAddress || '')}</textarea>
+        <textarea id="asgnPartAddress" rows="2" placeholder="Street, city, state, ZIP">${escapeHTML(m.participantAddress || '')}</textarea>
         <div class="asgn-field-hint">${m.odLocked
-          ? 'This session is from OneData. Address stays with OD.'
+          ? 'OneData session · you can edit the address here. Your change overwrites the OD address for this booking only (emails, map, Excel). Name stays from OD.'
           : 'Type an address even if the person is missing from the master list.'}</div>
       </div>
 
@@ -31280,8 +31587,11 @@ function renderAssignmentModal() {
   const addrInput = document.getElementById('asgnPartAddress');
   if (addrInput) {
     addrInput.addEventListener('input', e => {
-      if (!adminState.modal || adminState.modal.odLocked) return;
+      if (!adminState.modal) return;
       adminState.modal.participantAddress = e.target.value;
+      if (adminState.modal.odLocked && typeof syncOdBookingAddressOverride === 'function') {
+        syncOdBookingAddressOverride(adminState.modal);
+      }
       refreshAsgnManualSaveButton();
     });
   }
@@ -31891,6 +32201,12 @@ async function saveAssignment() {
   let manualCustom = false;
   if (!m.odLocked && typeof applyManualParticipantFieldsToData === 'function') {
     const applied = applyManualParticipantFieldsToData(participantData, m, participant);
+    participantData = applied.participantData;
+    manualCustom = !!applied.custom;
+  } else if (m.odLocked && typeof applyOdBookingAddressFromModal === 'function') {
+    if (!participantData) participantData = {};
+    if (typeof syncOdBookingAddressOverride === 'function') syncOdBookingAddressOverride(m);
+    const applied = applyOdBookingAddressFromModal(participantData, m);
     participantData = applied.participantData;
     manualCustom = !!applied.custom;
   } else if (!participantData) {

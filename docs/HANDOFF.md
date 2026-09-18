@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-17 · Cursor (Composer) · Performance tab: hero/tabs no longer wiped on strike refresh  
+**Last updated:** 2026-09-17 · Cursor (Composer) · Activities date range + compact team filter (local v1.3.091726u)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091726t` (Performance strike refresh keeps admin hero + tabs) |
+| **`main` version** | `1.3.091726x` (Activities filters + map stability, Booking today default, OD address overwrite) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |

@@ -23,9 +23,21 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091726t',
-  /const APP_VERSION = '1\.3\.091726t'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091726t'));
+assert('version bump 091726x',
+  /const APP_VERSION = '1\.3\.091726x'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091726x'));
+assert('activities map paint de-bounce',
+  /buildActivitiesGeofencePaintSig/.test(src)
+  && /scheduleActivitiesPrefetch/.test(src)
+  && /scheduleActivitiesGeofenceUpdate/.test(src)
+  && /activitiesMapShellMounted/.test(src));
+assert('booking sessions default today',
+  /bookingSessionScope:\s*'day'/.test(src)
+  && /adminState\.bookingSessionScope = 'day'/.test(src));
+assert('activities date range defaults today',
+  /activitiesDateRange:\s*'today'/.test(src)
+  && /data-activities-range="today"/.test(src)
+  && /function getActivitiesDateRange/.test(src));
 assert('perf strike refresh targets tab body only',
   /modStrikeRefreshUi[\s\S]*?getElementById\('adminTabBody'\)/.test(src)
   && !/modStrikeRefreshUi[\s\S]*?getElementById\('adminContent'\)/.test(src));
