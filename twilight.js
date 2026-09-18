@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728e';
-const APP_UPDATED_AT = '09/18/2026 03:55';
+const APP_VERSION = '1.3.091728g';
+const APP_UPDATED_AT = '09/18/2026 04:35';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8726,10 +8726,15 @@ function computeOverviewMetrics() {
   }
   const totalMods = modList.length;
 
-  // Total live teams · teams that own at least one filtered assignment
-  const liveTeamIds = new Set(filteredAsgns.map(a => a.teamId).filter(x => x !== null && x !== undefined));
-  // If a specific team is chosen, treat it as live regardless (operator view of "this team")
-  if (f.teamId !== 'all') liveTeamIds.add(Number(f.teamId));
+  // Live teams · moderator confirmed participant check-in (arrived+), session not wrapped up.
+  const liveTeamIds = new Set();
+  filteredAsgns.forEach(a => {
+    if (a && a.teamId != null && a.teamId !== ''
+        && typeof assignmentHasModeratorArrivalCheckIn === 'function'
+        && assignmentHasModeratorArrivalCheckIn(a)) {
+      liveTeamIds.add(a.teamId);
+    }
+  });
   const totalLiveTeams = liveTeamIds.size;
 
   // Total participants · the CURRENT TOTAL from the participant table (post
@@ -8868,13 +8873,19 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     (rep.teams || []).forEach(row => {
       if (!teamMatch(row.teamId)) return;
       if (row.skipped || !row.flagIncomplete) return;
+      const strikeAsgn = (row.assignmentId != null)
+        ? ((adminState.assignments || []).find(x => String(x.id) === String(row.assignmentId))
+          || (filteredAsgns || []).find(x => String(x.id) === String(row.assignmentId)))
+        : null;
+      if (typeof assignmentHasModeratorArrivalCheckIn === 'function'
+          && !assignmentHasModeratorArrivalCheckIn(strikeAsgn)) return;
       const team = teams.find(t => String(t.id) === String(row.teamId));
       const name = (team && team.name) || row.teamName || 'Team';
       upsert(row.teamId, {
         teamId: row.teamId,
         teamName: name,
-        line: name + ' Flagged · Not completed',
         kind: 'flagged',
+        station: '',
         rank: 0,
       });
     });
@@ -8883,33 +8894,19 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   (filteredAsgns || []).forEach(a => {
     if (!a || a.teamId == null || a.teamId === '') return;
     if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return;
-    const cls = (typeof classifyBookingForPerf === 'function') ? classifyBookingForPerf(a) : null;
-    if (!cls) return;
+    if (typeof assignmentHasModeratorArrivalCheckIn !== 'function'
+        || !assignmentHasModeratorArrivalCheckIn(a)) return;
     const key = String(a.teamId);
     if (entries.get(key) && entries.get(key).kind === 'flagged') return;
     const team = teams.find(t => String(t.id) === key);
     const name = (team && team.name) || a.teamName || 'Team';
-    if (cls === 'completed') {
-      upsert(a.teamId, { teamId: a.teamId, teamName: name, line: name + ' Completed', kind: 'completed', rank: 3 });
-      return;
-    }
-    if (cls === 'inprogress') {
-      const st = overviewLiveStatusStationLabel(a);
-      upsert(a.teamId, {
-        teamId: a.teamId,
-        teamName: name,
-        line: name + ' In progress' + (st ? (' - ' + st) : ''),
-        kind: 'inprogress',
-        rank: 1,
-      });
-      return;
-    }
+    const st = overviewLiveStatusStationLabel(a);
     upsert(a.teamId, {
       teamId: a.teamId,
       teamName: name,
-      line: name + ' Scheduled',
-      kind: 'scheduled',
-      rank: 2,
+      kind: 'inprogress',
+      station: st || '',
+      rank: 1,
     });
   });
 
@@ -8918,17 +8915,50 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     .slice(0, maxCount);
 }
 
+function overviewLiveStatusPillLabel(kind) {
+  if (kind === 'flagged') return 'Not completed';
+  if (kind === 'inprogress') return 'In progress';
+  if (kind === 'completed') return 'Completed';
+  return 'Scheduled';
+}
+
 function renderOverviewLiveStatusList(lines) {
   const list = document.getElementById('ovLiveStatusList');
   if (!list) return;
   if (!lines || !lines.length) {
-    list.innerHTML = '<li class="ov-livestatus-empty">No live teams in this view</li>';
+    list.innerHTML = '<li class="ov-livestatus-empty">No teams checked in for this view</li>';
     return;
   }
   list.innerHTML = lines.map(row => {
     const kind = row.kind || 'scheduled';
-    return '<li class="ov-livestatus-row is-' + kind + '">' + escapeHTML(row.line || '') + '</li>';
+    const teamName = escapeHTML(row.teamName || 'Team');
+    const pill = escapeHTML(overviewLiveStatusPillLabel(kind));
+    const station = row.station ? escapeHTML(String(row.station)) : '';
+    const stationHtml = station
+      ? ('<span class="ov-livestatus-station" aria-label="Station">' + station + '</span>')
+      : '';
+    return (
+      '<li class="ov-livestatus-row is-' + kind + '">'
+      + '<div class="ov-livestatus-team" title="' + teamName + '">' + teamName + '</div>'
+      + '<div class="ov-livestatus-meta">'
+      + '<span class="ov-livestatus-pill">' + pill + '</span>'
+      + stationHtml
+      + '</div>'
+      + '</li>'
+    );
   }).join('');
+}
+
+function overviewLiveStatusFootText(snapshots) {
+  const rows = snapshots || [];
+  if (!rows.length) return 'Tap for Performance';
+  const active = rows.filter(r => r.kind === 'inprogress').length;
+  const flagged = rows.filter(r => r.kind === 'flagged').length;
+  const parts = [];
+  if (active) parts.push(active + ' active');
+  if (flagged) parts.push(flagged + ' flagged');
+  if (parts.length) return parts.join(' · ') + ' · Performance';
+  return rows.length + ' team' + (rows.length === 1 ? '' : 's') + ' · Performance';
 }
 
 // ----- Renderers
@@ -9428,6 +9458,24 @@ function highlightMatch(text, search) {
   const match  = String(text).slice(idx, idx + search.length);
   const after  = String(text).slice(idx + search.length);
   return escapeHTML(before) + '<mark class="perf-match-hl">' + escapeHTML(match) + '</mark>' + escapeHTML(after);
+}
+
+// Overview "Live teams" + Live status tile: true only after the mod taps
+// "I've arrived" at the participant (worklog arrived → session_done), not
+// office check-in, Notified, or geo pings alone.
+function assignmentHasModeratorArrivalCheckIn(a) {
+  if (!a) return false;
+  if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return false;
+  if (a.status === 'Completed') return false;
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id)
+    : null;
+  if (!live || !live.status || typeof statusOrderIdx !== 'function') return false;
+  const idx = statusOrderIdx(live.status);
+  const arrivedIdx = statusOrderIdx('arrived');
+  const doneIdx = statusOrderIdx('session_done');
+  if (idx < 0 || arrivedIdx < 0 || doneIdx < 0) return false;
+  return idx >= arrivedIdx && idx < doneIdx;
 }
 
 // Classify an assignment into one of three buckets for the perf view.
@@ -10033,6 +10081,9 @@ async function refreshPerfLiveData() {
     if (typeof wirePerfTileGrid === 'function') wirePerfTileGrid(grid);
   }
   if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
+  if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+    updateOverviewMetrics();
+  }
   // Refresh the open side panel too, so its live status / station detail
   // tracks along.
   const panel = document.getElementById('perfPanel');
@@ -10050,7 +10101,7 @@ function startPerfLivePoll() {
     // is the primary stop; this visibility guard saves needless traffic
     // when admin tabs away from the whole browser window.
     if (document.visibilityState !== 'visible') return;
-    if (adminState.tab !== 'performance') return;
+    if (adminState.tab !== 'performance' && adminState.tab !== 'overview') return;
     refreshPerfLiveData();
   }, PERF_LIVE_POLL_MS);
 }
@@ -12358,6 +12409,14 @@ function renderOverview(body) {
   // Reset cached "previous values" so the first render animates from 0
   window._ovPrev = null;
   updateOverviewMetrics();
+  if (typeof ensurePerfSessionStateRows === 'function') {
+    ensurePerfSessionStateRows().then(() => {
+      if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+        updateOverviewMetrics();
+      }
+    }).catch(() => {});
+  }
+  if (typeof startPerfLivePoll === 'function') startPerfLivePoll();
   startOverviewHeliosClock();
   bindOverviewVizTilt(body);
   bindOverviewHeliosFit();
@@ -12455,7 +12514,7 @@ function statTileLiveStatusShellHTML() {
       </div>
       <div class="ov-stat-body ov-stat-body-livestatus">
         <ul class="ov-livestatus-list" id="ovLiveStatusList" aria-live="polite"></ul>
-        <div class="ov-stat-foot" id="ovFoot-livestatus">Up to 3 teams · tap for Performance</div>
+        <div class="ov-stat-foot" id="ovFoot-livestatus">Tap for Performance</div>
       </div>
     </div>
   `;
@@ -12544,10 +12603,15 @@ function updateOverviewMetrics() {
   setOverviewTileBar('teams', (m.totalLiveTeams / teamDenom) * 100);
   setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
   setOverviewTileFoot('moderators', 'In directory');
-  setOverviewTileFoot('teams', m.totalLiveTeams === 1 ? '1 live team · Performance' : m.totalLiveTeams + ' live teams · Performance');
+  setOverviewTileFoot('teams', m.totalLiveTeams === 1
+    ? '1 checked in · Performance'
+    : m.totalLiveTeams + ' checked in · Performance');
   setOverviewTileFoot('bookings', m.completedCount + ' completed');
   if (typeof renderOverviewLiveStatusList === 'function') {
     renderOverviewLiveStatusList(m.liveTeamSnapshots || []);
+  }
+  if (typeof overviewLiveStatusFootText === 'function') {
+    setOverviewTileFoot('livestatus', overviewLiveStatusFootText(m.liveTeamSnapshots));
   }
 
   // 2. Update line chart title + sub based on the current filter set so the
@@ -13789,7 +13853,7 @@ function renderAdminTabBody(opts) {
   // Same teardown for the Performance live-refresh poll · stop it when
   // admin navigates away so we don't keep fetching SessionState (and
   // don't re-render a grid that's no longer on screen).
-  if (adminState.tab !== 'performance' && typeof stopPerfLivePoll === 'function') {
+  if (adminState.tab !== 'performance' && adminState.tab !== 'overview' && typeof stopPerfLivePoll === 'function') {
     stopPerfLivePoll();
   }
   if (typeof shouldPollTeamLivePresence === 'function'

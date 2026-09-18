@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor (Composer) · Strike banner session-end gate + booking queue (v1.3.091728c pushed)  
+**Last updated:** 2026-09-18 · Cursor (Composer) · Overview live = mod check-in (v1.3.091728g pushed)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728e`** (mod queue: same-team until wrap-up); push pending |
+| **`main` version** | **`1.3.091728g`** (Overview: check-in-only live teams + Live status UI) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
