@@ -81,12 +81,21 @@
     }
     .step img {
       width: 100%;
+      max-width: 100%;
       height: auto;
       display: block;
       border-radius: 14px;
       border: 1px solid var(--border);
       background: #0d0f14;
       object-fit: contain;
+    }
+    #panic .step img {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      object-position: center;
     }
     .step-body { padding: 4px 2px 0; }
     .step-num {
@@ -313,7 +322,7 @@
           <h3><span class="step-num">1</span> Find / open the Panic button</h3>
           <p>Look for the red circular <strong>!</strong> FAB in the bottom-right of the moderator UI. Tap it to open the Panic menu.</p>
         </div>
-        <img src="images/tw-panic-1-open.png" alt="Step 1: find and open the red Panic FAB" width="1280" height="720" />
+        <img src="images/tw-panic-1-open.png" alt="Step 1: find and open the red Panic FAB" />
         <p class="img-caption">Step 1 — Live app: red ! Panic FAB (bottom-right)</p>
       </div>
 
@@ -322,7 +331,7 @@
           <h3><span class="step-num">2</span> Open Comm (Teams)</h3>
           <p>In the Panic menu, tap <strong>Comm</strong> to open the managers Teams chat. When the flow prompts you, notify managers in Teams immediately.</p>
         </div>
-        <img src="images/tw-panic-2-teams.png" alt="Step 2: Panic menu showing Comm, Troubleshooting, Emergency" width="1280" height="720" />
+        <img src="images/tw-panic-2-teams.png" alt="Step 2: Panic menu showing Comm, Troubleshooting, Emergency" />
         <p class="img-caption">Step 2 — Live app: Panic menu (Comm · Troubleshooting · Emergency)</p>
       </div>
 
@@ -331,7 +340,7 @@
           <h3><span class="step-num">3</span> Troubleshooting Tips</h3>
           <p>Use <strong>Troubleshooting Tips</strong> for network problems (Eero bridge, Xfinity, cameras to home WiFi as a last resort), night-specific issues, and FAQ answers — before you escalate.</p>
         </div>
-        <img src="images/tw-panic-3-troubleshoot.png" alt="Step 3: Troubleshooting Tips for network and night issues" width="1280" height="720" />
+        <img src="images/tw-panic-3-troubleshoot.png" alt="Step 3: Troubleshooting Tips for network and night issues" />
         <p class="img-caption">Step 3 — Live app: Troubleshooting Tips</p>
       </div>
 
@@ -346,7 +355,7 @@
             <li><strong>Escalate immediately</strong> — notify the project manager directly (see next step)</li>
           </ul>
         </div>
-        <img src="images/tw-panic-4-tiers.png" alt="Step 4: four escalation tiers" width="1280" height="720" />
+        <img src="images/tw-panic-4-tiers.png" alt="Step 4: four escalation tiers" />
         <p class="img-caption">Step 4 — Live app: Emergency · Escalation Tiers</p>
       </div>
 
@@ -364,7 +373,7 @@
             <strong>Safety first:</strong> If anyone is in danger, call 911. Then escalate and notify the project manager.
           </div>
         </div>
-        <img src="images/tw-panic-5-escalate.png" alt="Step 5: Escalate immediately options — police, data loss, NDA, misconduct" width="1280" height="720" />
+        <img src="images/tw-panic-5-escalate.png" alt="Step 5: Escalate immediately options — police, data loss, NDA, misconduct" />
         <p class="img-caption">Step 5 — Live app: Escalate immediately options</p>
       </div>
     </section>
