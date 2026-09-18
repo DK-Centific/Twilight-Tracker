@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728h`** on `main` · **`1.3.091728i`** on branch `cursor/overview-live-perf-parity-cf52` |
+| **`main` version** | **`1.3.091728h`** on `main` · **`1.3.091728j`** on branch `cursor/overview-live-perf-parity-cf52` (PR #111) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |

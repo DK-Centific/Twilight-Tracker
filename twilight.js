@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728i';
-const APP_UPDATED_AT = '09/18/2026 11:15';
+const APP_VERSION = '1.3.091728j';
+const APP_UPDATED_AT = '09/18/2026 11:35';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8865,7 +8865,7 @@ function overviewLiveStatusStationLabel(asgn) {
   if (!asgn || typeof perfLiveStatusDisplay !== 'function') return '';
   const label = String((perfLiveStatusDisplay(asgn) || {}).label || '');
   const m = label.match(/St\s*(\d+)/i);
-  return m ? ('ST' + m[1]) : '';
+  return m ? m[1] : '';
 }
 
 function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
@@ -8936,23 +8936,28 @@ function renderOverviewLiveStatusList(lines) {
   const list = document.getElementById('ovLiveStatusList');
   if (!list) return;
   if (!lines || !lines.length) {
-    list.innerHTML = '<li class="ov-livestatus-empty">No live teams for this view</li>';
+    list.innerHTML = '<li class="ov-ls-empty">No teams checked in for this view</li>';
     return;
   }
   list.innerHTML = lines.map(row => {
     const kind = row.kind || 'scheduled';
     const teamName = escapeHTML(row.teamName || 'Team');
-    const pill = escapeHTML(overviewLiveStatusPillLabel(kind));
-    const station = row.station ? escapeHTML(String(row.station)) : '';
+    const pillLabel = escapeHTML(overviewLiveStatusPillLabel(kind));
+    const stationRaw = row.station ? String(row.station).replace(/^ST\s*/i, '').trim() : '';
+    const station = stationRaw ? escapeHTML(stationRaw) : '';
     const stationHtml = station
-      ? ('<span class="ov-livestatus-station" aria-label="Station">' + station + '</span>')
+      ? ('<span class="ov-ls-station" aria-label="Station">ST ' + station + '</span>')
       : '';
     return (
-      '<li class="ov-livestatus-row is-' + kind + '">'
-      + '<div class="ov-livestatus-team" title="' + teamName + '">' + teamName + '</div>'
-      + '<div class="ov-livestatus-meta">'
-      + '<span class="ov-livestatus-pill">' + pill + '</span>'
+      '<li class="ov-ls-row is-' + kind + '">'
+      + '<span class="ov-ls-rail" aria-hidden="true"></span>'
+      + '<div class="ov-ls-main">'
+      + '<div class="ov-ls-team" title="' + teamName + '">' + teamName + '</div>'
+      + '<div class="ov-ls-sub">'
+      + '<span class="ov-ls-dot" aria-hidden="true"></span>'
+      + '<span class="ov-ls-status">' + pillLabel + '</span>'
       + stationHtml
+      + '</div>'
       + '</div>'
       + '</li>'
     );
@@ -12613,7 +12618,7 @@ function statTileLiveStatusShellHTML() {
         <div class="ov-stat-icon">${icon}</div>
       </div>
       <div class="ov-stat-body ov-stat-body-livestatus">
-        <ul class="ov-livestatus-list" id="ovLiveStatusList" aria-live="polite"></ul>
+        <ul class="ov-ls-list" id="ovLiveStatusList" aria-live="polite"></ul>
         <div class="ov-stat-foot" id="ovFoot-livestatus">Tap for Performance</div>
       </div>
     </div>
