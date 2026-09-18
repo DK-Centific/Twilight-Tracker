@@ -23,9 +23,16 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091726x',
-  /const APP_VERSION = '1\.3\.091726x'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091726x'));
+assert('version bump 091726z',
+  /const APP_VERSION = '1\.3\.091726z'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091726z'));
+assert('perf checkpoint skip lifts auto-strike',
+  /function skipModStrikeCheckpointTeam/.test(src)
+  && /data-mod-strike-checkpoint-skip/.test(src)
+  && /modStrikeCheckpointSkippedTeamIds/.test(src));
+assert('activities map preserved on renderModerators refresh',
+  /keepActivitiesDom/.test(src)
+  && /refreshModActivitiesViewInPlace\(\)/.test(src));
 assert('activities map paint de-bounce',
   /buildActivitiesGeofencePaintSig/.test(src)
   && /scheduleActivitiesPrefetch/.test(src)

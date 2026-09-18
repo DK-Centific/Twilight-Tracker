@@ -7924,6 +7924,19 @@ input#ent_lakitu.lakitu-invalid {
 }
 .mod-strike-check-row.is-done .mod-strike-check-status { color: var(--success, #22c55e); }
 .mod-strike-check-row.is-missed .mod-strike-check-status { color: #f59e0b; }
+.mod-strike-check-row.is-skipped .mod-strike-check-status { color: var(--text3); }
+.mod-strike-check-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.mod-strike-check-skip {
+  font-size: 11px;
+  padding: 2px 8px;
+  min-height: 0;
+  line-height: 1.3;
+}
 .perf-tile-title .mod-stars { margin-left: 6px; }
 
 .mod-detail-list {
@@ -17738,7 +17751,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091726x" defer></script>
+<script src="twilight.js?v=twilight-1.3.091726z" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

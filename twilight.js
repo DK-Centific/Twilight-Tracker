@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726x';
-const APP_UPDATED_AT = '09/17/2026 21:15';
+const APP_VERSION = '1.3.091726z';
+const APP_UPDATED_AT = '09/17/2026 22:52';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -9384,6 +9384,11 @@ function classifyBookingForPerf(a) {
   // pill before. (session_done is already handled above.)
   if (live && (typeof statusOrderIdx === 'function') && statusOrderIdx(live.status) >= 0) return 'inprogress';
   if (a.status === 'Notified') return 'inprogress';
+  // Today's booking with a location ping in the last 2 hours (SessionState
+  // or local geo cache) counts as Live even before arrival is confirmed.
+  if (typeof perfAssignmentHasRecentGeoActivity === 'function' && perfAssignmentHasRecentGeoActivity(a)) {
+    return 'inprogress';
+  }
   return 'scheduled'; // 'Booked' (or anything else not Cancelled/Completed)
 }
 
@@ -9421,7 +9426,78 @@ function perfLiveStatusDisplay(a) {
     return { key: 'insession', label: st ? `In session · ${st}` : 'In session' };
   }
   if (a.status === 'Notified') return { key: 'notified', label: 'Notified' };
+  if (typeof perfAssignmentHasRecentGeoActivity === 'function' && perfAssignmentHasRecentGeoActivity(a)) {
+    const track = (typeof perfGeoTrackDisplay === 'function') ? perfGeoTrackDisplay(a) : null;
+    if (track && track.key === 'ataddress') return { key: 'insession', label: 'Live · on site' };
+    if (track && track.key === 'outside') return { key: 'checkin', label: 'Live · en route' };
+    if (track && track.key === 'arrived') return { key: 'checkin', label: 'Check-in' };
+    return { key: 'notified', label: 'Live · tracking' };
+  }
   return { key: 'booked', label: 'Booked' };
+}
+
+// Performance Live · location activity within this window counts as "Live"
+// for today's bookings (matches Activities recent pings).
+const PERF_GEO_LIVE_MS = 2 * 60 * 60 * 1000;
+
+function perfAssignmentOrbitLoginIds(a) {
+  const ids = new Set();
+  if (!a) return ids;
+  (a.modSnapshots || []).forEach(s => {
+    const id = String(s.orbitLoginId || '').trim().toLowerCase();
+    if (id) ids.add(id);
+  });
+  if (a.teamId && adminState && Array.isArray(adminState.teams)) {
+    const t = adminState.teams.find(x => String(x.id) === String(a.teamId));
+    if (t) {
+      const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
+      (t.primaryIds || []).concat(backups || []).forEach(raw => {
+        const id = String(raw || '').trim().toLowerCase();
+        if (id) ids.add(id);
+      });
+    }
+  }
+  return ids;
+}
+
+function perfBestRecentGeoAtMs(a, maxAgeMs) {
+  if (!a) return 0;
+  const age = (maxAgeMs != null && maxAgeMs > 0) ? maxAgeMs : PERF_GEO_LIVE_MS;
+  const now = Date.now();
+  let best = 0;
+  const consider = (atMs) => {
+    const t = Number(atMs) || 0;
+    if (!t || (now - t) > age) return;
+    if (t > best) best = t;
+  };
+  for (const r of perfAssignmentSessionRows(a)) {
+    let parsed = {};
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    const geo = (typeof lastGeoFromSessionRow === 'function')
+      ? lastGeoFromSessionRow(r, parsed)
+      : (parsed.lastGeo || null);
+    if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) continue;
+    consider((typeof lastGeoPingAtMs === 'function')
+      ? lastGeoPingAtMs(geo)
+      : (parseLastActiveMs(r.lastActive) || Number(geo.at) || 0));
+  }
+  if (typeof loadGeoPings === 'function') {
+    const pings = loadGeoPings();
+    perfAssignmentOrbitLoginIds(a).forEach(id => {
+      const ping = pings[id] || Object.values(pings).find(p =>
+        String((p && p.orbitLoginId) || '').toLowerCase() === id
+      );
+      if (!ping || !Number.isFinite(Number(ping.lat)) || !Number.isFinite(Number(ping.lng))) return;
+      consider((typeof lastGeoPingAtMs === 'function') ? lastGeoPingAtMs(ping) : Number(ping.at) || 0);
+    });
+  }
+  return best;
+}
+
+function perfAssignmentHasRecentGeoActivity(a, maxAgeMs) {
+  if (!a) return false;
+  if (typeof perfDateInRange === 'function' && !perfDateInRange(a, 'today')) return false;
+  return perfBestRecentGeoAtMs(a, maxAgeMs) > 0;
 }
 
 function perfAssignmentSessionRows(a) {
@@ -13853,15 +13929,26 @@ function renderModerators() {
     return;
   }
 
-  // If the slide toolbar wasn't available, keep the legacy in-body toolbar
-  // so the view switcher still works.
-  body.innerHTML = toolbarHost ? `
-    <div id="modviewBody"></div>
-  ` : `
-    <div class="modview-toolbar">${toolbarHtml}</div>
-    <div id="modviewBody"></div>
-  `;
-  if (!toolbarHost) bindModviewToggle(body);
+  // Rebuilding #subtabBody wipes the Activities map DOM while MapLibre still
+  // holds _activitiesMap · every background renderModerators() looked like a
+  // fresh map load (HQ → assignment animation every few seconds). Preserve
+  // the activities shell when the live map is already mounted.
+  let modviewBody = body.querySelector('#modviewBody');
+  const keepActivitiesDom = view === 'activities'
+    && modviewBody
+    && modviewBody.querySelector('#activitiesVizContainer')
+    && typeof activitiesMapShellMounted === 'function'
+    && activitiesMapShellMounted();
+  if (!modviewBody) {
+    body.innerHTML = toolbarHost ? `
+      <div id="modviewBody"></div>
+    ` : `
+      <div class="modview-toolbar">${toolbarHtml}</div>
+      <div id="modviewBody"></div>
+    `;
+    if (!toolbarHost) bindModviewToggle(body);
+    modviewBody = body.querySelector('#modviewBody');
+  }
 
   if (view !== 'activities' && typeof destroyActivitiesMap === 'function') {
     destroyActivitiesMap();
@@ -13869,7 +13956,10 @@ function renderModerators() {
   if (view === 'list')             renderModListView();
   else if (view === 'team')        renderModTeamView();
   else if (view === 'assignment')  renderModAssignmentView();
-  else if (view === 'activities')  renderModActivitiesView();
+  else if (view === 'activities') {
+    if (keepActivitiesDom) refreshModActivitiesViewInPlace();
+    else renderModActivitiesView();
+  }
   // Hub rebuild can recreate #modviewExtraFilters; re-assert filters last.
   paintActivitiesExtraFilters();
 }
@@ -14463,16 +14553,16 @@ function scheduleActivitiesPrefetch() {
 }
 
 function scheduleActivitiesGeofenceUpdate(opts) {
-  if (opts && typeof opts === 'object') {
-    _activitiesGeofenceQueuedOpts = Object.assign(_activitiesGeofenceQueuedOpts || {}, opts);
+  if (opts && typeof opts === 'object' && opts.animateSelection) {
+    _activitiesGeofenceQueuedAnimate = true;
   }
   if (_activitiesGeofenceRaf) return;
   _activitiesGeofenceRaf = requestAnimationFrame(() => {
     _activitiesGeofenceRaf = 0;
-    const o = _activitiesGeofenceQueuedOpts || {};
-    _activitiesGeofenceQueuedOpts = null;
+    const animate = !!_activitiesGeofenceQueuedAnimate;
+    _activitiesGeofenceQueuedAnimate = false;
     if (!_activitiesMap) return;
-    try { placeActivitiesGeofence(_activitiesMap, o); } catch (_) {}
+    try { placeActivitiesGeofence(_activitiesMap, { animateSelection: animate }); } catch (_) {}
   });
 }
 
@@ -14489,7 +14579,10 @@ function refreshActivitiesMapFocus() {
     try {
       const shouldAnimate = selectionChanged
         && !!(adminState.activitiesTeamId || adminState.activitiesModeratorId);
-      placeActivitiesGeofence(_activitiesMap, { animateSelection: shouldAnimate });
+      placeActivitiesGeofence(_activitiesMap, { animateSelection: false });
+      if (shouldAnimate && typeof playActivitiesSelectionAnimation === 'function') {
+        playActivitiesSelectionAnimation(_activitiesMap);
+      }
     } catch (_) {}
   }
   scheduleActivitiesPrefetch();
@@ -15432,7 +15525,8 @@ let _activitiesGeofencePaintSig = '';
 let _activitiesPrefetchToken = 0;
 let _activitiesPrefetchTimer = null;
 let _activitiesGeofenceRaf = 0;
-let _activitiesGeofenceQueuedOpts = null;
+let _activitiesGeofenceQueuedAnimate = false;
+let _activitiesStaticPaintSig = '';
 let _geoPingBc = null;
 let _geoPingListenersReady = false;
 let _activitiesLocalPingPoll = null;
@@ -17175,6 +17269,7 @@ const ACTIVITIES_FENCE_MATCH_COLOR = [
 let _activitiesCameraToken = 0;
 let _activitiesCameraLocked = false;
 let _activitiesCameraFocusKey = '';
+let _activitiesCameraAnimating = false;
 
 function cancelActivitiesCameraAnimation(map) {
   _activitiesCameraToken += 1;
@@ -17183,25 +17278,51 @@ function cancelActivitiesCameraAnimation(map) {
 
 function getActivitiesAssignmentCenter() {
   const cache = loadGeocodeCache();
+  const geocodeHit = (addr) => {
+    const q = String(addr || '').trim();
+    if (!q) return null;
+    const hit = cache[q.toLowerCase()];
+    if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) return null;
+    if (activitiesPointIsHq(hit.lat, hit.lng)) return null;
+    return { lat: hit.lat, lng: hit.lng, address: q };
+  };
+  const assignmentLatLngHit = (a) => {
+    if (!a) return null;
+    const lat = Number(a.assignmentLat != null ? a.assignmentLat : a.lat);
+    const lng = Number(a.assignmentLng != null ? a.assignmentLng : a.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || activitiesPointIsHq(lat, lng)) return null;
+    const addr = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(a) : '';
+    return { lat, lng, address: addr || 'Assigned address' };
+  };
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
-  const teamAddr = (typeof getTeamOfficeAddress === 'function')
-    ? getTeamOfficeAddress(team)
-    : (team && team.teamAddress ? String(team.teamAddress).trim() : '');
-  const candidates = [];
-  if (teamAddr) candidates.push(teamAddr);
   const asgns = (typeof listActivitiesMapAssignments === 'function')
     ? listActivitiesMapAssignments()
     : (adminState.assignments || []).filter(a =>
       assignmentMatchesActivitiesFocus(a) && !!assignmentFenceAddress(a)
     );
-  asgns.forEach(a => candidates.push(assignmentFenceAddress(a)));
-  for (const addr of candidates) {
-    const q = String(addr || '').trim();
-    if (!q) continue;
-    const hit = cache[q.toLowerCase()];
-    if (!hit || !Number.isFinite(hit.lat) || !Number.isFinite(hit.lng)) continue;
-    if (activitiesPointIsHq(hit.lat, hit.lng)) continue;
-    return { lat: hit.lat, lng: hit.lng, address: q };
+  if (team && typeof getOpenTeamSession === 'function') {
+    const open = getOpenTeamSession(team.id);
+    if (open) {
+      const fromGeo = geocodeHit((typeof assignmentFenceAddress === 'function')
+        ? assignmentFenceAddress(open) : open.address);
+      if (fromGeo) return fromGeo;
+      const fromLat = assignmentLatLngHit(open);
+      if (fromLat) return fromLat;
+    }
+  }
+  for (const a of asgns) {
+    const fromGeo = geocodeHit((typeof assignmentFenceAddress === 'function')
+      ? assignmentFenceAddress(a) : a.address);
+    if (fromGeo) return fromGeo;
+    const fromLat = assignmentLatLngHit(a);
+    if (fromLat) return fromLat;
+  }
+  if (team) {
+    const teamAddr = (typeof getTeamOfficeAddress === 'function')
+      ? getTeamOfficeAddress(team)
+      : (team.teamAddress ? String(team.teamAddress).trim() : '');
+    const officeHit = geocodeHit(teamAddr);
+    if (officeHit) return officeHit;
   }
   return null;
 }
@@ -17405,13 +17526,86 @@ function buildActivitiesGeofencePaintSig() {
   return focus + '::' + fencePart + '::' + pingParts.join('|') + '::' + assignPart;
 }
 
+function buildActivitiesStaticPaintSig() {
+  const full = buildActivitiesGeofencePaintSig();
+  const parts = full.split('::');
+  if (parts.length < 3) return full;
+  if (parts.length === 3) return parts[0] + '::' + parts[1] + '::' + (parts[2] || '');
+  return parts[0] + '::' + parts[1] + '::' + (parts[3] || '');
+}
+
+function refreshActivitiesModeratorPingMarkers(map) {
+  if (!map || typeof maplibregl === 'undefined') return;
+  document.querySelectorAll('.geo-mod-marker').forEach(el => {
+    try { if (el.__marker) el.__marker.remove(); } catch (_) {}
+  });
+  const trackingOn = typeof isModTrackingEnabled !== 'function' || isModTrackingEnabled();
+  if (!trackingOn) return;
+  const team = getSelectedActivitiesTeam();
+  const focusMod = String(getSelectedActivitiesModeratorId() || '').toLowerCase();
+  const pings = loadGeoPings();
+  const now = Date.now();
+  const teamMemberIds = (t) => {
+    if (!t) return [];
+    const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
+    return (t.primaryIds || []).concat(backups || []);
+  };
+  const lastActivePing = (ids) => {
+    let best = null;
+    (ids || []).forEach(raw => {
+      const id = String(raw || '').toLowerCase();
+      if (!id) return;
+      const ping = pings[id] || Object.values(pings).find(p =>
+        String((p && p.orbitLoginId) || '').toLowerCase() === id
+      );
+      if (!ping || !Number.isFinite(ping.lat) || !Number.isFinite(ping.lng)) return;
+      const at = Number(ping.at) || 0;
+      if (!best || at > best.at) best = { id, ping, at };
+    });
+    return best;
+  };
+  const placePing = (idRaw, ping) => {
+    const role = activitiesMarkerRole(idRaw, ping);
+    const el = document.createElement('div');
+    el.className = 'geo-mod-marker is-' + role + ((now - (ping.at || 0) > GEO_PING_STALE_MS) ? ' is-stale' : '');
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([ping.lng, ping.lat])
+      .addTo(map);
+    el.__marker = marker;
+    activitiesPlaceHoverPopup(map, marker, activitiesPersonPopupHtml(idRaw, ping, role));
+  };
+  if (focusMod) {
+    const ping = pings[focusMod] || Object.values(pings).find(p =>
+      String((p && p.orbitLoginId) || '').toLowerCase() === focusMod
+    );
+    if (ping && Number.isFinite(ping.lat) && Number.isFinite(ping.lng)) placePing(focusMod, ping);
+  } else if (team) {
+    const best = lastActivePing(teamMemberIds(team));
+    if (best) placePing(best.id, best.ping);
+  } else {
+    const shown = new Set();
+    (typeof listActivitiesTeamsForDateRange === 'function'
+      ? listActivitiesTeamsForDateRange()
+      : (typeof listActivitiesTeams === 'function' ? listActivitiesTeams() : (adminState.teams || []))
+    ).forEach(t => {
+      const best = lastActivePing(teamMemberIds(t));
+      if (best && !shown.has(best.id)) {
+        shown.add(best.id);
+        placePing(best.id, best.ping);
+      }
+    });
+  }
+}
+
 async function playActivitiesSelectionAnimation(map) {
   if (!map) return;
   const focusKey = activitiesMapFocusKey();
+  if (_activitiesCameraAnimating && focusKey === _activitiesCameraFocusKey) return;
   if (_activitiesCameraLocked && focusKey === _activitiesCameraFocusKey) return;
   cancelActivitiesCameraAnimation(map);
   const token = _activitiesCameraToken;
   _activitiesCameraLocked = false;
+  _activitiesCameraAnimating = true;
   _activitiesCameraFocusKey = focusKey;
   const still = () => token === _activitiesCameraToken && _activitiesMap === map;
   const team = (typeof getSelectedActivitiesTeam === 'function') ? getSelectedActivitiesTeam() : null;
@@ -17456,6 +17650,7 @@ async function playActivitiesSelectionAnimation(map) {
   } catch (_) {}
 
   if (still()) _activitiesCameraLocked = true;
+  if (token === _activitiesCameraToken) _activitiesCameraAnimating = false;
 }
 
 function placeActivitiesGeofence(map, opts) {
@@ -17463,7 +17658,11 @@ function placeActivitiesGeofence(map, opts) {
   if (!map || !map.isStyleLoaded || !map.isStyleLoaded()) return;
   const data = activitiesFenceFeatures();
   const paintSig = buildActivitiesGeofencePaintSig();
+  const staticSig = buildActivitiesStaticPaintSig();
   const sameVisual = paintSig === _activitiesGeofencePaintSig && !opts.animateSelection;
+  const pingsOnly = !opts.animateSelection
+    && staticSig === _activitiesStaticPaintSig
+    && paintSig !== _activitiesGeofencePaintSig;
   const src = map.getSource('twilight-geofence');
   if (src) {
     src.setData(data);
@@ -17502,7 +17701,14 @@ function placeActivitiesGeofence(map, opts) {
     if (opts.animateSelection) playActivitiesSelectionAnimation(map);
     return;
   }
+  if (pingsOnly) {
+    _activitiesGeofencePaintSig = paintSig;
+    refreshActivitiesModeratorPingMarkers(map);
+    updateActivitiesMapCaption();
+    return;
+  }
   _activitiesGeofencePaintSig = paintSig;
+  _activitiesStaticPaintSig = staticSig;
 
   document.querySelectorAll('.geo-mod-marker, .activities-map-marker, .geo-place-marker').forEach(el => {
     try { if (el.__marker) el.__marker.remove(); } catch (_) {}
@@ -17533,60 +17739,7 @@ function placeActivitiesGeofence(map, opts) {
       '<div class="activities-hover-pop"><strong>Assignment</strong><span>' + escapeHTML(assigned.address || 'Assigned address') + '</span></div>');
   }
 
-  const trackingOn = typeof isModTrackingEnabled !== 'function' || isModTrackingEnabled();
-  if (trackingOn) {
-    const team = getSelectedActivitiesTeam();
-    const focusMod = String(getSelectedActivitiesModeratorId() || '').toLowerCase();
-    const pings = loadGeoPings();
-    const now = Date.now();
-    const teamMemberIds = (t) => {
-      if (!t) return [];
-      const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
-      return (t.primaryIds || []).concat(backups || []);
-    };
-    const lastActivePing = (ids) => {
-      let best = null;
-      (ids || []).forEach(raw => {
-        const id = String(raw || '').toLowerCase();
-        if (!id) return;
-        const ping = pings[id] || Object.values(pings).find(p =>
-          String((p && p.orbitLoginId) || '').toLowerCase() === id
-        );
-        if (!ping || !Number.isFinite(ping.lat) || !Number.isFinite(ping.lng)) return;
-        const at = Number(ping.at) || 0;
-        if (!best || at > best.at) best = { id, ping, at };
-      });
-      return best;
-    };
-    const placePing = (idRaw, ping) => {
-      const role = activitiesMarkerRole(idRaw, ping);
-      const el = document.createElement('div');
-      el.className = 'geo-mod-marker is-' + role + ((now - (ping.at || 0) > GEO_PING_STALE_MS) ? ' is-stale' : '');
-      const marker = new maplibregl.Marker({ element: el })
-        .setLngLat([ping.lng, ping.lat])
-        .addTo(map);
-      el.__marker = marker;
-      activitiesPlaceHoverPopup(map, marker, activitiesPersonPopupHtml(idRaw, ping, role));
-    };
-    if (focusMod) {
-      const ping = pings[focusMod] || Object.values(pings).find(p =>
-        String((p && p.orbitLoginId) || '').toLowerCase() === focusMod
-      );
-      if (ping && Number.isFinite(ping.lat) && Number.isFinite(ping.lng)) placePing(focusMod, ping);
-    } else if (team) {
-      const best = lastActivePing(teamMemberIds(team));
-      if (best) placePing(best.id, best.ping);
-    } else {
-      const shown = new Set();
-      (typeof listActivitiesTeams === 'function' ? listActivitiesTeams() : (adminState.teams || [])).forEach(t => {
-        const best = lastActivePing(teamMemberIds(t));
-        if (best && !shown.has(best.id)) {
-          shown.add(best.id);
-          placePing(best.id, best.ping);
-        }
-      });
-    }
-  }
+  refreshActivitiesModeratorPingMarkers(map);
   updateActivitiesMapCaption();
   if (opts.animateSelection) {
     playActivitiesSelectionAnimation(map);
@@ -17652,7 +17805,9 @@ function destroyActivitiesMap() {
   stopActivitiesLocalPingPoll();
   _activitiesCameraToken += 1;
   _activitiesCameraLocked = false;
+  _activitiesCameraAnimating = false;
   _activitiesGeofencePaintSig = '';
+  _activitiesStaticPaintSig = '';
   _activitiesFocusKey = '';
   _activitiesPrefetchToken += 1;
   if (_activitiesPrefetchTimer) {
@@ -17662,8 +17817,9 @@ function destroyActivitiesMap() {
   if (_activitiesGeofenceRaf) {
     cancelAnimationFrame(_activitiesGeofenceRaf);
     _activitiesGeofenceRaf = 0;
-    _activitiesGeofenceQueuedOpts = null;
+    _activitiesGeofenceQueuedAnimate = false;
   }
+  _activitiesStaticPaintSig = '';
   if (_activitiesMap) {
     try { _activitiesMap.remove(); } catch (_) {}
     _activitiesMap = null;
@@ -17836,8 +17992,8 @@ function initActivitiesMap() {
   _activitiesMap.on('load', () => {
     placeActivitiesMapMarker(_activitiesMap);
     try {
-      const shouldAnimate = !!(adminState.activitiesTeamId || adminState.activitiesModeratorId);
-      placeActivitiesGeofence(_activitiesMap, { animateSelection: shouldAnimate });
+      placeActivitiesGeofence(_activitiesMap, { animateSelection: false });
+      if (typeof refreshActivitiesMapFocus === 'function') refreshActivitiesMapFocus();
     } catch (_) {}
     applyActivitiesMapTheme(_activitiesMap);
     try { _activitiesMap.resize(); } catch (_) {}
@@ -23567,8 +23723,17 @@ function isAssignmentCompleteForStrike(a) {
     && classifyBookingForPerf(a) === 'completed';
 }
 
+function modStrikeCheckpointSkippedTeamIds(todayPst) {
+  const store = loadModStrikeStore();
+  const ck = store.checkpoints[String(todayPst || '')];
+  const map = (ck && ck.skippedTeams && typeof ck.skippedTeams === 'object') ? ck.skippedTeams : {};
+  return new Set(Object.keys(map).filter(k => map[k]));
+}
+
 function buildModStrikeCheckpointReport() {
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
+  const todayPst = getPSTDateString();
+  const skipped = modStrikeCheckpointSkippedTeamIds(todayPst);
   const teams = [];
   for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
     if (!t) continue;
@@ -23580,12 +23745,14 @@ function buildModStrikeCheckpointReport() {
       teamId: t.id,
       teamName: t.name || 'Team',
       completed: isAssignmentCompleteForStrike(booking),
+      skipped: skipped.has(String(t.id)),
       assignmentId: booking.id,
       primaryIds: primaries.slice(),
     });
   }
   return {
     yesterday,
+    todayPst,
     pastGate: isPastModStrikeCheckpointHour(),
     teams,
   };
@@ -23604,9 +23771,10 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   const ck = store.checkpoints[todayPst];
   if (ck && ck.applied) return report;
 
+  const skippedTeams = modStrikeCheckpointSkippedTeamIds(todayPst);
   let struck = 0;
   for (const row of report.teams) {
-    if (row.completed) continue;
+    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))) continue;
     for (const orbitId of row.primaryIds) {
       const before = getModStrikeStars(orbitId);
       if (before <= 0) continue;
@@ -23633,26 +23801,58 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   return report;
 }
 
+function skipModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const todayPst = getPSTDateString();
+  const store = loadModStrikeStore();
+  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
+  const ck = store.checkpoints[todayPst];
+  if (!ck.skippedTeams || typeof ck.skippedTeams !== 'object') ck.skippedTeams = {};
+  ck.skippedTeams[id] = true;
+  saveModStrikeStore(store);
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
+  if (typeof toast === 'function') toast('Auto-strike skipped for this team today');
+  if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
+}
+
 function renderPerfStrikeCheckpointBannerHTML() {
   const rep = (typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
     ? adminState._modStrikeCheckpointReport
     : buildModStrikeCheckpointReport();
   if (!rep || !rep.teams || !rep.teams.length) return '';
   const done = rep.teams.filter(t => t.completed).length;
-  const missed = rep.teams.length - done;
+  const skippedCount = rep.teams.filter(t => t.skipped && !t.completed).length;
+  const missed = rep.teams.filter(t => !t.completed && !t.skipped).length;
   const gateNote = rep.pastGate
-    ? 'After 9:00 AM PT, incomplete two-mod teams lose one star per primary.'
-    : 'Checkpoint runs at 9:00 AM PT (not reached yet today).';
-  const rows = rep.teams.map(t => `
-    <li class="mod-strike-check-row ${t.completed ? 'is-done' : 'is-missed'}">
+    ? 'After 9:00 AM PT, incomplete two-mod teams lose one star per primary (unless skipped).'
+    : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that team today.';
+  const rows = rep.teams.map(t => {
+    const rowCls = t.completed ? 'is-done' : (t.skipped ? 'is-skipped' : 'is-missed');
+    let statusHtml = '';
+    if (t.completed) {
+      statusHtml = '<span class="mod-strike-check-status">Completed</span>';
+    } else if (t.skipped) {
+      statusHtml = '<span class="mod-strike-check-status">Skipped</span>';
+    } else {
+      statusHtml = `<span class="mod-strike-check-status-wrap">
+        <span class="mod-strike-check-status">Not completed</span>
+        <button type="button" class="btn btn-ghost mod-strike-check-skip" data-mod-strike-checkpoint-skip="${escapeHTML(String(t.teamId))}">Skip</button>
+      </span>`;
+    }
+    return `
+    <li class="mod-strike-check-row ${rowCls}">
       <span class="mod-strike-check-team">${escapeHTML(t.teamName)}</span>
-      <span class="mod-strike-check-status">${t.completed ? 'Completed' : 'Not completed'}</span>
-    </li>`).join('');
+      ${statusHtml}
+    </li>`;
+  }).join('');
   return `
     <div class="mod-strike-check-banner" role="region" aria-label="Yesterday session checkpoint">
       <div class="mod-strike-check-head">
         <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
-        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete</span>
+        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
       </div>
       <p class="mod-strike-check-hint">${escapeHTML(gateNote)}</p>
       <ul class="mod-strike-check-list">${rows}</ul>
@@ -23754,6 +23954,14 @@ function ensureModStrikeActionDelegation() {
   if (typeof document === 'undefined' || document._modStrikeDelegated) return;
   document._modStrikeDelegated = true;
   document.addEventListener('click', (e) => {
+    const skipBtn = e.target.closest('[data-mod-strike-checkpoint-skip]');
+    if (skipBtn && skipBtn.closest('#adminApp')) {
+      e.preventDefault();
+      if (typeof skipModStrikeCheckpointTeam === 'function') {
+        skipModStrikeCheckpointTeam(skipBtn.getAttribute('data-mod-strike-checkpoint-skip'));
+      }
+      return;
+    }
     const btn = e.target.closest('.mod-strike-action');
     if (!btn || !btn.closest('#adminApp')) return;
     handleModStrikeActionClick(e, btn);

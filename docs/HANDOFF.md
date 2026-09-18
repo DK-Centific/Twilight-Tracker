@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-17 · Cursor (Composer) · Activities date range + compact team filter (local v1.3.091726u)  
+**Last updated:** 2026-09-17 · Cursor (Composer) · Activities map re-init fix + perf strike Skip (local v1.3.091726z)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091726x` (Activities filters + map stability, Booking today default, OD address overwrite) |
+| **`main` version** | `1.3.091726x` on remote · local **`1.3.091726z`** (Activities map no longer re-inits on hub refresh; perf checkpoint **Skip**) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |
