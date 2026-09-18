@@ -23,12 +23,18 @@ const ctx = {
     teams: [
       { id: 'demo-team-01', name: 'Team 01' },
       { id: '99', name: 'Field A' },
+      { id: '100', name: 'Field B' },
     ],
   },
   isTerminalStatus: s => s === 'Cancelled' || s === 'Unassigned',
   classifyBookingForPerf: (a) => {
     if (a.id === 'wrap-only') return 'completed';
     return 'scheduled';
+  },
+  assignmentHasModeratorArrivalCheckIn: (a) => a.id === 'r2' || a.id === 'r3',
+  getLatestStatusForAssignment: (id) => {
+    if (id === 'wrap-only') return { status: 'session_done' };
+    return null;
   },
 };
 
@@ -55,22 +61,22 @@ const demo = {
   modSnapshots: [{ orbitLoginId: 'demo-annie' }],
 };
 const cancelled = { id: 'c1', teamId: '99', status: 'Cancelled' };
-const realDone = { id: 'r1', teamId: '99', status: 'Completed', participantName: 'Pat Smith' };
-const realOpen = { id: 'r2', teamId: '99', status: 'Booked', participantName: 'Jane Doe' };
-const wrapOnly = { id: 'wrap-only', teamId: '99', status: 'Booked' };
+const realDoneNoCheckIn = { id: 'r1', teamId: '99', status: 'Completed', participantName: 'Pat Smith' };
+const realCheckedIn = { id: 'r2', teamId: '99', status: 'Booked', participantName: 'Jane Doe' };
+const wrapOnly = { id: 'wrap-only', teamId: '100', status: 'Booked' };
 const testing = { id: 't1', teamId: '99', status: 'Booked', participantName: 'For Testing Only' };
+const teamBOpen = { id: 'r3', teamId: '100', status: 'Booked', participantName: 'Sam Lee' };
 
 assert('demo team booking is demo', ctx.assignmentIsDemoBooking(demo));
 assert('for testing name is demo', ctx.assignmentIsDemoBooking(testing));
-assert('real booking is not demo', !ctx.assignmentIsDemoBooking(realDone));
+assert('real booking is not demo', !ctx.assignmentIsDemoBooking(realDoneNoCheckIn));
 
-const list = [demo, cancelled, realDone, realOpen, wrapOnly, testing];
+const list = [demo, cancelled, realDoneNoCheckIn, realCheckedIn, wrapOnly, testing, teamBOpen];
 const counts = ctx.computeOverviewDonutCounts(list);
 
-assert('cancelled excluded from total', counts.progressTotal === 3);
-assert('demo excluded from total', counts.progressTotal === 3);
-assert('completed includes status Completed', counts.completedCount === 2);
-assert('remaining is total minus completed', counts.remainingCount === 1);
+assert('denominator is distinct in-scope teams', counts.progressTotal === 2);
+assert('numerator is checked-in teams not booking rows', counts.completedCount === 2);
+assert('Completed without check-in does not inflate numerator', counts.remainingCount === 0);
 
 if (failed) {
   console.error('\n' + failed + ' failed');

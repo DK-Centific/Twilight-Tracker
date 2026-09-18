@@ -7962,6 +7962,7 @@ input#ent_lakitu.lakitu-invalid {
 }
 .mod-strike-check-row.is-done .mod-strike-check-status { color: var(--success, #22c55e); }
 .mod-strike-check-row.is-missed .mod-strike-check-status { color: #f59e0b; }
+.mod-strike-check-row.is-struck .mod-strike-check-status { color: var(--accent-ink, var(--accent)); }
 .mod-strike-check-row.is-skipped .mod-strike-check-status { color: var(--text3); }
 .mod-strike-check-row.is-pending .mod-strike-check-status { color: var(--accent-ink, var(--accent)); }
 .mod-strike-check-status-wrap {
@@ -7975,6 +7976,13 @@ input#ent_lakitu.lakitu-invalid {
   padding: 2px 8px;
   min-height: 0;
   line-height: 1.3;
+}
+.mod-strike-check-strike {
+  font-size: 11px;
+  padding: 3px 10px;
+  min-height: 0;
+  line-height: 1.3;
+  border-radius: 999px;
 }
 .perf-tile-title .mod-stars { margin-left: 6px; }
 
@@ -14843,6 +14851,70 @@ button.perf-stat-chip.scheduled.active {
   padding-top: 8px;
   border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
+/* Overview Live status · red attention when 9 AM checkpoint teams need action */
+.ov-stat-livestatus.is-strike-attention {
+  --ov-strike-attn: #ef4444;
+  position: relative;
+  z-index: 2;
+  border-color: color-mix(in srgb, var(--ov-strike-attn) 80%, var(--border)) !important;
+  animation: ov-livestatus-strike-border 1.6s ease-in-out infinite;
+}
+.ov-stat-livestatus.is-strike-attention::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  box-shadow:
+    inset 0 0 0 2px rgba(239, 68, 68, 0.85),
+    inset 0 0 28px 6px rgba(239, 68, 68, 0.42);
+  animation: ov-livestatus-strike-inset 1.6s ease-in-out infinite;
+}
+.ov-stat-livestatus.is-strike-attention .ov-stat-head,
+.ov-stat-livestatus.is-strike-attention .ov-stat-body,
+.ov-stat-livestatus.is-strike-attention .ov-stat-foot {
+  position: relative;
+  z-index: 1;
+}
+@keyframes ov-livestatus-strike-inset {
+  0%, 100% {
+    opacity: 0.7;
+    box-shadow:
+      inset 0 0 0 2px rgba(239, 68, 68, 0.65),
+      inset 0 0 18px 2px rgba(239, 68, 68, 0.28);
+  }
+  50% {
+    opacity: 1;
+    box-shadow:
+      inset 0 0 0 3px rgba(239, 68, 68, 1),
+      inset 0 0 36px 10px rgba(239, 68, 68, 0.55);
+  }
+}
+@keyframes ov-livestatus-strike-border {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(239, 68, 68, 0)); }
+  50% { filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.65)); }
+}
+#adminApp .ov-stat-livestatus.is-strike-attention {
+  overflow: visible !important;
+}
+#adminApp .ov-metrics-pane.ov-stats:has(.ov-stat-livestatus.is-strike-attention),
+#adminApp .ov-helios-row:has(.ov-stat-livestatus.is-strike-attention) {
+  overflow: visible;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-stat-livestatus.is-strike-attention {
+    animation: none;
+    filter: none;
+  }
+  .ov-stat-livestatus.is-strike-attention::after {
+    animation: none;
+    opacity: 1;
+    box-shadow:
+      inset 0 0 0 3px rgba(239, 68, 68, 0.95),
+      inset 0 0 24px 6px rgba(239, 68, 68, 0.4);
+  }
+}
 
 /* Per-tile color tints · drives icon, value, accent stripe, hover shadow */
 .ov-stat-moderators {
@@ -17992,7 +18064,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091818a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091818d" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818a';
-const APP_UPDATED_AT = '09/18/2026 09:15';
+const APP_VERSION = '1.3.091818d';
+const APP_UPDATED_AT = '09/18/2026 16:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8702,20 +8702,34 @@ function overviewAssignmentInBookedMetricsScope(a) {
   return true;
 }
 
-function overviewAssignmentDonutCompleted(a) {
+function overviewAssignmentHasTeamCheckIn(a) {
   if (!overviewAssignmentInBookedMetricsScope(a)) return false;
-  if (a.status === 'Completed') return true;
-  return (typeof classifyBookingForPerf === 'function')
-    && classifyBookingForPerf(a) === 'completed';
+  if (typeof assignmentHasModeratorArrivalCheckIn === 'function'
+      && assignmentHasModeratorArrivalCheckIn(a)) {
+    return true;
+  }
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id)
+    : null;
+  if (live && live.status === 'session_done') return true;
+  return false;
 }
 
 function computeOverviewDonutCounts(filteredAsgns) {
   const booked = (filteredAsgns || []).filter(overviewAssignmentInBookedMetricsScope);
-  const completedCount = booked.filter(overviewAssignmentDonutCompleted).length;
-  const progressTotal = booked.length;
+  const teamIdsInScope = new Set();
+  const checkedInTeamIds = new Set();
+  booked.forEach(a => {
+    if (a.teamId == null || a.teamId === '') return;
+    const tid = String(a.teamId);
+    teamIdsInScope.add(tid);
+    if (overviewAssignmentHasTeamCheckIn(a)) checkedInTeamIds.add(tid);
+  });
+  const progressTotal = teamIdsInScope.size;
+  const completedCount = checkedInTeamIds.size;
   return {
     completedCount,
-    remainingCount: progressTotal - completedCount,
+    remainingCount: Math.max(0, progressTotal - completedCount),
     progressTotal,
   };
 }
@@ -8860,10 +8874,10 @@ function computeOverviewMetrics() {
     }
   }
 
-  // ----- Booking progress (donut chart)
-  // Bookings in scope (same filters as above), excluding terminal rows and
-  // geo-demo / training sessions. Numerator = Completed status or Performance
-  // "completed" classifier (session_done); denominator = all booked in scope.
+  // ----- Team check-in (donut chart)
+  // Distinct in-scope teams with a non-demo, non-terminal booking (denominator).
+  // Numerator = teams with moderator arrival check-in (I've arrived → before wrap)
+  // or session_done on any in-scope assignment · not Completed-without-check-in.
   const donut = computeOverviewDonutCounts(filteredAsgns);
   const completedCount = donut.completedCount;
   const remainingCount = donut.remainingCount;
@@ -8910,7 +8924,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     const rep = buildModStrikeCheckpointReport();
     (rep.teams || []).forEach(row => {
       if (!teamMatch(row.teamId)) return;
-      if (row.skipped || !row.flagIncomplete) return;
+      if (row.skipped || row.resolved || !row.flagIncomplete) return;
       const strikeAsgn = (row.assignmentId != null)
         ? ((adminState.assignments || []).find(x => String(x.id) === String(row.assignmentId))
           || (filteredAsgns || []).find(x => String(x.id) === String(row.assignmentId)))
@@ -12447,7 +12461,7 @@ function renderOverview(body) {
         </div>
         <div class="ov-chart-card ov-chart-donut">
           <div class="ov-chart-head">
-            <div class="ov-chart-title">Booking progress</div>
+            <div class="ov-chart-title">Team check-in</div>
             <div class="ov-chart-sub" id="ovDonutSub"> · </div>
           </div>
           ${donutChartShellHTML()}
@@ -12520,7 +12534,9 @@ function renderOverview(body) {
       const kind = tile.dataset.tile;
       if (kind === 'moderators') {
         selectAdminTab('moderators', { subtab: 'moderators', modView: 'list', scrollTo: 'modviewBody' });
-      } else if (kind === 'teams' || kind === 'livestatus') {
+      } else if (kind === 'livestatus') {
+        selectAdminTab('performance', { scrollTo: 'modStrikeCheckpointBanner' });
+      } else if (kind === 'teams') {
         selectAdminTab('performance');
       } else if (kind === 'bookings') {
         if (typeof openBookingPage === 'function') openBookingPage();
@@ -12695,16 +12711,16 @@ function donutChartShellHTML() {
         </svg>
         <div class="ov-donut-center">
           <div class="ov-donut-pct" id="ovDonutPct">0%</div>
-          <div class="ov-donut-cap">complete</div>
+          <div class="ov-donut-cap">checked in</div>
         </div>
         <div class="ov-donut-tooltip" id="ovDonutTooltip" style="display:none;">
-          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Completed</div>
-          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">bookings</span></div>
+          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Checked in</div>
+          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">teams</span></div>
         </div>
       </div>
       <div class="ov-donut-legend">
-        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Completed</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendRem"><span class="ov-donut-swatch ov-sw-rem"></span><span>Remaining</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendRem"><span class="ov-donut-swatch ov-sw-rem"></span><span>Not checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
       </div>
     </div>
   `;
@@ -12715,6 +12731,9 @@ function donutChartShellHTML() {
 // Called whenever a filter changes. NEVER re-renders the whole tab.
 // ============================================================
 function updateOverviewMetrics() {
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
   const m = computeOverviewMetrics();
 
   // 1. Tween stat numbers
@@ -12742,6 +12761,9 @@ function updateOverviewMetrics() {
   }
   if (typeof overviewLiveStatusFootText === 'function') {
     setOverviewTileFoot('livestatus', overviewLiveStatusFootText(m.liveTeamSnapshots));
+  }
+  if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
   }
 
   // 2. Update line chart title + sub based on the current filter set so the
@@ -12784,15 +12806,11 @@ function updateOverviewMetrics() {
   // 3. Animate the line chart
   animateLineChart(m.series);
 
-  // 4. Donut sub + tween. Subtitle now reads "K of N bookings done"
-  //    (not "of participants") so it agrees with the donut math.
-  //    Empty-state message also updated · "No bookings in scope"
-  //    rather than "No participants in scope" since the chart's
-  //    denominator is bookings.
+  // 4. Donut sub + tween · team check-in (distinct teams, excl. demo)
   const donutSub = document.getElementById('ovDonutSub');
   if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} of ${m.progressTotal} booked · excl. demo`
-    : 'No booked sessions in scope';
+    ? `${m.completedCount} of ${m.progressTotal} teams checked in · excl. demo`
+    : 'No teams with bookings in scope';
   animateDonutChart(m.completedCount, m.remainingCount);
 
   // Cache for next animation
@@ -13086,10 +13104,10 @@ function setupDonutHover(completed, remaining, total) {
 
   const showTip = (kind) => {
     if (kind === 'done') {
-      tooltipTitle.textContent = 'Completed';
+      tooltipTitle.textContent = 'Checked in';
       tooltipNum.textContent = completed;
     } else {
-      tooltipTitle.textContent = 'Remaining';
+      tooltipTitle.textContent = 'Not checked in';
       tooltipNum.textContent = remaining;
     }
     tooltip.style.display = 'block';
@@ -24087,14 +24105,27 @@ function modStrikeRefreshUi() {
   if (typeof adminState === 'undefined' || !adminState) return;
   if (adminState.tab === 'moderators' && typeof renderModerators === 'function') {
     renderModerators();
+    if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+      syncOverviewLiveStatusStrikeAttention();
+    }
     return;
   }
   if (adminState.tab === 'performance') {
     const body = document.getElementById('adminTabBody');
     if (body && typeof renderPerformance === 'function') renderPerformance(body);
+    if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+      syncOverviewLiveStatusStrikeAttention();
+    }
+    return;
+  }
+  if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+    updateOverviewMetrics();
     return;
   }
   if (typeof rerenderTeamsPanelInPlace === 'function') rerenderTeamsPanelInPlace();
+  if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
+  }
 }
 
 function addDaysToYmd(ymdStr, delta) {
@@ -24217,10 +24248,18 @@ function modStrikeCheckpointSkippedTeamIds(todayPst) {
   return new Set(Object.keys(map).filter(k => map[k]));
 }
 
+function modStrikeCheckpointResolvedTeamIds(todayPst) {
+  const store = loadModStrikeStore();
+  const ck = store.checkpoints[String(todayPst || '')];
+  const map = (ck && ck.resolvedTeams && typeof ck.resolvedTeams === 'object') ? ck.resolvedTeams : {};
+  return new Set(Object.keys(map).filter(k => map[k]));
+}
+
 function buildModStrikeCheckpointReport() {
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
   const todayPst = getPSTDateString();
   const skipped = modStrikeCheckpointSkippedTeamIds(todayPst);
+  const resolved = modStrikeCheckpointResolvedTeamIds(todayPst);
   const teams = [];
   for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
     if (!t) continue;
@@ -24237,6 +24276,7 @@ function buildModStrikeCheckpointReport() {
       pastSessionEnd,
       flagIncomplete: pastSessionEnd && !completed,
       skipped: skipped.has(String(t.id)),
+      resolved: resolved.has(String(t.id)),
       assignmentId: booking.id,
       primaryIds: primaries.slice(),
     });
@@ -24263,12 +24303,14 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   if (ck && ck.applied) return report;
 
   const skippedTeams = modStrikeCheckpointSkippedTeamIds(todayPst);
+  const resolvedTeams = modStrikeCheckpointResolvedTeamIds(todayPst);
   if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
   const ckRow = store.checkpoints[todayPst];
   if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
   let struck = 0;
   for (const row of report.teams) {
-    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))) continue;
+    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))
+        || resolvedTeams.has(String(row.teamId))) continue;
     if (!row.pastSessionEnd) continue;
     if (ckRow.teamAutoStrike[String(row.teamId)]) continue;
     for (const orbitId of row.primaryIds) {
@@ -24286,7 +24328,8 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
     ckRow.teamAutoStrike[String(row.teamId)] = true;
   }
   const allResolved = report.teams.every(t => {
-    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))) return true;
+    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))
+        || resolvedTeams.has(String(t.teamId))) return true;
     if (!t.pastSessionEnd) return false;
     return !!ckRow.teamAutoStrike[String(t.teamId)];
   });
@@ -24323,6 +24366,105 @@ function skipModStrikeCheckpointTeam(teamId) {
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
 }
 
+function resolveModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const todayPst = getPSTDateString();
+  const store = loadModStrikeStore();
+  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
+  const ck = store.checkpoints[todayPst];
+  if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
+  ck.resolvedTeams[id] = true;
+  saveModStrikeStore(store);
+  if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+    maybeRunModStrikeNineAmCheckpoint({ silent: true });
+  }
+}
+
+function modStrikeCheckpointAttentionActive() {
+  if (typeof isPastModStrikeCheckpointHour !== 'function' || !isPastModStrikeCheckpointHour()) {
+    return false;
+  }
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport()
+    : null;
+  if (!rep || !Array.isArray(rep.teams)) return false;
+  return rep.teams.some(t => t.flagIncomplete && !t.skipped && !t.resolved);
+}
+
+function syncOverviewLiveStatusStrikeAttention() {
+  const tile = document.querySelector('.ov-stat-tile.ov-stat-livestatus[data-tile="livestatus"]');
+  if (!tile) return;
+  tile.classList.toggle('is-strike-attention', modStrikeCheckpointAttentionActive());
+}
+
+function modStrikeCheckpointStrikePreviewLines(row) {
+  const lines = [];
+  const strikable = [];
+  (row.primaryIds || []).forEach(orbitId => {
+    const name = (typeof getModeratorDisplayName === 'function')
+      ? getModeratorDisplayName(orbitId)
+      : String(orbitId);
+    const before = getModStrikeStars(orbitId);
+    if (before <= 0) {
+      lines.push(`${name} (0 stars · no strike)`);
+    } else {
+      lines.push(`${name} (${before}→${before - 1})`);
+      strikable.push({ orbitId, name, before });
+    }
+  });
+  return { lines, strikable };
+}
+
+async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const rep = buildModStrikeCheckpointReport();
+  const row = (rep.teams || []).find(t => String(t.teamId) === id);
+  if (!row || !row.flagIncomplete || row.skipped || row.resolved) return;
+
+  const { lines, strikable } = modStrikeCheckpointStrikePreviewLines(row);
+  if (!strikable.length) {
+    await appAlert({
+      title: 'Cannot strike',
+      message: `All moderators on ${row.teamName} already have 0 stars.`,
+      variant: 'warning',
+    });
+    return;
+  }
+
+  const preview = lines.map(l => escapeHTML(l)).join('<br>');
+  const ok = await appConfirm({
+    title: `Strike ${row.teamName}?`,
+    html: true,
+    message: `<p>This removes 1 star from:</p><p>${preview}</p>`,
+    confirmLabel: 'Strike',
+    cancelLabel: 'Cancel',
+    variant: 'danger',
+  });
+  if (!ok) return;
+
+  const results = [];
+  for (const item of strikable) {
+    manualModStrike(item.orbitId, `Checkpoint banner · ${row.teamName} incomplete`);
+    const after = getModStrikeStars(item.orbitId);
+    results.push(`${item.name}: ${after} star(s) remaining`);
+  }
+  if (typeof resolveModStrikeCheckpointTeam === 'function') {
+    resolveModStrikeCheckpointTeam(id);
+  }
+  if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
+  else if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
+    syncOverviewLiveStatusStrikeAttention();
+  }
+
+  await appAlert({
+    title: 'Strike applied',
+    html: true,
+    message: results.map(r => escapeHTML(r)).join('<br>'),
+  });
+}
+
 function renderPerfStrikeCheckpointBannerHTML() {
   const rep = (typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
     ? adminState._modStrikeCheckpointReport
@@ -24330,23 +24472,29 @@ function renderPerfStrikeCheckpointBannerHTML() {
   if (!rep || !rep.teams || !rep.teams.length) return '';
   const done = rep.teams.filter(t => t.completed).length;
   const skippedCount = rep.teams.filter(t => t.skipped && !t.completed).length;
-  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.pastSessionEnd).length;
-  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped).length;
+  const resolvedCount = rep.teams.filter(t => t.resolved && t.flagIncomplete && !t.skipped).length;
+  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.resolved && !t.pastSessionEnd).length;
+  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped && !t.resolved).length;
   const gateNote = rep.pastGate
-    ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed (unless skipped).'
+    ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed. Resolve each incomplete team with Strike or Skip.'
     : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that team today.';
   const rows = rep.teams.map(t => {
     const rowCls = t.completed ? 'is-done'
-      : (t.skipped ? 'is-skipped' : (t.flagIncomplete ? 'is-missed' : 'is-pending'));
+      : (t.skipped ? 'is-skipped'
+        : (t.resolved && t.flagIncomplete ? 'is-struck'
+          : (t.flagIncomplete ? 'is-missed' : 'is-pending')));
     let statusHtml = '';
     if (t.completed) {
       statusHtml = '<span class="mod-strike-check-status">Completed</span>';
     } else if (t.skipped) {
       statusHtml = '<span class="mod-strike-check-status">Skipped</span>';
+    } else if (t.resolved && t.flagIncomplete) {
+      statusHtml = '<span class="mod-strike-check-status">Strike applied</span>';
     } else if (!t.pastSessionEnd) {
       statusHtml = '<span class="mod-strike-check-status">In progress · before session end</span>';
     } else {
       statusHtml = `<span class="mod-strike-check-status-wrap">
+        <button type="button" class="btn btn-primary mod-strike-check-strike" data-mod-strike-checkpoint-strike="${escapeHTML(String(t.teamId))}">Strike</button>
         <span class="mod-strike-check-status">Not completed</span>
         <button type="button" class="btn btn-ghost mod-strike-check-skip" data-mod-strike-checkpoint-skip="${escapeHTML(String(t.teamId))}">Skip</button>
       </span>`;
@@ -24358,10 +24506,10 @@ function renderPerfStrikeCheckpointBannerHTML() {
     </li>`;
   }).join('');
   return `
-    <div class="mod-strike-check-banner" role="region" aria-label="Yesterday session checkpoint">
+    <div class="mod-strike-check-banner" id="modStrikeCheckpointBanner" role="region" aria-label="Yesterday session checkpoint">
       <div class="mod-strike-check-head">
         <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
-        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
+        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}${resolvedCount ? (' · ' + resolvedCount + ' struck') : ''}</span>
       </div>
       <p class="mod-strike-check-hint">${escapeHTML(gateNote)}</p>
       <ul class="mod-strike-check-list">${rows}</ul>
@@ -24463,6 +24611,14 @@ function ensureModStrikeActionDelegation() {
   if (typeof document === 'undefined' || document._modStrikeDelegated) return;
   document._modStrikeDelegated = true;
   document.addEventListener('click', (e) => {
+    const strikeBtn = e.target.closest('[data-mod-strike-checkpoint-strike]');
+    if (strikeBtn && strikeBtn.closest('#adminApp')) {
+      e.preventDefault();
+      if (typeof confirmAndStrikeModStrikeCheckpointTeam === 'function') {
+        void confirmAndStrikeModStrikeCheckpointTeam(strikeBtn.getAttribute('data-mod-strike-checkpoint-strike'));
+      }
+      return;
+    }
     const skipBtn = e.target.closest('[data-mod-strike-checkpoint-skip]');
     if (skipBtn && skipBtn.closest('#adminApp')) {
       e.preventDefault();
