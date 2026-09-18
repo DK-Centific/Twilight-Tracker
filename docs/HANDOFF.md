@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728c`** (Approval toggle, booking queue, strike end-time gate) |
+| **`main` version** | **`1.3.091728e`** (mod queue: same-team until wrap-up); push pending |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728c';
-const APP_UPDATED_AT = '09/18/2026 03:05';
+const APP_VERSION = '1.3.091728e';
+const APP_UPDATED_AT = '09/18/2026 03:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8826,6 +8826,10 @@ function computeOverviewMetrics() {
   const remainingCount = activeBookings.length;
   const progressTotal  = completedCount + remainingCount;
 
+  const liveTeamSnapshots = (typeof computeOverviewLiveTeamSnapshots === 'function')
+    ? computeOverviewLiveTeamSnapshots(filteredAsgns, 3)
+    : [];
+
   return {
     totalMods, totalLiveTeams, totalParticipants, totalBookings,
     series, completedCount, remainingCount,
@@ -8835,7 +8839,96 @@ function computeOverviewMetrics() {
     // subtitle had to guess from totalParticipants which was the
     // wrong denominator.
     progressTotal,
+    liveTeamSnapshots,
   };
+}
+
+function overviewLiveStatusStationLabel(asgn) {
+  if (!asgn || typeof perfLiveStatusDisplay !== 'function') return '';
+  const label = String((perfLiveStatusDisplay(asgn) || {}).label || '');
+  const m = label.match(/St\s*(\d+)/i);
+  return m ? ('ST' + m[1]) : '';
+}
+
+function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
+  maxCount = maxCount || 3;
+  const f = adminState.overview || {};
+  const teamMatch = (teamId) => f.teamId === 'all' || String(teamId) === String(f.teamId);
+  const teams = adminState.teams || [];
+  const entries = new Map();
+
+  const upsert = (teamId, snap) => {
+    const key = String(teamId);
+    const prev = entries.get(key);
+    if (!prev || snap.rank < prev.rank) entries.set(key, snap);
+  };
+
+  if (typeof buildModStrikeCheckpointReport === 'function') {
+    const rep = buildModStrikeCheckpointReport();
+    (rep.teams || []).forEach(row => {
+      if (!teamMatch(row.teamId)) return;
+      if (row.skipped || !row.flagIncomplete) return;
+      const team = teams.find(t => String(t.id) === String(row.teamId));
+      const name = (team && team.name) || row.teamName || 'Team';
+      upsert(row.teamId, {
+        teamId: row.teamId,
+        teamName: name,
+        line: name + ' Flagged · Not completed',
+        kind: 'flagged',
+        rank: 0,
+      });
+    });
+  }
+
+  (filteredAsgns || []).forEach(a => {
+    if (!a || a.teamId == null || a.teamId === '') return;
+    if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return;
+    const cls = (typeof classifyBookingForPerf === 'function') ? classifyBookingForPerf(a) : null;
+    if (!cls) return;
+    const key = String(a.teamId);
+    if (entries.get(key) && entries.get(key).kind === 'flagged') return;
+    const team = teams.find(t => String(t.id) === key);
+    const name = (team && team.name) || a.teamName || 'Team';
+    if (cls === 'completed') {
+      upsert(a.teamId, { teamId: a.teamId, teamName: name, line: name + ' Completed', kind: 'completed', rank: 3 });
+      return;
+    }
+    if (cls === 'inprogress') {
+      const st = overviewLiveStatusStationLabel(a);
+      upsert(a.teamId, {
+        teamId: a.teamId,
+        teamName: name,
+        line: name + ' In progress' + (st ? (' - ' + st) : ''),
+        kind: 'inprogress',
+        rank: 1,
+      });
+      return;
+    }
+    upsert(a.teamId, {
+      teamId: a.teamId,
+      teamName: name,
+      line: name + ' Scheduled',
+      kind: 'scheduled',
+      rank: 2,
+    });
+  });
+
+  return Array.from(entries.values())
+    .sort((a, b) => (a.rank - b.rank) || String(a.teamName).localeCompare(String(b.teamName)))
+    .slice(0, maxCount);
+}
+
+function renderOverviewLiveStatusList(lines) {
+  const list = document.getElementById('ovLiveStatusList');
+  if (!list) return;
+  if (!lines || !lines.length) {
+    list.innerHTML = '<li class="ov-livestatus-empty">No live teams in this view</li>';
+    return;
+  }
+  list.innerHTML = lines.map(row => {
+    const kind = row.kind || 'scheduled';
+    return '<li class="ov-livestatus-row is-' + kind + '">' + escapeHTML(row.line || '') + '</li>';
+  }).join('');
 }
 
 // ----- Renderers
@@ -9716,6 +9809,14 @@ function perfStatusToolbarCounts() {
 }
 
 function refreshPerfStatusTilesInPlace() {
+  if (typeof adminState !== 'undefined' && adminState && adminState.tab === 'overview'
+      && document.getElementById('ovLiveStatusList')
+      && typeof computeOverviewMetrics === 'function'
+      && typeof renderOverviewLiveStatusList === 'function') {
+    try {
+      renderOverviewLiveStatusList(computeOverviewMetrics().liveTeamSnapshots || []);
+    } catch (_) {}
+  }
   if (typeof perfStatusToolbarCounts !== 'function') return;
   const counts = perfStatusToolbarCounts();
   document.querySelectorAll('[data-perf-status-scope]').forEach(btn => {
@@ -12148,7 +12249,7 @@ function renderOverview(body) {
         <div class="ov-metrics-pane ov-stats" id="ovMetricsPane">
           ${statTileShellHTML('moderators', 'Moderators')}
           ${statTileShellHTML('teams', 'Live teams')}
-          ${statTileShellHTML('participants', 'Participants')}
+          ${statTileLiveStatusShellHTML()}
           ${statTileShellHTML('bookings', 'Bookings')}
         </div>
         ${overviewVizStageHTML()}
@@ -12238,10 +12339,8 @@ function renderOverview(body) {
       const kind = tile.dataset.tile;
       if (kind === 'moderators') {
         selectAdminTab('moderators', { subtab: 'moderators', modView: 'list', scrollTo: 'modviewBody' });
-      } else if (kind === 'teams') {
-        selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
-      } else if (kind === 'participants') {
-        selectAdminTab('moderators', { subtab: 'participants' });
+      } else if (kind === 'teams' || kind === 'livestatus') {
+        selectAdminTab('performance');
       } else if (kind === 'bookings') {
         if (typeof openBookingPage === 'function') openBookingPage();
         else selectAdminTab('moderators', { subtab: 'moderators', modView: 'team', scrollTo: 'teamsList' });
@@ -12345,6 +12444,23 @@ function statTileShellHTML(kind, label) {
   `;
 }
 
+function statTileLiveStatusShellHTML() {
+  const title = 'Open Performance';
+  const icon = `<svg viewBox="0 0 24 24" fill="none"><path d="M4 18V6l8-4 8 4v12l-8 4-8-4z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 10v8M8 12v4M16 12v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
+  return `
+    <div class="ov-stat-tile ov-stat-livestatus" data-tile="livestatus" role="button" tabindex="0" title="${escapeHTML(title)}" aria-label="${escapeHTML(title)}">
+      <div class="ov-stat-head">
+        <div class="ov-stat-label">Live status</div>
+        <div class="ov-stat-icon">${icon}</div>
+      </div>
+      <div class="ov-stat-body ov-stat-body-livestatus">
+        <ul class="ov-livestatus-list" id="ovLiveStatusList" aria-live="polite"></ul>
+        <div class="ov-stat-foot" id="ovFoot-livestatus">Up to 3 teams · tap for Performance</div>
+      </div>
+    </div>
+  `;
+}
+
 // Line chart shell · populated by updateOverviewMetrics
 function bookingsLineChartShellHTML() {
   return `
@@ -12416,7 +12532,6 @@ function updateOverviewMetrics() {
   const tilePairs = [
     ['moderators', m.totalMods],
     ['teams', m.totalLiveTeams],
-    ['participants', m.totalParticipants],
     ['bookings', m.totalBookings],
   ];
   tilePairs.forEach(([kind, target]) => {
@@ -12424,16 +12539,16 @@ function updateOverviewMetrics() {
     if (tile) tweenNumber(tile, target);
   });
   const teamDenom = Math.max(1, (adminState.teams || []).length);
-  const partDenom = Math.max(1, m.totalParticipants || 0);
   const bookDenom = Math.max(1, m.progressTotal || m.totalBookings || 1);
   setOverviewTileBar('moderators', m.totalMods ? 100 : 0);
   setOverviewTileBar('teams', (m.totalLiveTeams / teamDenom) * 100);
-  setOverviewTileBar('participants', Math.min(100, (m.completedCount / partDenom) * 100));
   setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
   setOverviewTileFoot('moderators', 'In directory');
-  setOverviewTileFoot('teams', m.totalLiveTeams === 1 ? '1 live team' : m.totalLiveTeams + ' live teams');
-  setOverviewTileFoot('participants', 'On the roster');
+  setOverviewTileFoot('teams', m.totalLiveTeams === 1 ? '1 live team · Performance' : m.totalLiveTeams + ' live teams · Performance');
   setOverviewTileFoot('bookings', m.completedCount + ' completed');
+  if (typeof renderOverviewLiveStatusList === 'function') {
+    renderOverviewLiveStatusList(m.liveTeamSnapshots || []);
+  }
 
   // 2. Update line chart title + sub based on the current filter set so the
   //    chart self-identifies what it's showing without the user having to
@@ -43248,10 +43363,31 @@ function operatorProgressOnAssignment(a) {
   return false;
 }
 
+function assignmentSessionStartedNotDone(asgn) {
+  if (!asgn) return false;
+  try {
+    if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(asgn)) return false;
+  } catch (_) {}
+  if (typeof operatorProgressOnAssignment === 'function' && operatorProgressOnAssignment(asgn)) return true;
+  if (typeof getLatestStatusForAssignment === 'function') {
+    const latest = getLatestStatusForAssignment(asgn.id);
+    const st = latest && latest.status;
+    if (st === 'session_done' || st === 'office_checkout') return false;
+    if (st && typeof statusOrderIdx === 'function') {
+      return statusOrderIdx(st) >= statusOrderIdx('arrived');
+    }
+    if (st && st !== 'Pending') return true;
+  }
+  return false;
+}
+
 function operatorInProgressAssignment(candidates) {
   const list = candidates || [];
   for (const a of list) {
     if (operatorProgressOnAssignment(a)) return a;
+  }
+  for (const a of list) {
+    if (assignmentSessionStartedNotDone(a)) return a;
   }
   const today = getPSTDateString();
   const sd = String((state && state.sessionDate) || '').trim();
@@ -43265,6 +43401,42 @@ function operatorInProgressAssignment(candidates) {
     }
   }
   return null;
+}
+
+function operatorOpenBookingAssignment(candidates) {
+  return operatorInProgressAssignment(candidates);
+}
+
+function applySameTeamSequentialBookingGate(list) {
+  const groups = new Map();
+  (list || []).forEach(a => {
+    if (!a) return;
+    if (a.teamId == null || a.teamId === '') return;
+    const k = String(a.teamId);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(a);
+  });
+  const keep = new Set();
+  groups.forEach((asgns) => {
+    asgns.sort((a, b) => {
+      const aKey = (a.date || '') + '_' + String(a.startMin || 0).padStart(4, '0') + '_' + (a.id || '');
+      const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
+      return aKey.localeCompare(bKey);
+    });
+    for (const a of asgns) {
+      keep.add(String(a.id));
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && !isSessionWrapUpDone(a)) break;
+      } catch (_) {
+        break;
+      }
+    }
+  });
+  return (list || []).filter(a => {
+    if (!a) return false;
+    if (a.teamId == null || a.teamId === '') return true;
+    return keep.has(String(a.id));
+  });
 }
 
 function bookingQueueGateBlocker(candidates, todayPst) {
@@ -43299,7 +43471,7 @@ function bookingQueueGateBlocker(candidates, todayPst) {
 function applyBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const inProg = operatorInProgressAssignment(list);
+  const inProg = operatorOpenBookingAssignment(list);
   const blocker = bookingQueueGateBlocker(list, today);
 
   return (list || []).filter(a => {
@@ -43344,7 +43516,8 @@ function operatorCarouselCandidateAssignments() {
     const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
     return aKey.localeCompare(bKey);
   });
-  return applyBookingQueueGate(out, todayStr);
+  const sequenced = applySameTeamSequentialBookingGate(out);
+  return applyBookingQueueGate(sequenced, todayStr);
 }
 
 function operatorHasOvernightSessionInProgress(todayPst) {
@@ -43476,6 +43649,13 @@ if (typeof window._mySessionCarouselIdx !== 'number') window._mySessionCarouselI
 // next upcoming session, then the most recent past session.
 function defaultCarouselIdx(assignments) {
   if (!assignments || assignments.length === 0) return 0;
+  const open = (typeof operatorOpenBookingAssignment === 'function')
+    ? operatorOpenBookingAssignment(assignments)
+    : null;
+  if (open) {
+    const openIdx = assignments.findIndex(a => String(a.id) === String(open.id));
+    if (openIdx >= 0) return openIdx;
+  }
   const todayStr = getPSTDateString();  // PST team-reference day (see getOperatorCarouselAssignments)
   // Today (earliest of multiple today's sessions wins)
   let i = assignments.findIndex(a => a.date === todayStr);
@@ -43527,6 +43707,13 @@ function renderMySessionSection() {
 
   // Initialize OR clamp the carousel index. If it's null (first load) pick a
   // sensible default; if it's out of bounds (assignments shrank) reset.
+  const openAsgn = (typeof operatorOpenBookingAssignment === 'function')
+    ? operatorOpenBookingAssignment(assignments)
+    : null;
+  if (openAsgn && assignments.length > 1) {
+    const forceIdx = assignments.findIndex(a => String(a.id) === String(openAsgn.id));
+    if (forceIdx >= 0) window._mySessionCarouselIdx = forceIdx;
+  }
   if (window._mySessionCarouselIdx === null ||
       window._mySessionCarouselIdx === undefined ||
       window._mySessionCarouselIdx >= assignments.length ||

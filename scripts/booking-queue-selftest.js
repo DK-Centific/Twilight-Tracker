@@ -37,6 +37,11 @@ function runQueue(opts) {
     },
     assignmentCoerceClockMin: (v, fb) => (Number.isFinite(Number(v)) ? Number(v) : (fb || 0)),
     assignmentModalNormalizeEndMin: (s, e) => (e <= s ? e + 24 * 60 : e),
+    statusOrderIdx: (status) => {
+      const order = ['arrived', 'station_0a_done', 'station_1_done', 'station_3_done', 'session_done'];
+      return order.indexOf(status);
+    },
+    getLatestStatusForAssignment: opts.getLatestStatusForAssignment || (() => null),
   };
   vm.createContext(ctx);
   vm.runInNewContext(block, ctx);
@@ -93,6 +98,39 @@ runCase('in-progress prior day blocks morning even after 9 AM', () => {
     state: { sessionDate: '2026-09-15', arrivedAt: '2026-09-16T05:00:00.000Z' },
   });
   if (ids.includes('morning')) throw new Error('morning should stay hidden while overnight in progress');
+});
+
+runCase('same team hides later booking until wrap-up (Venkata x Jashit pattern)', () => {
+  const teamId = 'team_vxj';
+  const ids = runQueue({
+    today: '2026-09-16',
+    gateOpen: true,
+    assignments: [
+      { id: 'am', teamId, date: '2026-09-16', startMin: 8 * 60, endMin: 12 * 60, status: 'Booked' },
+      { id: 'pm', teamId, date: '2026-09-16', startMin: 14 * 60, endMin: 22 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: () => false,
+    getLatestStatusForAssignment: (id) => (id === 'am' ? { status: 'station_3_done' } : null),
+    state: { sessionDate: '2026-09-16' },
+  });
+  if (ids.length !== 1 || ids[0] !== 'am') {
+    throw new Error('expected only first same-day team booking, got ' + JSON.stringify(ids));
+  }
+});
+
+runCase('same team shows second booking after first wrap-up', () => {
+  const teamId = 'team_vxj';
+  const ids = runQueue({
+    today: '2026-09-16',
+    gateOpen: true,
+    assignments: [
+      { id: 'am', teamId, date: '2026-09-16', startMin: 8 * 60, endMin: 12 * 60, status: 'Booked' },
+      { id: 'pm', teamId, date: '2026-09-16', startMin: 14 * 60, endMin: 22 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: (a) => a && a.id === 'am',
+    state: { sessionDate: '2026-09-16', sessionCompletedAt: '2026-09-16T12:30:00.000Z' },
+  });
+  if (!ids.includes('pm')) throw new Error('expected pm booking after am wrap-up, got ' + JSON.stringify(ids));
 });
 
 if (process.exitCode) process.exit(process.exitCode);
