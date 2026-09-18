@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091728h';
-const APP_UPDATED_AT = '09/18/2026 10:55';
+const APP_VERSION = '1.3.091728i';
+const APP_UPDATED_AT = '09/18/2026 11:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8666,6 +8666,17 @@ function overviewDateRange(scope) {
   return [null, null];
 }
 
+// Overview Live teams + list mirror Performance Today: in-progress classifier
+// and same-team 9 AM admin queue visibility (not raw arrival alone).
+function overviewAssignmentIsPerfLive(a) {
+  if (!a || a.teamId == null || a.teamId === '') return false;
+  if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return false;
+  if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+      && !perfAssignmentVisibleInAdminQueue(a)) return false;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'inprogress';
+}
+
 // Pure function: filters + raw state -> metrics object
 function computeOverviewMetrics() {
   const f = adminState.overview;
@@ -8732,14 +8743,10 @@ function computeOverviewMetrics() {
   }
   const totalMods = modList.length;
 
-  // Live teams · moderator confirmed participant check-in (arrived+), session not wrapped up.
+  // Live teams · same rules as Performance Live (classifier + admin queue gate).
   const liveTeamIds = new Set();
   filteredAsgns.forEach(a => {
-    if (a && a.teamId != null && a.teamId !== ''
-        && typeof assignmentHasModeratorArrivalCheckIn === 'function'
-        && assignmentHasModeratorArrivalCheckIn(a)) {
-      liveTeamIds.add(a.teamId);
-    }
+    if (overviewAssignmentIsPerfLive(a)) liveTeamIds.add(a.teamId);
   });
   const totalLiveTeams = liveTeamIds.size;
 
@@ -8898,12 +8905,7 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   }
 
   (filteredAsgns || []).forEach(a => {
-    if (!a || a.teamId == null || a.teamId === '') return;
-    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
-        && !perfAssignmentVisibleInAdminQueue(a)) return;
-    if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return;
-    if (typeof assignmentHasModeratorArrivalCheckIn !== 'function'
-        || !assignmentHasModeratorArrivalCheckIn(a)) return;
+    if (!overviewAssignmentIsPerfLive(a)) return;
     const key = String(a.teamId);
     if (entries.get(key) && entries.get(key).kind === 'flagged') return;
     const team = teams.find(t => String(t.id) === key);
@@ -8934,7 +8936,7 @@ function renderOverviewLiveStatusList(lines) {
   const list = document.getElementById('ovLiveStatusList');
   if (!list) return;
   if (!lines || !lines.length) {
-    list.innerHTML = '<li class="ov-livestatus-empty">No teams checked in for this view</li>';
+    list.innerHTML = '<li class="ov-livestatus-empty">No live teams for this view</li>';
     return;
   }
   list.innerHTML = lines.map(row => {
@@ -12702,8 +12704,8 @@ function updateOverviewMetrics() {
   setOverviewTileBar('bookings', (m.totalBookings / bookDenom) * 100);
   setOverviewTileFoot('moderators', 'In directory');
   setOverviewTileFoot('teams', m.totalLiveTeams === 1
-    ? '1 checked in · Performance'
-    : m.totalLiveTeams + ' checked in · Performance');
+    ? '1 live · Performance'
+    : m.totalLiveTeams + ' live · Performance');
   setOverviewTileFoot('bookings', m.completedCount + ' completed');
   if (typeof renderOverviewLiveStatusList === 'function') {
     renderOverviewLiveStatusList(m.liveTeamSnapshots || []);
