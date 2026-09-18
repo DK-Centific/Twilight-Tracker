@@ -14927,6 +14927,62 @@ button.perf-stat-chip.scheduled.active {
 [data-theme="dark"] .ov-stat-moderators { --ov-tint: #67e8f9; --ov-tint-shade: #22d3ee; --ov-tint-bg: rgba(0, 240, 255, 0.14); --ov-tint-border: rgba(103, 232, 249, 0.30); --ov-tint-shadow: rgba(103, 232, 249, 0.30); }
 .ov-stat-moderators .ov-stat-glow { background: radial-gradient(circle at top right, rgba(0, 240, 255, 0.18) 0%, transparent 60%); }
 
+/* Overview Moderators · Star Ledger (Jimmy Option A) */
+.ov-mod-stars {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  margin: 6px 0 0;
+  justify-content: space-between;
+  z-index: 1;
+}
+.ov-mod-star-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px 3px;
+  border-radius: 8px;
+  background: rgba(36, 36, 32, 0.03);
+}
+.ov-mod-star-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: #8A9084;
+  font-variant-numeric: tabular-nums;
+}
+.ov-mod-star-n {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.1;
+  color: #242420;
+  font-variant-numeric: tabular-nums;
+}
+.ov-mod-star-cell.is-3 .ov-mod-star-label { color: #0E7C96; }
+.ov-mod-star-cell.is-1 .ov-mod-star-label { color: #C5A059; }
+.ov-mod-star-cell.is-0 .ov-mod-star-label,
+.ov-mod-star-cell.is-0 .ov-mod-star-n { color: #C48989; }
+.ov-mod-star-cell.is-zero { opacity: 0.38; }
+[data-theme="dark"] .ov-mod-star-cell {
+  background: rgba(255, 255, 255, 0.04);
+}
+[data-theme="dark"] .ov-mod-star-n { color: var(--text); }
+[data-theme="dark"] .ov-mod-star-label { color: color-mix(in srgb, var(--text) 55%, transparent); }
+[data-theme="dark"] .ov-mod-star-cell.is-3 .ov-mod-star-label {
+  color: var(--ov-tint, #67e8f9);
+}
+[data-theme="dark"] .ov-mod-star-cell.is-1 .ov-mod-star-label { color: #D4B56A; }
+[data-theme="dark"] .ov-mod-star-cell.is-0 .ov-mod-star-label,
+[data-theme="dark"] .ov-mod-star-cell.is-0 .ov-mod-star-n { color: #D4A0A0; }
+@media (max-width: 1100px) {
+  .ov-mod-star-n { font-size: 11px; }
+}
+
+
 .ov-stat-teams {
   --ov-tint: #9333ea;
   --ov-tint-shade: #7e22ce;
@@ -18064,7 +18120,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091818e" defer></script>
+<script src="twilight.js?v=twilight-1.3.091818f" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
