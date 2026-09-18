@@ -7,6 +7,8 @@ const path = require('path');
 const vm = require('vm');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'twilight.js'), 'utf8');
+const matchBegin = src.indexOf('function assignmentIdsMatch(a, b)');
+const matchEnd = src.indexOf('function buildAssignmentTeamMap()');
 const begin = src.indexOf('function classifyBookingForPerf(a)');
 const end = src.indexOf('function perfDateRangeOptions()');
 if (begin < 0 || end < 0 || end <= begin) {
@@ -81,6 +83,9 @@ const ctx = {
 vm.createContext(ctx);
 vm.runInContext(src.slice(fenceBegin, fenceEnd + '/* FENCE_UNLOCK_END */'.length), ctx);
 vm.runInContext(src.slice(geoBegin, geoEnd), ctx);
+if (matchBegin >= 0 && matchEnd > matchBegin) {
+  vm.runInContext(src.slice(matchBegin, matchEnd), ctx);
+}
 vm.runInContext(src.slice(begin, end), ctx);
 
 let failed = 0;

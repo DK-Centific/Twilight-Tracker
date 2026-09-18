@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-17 · Cursor (Composer) · Activities map re-init fix + perf strike Skip (local v1.3.091726z)  
+**Last updated:** 2026-09-18 · Cursor (Composer) · Strike banner session-end gate + booking queue (v1.3.091728c pushed)  
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,7 +9,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | `1.3.091726x` on remote · local **`1.3.091726z`** (Activities map no longer re-inits on hub refresh; perf checkpoint **Skip**) |
+| **`main` version** | **`1.3.091728c`** (Approval toggle, booking queue, strike end-time gate) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `main` |

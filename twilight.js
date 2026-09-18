@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091726z';
-const APP_UPDATED_AT = '09/17/2026 22:52';
+const APP_VERSION = '1.3.091728c';
+const APP_UPDATED_AT = '09/18/2026 03:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6382,6 +6382,7 @@ async function pollMyApprovals() {
 // AutoApproved (≥3:30 PM PT, pending >15 min) and writes the event when
 // the backend is wired. The server sweep is the safety net for closed tabs.
 function runClientAutoApprove() {
+  if (typeof isApprovalAutoEnabled === 'function' && !isApprovalAutoEnabled()) return;
   for (const k of GATE_ALL_KEYS) {
     const g = getGate(k);
     if (g.status !== 'Pending' && g.status !== 'InReview') continue;
@@ -8941,49 +8942,32 @@ function getLakituUrlForAssignment(asgnId) {
   const targetExact = String(asgnId);
   const targetLoose = String(asgnId).trim().toLowerCase();
 
-  const matching = rows.filter(r => {
-    if (!r) return false;
-    const rExact = String(r.assignmentId || '');
-    if (rExact === targetExact) return true;
-    const rLoose = rExact.trim().toLowerCase();
-    return rLoose === targetLoose;
-  }).sort((a, b) => parseLastActiveMs(b.lastActive) - parseLastActiveMs(a.lastActive));
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(asgnId, rows)
+    : rows.filter(r => {
+      if (!r) return false;
+      const rExact = String(r.assignmentId || '');
+      if (rExact === targetExact) return true;
+      return rExact.trim().toLowerCase() === targetLoose;
+    });
+  matching.sort((a, b) => parseLastActiveMs(b.lastActive) - parseLastActiveMs(a.lastActive));
 
-  // LAKITU GATE MATCHING (1.3.061526):
-  // Select the participantId from stateJson using the SAME gate the
-  // moderator app uses to validate a Lakitu session URL · the strict
-  // LAKITU_URL_RE (isValidLakituUrl), not a loose "has ?session="
-  // check. Walk matching rows newest-first and prefer the newest
-  // participantId that PASSES the gate. If none pass but a malformed
-  // value exists, surface the newest non-empty one anyway so the pill
-  // can show "Incorrect url" (admin chose: don't silently hide a bad
-  // value). This keeps Performance's notion of "a valid Lakitu URL"
-  // identical to the mod app's.
   let result = '';
   let firstNonEmpty = '';
   for (const r of matching) {
-    let parsed;
-    try { parsed = JSON.parse(r.stateJson || '{}'); }
-    catch (e) {
-      // Corrupt row · log once per asgnId for diagnostics, then
-      // skip and try the next row.
-      if (!_lakituUrlDiagLogged.has(`parse:${asgnId}`)) {
-        _lakituUrlDiagLogged.add(`parse:${asgnId}`);
-        console.warn('[Twilight] Lakitu lookup: corrupt stateJson for asgn', asgnId, '- error:', e && e.message);
-      }
-      continue;
-    }
-    const pid = parsed && parsed.participantId ? String(parsed.participantId).trim() : '';
-    if (!pid) continue;
-    if (!firstNonEmpty) firstNonEmpty = pid;  // newest non-empty (fallback)
-    const passesGate = (typeof isValidLakituUrl === 'function') ? isValidLakituUrl(pid) : true;
-    if (passesGate) {
-      result = pid;  // newest gate-valid wins
+    const parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    const url = (typeof pickLakituUrlFromSessionStateParsed === 'function')
+      ? pickLakituUrlFromSessionStateParsed(parsed)
+      : String((parsed && parsed.participantId) || '').trim();
+    if (!url) continue;
+    if (!firstNonEmpty) firstNonEmpty = url;
+    if (validateLakituUrl(url) === 'ok') {
+      result = url;
       break;
     }
   }
-  // No gate-valid URL found · fall back to the newest non-empty value so
-  // the pill surfaces it as "Incorrect url" rather than "No url".
   if (!result) result = firstNonEmpty;
 
   // Diagnostic logging (once per asgnId per source-array). Helps
@@ -9204,13 +9188,12 @@ if (typeof window !== 'undefined') {
 // /review?session= transform will produce something openable.
 function validateLakituUrl(url) {
   if (!url || !String(url).trim()) return 'empty';
-  // Use the SAME gate as the moderator app (strict LAKITU_URL_RE via
-  // isValidLakituUrl) so "ok"/"invalid" in Performance means exactly
-  // what "valid"/"invalid" means in the mod app's session gate. The
-  // previous loose check (startsWith http + includes ?session=) could
-  // mark a malformed URL "ok" and produce a broken /review link.
+  // Session URLs (p/UUID?session=) and admin-assigned project URLs both
+  // count as openable in Performance.
+  if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(url)) return 'ok';
+  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(url)) return 'ok';
   if (typeof isValidLakituUrl === 'function') {
-    return isValidLakituUrl(url) ? 'ok' : 'invalid';
+    return 'invalid';
   }
   // Defensive fallback (isValidLakituUrl unexpectedly unavailable).
   const u = String(url).trim();
@@ -9232,8 +9215,12 @@ function validateLakituUrl(url) {
 function lakituReviewUrl(url) {
   if (!url) return url;
   const u = String(url).trim();
+  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(u)) return u;
   if (u.includes('/review?session=')) return u;  // already transformed
-  return u.replace('?session=', '/review?session=');
+  if (u.includes('/p/') && u.includes('?session=')) {
+    return u.replace('?session=', '/review?session=');
+  }
+  return u;
 }
 
 // Centralized renderer for the Lakitu pill across the Performance tab.
@@ -9256,9 +9243,7 @@ function lakituReviewUrl(url) {
 function renderPerfLakituPillHTML(a, cls, variant) {
   const showLakitu = (cls === 'completed' || cls === 'inprogress');
   if (!showLakitu) {
-    // Placeholder keeps the row's grid columns aligned. Side-panel
-    // doesn't need a placeholder · it just omits the section.
-    return variant === 'row' ? '<span style="width: 1px;"></span>' : '';
+    return '';
   }
   const url = getLakituUrlForAssignment(a && a.id);
   const status = validateLakituUrl(url);
@@ -9272,12 +9257,7 @@ function renderPerfLakituPillHTML(a, cls, variant) {
     // The row-variant pill stops row-click propagation so opening
     // the new tab doesn't also slide the side panel in.
     const stopAttr = isPanel ? '' : ' data-stop-row-click onclick="event.stopPropagation()"';
-    return `<a href="${escapeHTML(reviewUrl)}" target="_blank" rel="noopener" class="perf-lakitu-pill"${panelStyle}${stopAttr}>
-         ${label}
-         <svg width="${panelIconSize}" height="${panelIconSize}" viewBox="0 0 12 12" fill="none">
-           <path d="M5 2H3a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V7M7 2h3v3M10 2L5.5 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-         </svg>
-       </a>`;
+    return `<a href="${escapeHTML(reviewUrl)}" target="_blank" rel="noopener" class="perf-lakitu-pill"${panelStyle}${stopAttr}><span class="perf-lakitu-pill-label">${escapeHTML(label)}</span><svg class="perf-lakitu-pill-icon" width="${panelIconSize}" height="${panelIconSize}" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M5 2H3a1 1 0 00-1 1v6a1 1 0 001 1h6a1 1 0 001-1V7M7 2h3v3M10 2L5.5 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`;
   }
 
   if (status === 'invalid') {
@@ -9471,11 +9451,10 @@ function perfBestRecentGeoAtMs(a, maxAgeMs) {
     if (t > best) best = t;
   };
   for (const r of perfAssignmentSessionRows(a)) {
-    let parsed = {};
-    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
-    const geo = (typeof lastGeoFromSessionRow === 'function')
-      ? lastGeoFromSessionRow(r, parsed)
-      : (parsed.lastGeo || null);
+    const parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    const geo = (parsed.lastGeo || null);
     if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) continue;
     consider((typeof lastGeoPingAtMs === 'function')
       ? lastGeoPingAtMs(geo)
@@ -9502,15 +9481,11 @@ function perfAssignmentHasRecentGeoActivity(a, maxAgeMs) {
 
 function perfAssignmentSessionRows(a) {
   if (!a || !a.id) return [];
-  const targetExact = String(a.id);
-  const targetLoose = targetExact.trim().toLowerCase();
   const rows = (adminState && Array.isArray(adminState.perfSessionStateRows))
     ? adminState.perfSessionStateRows : [];
-  return rows.filter(r => {
-    if (!r) return false;
-    const rExact = String(r.assignmentId || '');
-    return rExact === targetExact || rExact.trim().toLowerCase() === targetLoose;
-  });
+  return (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(a.id, rows)
+    : rows.filter(r => assignmentIdsMatch(r && r.assignmentId, a.id));
 }
 
 function perfGeoTrackDisplay(a) {
@@ -9542,11 +9517,10 @@ function perfGeoTrackDisplay(a) {
   let bestOutside = null;
   let bestAny = null;
   for (const r of rows) {
-    let parsed = {};
-    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
-    const geo = (typeof lastGeoFromSessionRow === 'function')
-      ? lastGeoFromSessionRow(r, parsed)
-      : (parsed.lastGeo || null);
+    const parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    const geo = (parsed.lastGeo || null);
     if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lng))) continue;
     const atMs = (typeof lastGeoPingAtMs === 'function')
       ? lastGeoPingAtMs(geo)
@@ -9713,27 +9687,52 @@ function perfDateRangeOptions() {
 function perfStatusToolbarCounts() {
   const view = adminState.perfView || 'teams';
   const dateRange = adminState.perfDateRange || 'all';
-  // Iterate the canonical source of bookings (assignments) once
-  // rather than aggregating per-tile. Faster + simpler than summing
-  // perfTeamBookings(t.id) for every team.
-  const seen = new Set();  // dedup by assignment id (a booking could be relevant to multiple tiles via mod-membership)
+  const seen = new Set();
   let completed = 0, inprogress = 0, scheduled = 0;
-  for (const a of (adminState.assignments || [])) {
-    if (!a || !a.id) continue;
-    if (seen.has(a.id)) continue;
-    seen.add(a.id);
-    if (!perfDateInRange(a, dateRange)) continue;
+  const countAssignment = (a) => {
+    if (!a || !a.id || seen.has(a.id)) return;
+    if (!perfDateInRange(a, dateRange)) return;
     const bucket = classifyBookingForPerf(a);
-    if (bucket === 'completed')  completed++;
+    if (!bucket) return;
+    seen.add(a.id);
+    if (bucket === 'completed') completed++;
     else if (bucket === 'inprogress') inprogress++;
-    else if (bucket === 'scheduled')  scheduled++;
+    else if (bucket === 'scheduled') scheduled++;
+  };
+  if (view === 'mods') {
+    for (const m of (adminState.moderators || [])) {
+      if (!m) continue;
+      const orbitId = perfModId(m);
+      if (!orbitId) continue;
+      for (const a of perfModBookings(orbitId)) countAssignment(a);
+    }
+  } else {
+    for (const t of (adminState.teams || [])) {
+      if (!t) continue;
+      for (const a of perfTeamBookings(t.id)) countAssignment(a);
+    }
   }
-  // 'view' is currently unused here but reserved for a future
-  // refinement where the strip might scope to "only assignments
-  // touching at least one moderator the admin can see" in the
-  // mods view. For now both views show the same global counts.
-  void view;
   return { all: completed + inprogress + scheduled, completed, inprogress, scheduled };
+}
+
+function refreshPerfStatusTilesInPlace() {
+  if (typeof perfStatusToolbarCounts !== 'function') return;
+  const counts = perfStatusToolbarCounts();
+  document.querySelectorAll('[data-perf-status-scope]').forEach(btn => {
+    const key = btn.dataset.perfStatusScope;
+    const numEl = btn.querySelector('.perf-status-tile-num');
+    if (!key || !numEl) return;
+    const next = key === 'all' ? counts.all
+      : (key === 'completed' ? counts.completed
+        : (key === 'inprogress' ? counts.inprogress
+          : (key === 'scheduled' ? counts.scheduled : null)));
+    if (next == null) return;
+    numEl.textContent = String(next);
+    const isActive = (adminState.perfStatusScope || 'all') === key;
+    const isDisabled = key !== 'all' && next === 0 && !isActive;
+    btn.classList.toggle('disabled', isDisabled);
+    btn.disabled = isDisabled;
+  });
 }
 
 // Compute initials for an avatar · first letter of first two words.
@@ -9932,6 +9931,7 @@ async function refreshPerfLiveData() {
     grid.innerHTML = renderPerfTilesHTML(view, search);
     if (typeof wirePerfTileGrid === 'function') wirePerfTileGrid(grid);
   }
+  if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
   // Refresh the open side panel too, so its live status / station detail
   // tracks along.
   const panel = document.getElementById('perfPanel');
@@ -11031,16 +11031,21 @@ function renderPerfBookingRowHTML(a, team, search) {
     ? highlightMatch(participant, search)
     : escapeHTML(participant);
 
+  const geoHTML = (typeof renderPerfGeoTrackHTML === 'function') ? renderPerfGeoTrackHTML(a, 'row') : '';
   return `
-    <button type="button" class="perf-booking-row ${isMatch ? 'matched' : ''}" data-asgn-id="${escapeHTML(a.id)}">
+    <div role="button" tabindex="0" class="perf-booking-row ${isMatch ? 'matched' : ''}" data-asgn-id="${escapeHTML(a.id)}">
       <span class="perf-booking-dot status-${statusKey}"></span>
       <span class="perf-booking-participant">${participantDisplay}</span>
       <span class="perf-booking-meta">${escapeHTML(tName + (modLabel !== '·' ? ` · ${modLabel}` : ''))}</span>
       <span class="perf-booking-date">${escapeHTML(dateLabel)}</span>
-      <span class="perf-booking-status-pill status-${statusKey}" title="${escapeHTML(pillTitle)}">${escapeHTML(statusLabel)}</span>${mismatchHTML}
-      ${(typeof renderPerfGeoTrackHTML === 'function') ? renderPerfGeoTrackHTML(a, 'row') : ''}
-      ${lakituHTML}
-    </button>
+      <span class="perf-booking-row-actions">
+        <span class="perf-booking-status-wrap">
+          <span class="perf-booking-status-pill status-${statusKey}" title="${escapeHTML(pillTitle)}">${escapeHTML(statusLabel)}</span>${mismatchHTML}
+        </span>
+        ${geoHTML}
+        ${lakituHTML}
+      </span>
+    </div>
   `;
 }
 
@@ -11246,13 +11251,20 @@ function wirePerfTileBody(tile) {
   });
   // Booking row clicks · open the slide-in panel
   tile.querySelectorAll('.perf-booking-row').forEach(row => {
-    row.addEventListener('click', e => {
-      // If the click landed on the Lakitu pill (or any element with
-      // data-stop-row-click), don't open the panel.
-      if (e.target.closest('[data-stop-row-click]')) return;
+    const openRow = () => {
       const asgnId = row.dataset.asgnId;
       if (!asgnId) return;
       openPerformancePanel(asgnId);
+    };
+    row.addEventListener('click', e => {
+      if (e.target.closest('[data-stop-row-click]')) return;
+      openRow();
+    });
+    row.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.target.closest('[data-stop-row-click]')) return;
+      e.preventDefault();
+      openRow();
     });
   });
 }
@@ -11416,14 +11428,9 @@ function renderPerfStationListHTML(a) {
   // whitespace drift in the assignmentId column · without this, the
   // panel was returning zero rows even when matching SessionState
   // existed in cache, surfacing "No station progress reported yet."
-  const targetExact = String(a.id || '');
-  const targetLoose = targetExact.trim().toLowerCase();
-  const rows = (adminState.perfSessionStateRows || []).filter(r => {
-    if (!r) return false;
-    const rExact = String(r.assignmentId || '');
-    if (rExact === targetExact) return true;
-    return rExact.trim().toLowerCase() === targetLoose;
-  });
+  const rows = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(a.id, adminState.perfSessionStateRows || [])
+    : (adminState.perfSessionStateRows || []).filter(r => sessionStateRowMatchesAssignment(r, a.id));
 
   // No rows yet · likely SS hasn't loaded or session hasn't really
   // started. Surface the right empty-state message.
@@ -11468,15 +11475,20 @@ function renderPerfStationListHTML(a) {
   rows.sort((x, y) => String(y.lastActive || '').localeCompare(String(x.lastActive || '')));
   const merged = { stations: {} };
   for (const r of rows) {
-    let st;
-    try { st = JSON.parse(r.stateJson || '{}'); } catch (_) { continue; }
+    const st = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
     if (st.stations) {
       for (const key of Object.keys(st.stations)) {
         if (!merged.stations[key]) merged.stations[key] = st.stations[key];
       }
     }
-    // Carry through ancillary fields used below (completedAt map).
-    if (st.stationCompletedAt && !merged.stationCompletedAt) merged.stationCompletedAt = st.stationCompletedAt;
+    if (st.stationCompletedAt && typeof st.stationCompletedAt === 'object') {
+      merged.stationCompletedAt = merged.stationCompletedAt || {};
+      for (const k of Object.keys(st.stationCompletedAt)) {
+        if (!merged.stationCompletedAt[k]) merged.stationCompletedAt[k] = st.stationCompletedAt[k];
+      }
+    }
     if (st.sessionStartedAt && !merged.sessionStartedAt) merged.sessionStartedAt = st.sessionStartedAt;
     if (st.sessionCompletedAt && !merged.sessionCompletedAt) merged.sessionCompletedAt = st.sessionCompletedAt;
   }
@@ -12904,38 +12916,126 @@ function updateApprFilterCounts() {
 // Restore active states + wire the filter controls. Called whenever the tab
 // body is (re)built; reads adminState._apprDateFilter so the choice persists
 // across tab switches and list auto-refreshes.
+function closeApprovalDateRangePopup() {
+  const overlay = document.getElementById('apprDateRangeOverlay');
+  if (overlay) {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function openApprovalDateRangePopup() {
+  const f = apprDateFilter();
+  if (!f.from) f.from = pstDateMinusDays(29);
+  if (!f.to) f.to = getPSTDateString();
+  let overlay = document.getElementById('apprDateRangeOverlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'apprDateRangeOverlay';
+    overlay.className = 'appr-daterange-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'apprDateRangeTitle');
+    overlay.innerHTML = `
+      <div class="appr-daterange-sheet">
+        <div class="appr-daterange-head">
+          <div class="appr-daterange-title" id="apprDateRangeTitle">Date range</div>
+          <button type="button" class="appr-daterange-close" id="apprDateRangeClose" aria-label="Close">×</button>
+        </div>
+        <div class="appr-daterange-body">
+          <label class="appr-daterange-field"><span>From</span><input type="date" id="apprFilterFrom" class="appr-date-input"></label>
+          <label class="appr-daterange-field"><span>To</span><input type="date" id="apprFilterTo" class="appr-date-input"></label>
+        </div>
+        <div class="appr-daterange-actions">
+          <button type="button" class="appr-daterange-btn ghost" id="apprDateRangeCancel">Cancel</button>
+          <button type="button" class="appr-daterange-btn primary" id="apprDateRangeApply">Apply</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (ev) => {
+      if (ev.target === overlay) closeApprovalDateRangePopup();
+    });
+    const closeBtn = overlay.querySelector('#apprDateRangeClose');
+    if (closeBtn) closeBtn.addEventListener('click', closeApprovalDateRangePopup);
+    const cancelBtn = overlay.querySelector('#apprDateRangeCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeApprovalDateRangePopup);
+    const applyBtn = overlay.querySelector('#apprDateRangeApply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        const fromEl = document.getElementById('apprFilterFrom');
+        const toEl = document.getElementById('apprFilterTo');
+        const filter = apprDateFilter();
+        filter.from = (fromEl && fromEl.value) || filter.from;
+        filter.to = (toEl && toEl.value) || filter.to;
+        if (filter.from && filter.to && filter.from > filter.to) {
+          const tmp = filter.from;
+          filter.from = filter.to;
+          filter.to = tmp;
+          if (fromEl) fromEl.value = filter.from;
+          if (toEl) toEl.value = filter.to;
+        }
+        filter.mode = 'range';
+        closeApprovalDateRangePopup();
+        wireApprovalFilterBar();
+        renderApprovalListInto();
+      });
+    }
+  }
+  const fromEl = document.getElementById('apprFilterFrom');
+  const toEl = document.getElementById('apprFilterTo');
+  if (fromEl) fromEl.value = f.from;
+  if (toEl) toEl.value = f.to;
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  if (fromEl) fromEl.focus();
+}
+
+function wireApprovalAutoToggle() {
+  const wrap = document.getElementById('apprAutoToggleWrap');
+  const tog = document.getElementById('apprAutoToggle');
+  if (!wrap || !tog || wrap._wired) return;
+  wrap._wired = true;
+  const flip = () => {
+    if (typeof setApprovalAutoEnabled !== 'function') return;
+    setApprovalAutoEnabled(!isApprovalAutoEnabled());
+  };
+  wrap.addEventListener('click', flip);
+  tog.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); flip(); }
+  });
+  syncApprovalAutoToggleUi();
+}
+
 function wireApprovalFilterBar() {
   const f = apprDateFilter();
   const pill = document.getElementById('apprTodayPill');
   const seg = document.getElementById('apprFilterSeg');
-  const rangeRow = document.getElementById('apprFilterRange');
-  const fromEl = document.getElementById('apprFilterFrom');
-  const toEl = document.getElementById('apprFilterTo');
   if (!seg) return;
   const sync = () => {
     if (pill) pill.classList.toggle('active', f.mode === 'today');
-    seg.querySelectorAll('.appr-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === f.mode));
-    if (rangeRow) rangeRow.hidden = (f.mode !== 'range');
+    seg.querySelectorAll('.appr-filter-btn').forEach(b => {
+      const mode = b.dataset.mode;
+      b.classList.toggle('active', f.mode === mode || (mode === 'range' && f.mode === 'range'));
+    });
     updateApprFilterCounts();
   };
   const setMode = (mode) => {
     f.mode = mode;
-    if (mode === 'range') {                                    // seed a sensible default window
-      if (!f.from) f.from = pstDateMinusDays(29);
-      if (!f.to)   f.to = getPSTDateString();
-      if (fromEl) fromEl.value = f.from;
-      if (toEl)   toEl.value = f.to;
-    }
     sync();
     renderApprovalListInto();
   };
   if (pill) pill.onclick = () => setMode('today');
-  seg.querySelectorAll('.appr-filter-btn').forEach(b => { b.onclick = () => setMode(b.dataset.mode); });
-  if (fromEl) fromEl.onchange = () => { f.from = fromEl.value || ''; f.mode = 'range'; sync(); renderApprovalListInto(); };
-  if (toEl)   toEl.onchange   = () => { f.to   = toEl.value   || ''; f.mode = 'range'; sync(); renderApprovalListInto(); };
-  if (fromEl && f.from) fromEl.value = f.from;
-  if (toEl && f.to) toEl.value = f.to;
+  seg.querySelectorAll('.appr-filter-btn').forEach(b => {
+    const mode = b.dataset.mode;
+    if (mode === 'range') {
+      b.onclick = () => openApprovalDateRangePopup();
+    } else {
+      b.onclick = () => setMode(mode);
+    }
+  });
   sync();
+  wireApprovalAutoToggle();
 }
 
 const APPROVAL_QA_REASONS = [
@@ -13043,10 +13143,9 @@ function renderApprovalTab(body) {
         <button type="button" class="appr-filter-btn" data-mode="week">Last 7 days</button>
         <button type="button" class="appr-filter-btn" data-mode="range">Date range</button>
       </div>
-      <div class="appr-filter-range" id="apprFilterRange" hidden>
-        <input type="date" id="apprFilterFrom" class="appr-date-input" aria-label="From date">
-        <span class="appr-filter-dash" aria-hidden="true">→</span>
-        <input type="date" id="apprFilterTo" class="appr-date-input" aria-label="To date">
+      <div class="appr-auto-toggle-wrap" id="apprAutoToggleWrap" role="button" tabindex="0" title="When on, pending requests auto-approve after 15 minutes">
+        <span class="appr-auto-label" id="apprAutoLabel">Auto-approve on</span>
+        <span class="theme-toggle on" id="apprAutoToggle" role="switch" aria-checked="true" tabindex="-1"></span>
       </div>
       <span class="appr-filter-count" id="apprFilterCount"></span>
     </div>
@@ -13496,6 +13595,7 @@ function startApprovalPoll() {
   const tick = () => {
     const adminVisible = document.getElementById('adminApp') && document.getElementById('adminApp').classList.contains('active');
     if (!adminVisible) return;
+    if (typeof refreshApprovalAutoSetting === 'function') refreshApprovalAutoSetting().catch(() => {});
     ensureApprovalData({ force: true }).then(() => {
       adminState._seenApprovalIds = adminState._seenApprovalIds || new Set();
       const openNow = ((adminState.approvals) || []).filter(a => a.status === 'Pending' || a.status === 'InReview');
@@ -15106,6 +15206,9 @@ function ingestAppSettingsFromSessionRows(rows) {
   }
   if (typeof ingestModeratorStrikesFromSessionRows === 'function') {
     ingestModeratorStrikesFromSessionRows(rows);
+  }
+  if (typeof ingestApprovalAutoFromSessionRows === 'function') {
+    ingestApprovalAutoFromSessionRows(rows);
   }
 }
 
@@ -23716,6 +23819,55 @@ function teamBookingOnDateForStrike(teamId, ymd) {
   return null;
 }
 
+// Wall-clock instant (epoch ms) for a PST calendar date + minutes from midnight.
+function pacificWallClockToMs(ymd, minutesFromMidnight) {
+  const d = String(ymd || '').trim();
+  const totalMin = Number(minutesFromMidnight) || 0;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+  if (!m) return NaN;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const day = Number(m[3]);
+  const hour = Math.floor(totalMin / 60);
+  const minute = totalMin % 60;
+  let utc = Date.UTC(y, mo - 1, day, hour + 8, minute, 0, 0);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  for (let i = 0; i < 5; i++) {
+    const parts = fmt.formatToParts(new Date(utc));
+    const py = Number((parts.find(p => p.type === 'year') || {}).value);
+    const pm = Number((parts.find(p => p.type === 'month') || {}).value);
+    const pd = Number((parts.find(p => p.type === 'day') || {}).value);
+    let ph = Number((parts.find(p => p.type === 'hour') || {}).value);
+    if (ph === 24) ph = 0;
+    const pmin = Number((parts.find(p => p.type === 'minute') || {}).value);
+    if (py === y && pm === mo && pd === day && ph === hour && pmin === minute) return utc;
+    const dayDelta = Math.round((Date.UTC(py, pm - 1, pd) - Date.UTC(y, mo - 1, day)) / 86400000);
+    const deltaMin = (hour * 60 + minute) - (ph * 60 + pmin) + dayDelta * 1440;
+    utc += deltaMin * 60000;
+  }
+  return utc;
+}
+
+function assignmentBookingSessionEndMs(a) {
+  if (!a || !a.date) return NaN;
+  const s = assignmentCoerceClockMin(a.startMin, 0);
+  const endNorm = assignmentModalNormalizeEndMin(s, a.endMin);
+  const endYmd = endNorm > 24 * 60 ? addDaysToYmd(String(a.date), 1) : String(a.date);
+  const endMinOnDay = endNorm > 24 * 60 ? (endNorm - 24 * 60) : endNorm;
+  return pacificWallClockToMs(endYmd, endMinOnDay);
+}
+
+function isPastAssignmentSessionEnd(a, nowMs) {
+  const endMs = assignmentBookingSessionEndMs(a);
+  if (!Number.isFinite(endMs)) return true;
+  const now = nowMs != null ? nowMs : Date.now();
+  return now >= endMs;
+}
+
 function isAssignmentCompleteForStrike(a) {
   if (!a) return false;
   if (a.status === 'Completed') return true;
@@ -23741,10 +23893,14 @@ function buildModStrikeCheckpointReport() {
     if (primaries.length !== 2) continue;
     const booking = teamBookingOnDateForStrike(t.id, yesterday);
     if (!booking) continue;
+    const completed = isAssignmentCompleteForStrike(booking);
+    const pastSessionEnd = isPastAssignmentSessionEnd(booking);
     teams.push({
       teamId: t.id,
       teamName: t.name || 'Team',
-      completed: isAssignmentCompleteForStrike(booking),
+      completed,
+      pastSessionEnd,
+      flagIncomplete: pastSessionEnd && !completed,
       skipped: skipped.has(String(t.id)),
       assignmentId: booking.id,
       primaryIds: primaries.slice(),
@@ -23772,9 +23928,14 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   if (ck && ck.applied) return report;
 
   const skippedTeams = modStrikeCheckpointSkippedTeamIds(todayPst);
+  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
+  const ckRow = store.checkpoints[todayPst];
+  if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
   let struck = 0;
   for (const row of report.teams) {
     if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))) continue;
+    if (!row.pastSessionEnd) continue;
+    if (ckRow.teamAutoStrike[String(row.teamId)]) continue;
     for (const orbitId of row.primaryIds) {
       const before = getModStrikeStars(orbitId);
       if (before <= 0) continue;
@@ -23787,13 +23948,22 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
       });
       struck++;
     }
+    ckRow.teamAutoStrike[String(row.teamId)] = true;
   }
-  store.checkpoints[todayPst] = {
-    applied: true,
-    appliedAt: new Date().toISOString(),
-    struck,
-    yesterday: report.yesterday,
-  };
+  const allResolved = report.teams.every(t => {
+    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))) return true;
+    if (!t.pastSessionEnd) return false;
+    return !!ckRow.teamAutoStrike[String(t.teamId)];
+  });
+  if (allResolved) {
+    ckRow.applied = true;
+    ckRow.appliedAt = new Date().toISOString();
+    ckRow.struck = (Number(ckRow.struck) || 0) + struck;
+    ckRow.yesterday = report.yesterday;
+  } else if (struck > 0) {
+    ckRow.struck = (Number(ckRow.struck) || 0) + struck;
+    ckRow.yesterday = report.yesterday;
+  }
   saveModStrikeStore(store);
   if (!opts.silent && struck > 0 && typeof toast === 'function') {
     toast(`Auto-strike: ${struck} star(s) removed for incomplete sessions (${report.yesterday})`);
@@ -23825,17 +23995,21 @@ function renderPerfStrikeCheckpointBannerHTML() {
   if (!rep || !rep.teams || !rep.teams.length) return '';
   const done = rep.teams.filter(t => t.completed).length;
   const skippedCount = rep.teams.filter(t => t.skipped && !t.completed).length;
-  const missed = rep.teams.filter(t => !t.completed && !t.skipped).length;
+  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.pastSessionEnd).length;
+  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped).length;
   const gateNote = rep.pastGate
-    ? 'After 9:00 AM PT, incomplete two-mod teams lose one star per primary (unless skipped).'
+    ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed (unless skipped).'
     : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that team today.';
   const rows = rep.teams.map(t => {
-    const rowCls = t.completed ? 'is-done' : (t.skipped ? 'is-skipped' : 'is-missed');
+    const rowCls = t.completed ? 'is-done'
+      : (t.skipped ? 'is-skipped' : (t.flagIncomplete ? 'is-missed' : 'is-pending'));
     let statusHtml = '';
     if (t.completed) {
       statusHtml = '<span class="mod-strike-check-status">Completed</span>';
     } else if (t.skipped) {
       statusHtml = '<span class="mod-strike-check-status">Skipped</span>';
+    } else if (!t.pastSessionEnd) {
+      statusHtml = '<span class="mod-strike-check-status">In progress · before session end</span>';
     } else {
       statusHtml = `<span class="mod-strike-check-status-wrap">
         <span class="mod-strike-check-status">Not completed</span>
@@ -23852,7 +24026,7 @@ function renderPerfStrikeCheckpointBannerHTML() {
     <div class="mod-strike-check-banner" role="region" aria-label="Yesterday session checkpoint">
       <div class="mod-strike-check-head">
         <strong>Yesterday (${escapeHTML(rep.yesterday || '')}) · two-mod teams</strong>
-        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
+        <span class="mod-strike-check-meta">${done} completed · ${missed} incomplete${pendingEnd ? (' · ' + pendingEnd + ' before end') : ''}${skippedCount ? (' · ' + skippedCount + ' skipped') : ''}</span>
       </div>
       <p class="mod-strike-check-hint">${escapeHTML(gateNote)}</p>
       <ul class="mod-strike-check-list">${rows}</ul>
@@ -35341,6 +35515,9 @@ function startAdminAppAfterLogin() {
       if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
     }).catch(() => {});
   }
+  if (typeof refreshApprovalAutoSetting === 'function') {
+    refreshApprovalAutoSetting().catch(() => {});
+  }
   if (typeof refreshDeactivatedUsers === 'function') {
     refreshDeactivatedUsers().then(() => {
       if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
@@ -35548,6 +35725,10 @@ const APPROVAL_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.
 const APPROVAL_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/41d9757babff4eb7ac2d3881804af96c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=FMNIOJoSnhglArGlE5DuEZqEERwyQSV7fzp1cQqCO1g';   // PA "Approval Read" flow · list all rows (pagination ON)
 const APPROVAL_CACHE_TTL_MS = 30000;
 const APPROVAL_AUTO_MIN     = 15;   // minutes pending before the time gate auto-approves
+const APPROVAL_AUTO_LS_KEY = 'centific_twilight_approval_auto_v1';
+const APPROVAL_AUTO_NOTIFY_LS_KEY = 'centific_twilight_approval_auto_notify_v1';
+const APPROVAL_AUTO_SETTING_ID = 'ss_app_setting_approval_auto';
+let _approvalAutoEnabled = true;
 // --- Cloud-authoritative gate verification (anti-bypass) ---
 // A local Approved/AutoApproved only unlocks if it was confirmed by a
 // SUCCESSFUL backend read within this window. pollMyApprovals refreshes the
@@ -35618,7 +35799,188 @@ function approvalAgeMin(appr) {
 function isApprovalAutoEligible(appr) {
   if (!appr) return false;
   if (appr.status !== 'Pending' && appr.status !== 'InReview') return false;
+  if (typeof isApprovalAutoEnabled === 'function' && !isApprovalAutoEnabled()) return false;
   return approvalAgeMin(appr) >= APPROVAL_AUTO_MIN;
+}
+
+function loadApprovalAutoCache() {
+  try {
+    const raw = localStorage.getItem(APPROVAL_AUTO_LS_KEY);
+    if (raw === '0') _approvalAutoEnabled = false;
+    else if (raw === '1') _approvalAutoEnabled = true;
+  } catch (_) {}
+}
+loadApprovalAutoCache();
+
+function isApprovalAutoEnabled() {
+  return _approvalAutoEnabled !== false;
+}
+
+function approvalAutoToggleLabel(enabled) {
+  return enabled ? 'Auto-approve on' : 'Auto-approve off';
+}
+
+function cacheApprovalAutoEnabled(enabled) {
+  _approvalAutoEnabled = !!enabled;
+  try { localStorage.setItem(APPROVAL_AUTO_LS_KEY, enabled ? '1' : '0'); } catch (_) {}
+}
+
+function approvalAutoActorRoleLabel() {
+  return (typeof isReviewerSession === 'function' && isReviewerSession()) ? 'Reviewer' : 'Admin';
+}
+
+function approvalAutoChangeToastText(enabled, roleLabel) {
+  const who = roleLabel || 'Admin';
+  return enabled
+    ? `Auto approval has been enabled by ${who}.`
+    : `Auto approval has been disabled by ${who}.`;
+}
+
+function approvalAutoNotifySeenStamp() {
+  try {
+    const raw = localStorage.getItem(APPROVAL_AUTO_NOTIFY_LS_KEY);
+    return raw ? String(raw) : '';
+  } catch (_) { return ''; }
+}
+
+function markApprovalAutoNotifySeen(stamp) {
+  if (!stamp) return;
+  try { localStorage.setItem(APPROVAL_AUTO_NOTIFY_LS_KEY, String(stamp)); } catch (_) {}
+}
+
+function maybeToastApprovalAutoRemoteChange(parsed) {
+  if (!parsed || typeof parsed.enabled !== 'boolean') return;
+  const stamp = String(parsed.updatedAt || parsed.notifyId || '');
+  if (!stamp || stamp === approvalAutoNotifySeenStamp()) return;
+  const actorId = String(parsed.updatedById || parsed.updatedBy || '').toLowerCase();
+  const selfId = String((state && state.username) || '').toLowerCase();
+  const adminVisible = document.getElementById('adminApp') && document.getElementById('adminApp').classList.contains('active');
+  if (!adminVisible) {
+    markApprovalAutoNotifySeen(stamp);
+    return;
+  }
+  if (actorId && selfId && actorId === selfId) {
+    markApprovalAutoNotifySeen(stamp);
+    return;
+  }
+  const role = parsed.updatedByRole || parsed.updatedByLabel || 'Admin';
+  if (typeof showToast === 'function') {
+    showToast(approvalAutoChangeToastText(parsed.enabled, role), 'info', 5200);
+  }
+  markApprovalAutoNotifySeen(stamp);
+}
+
+function syncApprovalAutoToggleUi() {
+  const enabled = isApprovalAutoEnabled();
+  const tog = document.getElementById('apprAutoToggle');
+  if (tog) {
+    tog.classList.toggle('on', enabled);
+    tog.setAttribute('aria-checked', enabled ? 'true' : 'false');
+  }
+  const label = document.getElementById('apprAutoLabel');
+  if (label) label.textContent = approvalAutoToggleLabel(enabled);
+  const wrap = document.getElementById('apprAutoToggleWrap');
+  if (wrap) wrap.classList.toggle('is-off', !enabled);
+}
+
+function ingestApprovalAutoFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== APPROVAL_AUTO_SETTING_ID && id !== 'app_setting_approval_auto') continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (!parsed || typeof parsed.enabled !== 'boolean') return;
+  cacheApprovalAutoEnabled(parsed.enabled);
+  syncApprovalAutoToggleUi();
+  maybeToastApprovalAutoRemoteChange(parsed);
+}
+
+async function persistApprovalAutoSetting(enabled, meta) {
+  meta = meta || {};
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const who = (typeof currentAdminIdentity === 'function') ? currentAdminIdentity() : { id: '', name: 'Admin' };
+  const roleLabel = meta.roleLabel || approvalAutoActorRoleLabel();
+  const updatedAt = new Date().toISOString();
+  const payload = {
+    sessionStateId: APPROVAL_AUTO_SETTING_ID,
+    assignmentId: 'app_setting_approval_auto',
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({
+      type: 'appSetting',
+      key: 'approvalAuto',
+      enabled: !!enabled,
+      updatedAt,
+      notifyId: updatedAt,
+      updatedBy: who.name || roleLabel,
+      updatedById: who.id || '',
+      updatedByRole: roleLabel,
+    }),
+    lastActive: updatedAt,
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    markApprovalAutoNotifySeen(updatedAt);
+    return { ok: true, updatedAt };
+  } catch (e) {
+    console.warn('[Twilight] Approval auto setting write failed:', e && e.message);
+    return { ok: false, reason: 'error', error: e && e.message };
+  }
+}
+
+async function refreshApprovalAutoSetting() {
+  loadApprovalAutoCache();
+  syncApprovalAutoToggleUi();
+  if (typeof fetchSessionStateRows !== 'function') return isApprovalAutoEnabled();
+  try {
+    const rows = await fetchSessionStateRows();
+    if (Array.isArray(rows)) ingestApprovalAutoFromSessionRows(rows);
+  } catch (_) {}
+  return isApprovalAutoEnabled();
+}
+
+async function setApprovalAutoEnabled(enabled) {
+  const next = !!enabled;
+  const roleLabel = approvalAutoActorRoleLabel();
+  cacheApprovalAutoEnabled(next);
+  syncApprovalAutoToggleUi();
+  if (typeof showToast === 'function') {
+    showToast(approvalAutoChangeToastText(next, roleLabel), 'info', 4200);
+  }
+  const saved = await persistApprovalAutoSetting(next, { roleLabel });
+  if (saved && saved.ok === false && typeof showToast === 'function') {
+    showToast('Auto-approve setting was not saved. The save service did not answer.', 'error', 4500);
+  }
+  return saved;
 }
 
 // --- read / resolve / write ---
@@ -35919,6 +36281,62 @@ function assignmentIdsMatch(a, b) {
   return ae.trim().toLowerCase() === be.trim().toLowerCase();
 }
 
+// SessionState rows may carry assignmentId on the row, inside stateJson,
+// or only in sessionStateId (ss_{asgnId}_{orbit}). Performance + Lakitu
+// lookups share this matcher so status and URLs stay aligned.
+function sessionStateRowMatchesAssignment(r, asgnId) {
+  if (!r || asgnId == null || asgnId === '') return false;
+  if (assignmentIdsMatch(r.assignmentId, asgnId)) return true;
+  const parsed = (typeof parseSessionStateJson === 'function')
+    ? parseSessionStateJson(r)
+    : null;
+  if (parsed && parsed.assignmentId && assignmentIdsMatch(parsed.assignmentId, asgnId)) return true;
+  const sid = String(r.sessionStateId || '').trim();
+  if (!sid) return false;
+  const loose = String(asgnId).trim().toLowerCase();
+  const sidLo = sid.toLowerCase();
+  if (sidLo === 'ss_' + loose) return true;
+  if (sidLo.startsWith('ss_' + loose + '_')) return true;
+  return false;
+}
+
+function sessionStateRowsForAssignment(asgnId, rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!asgnId) return [];
+  return list.filter(r => sessionStateRowMatchesAssignment(r, asgnId));
+}
+
+function pickLakituUrlFromSessionStateParsed(parsed) {
+  if (!parsed || typeof parsed !== 'object') return '';
+  const candidates = [
+    parsed.recordLakituUrl,
+    parsed.participantId,
+    parsed.lakituUrl,
+    parsed.sessionUrl,
+  ];
+  for (const raw of candidates) {
+    const s = String(raw || '').trim();
+    if (!s) continue;
+    if ((typeof isValidLakituUrl === 'function' && isValidLakituUrl(s))
+        || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(s))) {
+      return s;
+    }
+  }
+  for (const raw of candidates) {
+    const s = String(raw || '').trim();
+    if (s) return s;
+  }
+  return '';
+}
+
+function firstStationCompletedStamp(map, keys) {
+  if (!map || typeof map !== 'object') return null;
+  for (const k of keys) {
+    if (map[k]) return map[k];
+  }
+  return null;
+}
+
 function buildAssignmentTeamMap() {
   const map = new Map();
   const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
@@ -35945,6 +36363,12 @@ function parseSessionStateJson(r) {
   let parsed = {};
   try {
     parsed = (typeof r.stateJson === 'string') ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
+    if (typeof parsed === 'string') {
+      try {
+        const again = JSON.parse(parsed);
+        if (again && typeof again === 'object') parsed = again;
+      } catch (_) {}
+    }
     if (!parsed || typeof parsed !== 'object') parsed = {};
   } catch (_) { parsed = {}; }
   const g = (typeof lastGeoFromSessionRow === 'function') ? lastGeoFromSessionRow(r, parsed) : parsed.lastGeo;
@@ -37349,41 +37773,36 @@ function deriveLatestStatusFromSessionState(asgnId) {
   // Lakitu URL lookup (1.2.052819) · exact string match first, then
   // trim+lowercase fallback to absorb any whitespace/case drift
   // introduced by Excel-cell editing or PA serialization.
-  const targetExact = String(asgnId);
-  const targetLoose = targetExact.trim().toLowerCase();
-  const matching = rows.filter(r => {
-    if (!r) return false;
-    const rExact = String(r.assignmentId || '');
-    if (rExact === targetExact) return true;
-    return rExact.trim().toLowerCase() === targetLoose;
-  });
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(asgnId, rows)
+    : rows.filter(r => sessionStateRowMatchesAssignment(r, asgnId));
   if (matching.length === 0) {
     _derivedStatusCache.byAsgnId[asgnId] = null;
     return null;
   }
 
-  // Walk newest-first across all matching rows. For each, parse the
-  // stateJson and check progress markers in priority order. Stop on
-  // first hit since stationCompletedAt keys are accumulative · if
-  // Station3 is done, the earlier stations are too.
   matching.sort((a, b) => String(b.lastActive || '').localeCompare(String(a.lastActive || '')));
 
-  // Aggregate progress across ALL matching rows (each may be from a
-  // different mod on a 2-mod team). We want the FURTHEST-progressed
-  // status the team has reached collectively. Walk newest-first, then
-  // OR-merge stationCompletedAt across rows so a teammate who already
-  // finished Station 2 contributes that even if the newer row is
-  // from someone who only did Station 1.
   let sessionCompletedAt = null;
   const stationCompletedAt = {};
   let arrivedAt = null;
   let officeCheckedInAt = null;
   let officeCheckedOutAt = null;
+  let bestSessionStatus = null;
+  let bestSessionStatusIdx = -1;
   let attributionRow = null;  // the row we'll borrow timestamp + orbitLoginId from
   for (const r of matching) {
-    let parsed;
-    try { parsed = JSON.parse(r.stateJson || '{}'); }
-    catch (_) { continue; }
+    const parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    const stHint = parsed.sessionStatus ? String(parsed.sessionStatus).trim() : '';
+    if (stHint && typeof statusOrderIdx === 'function') {
+      const idx = statusOrderIdx(stHint);
+      if (idx > bestSessionStatusIdx) {
+        bestSessionStatusIdx = idx;
+        bestSessionStatus = stHint;
+      }
+    }
     if (parsed.sessionCompletedAt && !sessionCompletedAt) {
       sessionCompletedAt = parsed.sessionCompletedAt;
       if (!attributionRow) attributionRow = r;
@@ -37445,10 +37864,7 @@ function deriveLatestStatusFromSessionState(asgnId) {
   let moderatorMatch = true;
   if (moderatorId) {
     const booking = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
-      ? adminState.assignments.find(x => {
-          const xe = String((x && x.id) || '');
-          return xe === targetExact || xe.trim().toLowerCase() === targetLoose;
-        })
+      ? adminState.assignments.find(x => assignmentIdsMatch(x && x.id, asgnId))
       : null;
     if (booking && Array.isArray(booking.modSnapshots) && booking.modSnapshots.length) {
       const mid = moderatorId.toLowerCase();
@@ -37457,16 +37873,17 @@ function deriveLatestStatusFromSessionState(asgnId) {
   }
 
   // Priority walk. First match wins.
+  const stamp = (keys) => firstStationCompletedStamp(stationCompletedAt, keys);
   const checks = [
     { has: officeCheckedOutAt,                        status: 'office_checkout', at: officeCheckedOutAt },
     { has: sessionCompletedAt,                        status: 'session_done',    at: sessionCompletedAt },
-    { has: stationCompletedAt['Station4'],            status: 'station_4_done',  at: stationCompletedAt['Station4'] },
-    { has: stationCompletedAt['Station3'],            status: 'station_3_done',  at: stationCompletedAt['Station3'] },
-    { has: stationCompletedAt['Station2'],            status: 'station_2_done',  at: stationCompletedAt['Station2'] },
-    { has: stationCompletedAt['Station1'],            status: 'station_1_done',  at: stationCompletedAt['Station1'] },
-    { has: stationCompletedAt['station0_house'],      status: 'station_0c_done', at: stationCompletedAt['station0_house'] },
-    { has: stationCompletedAt['Station0b'],           status: 'station_0b_done', at: stationCompletedAt['Station0b'] },
-    { has: stationCompletedAt['Station0a'],           status: 'station_0a_done', at: stationCompletedAt['Station0a'] },
+    { has: stamp(['Station4', 'station4']),           status: 'station_4_done',  at: stamp(['Station4', 'station4']) },
+    { has: stamp(['Station3', 'station3']),           status: 'station_3_done',  at: stamp(['Station3', 'station3']) },
+    { has: stamp(['Station2', 'station2']),           status: 'station_2_done',  at: stamp(['Station2', 'station2']) },
+    { has: stamp(['Station1', 'station1']),           status: 'station_1_done',  at: stamp(['Station1', 'station1']) },
+    { has: stamp(['station0_house', 'Station0c', 'station0c']), status: 'station_0c_done', at: stamp(['station0_house', 'Station0c', 'station0c']) },
+    { has: stamp(['Station0b', 'station0b']),           status: 'station_0b_done', at: stamp(['Station0b', 'station0b']) },
+    { has: stamp(['Station0a', 'station0a']),           status: 'station_0a_done', at: stamp(['Station0a', 'station0a']) },
     { has: arrivedAt,                                 status: 'arrived',         at: arrivedAt },
     { has: officeCheckedInAt,                         status: 'office_checkin',  at: officeCheckedInAt },
   ];
@@ -37494,8 +37911,21 @@ function deriveLatestStatusFromSessionState(asgnId) {
       return result;
     }
   }
-  // No progress markers at all in any matching row · cache the null
-  // result so subsequent calls for this asgnId short-circuit.
+  if (bestSessionStatus && bestSessionStatusIdx >= 0) {
+    const result = {
+      assignmentId: String(asgnId),
+      status: bestSessionStatus,
+      timestamp: lastActive || new Date().toISOString(),
+      orbitLoginId: (attributionRow && attributionRow.orbitLoginId) || moderatorId,
+      lastActive: lastActive,
+      moderatorId: moderatorId,
+      moderatorName: moderatorName,
+      moderatorMatch: moderatorMatch,
+      _derived: true,
+    };
+    _derivedStatusCache.byAsgnId[asgnId] = result;
+    return result;
+  }
   _derivedStatusCache.byAsgnId[asgnId] = null;
   return null;
 }
@@ -42546,35 +42976,10 @@ function getOperatorAssignment() {
     assignmentBelongsToOperator(a, identity, emailToOrbit, myTeamIds)
   );
   if (mine.length === 0) return null;
-  const todayStr = getPSTDateString();  // PST team-reference day · session dates are scheduled in PST; using local time here surfaced the next day's session when the device tz was ahead of Pacific
-  // Skip assignments the operator has ALREADY completed · those should not
-  // be the "current" assignment for entry-bar purposes. Also skip
-  // terminal-status rows (Cancelled / Unassigned): a cancelled session
-  // shouldn't be the mod's "current" anything, and an Unassigned row
-  // means admin removed the team · the mod is no longer responsible
-  // until/unless a new team gets assigned.
-  const isCompleted = (asgn) => {
-    if (!asgn) return false;
-    if (asgn.status === 'Completed') return true;
-    try {
-      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(asgn)) return true;
-    } catch (_) {}
-    if (typeof getMyLatestStatusForAssignment !== 'function') return false;
-    const my = getMyLatestStatusForAssignment(asgn.id);
-    return my && my.status === 'session_done';
-  };
-  const upcoming = mine.filter(a => a.date >= todayStr && !isCompleted(a) && !isTerminalStatus(a.status)).sort((a, b) =>
-    (a.date + '_' + String(a.startMin).padStart(4, '0'))
-      .localeCompare(b.date + '_' + String(b.startMin).padStart(4, '0'))
-  );
-  if (upcoming.length > 0) return upcoming[0];
-  // After Session complete the booking is done · do not keep it as the
-  // current assignment. The moderator stays free until Admin assigns a new one.
-  const allTodayPlus = mine.filter(a => a.date >= todayStr && !isCompleted(a) && !isTerminalStatus(a.status)).sort((a, b) =>
-    (a.date + '_' + String(a.startMin).padStart(4, '0'))
-      .localeCompare(b.date + '_' + String(b.startMin).padStart(4, '0'))
-  );
-  if (allTodayPlus.length > 0) return allTodayPlus[0];
+  const queued = (typeof getOperatorCarouselAssignments === 'function')
+    ? getOperatorCarouselAssignments()
+    : [];
+  if (queued.length > 0) return queued[0];
   return null;
 }
 
@@ -42793,30 +43198,174 @@ if (typeof window !== 'undefined') {
   };
 }
 
+/* BOOKING_QUEUE_BEGIN */
+// --- Moderator booking queue (overnight + 9 AM PT gate) ---
+// Aligns with the Performance auto-strike checkpoint: yesterday's session
+// must clear (or pass the gate) before today's next booking surfaces.
+
+function assignmentQueueNormalizedEndMin(a) {
+  if (!a) return 0;
+  const s = assignmentCoerceClockMin(a.startMin, 0);
+  return assignmentModalNormalizeEndMin(s, a.endMin);
+}
+
+function assignmentQueueEndCalendarYmd(a) {
+  if (!a || !a.date) return '';
+  const end = assignmentQueueNormalizedEndMin(a);
+  if (end > 24 * 60) return addDaysToYmd(String(a.date), 1);
+  return String(a.date);
+}
+
+function operatorProgressOnAssignment(a) {
+  if (!a || typeof state === 'undefined' || !state) return false;
+  try {
+    if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+  } catch (_) {}
+  const booked = String(a.date || '').trim();
+  const sd = String(state.sessionDate || '').trim();
+  if (booked && sd === booked) {
+    if (state.sessionCompletedAt) return false;
+    if (state.arrivedAt) return true;
+    if (state.participantId && String(state.participantId).trim()) return true;
+    if (state.stations && typeof state.stations === 'object') {
+      for (const stKey of Object.keys(state.stations)) {
+        const st = state.stations[stKey] || {};
+        const sc = st.scenarios || {};
+        for (const num of Object.keys(sc)) {
+          const row = sc[num];
+          if (!row) continue;
+          if (row.status && row.status !== 'Not Started') return true;
+          if ((row.iterations || 0) > 0) return true;
+        }
+      }
+    }
+  }
+  if (typeof getMyLatestStatusForAssignment === 'function') {
+    const my = getMyLatestStatusForAssignment(a.id);
+    if (my && my.status === 'session_done') return false;
+    if (my && my.status && my.status !== 'session_done') return true;
+  }
+  return false;
+}
+
+function operatorInProgressAssignment(candidates) {
+  const list = candidates || [];
+  for (const a of list) {
+    if (operatorProgressOnAssignment(a)) return a;
+  }
+  const today = getPSTDateString();
+  const sd = String((state && state.sessionDate) || '').trim();
+  if (state && sd && sd < today && !state.sessionCompletedAt) {
+    const match = list.find(x => x && String(x.date) === sd);
+    if (match) {
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(match)) return null;
+      } catch (_) {}
+      return match;
+    }
+  }
+  return null;
+}
+
+function bookingQueueGateBlocker(candidates, todayPst) {
+  const today = String(todayPst || getPSTDateString());
+  const yesterday = addDaysToYmd(today, -1);
+  const list = candidates || [];
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
+
+  const incompletePrior = (a) => {
+    if (!a) return false;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+    } catch (_) {}
+    return true;
+  };
+
+  for (const a of list) {
+    if (!a || !a.date) continue;
+    const d = String(a.date);
+    if (d >= today) continue;
+    if (!incompletePrior(a)) continue;
+    return a;
+  }
+
+  if (!gateOpen) {
+    const y = list.find(a => a && String(a.date) === yesterday && !isTerminalStatus(a.status));
+    if (y) return y;
+  }
+  return null;
+}
+
+function applyBookingQueueGate(list, todayPst) {
+  const today = String(todayPst || getPSTDateString());
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
+  const inProg = operatorInProgressAssignment(list);
+  const blocker = bookingQueueGateBlocker(list, today);
+
+  return (list || []).filter(a => {
+    if (!a) return false;
+    if (inProg && String(a.id) === String(inProg.id)) return true;
+    if (blocker && String(a.id) === String(blocker.id)) return true;
+    if (inProg && String(a.id) !== String(inProg.id)) return false;
+    if (blocker && String(a.date) >= today && !gateOpen) return false;
+    if (blocker && String(a.date) >= today && gateOpen) {
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(blocker)) return true;
+      } catch (_) {}
+      return false;
+    }
+    return true;
+  });
+}
+
+function operatorCarouselCandidateAssignments() {
+  const todayStr = getPSTDateString();
+  const raw = (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : []);
+  const out = [];
+  const seen = new Set();
+  const consider = (a) => {
+    if (!a || seen.has(String(a.id))) return;
+    if (isTerminalStatus(a.status)) return;
+    if (a.status === 'Completed') return;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return;
+    } catch (_) {}
+    seen.add(String(a.id));
+    out.push(a);
+  };
+  raw.forEach(consider);
+  raw.forEach(a => {
+    if (!a || !a.date || a.date >= todayStr) return;
+    const endYmd = assignmentQueueEndCalendarYmd(a);
+    if (endYmd >= todayStr || operatorProgressOnAssignment(a)) consider(a);
+  });
+  out.sort((a, b) => {
+    const aKey = (a.date || '') + '_' + String(a.startMin || 0).padStart(4, '0') + '_' + (a.id || '');
+    const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
+    return aKey.localeCompare(bKey);
+  });
+  return applyBookingQueueGate(out, todayStr);
+}
+
+function operatorHasOvernightSessionInProgress(todayPst) {
+  const today = String(todayPst || getPSTDateString());
+  const sd = String((state && state.sessionDate) || '').trim();
+  if (!state || !sd || sd >= today || state.sessionCompletedAt) return false;
+  return true;
+}
+
 // CANONICAL "MY SESSION" CAROUSEL LIST · the single source of truth for what
 // the operator's session carousel shows AND what getActiveOperatorAssignment()
 // indexes into. Both MUST use this exact list so the visible carousel position
 // and the resolved "active" assignment never diverge (the index-space bug).
 //
-// Contents: the operator's CURRENT and NEXT sessions only ·
-//   - non-terminal (Cancelled / Unassigned filtered out), and
-//   - date >= today (PAST sessions removed by design; history still lives in
-//     the My Schedule weekly grid and the admin calendar).
-// Sorted chronologically (inherited from getOperatorAssignments()), so index 0
-// is the soonest current/upcoming session.
+// Contents: current + next sessions, including an overnight booking whose
+// calendar end falls on today, gated so the next same-day booking waits until
+// 9:00 AM PT (same hour as the auto-strike checkpoint).
 function getOperatorCarouselAssignments() {
-  const todayStr = getPSTDateString();  // PST team-reference day. CRITICAL: with local time, a device ahead of Pacific filtered OUT today's PST session (a.date < local-today) AND matched tomorrow's as "today" · the exact login-vs-MySession mismatch this fixes.
-  return (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : [])
-    .filter(a => {
-      if (!a) return false;
-      if (isTerminalStatus(a.status)) return false;
-      if (a.status === 'Completed') return false;
-      try {
-        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
-      } catch (_) {}
-      return !a.date || a.date >= todayStr;
-    });
+  return operatorCarouselCandidateAssignments();
 }
+/* BOOKING_QUEUE_END */
 
 // Best-effort first-name resolution for a teammate's orbitLoginId, used in
 // the operator (mod) app where the full moderator roster may not be loaded.
@@ -43806,6 +44355,10 @@ function maybeResetStaleSession() {
   // matches the active assignment is left untouched.
   if (!priorDay && !yearOff) {
     if (typeof syncSessionDateFromActiveAssignment === 'function') syncSessionDateFromActiveAssignment(asgn);
+    return false;
+  }
+  if (typeof operatorHasOvernightSessionInProgress === 'function'
+      && operatorHasOvernightSessionInProgress(today)) {
     return false;
   }
   console.log('[Twilight] Stale session on load (sessionDate ' + sd + ' vs today ' + today + (asgnDate ? ' asgn ' + asgnDate : '') + ') · resetting to a fresh session for today.');
@@ -46606,22 +47159,11 @@ function determineWelcomeState() {
   // Look for the operator's NEXT upcoming assignment that is not
   // completed and not in a terminal status. Includes today's if
   // it's scheduled.
-  const all = (typeof getOperatorAssignments === 'function') ? getOperatorAssignments() : [];
-  const isCompletedAssignment = (asgn) => {
-    // Same logic as elsewhere: latest worklog status === session_done
-    if (typeof getMyLatestStatusForAssignment !== 'function') return false;
-    const my = getMyLatestStatusForAssignment(asgn.id);
-    return my && my.status === 'session_done';
-  };
-  const upcoming = all.filter(a => {
-    if (!a || !a.date) return false;
-    if (a.date < today) return false;                       // past
-    if (typeof isTerminalStatus === 'function' && isTerminalStatus(a.status)) return false;
-    if (isCompletedAssignment(a)) return false;
-    return true;
-  });
-  if (upcoming.length > 0) {
-    return { kind: 'next_session', assignment: upcoming[0] };
+  const queued = (typeof getOperatorCarouselAssignments === 'function')
+    ? getOperatorCarouselAssignments()
+    : [];
+  if (queued.length > 0) {
+    return { kind: 'next_session', assignment: queued[0] };
   }
 
   // === Variant 3: no_session ===
@@ -46887,11 +47429,14 @@ function handleMidnightTransition() {
   if (!state.modProfile || !state.modProfile.orbitLoginId) return;
   const today = getPSTDateString();
   const sd = state.sessionDate || '';
-  // Progression is counted BY DAY (PST), not by last login. At 12:00 AM PST
-  // any session belonging to a PRIOR day is reset · whether or not it was
-  // completed. (Previously only completed sessions reset, so an in-progress
-  // session carried across midnight; the user asked for a pure day boundary.)
   if (!sd || sd >= today) return;  // sessionDate is today/future · nothing stale
+  // Overnight field work: keep an in-progress prior-day session open until
+  // wrap-up or the 9 AM booking-queue gate (aligned with auto-strike).
+  if (typeof operatorHasOvernightSessionInProgress === 'function'
+      && operatorHasOvernightSessionInProgress(today)) {
+    console.log('[Twilight] PST midnight · prior-day session still in progress · keeping operator state');
+    return;
+  }
 
   console.log('[Twilight] PST midnight · new day, resetting session (sessionDate ' + sd + ' < ' + today + ', completed=' + !!state.sessionCompletedAt + ')');
   if (typeof resetOperatorSessionState === 'function') {
@@ -46918,6 +47463,19 @@ function startMidnightWatcher() {
     if (now !== _lastSeenPSTDate) {
       _lastSeenPSTDate = now;
       handleMidnightTransition();
+    }
+    if (typeof isPastModStrikeCheckpointHour === 'function') {
+      const gateOpen = isPastModStrikeCheckpointHour();
+      if (typeof window._bookingQueueGateWasOpen !== 'boolean') {
+        window._bookingQueueGateWasOpen = gateOpen;
+      } else if (gateOpen !== window._bookingQueueGateWasOpen) {
+        window._bookingQueueGateWasOpen = gateOpen;
+        try {
+          if (typeof renderMySessionSection === 'function') renderMySessionSection();
+          if (typeof renderApp === 'function') renderApp();
+          if (typeof checkLoginWelcome === 'function') checkLoginWelcome();
+        } catch (_) {}
+      }
     }
   }, 60_000);
   // Also fire on visibility return · covers devices that slept past

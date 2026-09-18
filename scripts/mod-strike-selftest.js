@@ -23,9 +23,14 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091726z',
-  /const APP_VERSION = '1\.3\.091726z'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091726z'));
+assert('version bump 091728c',
+  /const APP_VERSION = '1\.3\.091728c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091728c'));
+assert('strike checkpoint waits for session end',
+  /function isPastAssignmentSessionEnd/.test(src)
+  && /function assignmentBookingSessionEndMs/.test(src)
+  && /flagIncomplete:/.test(src)
+  && /teamAutoStrike/.test(src));
 assert('perf checkpoint skip lifts auto-strike',
   /function skipModStrikeCheckpointTeam/.test(src)
   && /data-mod-strike-checkpoint-skip/.test(src)
@@ -107,6 +112,14 @@ function classifyBookingForPerf(a) {
   if (!a) return null;
   if (a.status === 'Completed') return 'completed';
   return 'scheduled';
+}
+function assignmentCoerceClockMin(v, fb) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : (fb || 0);
+}
+function assignmentModalNormalizeEndMin(s, e) {
+  e = assignmentCoerceClockMin(e, s);
+  return e <= s ? e + 24 * 60 : e;
 }
 function escapeHTML(s) { return String(s); }
 function getPSTDateString() { return '2026-09-17'; }
