@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818i';
+const APP_VERSION = '1.3.091818j';
 const APP_UPDATED_AT = '09/18/2026 15:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -24110,6 +24110,9 @@ function parseYMD(s) {
 const MOD_STRIKE_MAX_STARS = 4;
 /** Previous max before 4★ rollout — used once to migrate stored full/partial counts. */
 const MOD_STRIKE_PREV_MAX_STARS = 3;
+/** After this many lost stars the mod is app-locked (Wasted) but may still sign in. */
+const MOD_STRIKE_LOCK_AT_LOST = 3;
+/** Hitting 0★ (4th strike) auto-deactivates — cannot sign in. */
 const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
 const MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes';
 let _modStrikeIngestInFlight = false;
@@ -24193,6 +24196,19 @@ function ingestModeratorStrikesFromSessionRows(rows) {
     checkpoints: checkpoints || cur.checkpoints,
   });
   _modStrikeIngestInFlight = false;
+  if (nextMods && typeof nextMods === 'object' && typeof applyModStrikeDeactivateSideEffect === 'function') {
+    Object.keys(nextMods).forEach(k => {
+      const prevRec = cur.mods && cur.mods[k];
+      const nextRec = nextMods[k];
+      const prevN = prevRec && prevRec.stars != null
+        ? (typeof migrateModStrikeStarsFromPrevMax === 'function' ? migrateModStrikeStarsFromPrevMax(Number(prevRec.stars)) : Number(prevRec.stars))
+        : MOD_STRIKE_MAX_STARS;
+      const nextN = nextRec && nextRec.stars != null
+        ? (typeof migrateModStrikeStarsFromPrevMax === 'function' ? migrateModStrikeStarsFromPrevMax(Number(nextRec.stars)) : Number(nextRec.stars))
+        : MOD_STRIKE_MAX_STARS;
+      if (prevN !== nextN) applyModStrikeDeactivateSideEffect(k, nextN, prevN);
+    });
+  }
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
   if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
 }
@@ -24247,13 +24263,16 @@ async function persistModeratorStrikesSetting() {
 
 function migrateModStrikeStarsFromPrevMax(n) {
   // Preserve warning depth when raising max 3 → 4:
-  // full 3→4, lost-1 2→3, lost-2 1→2, locked 0→0.
+  // full 3→4, lost-1 2→3, lost-2 1→2, old-lock 0→1 (still lock, not deactivate).
+  // New 0★ is only for the 4th strike → deactivate (can't log in).
   const prevMax = (typeof MOD_STRIKE_PREV_MAX_STARS === 'number') ? MOD_STRIKE_PREV_MAX_STARS : 3;
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
   const rounded = Math.round(n);
-  if (rounded <= 0) return 0;
   if (rounded >= MOD_STRIKE_MAX_STARS) return MOD_STRIKE_MAX_STARS;
-  // Values that still look like the old 0..prevMax scale → keep lost count.
+  if (rounded <= 0) {
+    // Old fully-wasted → lock tier (1★), not the new deactivate floor.
+    return Math.max(1, MOD_STRIKE_MAX_STARS - (typeof MOD_STRIKE_LOCK_AT_LOST === 'number' ? MOD_STRIKE_LOCK_AT_LOST : 3));
+  }
   if (rounded <= prevMax) {
     const lost = prevMax - Math.min(prevMax, rounded);
     return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, MOD_STRIKE_MAX_STARS - lost));
@@ -24272,8 +24291,19 @@ function getModStrikeStars(orbitId) {
   return migrateModStrikeStarsFromPrevMax(n);
 }
 
+function modStrikeLockRemainingStars() {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const lockAtLost = (typeof MOD_STRIKE_LOCK_AT_LOST === 'number') ? MOD_STRIKE_LOCK_AT_LOST : 3;
+  return Math.max(0, max - lockAtLost); // 4 - 3 = 1★ remaining → lock
+}
+
 function isModeratorStrikeLocked(orbitId) {
-  return getModStrikeStars(orbitId) === 0;
+  // Lock after 3 strikes (1★ left). 0★ is deactivate (separate) — still counts as locked UI.
+  return getModStrikeStars(orbitId) <= modStrikeLockRemainingStars();
+}
+
+function isModeratorStrikeDeactivated(orbitId) {
+  return getModStrikeStars(orbitId) <= 0;
 }
 
 const MOD_STRIKE_WARN_ACK_LS_KEY = 'centific_mod_strike_warn_ack_v1';
@@ -24294,29 +24324,23 @@ function getModStrikeWarningLevel(orbitId) {
 }
 
 function modStrikeWarningMessageHTML(level) {
-  if (level >= MOD_STRIKE_MAX_STARS) {
+  const lockAt = (typeof MOD_STRIKE_LOCK_AT_LOST === 'number') ? MOD_STRIKE_LOCK_AT_LOST : 3;
+  if (level >= lockAt) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review.<br><br>Please contact the Twilight team if there is any dispute.';
   }
   if (level >= 2) {
-    const n = Math.max(2, Math.min(MOD_STRIKE_MAX_STARS - 1, level));
-    if (n === 2) {
-      return 'Our records show you did not complete the previous session. This is <strong>Warning 2</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
-    }
-    return 'Our records show you did not complete the previous session. This is <strong>Warning ' + n + '</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
+    return 'Our records show you did not complete the previous session. This is <strong>Warning 2</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team Project Coordinators for followup.';
   }
   return 'Our records show you did not complete the previous session. This is <strong>Warning 1</strong> to ensure you are complying with the checklist as part of the session workflow.<br><br>Please contact the Twilight team if this is incorrect.';
 }
 
 function modStrikeWarningMessage(level) {
-  if (level >= MOD_STRIKE_MAX_STARS) {
+  const lockAt = (typeof MOD_STRIKE_LOCK_AT_LOST === 'number') ? MOD_STRIKE_LOCK_AT_LOST : 3;
+  if (level >= lockAt) {
     return 'Due to noncompliance with project expectations, your account has been locked and is under review. Please contact the Twilight team if there is any dispute.';
   }
   if (level >= 2) {
-    const n = Math.max(2, Math.min(MOD_STRIKE_MAX_STARS - 1, level));
-    if (n === 2) {
-      return 'Our records show you did not complete the previous session. This is Warning 2 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
-    }
-    return 'Our records show you did not complete the previous session. This is Warning ' + n + ' to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
+    return 'Our records show you did not complete the previous session. This is Warning 2 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team Project Coordinators for followup.';
   }
   return 'Our records show you did not complete the previous session. This is warning 1 to ensure you are complying with the checklist as part of the session workflow. Please contact the Twilight team if this is incorrect.';
 }
@@ -24345,7 +24369,8 @@ function ackModStrikeWarning(orbitId, level) {
 }
 
 function shouldShowModStrikeWarningModal(orbitId, level) {
-  if (level < 1 || level >= MOD_STRIKE_MAX_STARS) return false;
+  const lockAt = (typeof MOD_STRIKE_LOCK_AT_LOST === 'number') ? MOD_STRIKE_LOCK_AT_LOST : 3;
+  if (level < 1 || level >= lockAt) return false;
   const store = loadModStrikeWarnAckStore();
   return !store[modStrikeWarnAckKey(orbitId, level)];
 }
@@ -24427,11 +24452,12 @@ function syncModStrikeModeratorChrome() {
     navStars.title = stars + ' of ' + MOD_STRIKE_MAX_STARS + ' stars';
   }
 
-  if (level >= MOD_STRIKE_MAX_STARS || (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId))) {
+  const lockAt = (typeof MOD_STRIKE_LOCK_AT_LOST === 'number') ? MOD_STRIKE_LOCK_AT_LOST : 3;
+  if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) {
     if (modal) modal.classList.remove('open');
     if (overlay) {
       const msg = overlay.querySelector('#modStrikeLockMsg');
-      if (msg) msg.innerHTML = modStrikeWarningMessageHTML(MOD_STRIKE_MAX_STARS);
+      if (msg) msg.innerHTML = modStrikeWarningMessageHTML(lockAt);
       overlay.classList.add('open');
     }
     if (app) app.classList.add('mod-strike-app-locked');
@@ -24441,7 +24467,7 @@ function syncModStrikeModeratorChrome() {
   if (overlay) overlay.classList.remove('open');
   if (app) app.classList.remove('mod-strike-app-locked');
 
-  if (level >= 1 && level < MOD_STRIKE_MAX_STARS && modal && shouldShowModStrikeWarningModal(orbitId, level)) {
+  if (level >= 1 && level < lockAt && modal && shouldShowModStrikeWarningModal(orbitId, level)) {
     const msg = modal.querySelector('#modStrikeWarnMsg');
     if (msg) msg.innerHTML = modStrikeWarningMessageHTML(level);
     modal.dataset.warnLevel = String(level);
@@ -24468,23 +24494,66 @@ function clearModStrikeWarnAcksForOrbit(orbitId) {
   }
 }
 
+function applyModStrikeDeactivateSideEffect(orbitId, stars, prevStars) {
+  if (!orbitId) return;
+  const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
+  const prev = Number.isFinite(prevStars) ? prevStars : MOD_STRIKE_MAX_STARS;
+  // 4th strike (0★) → deactivate (cannot log in)
+  if (n <= 0 && prev > 0) {
+    if (typeof setUserDeactivatedInCache === 'function') setUserDeactivatedInCache(orbitId, true);
+    const store = loadModStrikeStore();
+    const key = modStrikeOrbitKey(orbitId);
+    if (key && store.mods[key]) {
+      store.mods[key].strikeDeactivated = true;
+      saveModStrikeStore(store);
+    }
+    if (typeof persistDeactivatedUsersSetting === 'function') {
+      persistDeactivatedUsersSetting().catch(() => {});
+    }
+    return;
+  }
+  // Leaving 0★ (Admin reset / restore) → clear strike-caused deactivate only
+  if (n > 0 && prev <= 0) {
+    const store = loadModStrikeStore();
+    const key = modStrikeOrbitKey(orbitId);
+    const rec = key && store.mods[key];
+    if (rec && rec.strikeDeactivated) {
+      delete rec.strikeDeactivated;
+      saveModStrikeStore(store);
+      if (typeof setUserDeactivatedInCache === 'function') setUserDeactivatedInCache(orbitId, false);
+      if (typeof persistDeactivatedUsersSetting === 'function') {
+        persistDeactivatedUsersSetting().catch(() => {});
+      }
+    }
+  }
+}
+
 function setModStrikeStars(orbitId, stars, entry) {
   const key = modStrikeOrbitKey(orbitId);
   if (!key) return;
   const store = loadModStrikeStore();
   const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
-  const prevStars = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
+  const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
+  const prevStars = (typeof migrateModStrikeStarsFromPrevMax === 'function')
+    ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
+    : prevStarsRaw;
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
   if (entry) log.unshift(entry);
   const rec = { stars: n, log: log.slice(0, 20) };
-  if (n === 0) rec.lockedAt = new Date().toISOString();
+  if (prev.strikeDeactivated && n > 0) {
+    /* cleared in side effect */
+  } else if (prev.strikeDeactivated) {
+    rec.strikeDeactivated = true;
+  }
+  if (n <= modStrikeLockRemainingStars()) rec.lockedAt = new Date().toISOString();
   store.mods[key] = rec;
   saveModStrikeStore(store);
   // Stars increased (Admin reset / restore) → clear warn acks so Warning 1/2 can show again later.
   if (Number.isFinite(prevStars) && n > prevStars && typeof clearModStrikeWarnAcksForOrbit === 'function') {
     clearModStrikeWarnAcksForOrbit(orbitId);
   }
+  applyModStrikeDeactivateSideEffect(orbitId, n, prevStars);
 }
 
 function manualModStrike(orbitId, reason) {
@@ -25135,7 +25204,7 @@ function handleModStrikeActionClick(e, btn) {
         const after = getModStrikeStars(orbitId);
         modStrikeRefreshUi();
         requestAnimationFrame(() => {
-          if (after === 0) modStrikeRunWastedEnter(orbitId);
+          if (typeof isModeratorStrikeLocked === 'function' ? isModeratorStrikeLocked(orbitId) : after === 0) modStrikeRunWastedEnter(orbitId);
         });
         if (typeof toast === 'function') {
           toast(after === 0
