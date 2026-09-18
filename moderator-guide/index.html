@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Twilight Checklist — How to use</title>
+  <style>
+    :root {
+      --bg: #12141A;
+      --card: #1B1E27;
+      --text: #ECEFF4;
+      --muted: #8E95A2;
+      --gold: #C4A574;
+      --gold-soft: rgba(196,165,116,.18);
+      --border: rgba(255,255,255,.08);
+      --rose: #C48989;
+      --ok: #8FA3B8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+    a { color: var(--gold); }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 28px 20px 64px; }
+    header.hero {
+      display: flex; gap: 16px; align-items: flex-start;
+      margin-bottom: 22px;
+    }
+    .logo {
+      width: 48px; height: 48px; border-radius: 12px;
+      background: linear-gradient(145deg, var(--gold), #8a734f);
+      display: grid; place-items: center; font-weight: 700; color: #1a140c;
+      flex-shrink: 0;
+    }
+    h1 { margin: 0 0 6px; font-size: 1.75rem; letter-spacing: -.02em; }
+    .sub { color: var(--muted); margin: 0; }
+    .badge {
+      display: inline-block; margin-top: 10px;
+      font-size: 12px; font-weight: 600; letter-spacing: .04em;
+      color: var(--gold); background: var(--gold-soft);
+      border: 1px solid rgba(196,165,116,.35);
+      border-radius: 999px; padding: 4px 10px;
+    }
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px; margin: 22px 0 22px;
+    }
+    .tabs button {
+      appearance: none; border: 1px solid transparent;
+      background: transparent; color: var(--muted);
+      padding: 10px 14px; border-radius: 10px;
+      font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .tabs button:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    .tabs button.active {
+      color: var(--text); background: var(--card);
+      border-color: var(--border);
+      box-shadow: 0 0 0 1px rgba(196,165,116,.25);
+    }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; padding: 20px 20px 18px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.25);
+      margin-bottom: 14px;
+    }
+    .card h2 { margin: 0 0 8px; font-size: 1.2rem; }
+    .card h3 { margin: 18px 0 8px; font-size: 1.05rem; color: var(--gold); }
+    .card.step h3 { margin-top: 0; color: var(--text); }
+    .card p { margin: 0 0 10px; color: var(--text); }
+    .muted { color: var(--muted); }
+    .step {
+      display: grid; grid-template-columns: 1fr; gap: 12px;
+      margin-bottom: 18px;
+    }
+    .step img {
+      width: 100%; border-radius: 14px; border: 1px solid var(--border);
+      background: #0d0f14;
+      min-height: 200px;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+    }
+    .step-body { padding: 4px 2px 0; }
+    .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 28px; height: 28px; border-radius: 999px;
+      background: var(--gold-soft); color: var(--gold);
+      font-weight: 700; font-size: 13px; margin-right: 8px;
+    }
+    ol.easy, ul.easy { padding-left: 1.2rem; margin: 8px 0 0; }
+    ol.easy li, ul.easy li { margin: 6px 0; }
+    .callout {
+      border-left: 3px solid var(--gold);
+      background: rgba(196,165,116,.08);
+      padding: 12px 14px; border-radius: 0 12px 12px 0;
+      margin: 12px 0;
+    }
+    .callout.warn { border-left-color: var(--rose); background: rgba(196,137,137,.1); }
+    .callout.tip { border-left-color: var(--ok); background: rgba(143,163,184,.1); }
+    code, kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .9em; background: rgba(255,255,255,.06);
+      border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px;
+    }
+    footer {
+      margin-top: 28px; color: var(--muted); font-size: 13px;
+      border-top: 1px solid var(--border); padding-top: 16px;
+    }
+    .img-caption {
+      font-size: 12px; color: var(--muted); margin: -4px 0 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="logo" aria-hidden="true">T</div>
+      <div>
+        <h1>Twilight Checklist</h1>
+        <p class="sub">Stations and scenarios for a booked session — super simple, end to end.</p>
+        <span class="badge">Moderator guide</span>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist" aria-label="Guide sections">
+      <button type="button" class="active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+      <button type="button" data-tab="use" role="tab" aria-selected="false">How to use</button>
+      <button type="button" data-tab="tips" role="tab" aria-selected="false">Tips</button>
+    </nav>
+
+    <!-- ========== OVERVIEW ========== -->
+    <section id="overview" class="panel active" role="tabpanel">
+      <div class="card">
+        <h2>Welcome</h2>
+        <p>This moderator guide walks you through <strong>stations</strong> and <strong>scenarios</strong> for a booked session — confirm you’re on site, complete the work, upload evidence when needed, then submit for approval.</p>
+        <p class="muted">Use the tabs above:</p>
+        <ul class="easy">
+          <li><strong>How to use</strong> — the moderator flow from sign in to session end</li>
+          <li><strong>Tips</strong> — moderator notes on geofence, location, and Inbox feedback</li>
+        </ul>
+        <div class="callout tip">
+          <strong>Need help fast?</strong> <strong>I’ve arrived</strong> (Confirm Arrival) only enables when your location is inside the geofence — check location permission first.
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>What you need</h2>
+        <ul class="easy">
+          <li>Your <code>orbitLoginId</code> (e.g. <code>David-tw</code>)</li>
+          <li>A <strong>booked session</strong> for today (bookings come from OneData)</li>
+          <li><strong>Location permission</strong> in the browser — required for <strong>I’ve arrived</strong> / Confirm Arrival; see <a href="#use">How to use Step 3: Enable location</a></li>
+        </ul>
+        <p class="muted">That’s it. Open the web app, sign in, and follow How to use.</p>
+      </div>
+    </section>
+
+    <!-- ========== HOW TO USE (Moderator E2E) ========== -->
+    <section id="use" class="panel" role="tabpanel" hidden>
+      <div class="card">
+        <h2>How to use (super simple)</h2>
+        <p class="muted">Moderator path from sign-in to session end. Follow these like a recipe, one step at a time — eight steps total.</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">1</span> Sign in with orbitLoginId</h3>
+          <p>Open Twilight Checklist and sign in with your <code>orbitLoginId</code> (for example <code>David-tw</code>). Use the same ID every time so your sessions and history stay with you.</p>
+        </div>
+        <img src="images/tw-use-1-signin.png" alt="Step 1: sign in with orbitLoginId" width="1280" height="720" />
+        <p class="img-caption">Step 1 — Sign in with orbitLoginId (David-tw)</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">2</span> Open today’s booked session / Entry</h3>
+          <p>Pick today’s booked session and open <strong>Entry</strong>. If nothing shows up, check that OneData has a booking for you today.</p>
+        </div>
+        <img src="images/tw-use-2-session.png" alt="Step 2: open today’s booked session Entry" width="1280" height="720" />
+        <p class="img-caption">Step 2 — Open today’s booked session / Entry</p>
+      </div>
+
+      <div class="card step" id="enable-location">
+        <div class="step-body">
+          <h3><span class="step-num">3</span> Enable location</h3>
+          <p>Twilight needs your device location so <strong>I’ve arrived</strong> can unlock when you’re inside the session geofence.</p>
+          <ol class="easy">
+            <li>When the browser asks, tap <strong>Allow</strong> / <strong>Allow while using</strong> — not <strong>Block</strong>.</li>
+            <li>If you already blocked it, reopen site settings for Twilight → Location → Allow, then reload. <strong>iPhone Safari:</strong> aA / website settings → Location. <strong>Chrome:</strong> lock icon in address bar → Site settings → Location.</li>
+            <li>Stay near the booked address; outside the fence the button stays disabled even with location on.</li>
+          </ol>
+          <div class="callout tip">
+            <strong>Tip:</strong> Location ON + inside fence + equipment packed → <strong>I’ve arrived</strong> lights up.
+          </div>
+        </div>
+        <img src="images/tw-use-3-location.png" alt="Step 3: enable location permission for Twilight" width="1280" height="720" />
+        <p class="img-caption">Step 3 — Enable location (Allow permission, then stay inside the geofence)</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">4</span> I’ve arrived (Confirm Arrival)</h3>
+          <p>Confirm you’re ready: equipment set and you’re <strong>inside the geofence</strong>. The live button label is <strong>I’ve arrived</strong> (ON-SITE). It enables for Confirm Arrival when location reports inside the fence — allow location access if the browser asks.</p>
+          <div class="callout tip">
+            <strong>Tip:</strong> If <strong>I’ve arrived</strong> stays disabled, you’re probably outside the fence or location is blocked. Move closer / check browser permissions.
+          </div>
+        </div>
+        <img src="images/tw-use-4-arrival.png" alt="Step 4: I’ve arrived / Confirm Arrival when inside geofence" width="1280" height="720" />
+        <p class="img-caption">Step 4 — I’ve arrived enabled (equipment ready + inside geofence)</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">5</span> Work Stations &amp; scenarios</h3>
+          <p>Open each station and complete its scenarios. On calibration stations, mark <strong>Rig 1</strong> / <strong>Rig 2</strong> Completed. Upload evidence where the scenario asks for it.</p>
+          <div class="callout warn">
+            <strong>Important:</strong> Do not auto-advance past <strong>Uploaded</strong> — wait for reviewer checkpoints where the flow requires them.
+          </div>
+        </div>
+        <img src="images/tw-use-5-stations.png" alt="Step 5: complete stations, scenarios, and evidence uploads" width="1280" height="720" />
+        <p class="img-caption">Step 5 — Stations & scenarios; Rig 1 / Rig 2 Completed</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">6</span> Submit for Approval</h3>
+          <p>When every station is ready, tap <strong>Submit for Approval</strong>. Double-check uploads and Rig Completed marks before you send.</p>
+        </div>
+        <img src="images/tw-use-6-approval.png" alt="Step 6: Submit for Approval" width="1280" height="720" />
+        <p class="img-caption">Step 6 — Submit for Approval</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">7</span> Watch Approval / Inbox</h3>
+          <p>Keep an eye on <strong>Approval</strong> / <strong>Inbox</strong> for reviewer feedback. If something is sent back, fix the notes and resubmit.</p>
+        </div>
+        <img src="images/tw-use-7-inbox.png" alt="Step 7: watch Approval / Inbox for feedback" width="1280" height="720" />
+        <p class="img-caption">Step 7 — Moderator Inbox feedback</p>
+      </div>
+
+      <div class="card step">
+        <div class="step-body">
+          <h3><span class="step-num">8</span> Session end</h3>
+          <p>After review is complete, the session resets for the next booking. You’re done — next time, start again from today’s Entry.</p>
+        </div>
+        <img src="images/tw-use-8-session-end.png" alt="Step 8: session ends and resets for the next booking" width="1280" height="720" />
+        <p class="img-caption">Step 8 — Session complete; reset for next booking</p>
+      </div>
+    </section>
+
+    <!-- ========== TIPS (Moderator caveats) ========== -->
+    <section id="tips" class="panel" role="tabpanel" hidden>
+      <div class="card">
+        <h2>Tips &amp; extras</h2>
+        <p class="muted">Short moderator notes and caveats that save time.</p>
+      </div>
+
+      <div class="card">
+        <h2>Location</h2>
+        <p>Allow location permission so <strong>I’ve arrived</strong> can unlock. If you denied it, reopen site settings for Twilight → <strong>Location → Allow</strong>, then reload.</p>
+        <ul class="easy">
+          <li><strong>iPhone Safari:</strong> aA / website settings → Location</li>
+          <li><strong>Chrome:</strong> lock icon in the address bar → Site settings → Location</li>
+          <li>Stay near the booked address: the geofence still controls the button, so it remains disabled outside the fence even when location is on.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>Moderator caveats</h2>
+        <ul class="easy">
+          <li><strong>Geofence</strong> is required for <strong>I’ve arrived</strong> (Confirm Arrival) — the button stays off until you’re inside</li>
+          <li><strong>OneData</strong> drives bookings; no booking means there’s nothing to open today</li>
+          <li><strong>Location permission</strong> must be allowed and shared so <strong>I’ve arrived</strong> / Confirm Arrival can unlock</li>
+          <li>Check <strong>Inbox</strong> for feedback and fix notes before resubmitting</li>
+          <li>Don’t open the bot-only Excel sync workbook — it’s not for day-to-day use</li>
+        </ul>
+        <div class="callout warn">
+          <strong>Common mistake:</strong> Waiting for <strong>I’ve arrived</strong> while outside the fence (or with location denied). Fix location first, then the button lights up.
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Twilight Checklist · Moderator how-to guide · Style matched to Roster App #use · Frames in <code>images/</code>
+    </footer>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll('.tabs button');
+    const panels = document.querySelectorAll('.panel');
+    function showTab(id) {
+      tabs.forEach((b) => {
+        const on = b.dataset.tab === id;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      panels.forEach((p) => {
+        const on = p.id === id;
+        p.classList.toggle('active', on);
+        p.hidden = !on;
+      });
+      history.replaceState(null, '', '#' + id);
+    }
+    tabs.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
+    const hash = (location.hash || '#overview').slice(1);
+    if (document.getElementById(hash)) showTab(hash);
+  </script>
+</body>
+</html>
