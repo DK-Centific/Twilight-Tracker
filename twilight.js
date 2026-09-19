@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818z';
-const APP_UPDATED_AT = '09/18/2026 20:10';
+const APP_VERSION = '1.3.091819a';
+const APP_UPDATED_AT = '09/18/2026 20:35';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -622,7 +622,17 @@ function syncSessionDateFromActiveAssignment(asgn) {
   const ymd = session && session.date ? String(session.date).trim() : '';
   if (!ymd) return false;
   if (state.sessionDate === ymd) return false;
+  const prev = String(state.sessionDate || '').trim();
   state.sessionDate = ymd;
+  // Rescheduled / reused assignmentIds keep the same id while the booking
+  // day moves forward. Drop leftover station progress so Admin Live does
+  // not inherit yesterday's station_N_done on today's booking.
+  if (prev && prev !== ymd
+      && !(typeof operatorHasOvernightSessionInProgress === 'function'
+          && operatorHasOvernightSessionInProgress(ymd))
+      && typeof clearOperatorProgressForNewBooking === 'function') {
+    clearOperatorProgressForNewBooking('sessionDate:' + prev + '→' + ymd);
+  }
   if (typeof saveState === 'function') saveState();
   return true;
 }
@@ -5151,14 +5161,24 @@ function getAssignedOpenSession() {
 function getOpenTeamSession(teamId) {
   if (teamId == null || teamId === '') return null;
   const rows = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
-  return rows.find(a => {
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const open = rows.filter(a => {
     if (!a || String(a.teamId) !== String(teamId)) return false;
     if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') return false;
     try {
       if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
     } catch (_) {}
     return true;
-  }) || null;
+  });
+  if (!open.length) return null;
+  // Prefer today's booking so a leftover prior-day open row cannot drive
+  // Live / team status while the team is on a new assignment.
+  if (today) {
+    const todayHit = open.find(a => String(a.date || '') === String(today));
+    if (todayHit) return todayHit;
+  }
+  open.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  return open[0];
 }
 
 // Session-first rule: one active booking per team per calendar day.
@@ -38745,6 +38765,158 @@ function assignmentIdsMatch(a, b) {
   return ae.trim().toLowerCase() === be.trim().toLowerCase();
 }
 
+// PST calendar day for an ISO / Excel timestamp. Used to keep station
+// progress scoped to the booking day so a rescheduled OD id cannot show
+// yesterday's station_N_done on today's Live / Performance pills.
+function pstYmdFromTimestamp(value) {
+  if (value == null || value === '') return '';
+  if (typeof parseLastActiveMs === 'function') {
+    const ms = parseLastActiveMs(value);
+    if (ms) {
+      try {
+        return new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Los_Angeles',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date(ms));
+      } catch (_) {}
+    }
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return '';
+}
+
+function sessionStateStampOnOrAfterBooking(stamp, bookingYmd) {
+  const booked = String(bookingYmd || '').trim();
+  if (!booked) return true;
+  const day = pstYmdFromTimestamp(stamp);
+  if (!day) return true; // unparseable · do not drop
+  return day >= booked;
+}
+
+// True when the payload's station / completion progress clearly belongs
+// to a prior calendar day than the assignment's booking date (classic
+// reschedule / same-odScheduleId reuse bleed).
+function sessionStateProgressForeignToBooking(parsed, bookingYmd) {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const booked = String(bookingYmd || '').trim();
+  if (!booked) return false;
+  const stamps = [];
+  const sca = parsed.stationCompletedAt;
+  if (sca && typeof sca === 'object') {
+    Object.keys(sca).forEach(k => { if (sca[k]) stamps.push(sca[k]); });
+  }
+  if (parsed.sessionCompletedAt) stamps.push(parsed.sessionCompletedAt);
+  if (parsed.progressAt) stamps.push(parsed.progressAt);
+  if (!stamps.length) {
+    const sd = String(parsed.sessionDate || '').trim();
+    // sessionStatus alone with no stamps · if sessionDate is set and
+    // earlier than the booking, treat as foreign.
+    if (sd && sd < booked && parsed.sessionStatus) return true;
+    return false;
+  }
+  return !stamps.some(s => sessionStateStampOnOrAfterBooking(s, booked));
+}
+
+// Strip station / wrap-up progress that predates the booking day. Keeps
+// geo + equipment so location pins still work.
+function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
+  if (!parsed || typeof parsed !== 'object') return parsed || {};
+  const booked = String(bookingYmd || '').trim();
+  if (!booked) return parsed;
+  if (!sessionStateProgressForeignToBooking(parsed, booked)) {
+    // Still drop individual pre-booking stamps when mixed.
+    const out = Object.assign({}, parsed);
+    if (out.stationCompletedAt && typeof out.stationCompletedAt === 'object') {
+      const next = {};
+      Object.keys(out.stationCompletedAt).forEach(k => {
+        const v = out.stationCompletedAt[k];
+        if (sessionStateStampOnOrAfterBooking(v, booked)) next[k] = v;
+      });
+      out.stationCompletedAt = next;
+    }
+    if (out.sessionCompletedAt && !sessionStateStampOnOrAfterBooking(out.sessionCompletedAt, booked)) {
+      out.sessionCompletedAt = null;
+    }
+    if (out.arrivedAt && !sessionStateStampOnOrAfterBooking(out.arrivedAt, booked)) {
+      out.arrivedAt = '';
+    }
+    const st = String(out.sessionStatus || '');
+    if ((st.indexOf('station_') === 0 || st === 'session_done')
+        && (!out.stationCompletedAt || !Object.keys(out.stationCompletedAt).length)
+        && !out.sessionCompletedAt) {
+      out.sessionStatus = out.arrivedAt ? 'arrived' : '';
+    }
+    return out;
+  }
+  const clean = Object.assign({}, parsed);
+  clean.stationCompletedAt = {};
+  clean.sessionCompletedAt = null;
+  clean.sessionStatus = '';
+  clean.stations = {};
+  clean.progressScore = 0;
+  clean.progressAt = '';
+  clean.progressBy = '';
+  if (clean.arrivedAt && !sessionStateStampOnOrAfterBooking(clean.arrivedAt, booked)) {
+    clean.arrivedAt = '';
+  }
+  return clean;
+}
+
+function resolveAssignmentBookingYmd(asgnId) {
+  if (!asgnId) return '';
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  const hit = list.find(a => a && (typeof assignmentIdsMatch === 'function'
+    ? assignmentIdsMatch(a.id, asgnId)
+    : String(a.id) === String(asgnId)));
+  return hit && hit.date ? String(hit.date).trim() : '';
+}
+
+// Drop local station progress when the active booking changes (carousel
+// swipe, reschedule day move, or a new OD id). Equipment is kept.
+function clearOperatorProgressForNewBooking(reason) {
+  if (typeof state === 'undefined' || !state) return false;
+  try {
+    console.log('[Twilight] Clearing station progress for new booking'
+      + (reason ? ' (' + reason + ')' : ''));
+  } catch (_) {}
+  if (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)
+      && typeof CAMERAS !== 'undefined') {
+    const stations = {};
+    STATIONS.forEach(st => {
+      stations[st.key] = { cameras: {}, scenarios: {} };
+      if (st.requiresCameras) CAMERAS.forEach(c => { stations[st.key].cameras[c] = false; });
+      (st.scenarios || []).forEach(sc => {
+        stations[st.key].scenarios[sc.num] = {
+          status: 'Not Started', notes: '', iterations: 0,
+          iter: sc.iter || 1, rig1Completed: false, rig2Completed: false,
+        };
+      });
+    });
+    state.stations = stations;
+  } else {
+    state.stations = {};
+  }
+  state.stationCompletedAt = {};
+  state.sessionCompletedAt = null;
+  state.sessionStatus = '';
+  state.arrivedAt = '';
+  state.suppressAutoArrival = false;
+  state.remindersShown = [];
+  state.officeCheckedInAt = '';
+  state.officeCheckedOutAt = '';
+  state.officeCheckinGeo = null;
+  state.officeCheckoutGeo = null;
+  state.arrivalGeo = null;
+  state.calGuideAck = null;
+  state.recordLakituUrl = '';
+  state._progressScore = 0;
+  state._progressAt = '';
+  state._progressBy = '';
+  return true;
+}
+
 // SessionState rows may carry assignmentId on the row, inside stateJson,
 // or only in sessionStateId (ss_{asgnId}_{orbit}). Performance + Lakitu
 // lookups share this matcher so status and URLs stay aligned.
@@ -39053,13 +39225,34 @@ function isStaleSessionStateWrite(lastActive, syncableState) {
   if (!atMs) return false;
   const cloudDay = String((syncableState && syncableState.sessionDate) || '').trim();
   const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-  if (cloudDay && today && cloudDay === today) return false;
+  // sessionDate === today is not enough: rescheduled OD rows rewrite
+  // sessionDate while keeping yesterday's stationCompletedAt stamps.
+  if (cloudDay && today && cloudDay === today) {
+    if (typeof sessionStateProgressForeignToBooking === 'function'
+        && sessionStateProgressForeignToBooking(syncableState, today)) {
+      return true;
+    }
+    return false;
+  }
   return (Date.now() - atMs) > (6 * 60 * 60 * 1000);
 }
 
 function buildSessionStateCloudPayload(asgn, reason) {
   const loc = assignmentLocationSnapshot(asgn);
-  const syncable = extractSyncableState(state);
+  let syncable = extractSyncableState(state);
+  const bookingYmd = asgn && asgn.date ? String(asgn.date).trim() : '';
+  if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
+    // Mirror full foreign progress into a local reset so we stop
+    // re-writing yesterday's station_N_done onto today's SessionState row.
+    if (typeof sessionStateProgressForeignToBooking === 'function'
+        && sessionStateProgressForeignToBooking(syncable, bookingYmd)
+        && typeof clearOperatorProgressForNewBooking === 'function') {
+      clearOperatorProgressForNewBooking('cloud-write-scrub:' + bookingYmd);
+      syncable = extractSyncableState(state);
+    } else {
+      syncable = scrubSessionStateProgressToBooking(syncable, bookingYmd);
+    }
+  }
   if (reason && syncable.lastGeo && typeof syncable.lastGeo === 'object') {
     syncable.lastGeo = Object.assign({}, syncable.lastGeo, { syncReason: reason });
   }
@@ -40247,6 +40440,12 @@ function deriveLatestStatusFromSessionState(asgnId) {
 
   matching.sort((a, b) => String(b.lastActive || '').localeCompare(String(a.lastActive || '')));
 
+  // Scope progress to this assignment's booking date so a reused
+  // odScheduleId / assignmentId cannot surface yesterday's station_4.
+  const bookingYmd = (typeof resolveAssignmentBookingYmd === 'function')
+    ? resolveAssignmentBookingYmd(asgnId)
+    : '';
+
   let sessionCompletedAt = null;
   const stationCompletedAt = {};
   let arrivedAt = null;
@@ -40256,9 +40455,12 @@ function deriveLatestStatusFromSessionState(asgnId) {
   let bestSessionStatusIdx = -1;
   let attributionRow = null;  // the row we'll borrow timestamp + orbitLoginId from
   for (const r of matching) {
-    const parsed = (typeof parseSessionStateJson === 'function')
+    let parsed = (typeof parseSessionStateJson === 'function')
       ? parseSessionStateJson(r)
       : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
+      parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd);
+    }
     const stHint = parsed.sessionStatus ? String(parsed.sessionStatus).trim() : '';
     if (stHint && typeof statusOrderIdx === 'function') {
       const idx = statusOrderIdx(stHint);
@@ -40286,6 +40488,9 @@ function deriveLatestStatusFromSessionState(asgnId) {
     }
     // Infer station-done from Uploaded / completed scenarios when the
     // stamp is missing. Same rule as getStationStatus.
+    // When a booking date is known, only infer from scenarios if a
+    // booking-scoped stamp still exists · otherwise yesterday's
+    // Uploaded map (kept after a reschedule) would re-inflate St 4.
     if (parsed.stations && typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)) {
       const doneFn = (typeof isScenarioDoneForStation === 'function')
         ? isScenarioDoneForStation
@@ -40296,8 +40501,11 @@ function deriveLatestStatusFromSessionState(asgnId) {
           const data = parsed.stations[st.key];
           const vals = data && data.scenarios ? Object.values(data.scenarios) : [];
           if (!vals.length || !vals.every(s => doneFn(s))) continue;
-          const at = (parsed.stationCompletedAt && (parsed.stationCompletedAt[st.key] || parsed.stationCompletedAt[legacy[st.key]]))
-            || r.lastActive || new Date().toISOString();
+          const stamped = parsed.stationCompletedAt
+            && (parsed.stationCompletedAt[st.key] || parsed.stationCompletedAt[legacy[st.key]]);
+          if (bookingYmd && !stamped) continue;
+          const at = stamped || r.lastActive || new Date().toISOString();
+          if (bookingYmd && !sessionStateStampOnOrAfterBooking(at, bookingYmd)) continue;
           if (!stationCompletedAt[st.key]) stationCompletedAt[st.key] = at;
           if (legacy[st.key] && !stationCompletedAt[legacy[st.key]]) stationCompletedAt[legacy[st.key]] = at;
         }
@@ -46623,6 +46831,16 @@ function syncBookedParticipantName() {
 
   // Same active assignment as last sync → preserve edits, no work.
   if (asgnId === last) return;
+
+  // Active assignment changed. Drop leftover station progress from the
+  // prior booking (or a rescheduled same-id day move handled elsewhere)
+  // so Live status cannot inherit station_N_done across bookings.
+  if (last && asgnId && String(last) !== String(asgnId)
+      && typeof clearOperatorProgressForNewBooking === 'function') {
+    clearOperatorProgressForNewBooking('asgn:' + last + '→' + asgnId);
+  } else if (last && !asgnId && typeof clearOperatorProgressForNewBooking === 'function') {
+    clearOperatorProgressForNewBooking('asgn-cleared:' + last);
+  }
 
   // Active assignment changed. Re-derive the name from the new context.
   state._lastSeenActiveAsgnId = asgnId || null;
