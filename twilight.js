@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818x';
-const APP_UPDATED_AT = '09/18/2026 20:15';
+const APP_VERSION = '1.3.091818y';
+const APP_UPDATED_AT = '09/18/2026 20:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -45732,23 +45732,27 @@ function assignmentSessionStartedNotDone(asgn) {
 
 function operatorInProgressAssignment(candidates) {
   const list = candidates || [];
+  const today = getPSTDateString();
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  const hasNewer = list.some(a => a && String(a.date || '') >= today);
+  // After 9 AM PT with a today+ booking: never pin My session on a prior-day
+  // in-progress / unfinished row — carousel prioritizes today.
+  const preferToday = !!(gateOpen && hasNewer);
   for (const a of list) {
+    if (preferToday && String(a.date || '') < today) continue;
     if (operatorProgressOnAssignment(a)) return a;
   }
   for (const a of list) {
+    if (preferToday && String(a.date || '') < today) continue;
     if (assignmentSessionStartedNotDone(a)) return a;
   }
-  const today = getPSTDateString();
   const sd = String((state && state.sessionDate) || '').trim();
   if (state && sd && sd < today && !state.sessionCompletedAt) {
     // Stale sessionDate with no arrival/station progress must not pin the
     // carousel on unfinished yesterday after 9 AM when a newer booking
-    // exists (Jashit-tw Patrick → Rebecca). Real in-progress is handled
-    // by the loops above.
-    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
-      && isPastModStrikeCheckpointHour();
-    const hasNewer = list.some(a => a && String(a.date || '') >= today);
-    if (gateOpen && hasNewer) return null;
+    // exists (Jashit-tw Patrick → Rebecca).
+    if (preferToday) return null;
     const match = list.find(x => x && String(x.date) === sd);
     if (match) {
       try {
@@ -45862,11 +45866,10 @@ function bookingQueueGateBlocker(candidates, todayPst) {
   };
 
   // After 9 AM PT: if a newer booking (today or later) exists, do not let
-  // unfinished yesterday pin/hide it. Moderators still see yesterday in the
-  // carousel for wrap-up, but today's assigned session (with its address)
-  // can advance. Before 9 AM: unfinished yesterday still blocks today
-  // (overnight / early-morning continuity). Older than yesterday remains
-  // hard-dropped upstream in operatorCarouselCandidateAssignments.
+  // unfinished yesterday pin/hide it. applyBookingQueueGate then drops
+  // prior-day rows so My session shows only today+. Before 9 AM:
+  // unfinished yesterday still blocks today (overnight continuity).
+  // Older than yesterday remains hard-dropped upstream.
   if (gateOpen) {
     const hasNewer = list.some(a => a && String(a.date || '') >= today);
     if (hasNewer) return null;
@@ -45893,10 +45896,20 @@ function bookingQueueGateBlocker(candidates, todayPst) {
 function applyBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const inProg = operatorOpenBookingAssignment(list);
-  const blocker = bookingQueueGateBlocker(list, today);
+  const hasTodayOrLater = (list || []).some(a => a && String(a.date || '') >= today);
 
-  return (list || []).filter(a => {
+  // Authoritative (2026-09-18): after 9 AM PT, if the mod has a today+
+  // eligible booking, My session must prioritize today and exclude
+  // unfinished yesterday/older from the carousel. Before 9 AM: keep
+  // overnight unfinished yesterday as the live session.
+  const scoped = (gateOpen && hasTodayOrLater)
+    ? (list || []).filter(a => a && String(a.date || '') >= today)
+    : (list || []);
+
+  const inProg = operatorOpenBookingAssignment(scoped);
+  const blocker = bookingQueueGateBlocker(scoped, today);
+
+  return scoped.filter(a => {
     if (!a) return false;
     if (inProg && String(a.id) === String(inProg.id)) return true;
     if (blocker && String(a.id) === String(blocker.id)) return true;

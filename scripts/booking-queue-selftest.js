@@ -87,7 +87,9 @@ runCase('after 9 AM with prior complete shows morning booking', () => {
   if (!ids.includes('morning')) throw new Error('expected morning booking visible, got ' + JSON.stringify(ids));
 });
 
-runCase('in-progress prior day blocks morning even after 9 AM', () => {
+runCase('after 9 AM today booking wins over in-progress yesterday', () => {
+  // Authoritative: once today is booked and gate is open, My session drops
+  // unfinished/in-progress yesterday and shows only today.
   const ids = runQueue({
     today: '2026-09-16',
     gateOpen: true,
@@ -97,7 +99,8 @@ runCase('in-progress prior day blocks morning even after 9 AM', () => {
     ],
     state: { sessionDate: '2026-09-15', arrivedAt: '2026-09-16T05:00:00.000Z' },
   });
-  if (ids.includes('morning')) throw new Error('morning should stay hidden while overnight in progress');
+  if (ids.includes('overnight')) throw new Error('overnight must drop after 9 AM when today booked, got ' + JSON.stringify(ids));
+  if (!ids.includes('morning')) throw new Error('morning must show after 9 AM when today booked, got ' + JSON.stringify(ids));
 });
 
 runCase('same team hides later booking until wrap-up (Venkata x Jashit pattern)', () => {
@@ -168,9 +171,8 @@ runCase('unfinished yesterday stays before 9 AM; today hidden', () => {
 });
 
 runCase('after 9 AM unfinished yesterday yields to newer today booking', () => {
-  // David 2026-09-18: after 9 AM PT, a newer OD/admin booking must advance
-  // even if yesterday is still unfinished. Yesterday stays visible for
-  // wrap-up; today is no longer hidden (address + session for Jashit-tw).
+  // After 9 AM PT with a today booking: carousel shows ONLY today (yesterday
+  // incompletes excluded — residual fix after 091818x still listed both).
   const ids = runQueue({
     today: '2026-09-16',
     gateOpen: true,
@@ -181,11 +183,11 @@ runCase('after 9 AM unfinished yesterday yields to newer today booking', () => {
     isSessionWrapUpDone: () => false,
     state: {},
   });
-  if (!ids.includes('yesterday')) throw new Error('expected unfinished yesterday still visible after 9 AM');
+  if (ids.includes('yesterday')) throw new Error('yesterday must not appear after 9 AM when today booked, got ' + JSON.stringify(ids));
   if (!ids.includes('today')) throw new Error('today must advance after 9 AM when booked, got ' + JSON.stringify(ids));
 });
 
-runCase('cross-day same team: unfinished yesterday does not hide today after 9 AM', () => {
+runCase('cross-day same team: Venkata x Jashit carousel only today after 9 AM', () => {
   const teamId = 'team_vxj';
   const ids = runQueue({
     today: '2026-09-18',
@@ -197,8 +199,42 @@ runCase('cross-day same team: unfinished yesterday does not hide today after 9 A
     isSessionWrapUpDone: () => false,
     state: { sessionDate: '2026-09-17' },
   });
+  if (ids.includes('patrick')) {
+    throw new Error('Patrick (yesterday) must drop when Rebecca today exists after 9 AM, got ' + JSON.stringify(ids));
+  }
   if (!ids.includes('rebecca')) {
     throw new Error('expected Rebecca (today) visible for Venkata x Jashit, got ' + JSON.stringify(ids));
+  }
+});
+
+runCase('mod has yesterday incomplete + today booked after 9 AM → carousel only today', () => {
+  const ids = runQueue({
+    today: '2026-09-18',
+    gateOpen: true,
+    assignments: [
+      { id: 'yest-incomplete', date: '2026-09-17', startMin: 12 * 60, endMin: 20 * 60, status: 'Booked' },
+      { id: 'today-booked', date: '2026-09-18', startMin: 18 * 60, endMin: 26 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: () => false,
+    state: {},
+  });
+  if (ids.length !== 1 || ids[0] !== 'today-booked') {
+    throw new Error('expected only today-booked, got ' + JSON.stringify(ids));
+  }
+});
+
+runCase('after 9 AM unfinished yesterday alone still shows (no today booking)', () => {
+  const ids = runQueue({
+    today: '2026-09-18',
+    gateOpen: true,
+    assignments: [
+      { id: 'yest-only', date: '2026-09-17', startMin: 12 * 60, endMin: 20 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: () => false,
+    state: {},
+  });
+  if (!ids.includes('yest-only')) {
+    throw new Error('yesterday wrap-up still allowed when no today booking, got ' + JSON.stringify(ids));
   }
 });
 
