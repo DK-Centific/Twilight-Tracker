@@ -9,7 +9,7 @@ const vm = require('vm');
 const src = fs.readFileSync(path.join(__dirname, '..', 'twilight.js'), 'utf8');
 const matchBegin = src.indexOf('function assignmentIdsMatch(a, b)');
 const matchEnd = src.indexOf('function buildAssignmentTeamMap()');
-const begin = src.indexOf('function classifyBookingForPerf(a)');
+const begin = src.indexOf('function assignmentPerfSessionStarted(a)');
 const end = src.indexOf('function perfDateRangeOptions()');
 if (begin < 0 || end < 0 || end <= begin) {
   console.error('Could not locate Performance geo helpers in twilight.js');
@@ -79,6 +79,9 @@ const ctx = {
   },
   loadGeoPings: () => ({}),
   getTeamBackupIds: () => [],
+  getPSTDateString: () => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date()),
 };
 vm.createContext(ctx);
 vm.runInContext(src.slice(fenceBegin, fenceEnd + '/* FENCE_UNLOCK_END */'.length), ctx);
@@ -112,11 +115,11 @@ const arrived = ctx.perfGeoTrackDisplay(asgn);
 assert('arrived status shows confirmation from app', arrived && arrived.key === 'arrived', JSON.stringify(arrived));
 
 ctx.getLatestStatusForAssignment = () => null;
-const todayYmd = new Date();
-todayYmd.setHours(0, 0, 0, 0);
-const todayStr = todayYmd.getFullYear() + '-'
-  + String(todayYmd.getMonth() + 1).padStart(2, '0') + '-'
-  + String(todayYmd.getDate()).padStart(2, '0');
+// Performance "today" is Pacific — box-local UTC YMD is wrong after 17:00 PT.
+const todayStr = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+}).format(new Date());
 const todayAsgn = { id: 'asgn_today', status: 'Booked', date: todayStr, address: '123 Main St' };
 ctx.adminState.perfSessionStateRows = [{
   assignmentId: 'asgn_today',

@@ -1,10 +1,24 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · My session today-priority after 9 AM (1.3.091818y)
+**Last updated:** 2026-09-18 · Cursor · Sanity pass + reviewer CSS + selftests (1.3.091818z)
 **Read this file first every session.** Update it before you sign off.
 
 ---
 
+
+## 2026-09-18 · Sanity pass (1.3.091818z)
+
+Full static + selftest pass after My session today-priority (**#130 / 091818y**). Product logic for queue, strike ladder, Skip persistence, arrival day-snooze + Today/9AM, Night Time catalog / Save links, approval ack, Reviewer lockdown, Mod Hub role filter + List columns, and password `adminGetPassword`/`adminSetPassword` wiring all check out.
+
+**Fixes shipped:**
+- `perf-geo-track-selftest` extract now includes `assignmentPerfSessionStarted` (was crashing mid-run; Live-via-geo path untested).
+- Same selftest now stamps booking `date` in **America/Los_Angeles** (was box-UTC YMD → false “not today” after 17:00 PT).
+- Stale `APP_VERSION` pins in selftests refreshed to **1.3.091818z**.
+- Reviewer lockdown CSS fail-closed backup for Master List / Mod Tracking / Reset Session (JS `openMenu` already hid them).
+
+**Verify:** hard refresh → version **1.3.091818z**; Reviewer menu has no Booking / Panic / Master List / Reset / Mod Tracking / Menu Ring; after 9 AM PT with today booked, My session is today-only.
+
+---
 ## 2026-09-18 · My session today priority (1.3.091818y)
 
 **Symptom residual after #129 / 091818x:** Live mods still saw unfinished **yesterday** in My session alongside (or instead of) today’s booking.
@@ -33,7 +47,7 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818y`** on `main` (My session today-priority after 9 AM) |
+| **`main` version** | **`1.3.091818z`** on `main` (sanity pass after y) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
