@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818u';
+const APP_VERSION = '1.3.091818v';
 const APP_UPDATED_AT = '09/18/2026 19:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -6597,18 +6597,32 @@ function exportExcel() {
    ===================================================================== */
 function openMenu() {
   if (typeof syncModeratorRingLinks === 'function') syncModeratorRingLinks();
-  // Toggle visibility of admin-only menu rows based on which app is
-  // active. The shared menu drawer is used by both moderator and admin
-  // nav buttons, so we gate admin-specific links (Master List, future
-  // admin tools) by checking #adminApp.active. Done here at open time
-  // rather than via global CSS because the .active class is itself
-  // toggled in JS · easier to keep the source of truth in one place.
-  const isAdminActive = !!(document.getElementById('adminApp')
-                        && document.getElementById('adminApp').classList.contains('active'));
-  document.querySelectorAll('.menu-row-admin-only').forEach(el => {
-    el.style.display = isAdminActive ? '' : 'none';
+  // Menu Ring Quick Link removed for all roles (assignment-bound Ring
+  // pills elsewhere stay). Hide the Quick Links section when empty.
+  const ringRow = document.getElementById('lakituRow');
+  if (ringRow) ringRow.style.display = 'none';
+  document.querySelectorAll('.menu-section-quick-links').forEach(el => {
+    el.style.display = 'none';
   });
+  // Admin-only tools · Master List / Mod Tracking · require a real Admin
+  // session (not Reviewer, even though Reviewer uses #adminApp).
+  const adminOk = (typeof isAdminSession === 'function') ? isAdminSession() : false;
+  document.querySelectorAll('.menu-row-admin-only').forEach(el => {
+    el.style.display = adminOk ? '' : 'none';
+  });
+  // Reset Session is mod/admin · never Reviewer.
+  const resetRow = document.getElementById('resetRow');
+  if (resetRow) {
+    const reviewer = (typeof isReviewerSession === 'function') && isReviewerSession();
+    resetRow.style.display = reviewer ? 'none' : '';
+    const resetLabel = resetRow.previousElementSibling;
+    if (resetLabel && resetLabel.classList.contains('menu-section-label')
+        && /session/i.test(resetLabel.textContent || '')) {
+      resetLabel.style.display = reviewer ? 'none' : '';
+    }
+  }
   if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+  if (typeof syncReviewerChrome === 'function') syncReviewerChrome();
   document.getElementById('menuOverlay').classList.add('open');
   document.getElementById('menuDrawer').classList.add('open');
 }
@@ -8575,6 +8589,7 @@ function restoreHubAssignmentModal() {
 }
 
 function openBookingPage() {
+  if (typeof isReviewerSession === 'function' && isReviewerSession()) return;
   if (typeof adminState === 'undefined' || !adminState) return;
   adminState.bookingOpen = true;
   if (adminState.calView === 'day' || adminState.calView === 'list') {
@@ -9086,7 +9101,15 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   const upsert = (teamId, snap) => {
     const key = String(teamId);
     const prev = entries.get(key);
-    if (!prev || snap.rank < prev.rank) entries.set(key, snap);
+    if (!prev) { entries.set(key, snap); return; }
+    // A new Live assignment must not stay blanked/stuck behind a prior
+    // flagged incomplete for the same team (different booking/session).
+    if (prev.kind === 'flagged' && snap.kind === 'inprogress'
+        && String(prev.assignmentId || '') !== String(snap.assignmentId || '')) {
+      entries.set(key, snap);
+      return;
+    }
+    if (snap.rank < prev.rank) entries.set(key, snap);
   };
 
   if (typeof buildModStrikeCheckpointReport === 'function') {
@@ -9116,7 +9139,10 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   (filteredAsgns || []).forEach(a => {
     if (!overviewAssignmentIsPerfLive(a)) return;
     const key = String(a.teamId);
-    if (entries.get(key) && entries.get(key).kind === 'flagged') return;
+    const prev = entries.get(key);
+    // Same flagged incomplete session stays flagged; a different live booking wins via upsert.
+    if (prev && prev.kind === 'flagged'
+        && String(prev.assignmentId || '') === String(a.id || '')) return;
     const team = teams.find(t => String(t.id) === key);
     const name = (team && team.name) || a.teamName || 'Team';
     const st = overviewLiveStatusStationLabel(a);
@@ -16560,6 +16586,7 @@ function syncMasterAdminChrome() {
   const on = isMasterAdminUser();
   const reviewer = typeof isReviewerSession === 'function' && isReviewerSession();
   try { document.body.classList.toggle('is-master-admin', !!on); } catch (_) {}
+  if (typeof syncReviewerChrome === 'function') syncReviewerChrome();
   const adminActive = !!(document.getElementById('adminApp') && document.getElementById('adminApp').classList.contains('active'));
   const roleLabel = reviewer ? 'Reviewer' : (on ? 'Master Admin' : 'Admin');
   const adminRoleText = document.getElementById('adminRolePillText');
@@ -25856,25 +25883,69 @@ function isAssignmentCompleteForStrike(a) {
     && classifyBookingForPerf(a) === 'completed';
 }
 
-function modStrikeCheckpointSkippedTeamIds(todayPst) {
+function modStrikeCheckpointMap(todayPst, field) {
   const store = loadModStrikeStore();
   const ck = store.checkpoints[String(todayPst || '')];
-  const map = (ck && ck.skippedTeams && typeof ck.skippedTeams === 'object') ? ck.skippedTeams : {};
+  const map = (ck && ck[field] && typeof ck[field] === 'object') ? ck[field] : {};
+  return map;
+}
+
+function modStrikeCheckpointSkippedTeamIds(todayPst) {
+  const map = modStrikeCheckpointMap(todayPst, 'skippedTeams');
   return new Set(Object.keys(map).filter(k => map[k]));
 }
 
 function modStrikeCheckpointResolvedTeamIds(todayPst) {
-  const store = loadModStrikeStore();
-  const ck = store.checkpoints[String(todayPst || '')];
-  const map = (ck && ck.resolvedTeams && typeof ck.resolvedTeams === 'object') ? ck.resolvedTeams : {};
+  const map = modStrikeCheckpointMap(todayPst, 'resolvedTeams');
   return new Set(Object.keys(map).filter(k => map[k]));
+}
+
+/**
+ * Skip/Strike resolve is session-scoped (prefer assignment id). Legacy
+ * checkpoints stored bare teamId → true; those still mute that team's
+ * yesterday checkpoint row so the same incomplete stays gone after poll.
+ * A different assignmentId for the same team is NOT muted.
+ */
+function modStrikeCheckpointMapHas(map, teamId, assignmentId) {
+  if (!map || typeof map !== 'object') return false;
+  const tid = String(teamId || '').trim();
+  const aid = assignmentId != null && assignmentId !== '' ? String(assignmentId) : '';
+  if (aid && map[aid]) return true;
+  if (!tid) return false;
+  const v = map[tid];
+  if (v == null || v === false) return false;
+  // Legacy boolean mute · one checkpoint row per team for yesterday.
+  if (v === true) return true;
+  // teamId → assignmentId binding (or accidental string stamp).
+  if (aid && String(v) === aid) return true;
+  return false;
+}
+
+function modStrikeCheckpointIsSkipped(todayPst, teamId, assignmentId) {
+  return modStrikeCheckpointMapHas(
+    modStrikeCheckpointMap(todayPst, 'skippedTeams'), teamId, assignmentId);
+}
+
+function modStrikeCheckpointIsResolved(todayPst, teamId, assignmentId) {
+  return modStrikeCheckpointMapHas(
+    modStrikeCheckpointMap(todayPst, 'resolvedTeams'), teamId, assignmentId);
+}
+
+function modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking) {
+  const aid = assignmentId != null && assignmentId !== '' ? String(assignmentId).trim() : '';
+  if (aid) return aid;
+  const b = booking || null;
+  const od = b && b.odScheduleId != null ? String(b.odScheduleId).trim() : '';
+  if (od) return 'od:' + od;
+  const bg = b && b.bookingGroupId != null ? String(b.bookingGroupId).trim() : '';
+  const tid = String(teamId || '').trim();
+  if (bg && tid) return 'bg:' + bg + '|t:' + tid;
+  return tid;
 }
 
 function buildModStrikeCheckpointReport() {
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
   const todayPst = getPSTDateString();
-  const skipped = modStrikeCheckpointSkippedTeamIds(todayPst);
-  const resolved = modStrikeCheckpointResolvedTeamIds(todayPst);
   const teams = [];
   for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
     if (!t) continue;
@@ -25884,15 +25955,16 @@ function buildModStrikeCheckpointReport() {
     if (!booking) continue;
     const completed = isAssignmentCompleteForStrike(booking);
     const pastSessionEnd = isPastAssignmentSessionEnd(booking);
+    const asgnId = booking.id;
     teams.push({
       teamId: t.id,
       teamName: t.name || 'Team',
       completed,
       pastSessionEnd,
       flagIncomplete: pastSessionEnd && !completed,
-      skipped: skipped.has(String(t.id)),
-      resolved: resolved.has(String(t.id)),
-      assignmentId: booking.id,
+      skipped: modStrikeCheckpointIsSkipped(todayPst, t.id, asgnId),
+      resolved: modStrikeCheckpointIsResolved(todayPst, t.id, asgnId),
+      assignmentId: asgnId,
       primaryIds: primaries.slice(),
     });
   }
@@ -25917,15 +25989,12 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   const ck = store.checkpoints[todayPst];
   if (ck && ck.applied) return report;
 
-  const skippedTeams = modStrikeCheckpointSkippedTeamIds(todayPst);
-  const resolvedTeams = modStrikeCheckpointResolvedTeamIds(todayPst);
   if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
   const ckRow = store.checkpoints[todayPst];
   if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
   let struck = 0;
   for (const row of report.teams) {
-    if (row.completed || row.skipped || skippedTeams.has(String(row.teamId))
-        || resolvedTeams.has(String(row.teamId))) continue;
+    if (row.completed || row.skipped || row.resolved) continue;
     if (!row.pastSessionEnd) continue;
     if (ckRow.teamAutoStrike[String(row.teamId)]) continue;
     for (const orbitId of row.primaryIds) {
@@ -25943,8 +26012,7 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
     ckRow.teamAutoStrike[String(row.teamId)] = true;
   }
   const allResolved = report.teams.every(t => {
-    if (t.completed || t.skipped || skippedTeams.has(String(t.teamId))
-        || resolvedTeams.has(String(t.teamId))) return true;
+    if (t.completed || t.skipped || t.resolved) return true;
     if (!t.pastSessionEnd) return false;
     return !!ckRow.teamAutoStrike[String(t.teamId)];
   });
@@ -25964,45 +26032,116 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   return report;
 }
 
-function skipModStrikeCheckpointTeam(teamId) {
-  const id = String(teamId || '').trim();
-  if (!id) return;
+function stampModStrikeCheckpointOccurrence(field, teamId, assignmentId, booking) {
   const todayPst = getPSTDateString();
   const store = loadModStrikeStore();
   if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
   const ck = store.checkpoints[todayPst];
-  if (!ck.skippedTeams || typeof ck.skippedTeams !== 'object') ck.skippedTeams = {};
-  ck.skippedTeams[id] = true;
-  // Also stamp resolvedTeams so Overview glow + flag list treat Skip like Strike.
-  if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
-  ck.resolvedTeams[id] = true;
+  if (!ck[field] || typeof ck[field] !== 'object') ck[field] = {};
+  const key = modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking);
+  if (!key) return null;
+  ck[field][key] = true;
+  // Do not also stamp bare teamId — that would mute later same-day sessions.
   saveModStrikeStore(store);
+  return key;
+}
+
+function skipModStrikeCheckpointTeam(teamId) {
+  const id = String(teamId || '').trim();
+  if (!id) return;
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport()
+    : null;
+  const row = rep && Array.isArray(rep.teams)
+    ? rep.teams.find(t => String(t.teamId) === id)
+    : null;
+  const asgnId = row && row.assignmentId != null ? row.assignmentId : '';
+  const booking = asgnId
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(asgnId))
+    : null;
+  stampModStrikeCheckpointOccurrence('skippedTeams', id, asgnId, booking);
+  // Also stamp resolved so Overview glow + flag list treat Skip like Strike.
+  stampModStrikeCheckpointOccurrence('resolvedTeams', id, asgnId, booking);
   if (typeof flushPersistModeratorStrikesSetting === 'function') {
     flushPersistModeratorStrikesSetting();
   }
   if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
     maybeRunModStrikeNineAmCheckpoint({ silent: true });
   }
-  if (typeof toast === 'function') toast('Auto-strike skipped for this team today');
+  if (typeof toast === 'function') toast('Auto-strike skipped for this incomplete session');
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
 }
 
 function resolveModStrikeCheckpointTeam(teamId) {
   const id = String(teamId || '').trim();
   if (!id) return;
-  const todayPst = getPSTDateString();
-  const store = loadModStrikeStore();
-  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
-  const ck = store.checkpoints[todayPst];
-  if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
-  ck.resolvedTeams[id] = true;
-  saveModStrikeStore(store);
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport()
+    : null;
+  const row = rep && Array.isArray(rep.teams)
+    ? rep.teams.find(t => String(t.teamId) === id)
+    : null;
+  const asgnId = row && row.assignmentId != null ? row.assignmentId : '';
+  const booking = asgnId
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(asgnId))
+    : null;
+  stampModStrikeCheckpointOccurrence('resolvedTeams', id, asgnId, booking);
   if (typeof flushPersistModeratorStrikesSetting === 'function') {
     flushPersistModeratorStrikesSetting();
   }
   if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
     maybeRunModStrikeNineAmCheckpoint({ silent: true });
   }
+}
+
+function modStrikeCheckpointRowMatchesPerfDateFilter(row, rep) {
+  const range = (typeof adminState !== 'undefined' && adminState && adminState.perfDateRange)
+    ? adminState.perfDateRange
+    : 'all';
+  if (!range || range === 'all') return true;
+  const asgn = (row && row.assignmentId != null)
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(row.assignmentId))
+    : null;
+  if (asgn && typeof perfDateInRange === 'function') return !!perfDateInRange(asgn, range);
+  const ymd = (rep && rep.yesterday) || (row && row.date) || '';
+  if (!ymd) return false;
+  return (typeof perfDateInRange === 'function')
+    ? !!perfDateInRange({ date: ymd }, range)
+    : true;
+}
+
+function modStrikeCheckpointRowMatchesOverviewFilter(row, rep) {
+  const f = (typeof adminState !== 'undefined' && adminState && adminState.overview)
+    ? adminState.overview
+    : { timeScope: 'all' };
+  const scope = f.timeScope || 'all';
+  if (scope === 'all') return true;
+  const asgn = (row && row.assignmentId != null)
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(row.assignmentId))
+    : null;
+  if (scope === 'day') {
+    if (asgn && typeof perfBookingOverlapsPacificDay === 'function') {
+      return !!perfBookingOverlapsPacificDay(asgn);
+    }
+    const ymd = (rep && rep.yesterday) || '';
+    return !!ymd && (typeof perfBookingOverlapsPacificDay === 'function')
+      ? !!perfBookingOverlapsPacificDay({ date: ymd, startMin: 0, endMin: 24 * 60 })
+      : true;
+  }
+  if (!asgn && !(rep && rep.yesterday)) return false;
+  const probe = asgn || { date: rep.yesterday };
+  if (typeof overviewDateRange !== 'function') return true;
+  const [startMs, endMs] = overviewDateRange(scope);
+  if (startMs == null) return true;
+  const ms = (typeof assignmentBookingSessionStartMs === 'function' && asgn)
+    ? assignmentBookingSessionStartMs(asgn)
+    : (probe.date ? Date.parse(String(probe.date) + 'T12:00:00') : NaN);
+  if (!Number.isFinite(ms)) return false;
+  return ms >= startMs && ms <= endMs;
 }
 
 function modStrikeCheckpointAttentionActive() {
@@ -26013,7 +26152,10 @@ function modStrikeCheckpointAttentionActive() {
     ? buildModStrikeCheckpointReport()
     : null;
   if (!rep || !Array.isArray(rep.teams)) return false;
-  return rep.teams.some(t => t.flagIncomplete && !t.skipped && !t.resolved);
+  return rep.teams.some(t => {
+    if (!(t.flagIncomplete && !t.skipped && !t.resolved)) return false;
+    return modStrikeCheckpointRowMatchesOverviewFilter(t, rep);
+  });
 }
 
 function syncOverviewLiveStatusStrikeAttention() {
@@ -26094,15 +26236,30 @@ function renderPerfStrikeCheckpointBannerHTML() {
     ? adminState._modStrikeCheckpointReport
     : buildModStrikeCheckpointReport();
   if (!rep || !rep.teams || !rep.teams.length) return '';
-  const done = rep.teams.filter(t => t.completed).length;
-  const skippedCount = rep.teams.filter(t => t.skipped && !t.completed).length;
-  const resolvedCount = rep.teams.filter(t => t.resolved && t.flagIncomplete && !t.skipped).length;
-  const pendingEnd = rep.teams.filter(t => !t.completed && !t.skipped && !t.resolved && !t.pastSessionEnd).length;
-  const missed = rep.teams.filter(t => t.flagIncomplete && !t.skipped && !t.resolved).length;
+  const pending = (rep.teams || []).filter(t => t.flagIncomplete && !t.skipped && !t.resolved);
+  // After admin confirms Skip/Strike for every incomplete, hide by default.
+  if (!pending.length) return '';
+  // Only show when pending rows match the Performance date-range filter.
+  const inFilter = pending.filter(t => modStrikeCheckpointRowMatchesPerfDateFilter(t, rep));
+  if (!inFilter.length) return '';
+  const visibleTeams = (rep.teams || []).filter(t => {
+    if (t.flagIncomplete && !t.skipped && !t.resolved) {
+      return modStrikeCheckpointRowMatchesPerfDateFilter(t, rep);
+    }
+    // Keep resolved/skipped/completed companions only when their booking is in range
+    // so the banner doesn't look stale for out-of-filter dates.
+    return modStrikeCheckpointRowMatchesPerfDateFilter(t, rep);
+  });
+  if (!visibleTeams.length) return '';
+  const done = visibleTeams.filter(t => t.completed).length;
+  const skippedCount = visibleTeams.filter(t => t.skipped && !t.completed).length;
+  const resolvedCount = visibleTeams.filter(t => t.resolved && t.flagIncomplete && !t.skipped).length;
+  const pendingEnd = visibleTeams.filter(t => !t.completed && !t.skipped && !t.resolved && !t.pastSessionEnd).length;
+  const missed = visibleTeams.filter(t => t.flagIncomplete && !t.skipped && !t.resolved).length;
   const gateNote = rep.pastGate
     ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed. Resolve each incomplete team with Strike or Skip.'
-    : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that team today.';
-  const rows = rep.teams.map(t => {
+    : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that incomplete session only.';
+  const rows = visibleTeams.map(t => {
     const rowCls = t.completed ? 'is-done'
       : (t.skipped ? 'is-skipped'
         : (t.resolved && t.flagIncomplete ? 'is-struck'
@@ -50676,19 +50833,47 @@ function isLoginScreenVisible() {
   try { return getComputedStyle(loginEl).display !== 'none'; } catch (_) { return true; }
 }
 
+// Reviewer lockdown · no Booking rail, no Panic, no Admin-only menu tools.
+function syncReviewerChrome() {
+  const reviewer = (typeof isReviewerSession === 'function') && isReviewerSession();
+  try { document.body.classList.toggle('is-reviewer', !!reviewer); } catch (_) {}
+  const bookingBtn = document.getElementById('adminBookingBtn');
+  if (bookingBtn) {
+    bookingBtn.hidden = !!reviewer;
+    bookingBtn.setAttribute('aria-hidden', reviewer ? 'true' : 'false');
+    bookingBtn.style.display = reviewer ? 'none' : '';
+  }
+  const bookingGroup = document.getElementById('adminRailBooking');
+  if (bookingGroup) bookingGroup.style.display = reviewer ? 'none' : '';
+  const fab = document.getElementById('panicFab');
+  if (fab) {
+    fab.classList.toggle('is-reviewer-hidden', !!reviewer);
+    if (reviewer) {
+      fab.classList.remove('open');
+      fab.setAttribute('aria-hidden', 'true');
+    }
+  }
+  if (reviewer && typeof closeBookingPage === 'function') {
+    try { closeBookingPage(); } catch (_) {}
+  }
+}
+
 // Panic help button · floating on desktop, hidden on the login page, and
 // docked in the mobile bottom bar just to the right of Settings (menu).
+// Hidden entirely for Reviewer sessions.
 function dockPanicFab(desktop) {
   const fab = document.getElementById('panicFab');
   if (!fab) return;
   const loginVisible = typeof isLoginScreenVisible === 'function'
     ? isLoginScreenVisible()
     : false;
+  const reviewer = (typeof isReviewerSession === 'function') && isReviewerSession();
   const adminActive = !!(document.getElementById('adminApp')
     && document.getElementById('adminApp').classList.contains('active'));
   const appVisible = !!(document.getElementById('app')
     && document.getElementById('app').style.display === 'block');
-  const shouldDock = !desktop && !loginVisible && (adminActive || appVisible);
+  const hide = !!(loginVisible || reviewer);
+  const shouldDock = !desktop && !hide && (adminActive || appVisible);
   const bar = shouldDock
     ? document.getElementById(adminActive ? 'adminBottomBar' : 'opBottomBar')
     : null;
@@ -50699,7 +50884,9 @@ function dockPanicFab(desktop) {
   if (target) target.appendChild(fab);
   fab.classList.toggle('is-docked', !!(shouldDock && bar));
   fab.classList.toggle('is-login-hidden', !!loginVisible);
-  fab.setAttribute('aria-hidden', loginVisible ? 'true' : 'false');
+  fab.classList.toggle('is-reviewer-hidden', !!reviewer);
+  fab.setAttribute('aria-hidden', hide ? 'true' : 'false');
+  if (typeof syncReviewerChrome === 'function') syncReviewerChrome();
 }
 
 function setupNavRails() {

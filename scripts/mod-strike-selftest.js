@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818t',
-  /const APP_VERSION = '1\.3\.091818t'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818t'));
+assert('version bump 091818v',
+  /const APP_VERSION = '1\.3\.091818v'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818v'));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
@@ -35,7 +35,29 @@ assert('skip/strike checkpoint merge on SessionState ingest',
 assert('skip/strike flush persist (no debounce race)',
   /function flushPersistModeratorStrikesSetting/.test(src)
   && /flushPersistModeratorStrikesSetting\(\)/.test(src)
-  && /Also stamp resolvedTeams/.test(src));
+  && /stampModStrikeCheckpointOccurrence\('resolvedTeams'/.test(src));
+assert('skip keyed by assignment occurrence',
+  /function modStrikeCheckpointOccurrenceKey/.test(src)
+  && /function modStrikeCheckpointIsSkipped/.test(src)
+  && /function stampModStrikeCheckpointOccurrence/.test(src)
+  && /Do not also stamp bare teamId/.test(src));
+assert('live tile prefers new session over prior flag',
+  /A new Live assignment must not stay blanked/.test(src)
+  && /prev\.kind === 'flagged' && snap\.kind === 'inprogress'/.test(src));
+assert('banner gated by date filter + hides when resolved',
+  /function modStrikeCheckpointRowMatchesPerfDateFilter/.test(src)
+  && /After admin confirms Skip\/Strike for every incomplete, hide by default/.test(src)
+  && /Only show when pending rows match the Performance date-range filter/.test(src));
+assert('reviewer lockdown chrome',
+  /function syncReviewerChrome/.test(src)
+  && /is-reviewer-hidden/.test(src)
+  && /isAdminSession\(\)/.test(src)
+  && html.includes('reviewer-lockdown-style')
+  && html.includes('menu-section-quick-links'));
+assert('menu Ring quick link removed',
+  /Menu Ring Quick Link removed for all roles/.test(src)
+  && /ringRow\.style\.display = 'none'/.test(src)
+  && html.includes('id="lakituRow" style="display: none;"'));
 assert('overview live status strike attention glow',
   /function modStrikeCheckpointAttentionActive/.test(src)
   && /function syncOverviewLiveStatusStrikeAttention/.test(src)
@@ -127,7 +149,12 @@ const ctx = {
     teams: [{ id: 't1', name: 'Alpha', primaryIds: ['a-orbit', 'b-orbit'] }],
     assignments: [{
       id: 'asgn1', teamId: 't1', date: '2026-09-16', status: 'Booked',
+      startMin: 10 * 60, endMin: 12 * 60,
     }],
+    overview: { timeScope: 'all', teamId: 'all', moderatorId: 'all' },
+    perfDateRange: 'all',
+    perfCustomStart: '',
+    perfCustomEnd: '',
   },
   state: { username: 'Admin-Twilight' },
   MOD_STRIKE_LS_KEY: 'centific_moderator_strikes_v1_test',
@@ -153,6 +180,20 @@ function getPSTDateString() { return '2026-09-17'; }
 function toast() {}
 function syncOverviewLiveStatusStrikeAttention() {}
 function modStrikeRefreshUi() {}
+function perfDateInRange(a, range) {
+  if (!range || range === 'all') return true;
+  if (range === 'custom') {
+    const d = String((a && a.date) || '');
+    const cs = String(adminState.perfCustomStart || '');
+    const ce = String(adminState.perfCustomEnd || '');
+    if (cs && d < cs) return false;
+    if (ce && d > ce) return false;
+    return true;
+  }
+  return true;
+}
+function overviewDateRange() { return [null, null]; }
+function perfBookingOverlapsPacificDay() { return true; }
 `;
 ctx.document = { querySelector() { return null; }, querySelectorAll() { return []; }, getElementById() { return null; } };
 vm.createContext(ctx);
@@ -236,6 +277,56 @@ const merged = ctx.mergeModStrikeCheckpoints(
 assert('merge unions skipped+resolved maps',
   merged['2026-09-18'].skippedTeams.t1 === true
   && merged['2026-09-18'].resolvedTeams.t2 === true);
+
+// Session-scoped skip: same incomplete stays gone; new assignment for team is not muted.
+const storeAfterSkip = ctx.loadModStrikeStore();
+const ckAfter = storeAfterSkip.checkpoints[todayPst] || {};
+assert('skip stamps assignment id key', !!(ckAfter.skippedTeams && ckAfter.skippedTeams.asgn1));
+assert('skip does not bare-mute teamId', !(ckAfter.skippedTeams && ckAfter.skippedTeams.t1 === true));
+assert('same incomplete still skipped via assignment key',
+  ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn1') === true);
+assert('new session for skipped team is not muted',
+  ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn_new') === false);
+
+// Legacy teamId:true still covers the same incomplete (PR #125 regression).
+ctx.saveModStrikeStore({
+  mods: {},
+  checkpoints: {
+    [todayPst]: { applied: false, skippedTeams: { t1: true }, resolvedTeams: { t1: true } },
+  },
+});
+assert('legacy teamId skip still covers checkpoint row',
+  ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn1') === true);
+
+// Banner: hides when no pending; shows only when date filter matches.
+ctx.saveModStrikeStore({
+  mods: {},
+  checkpoints: {
+    [todayPst]: {
+      applied: false,
+      skippedTeams: { asgn1: true },
+      resolvedTeams: { asgn1: true },
+    },
+  },
+});
+ctx.adminState.perfDateRange = 'all';
+ctx.isPastModStrikeCheckpointHour = () => true;
+let banner = ctx.renderPerfStrikeCheckpointBannerHTML();
+assert('banner gone after skip confirm (no pending)', banner === '');
+
+// Re-seed an unskipped incomplete and gate by date filter
+ctx.saveModStrikeStore({ mods: {}, checkpoints: { [todayPst]: { applied: false } } });
+ctx.adminState._modStrikeCheckpointReport = null;
+ctx.adminState.perfDateRange = 'custom';
+ctx.adminState.perfCustomStart = '2026-01-01';
+ctx.adminState.perfCustomEnd = '2026-01-31';
+banner = ctx.renderPerfStrikeCheckpointBannerHTML();
+assert('banner hidden when pending outside date filter', banner === '');
+
+ctx.adminState.perfDateRange = 'all';
+ctx.adminState._modStrikeCheckpointReport = null;
+banner = ctx.renderPerfStrikeCheckpointBannerHTML();
+assert('banner returns when pending matches filter', /mod-strike-check-banner/.test(banner));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
