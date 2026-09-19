@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818s';
-const APP_UPDATED_AT = '09/18/2026 17:45';
+const APP_VERSION = '1.3.091818t';
+const APP_UPDATED_AT = '09/18/2026 18:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -24695,6 +24695,77 @@ function schedulePersistModeratorStrikesSetting() {
   }, 450);
 }
 
+/** Flush pending SessionState write immediately (Skip/Strike must not wait for debounce). */
+function flushPersistModeratorStrikesSetting() {
+  if (_modStrikePersistTimer) {
+    clearTimeout(_modStrikePersistTimer);
+    _modStrikePersistTimer = null;
+  }
+  if (typeof persistModeratorStrikesSetting === 'function') {
+    return persistModeratorStrikesSetting().catch(() => {});
+  }
+  return Promise.resolve();
+}
+
+/** Union truthy keys from two bool maps (teamId → true). */
+function mergeModStrikeBoolMap(a, b) {
+  const out = {};
+  if (a && typeof a === 'object') {
+    Object.keys(a).forEach(k => { if (a[k]) out[String(k)] = true; });
+  }
+  if (b && typeof b === 'object') {
+    Object.keys(b).forEach(k => { if (b[k]) out[String(k)] = true; });
+  }
+  return out;
+}
+
+/**
+ * Merge checkpoint days so a stale SessionState poll cannot wipe local
+ * Skip / Strike resolutions (or auto-strike marks) that have not yet
+ * round-tripped to OD.
+ */
+function mergeModStrikeCheckpoints(localCk, remoteCk) {
+  const out = {};
+  const dates = new Set([
+    ...Object.keys(localCk && typeof localCk === 'object' ? localCk : {}),
+    ...Object.keys(remoteCk && typeof remoteCk === 'object' ? remoteCk : {}),
+  ]);
+  dates.forEach(d => {
+    const L = (localCk && localCk[d] && typeof localCk[d] === 'object') ? localCk[d] : {};
+    const R = (remoteCk && remoteCk[d] && typeof remoteCk[d] === 'object') ? remoteCk[d] : {};
+    const appliedAtL = String(L.appliedAt || '');
+    const appliedAtR = String(R.appliedAt || '');
+    out[d] = Object.assign({}, L, R, {
+      skippedTeams: mergeModStrikeBoolMap(L.skippedTeams, R.skippedTeams),
+      resolvedTeams: mergeModStrikeBoolMap(L.resolvedTeams, R.resolvedTeams),
+      teamAutoStrike: mergeModStrikeBoolMap(L.teamAutoStrike, R.teamAutoStrike),
+      applied: !!(L.applied || R.applied),
+      struck: Math.max(Number(L.struck) || 0, Number(R.struck) || 0),
+      appliedAt: (appliedAtL >= appliedAtR ? (L.appliedAt || R.appliedAt) : (R.appliedAt || L.appliedAt)) || undefined,
+      yesterday: R.yesterday || L.yesterday,
+    });
+  });
+  return out;
+}
+
+/** True when merged checkpoints kept any local decision remote lacked. */
+function modStrikeCheckpointsHaveLocalExtras(localCk, remoteCk, mergedCk) {
+  const remote = remoteCk && typeof remoteCk === 'object' ? remoteCk : {};
+  const merged = mergedCk && typeof mergedCk === 'object' ? mergedCk : {};
+  for (const d of Object.keys(merged)) {
+    const M = merged[d] || {};
+    const R = remote[d] || {};
+    for (const field of ['skippedTeams', 'resolvedTeams', 'teamAutoStrike']) {
+      const mMap = (M[field] && typeof M[field] === 'object') ? M[field] : {};
+      const rMap = (R[field] && typeof R[field] === 'object') ? R[field] : {};
+      for (const k of Object.keys(mMap)) {
+        if (mMap[k] && !rMap[k]) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function ingestModeratorStrikesFromSessionRows(rows) {
   if (!Array.isArray(rows)) return;
   let best = null;
@@ -24749,12 +24820,23 @@ function ingestModeratorStrikesFromSessionRows(rows) {
       }
     });
   }
+  const mergedCheckpoints = (typeof mergeModStrikeCheckpoints === 'function')
+    ? mergeModStrikeCheckpoints(cur.checkpoints, checkpoints || {})
+    : (checkpoints || cur.checkpoints);
+  const needRepersist = (typeof modStrikeCheckpointsHaveLocalExtras === 'function')
+    && modStrikeCheckpointsHaveLocalExtras(cur.checkpoints, checkpoints || {}, mergedCheckpoints);
+
   _modStrikeIngestInFlight = true;
   saveModStrikeStore({
     mods: nextMods,
-    checkpoints: checkpoints || cur.checkpoints,
+    checkpoints: mergedCheckpoints,
   });
   _modStrikeIngestInFlight = false;
+  // Stale remote checkpoints must not cancel a pending Skip/Strike write —
+  // re-schedule persist when merge preserved local-only decisions.
+  if (needRepersist && typeof schedulePersistModeratorStrikesSetting === 'function') {
+    schedulePersistModeratorStrikesSetting();
+  }
   if (nextMods && typeof nextMods === 'object' && typeof applyModStrikeDeactivateSideEffect === 'function') {
     Object.keys(nextMods).forEach(k => {
       const prevRec = cur.mods && cur.mods[k];
@@ -25687,7 +25769,13 @@ function skipModStrikeCheckpointTeam(teamId) {
   const ck = store.checkpoints[todayPst];
   if (!ck.skippedTeams || typeof ck.skippedTeams !== 'object') ck.skippedTeams = {};
   ck.skippedTeams[id] = true;
+  // Also stamp resolvedTeams so Overview glow + flag list treat Skip like Strike.
+  if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
+  ck.resolvedTeams[id] = true;
   saveModStrikeStore(store);
+  if (typeof flushPersistModeratorStrikesSetting === 'function') {
+    flushPersistModeratorStrikesSetting();
+  }
   if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
     maybeRunModStrikeNineAmCheckpoint({ silent: true });
   }
@@ -25705,6 +25793,9 @@ function resolveModStrikeCheckpointTeam(teamId) {
   if (!ck.resolvedTeams || typeof ck.resolvedTeams !== 'object') ck.resolvedTeams = {};
   ck.resolvedTeams[id] = true;
   saveModStrikeStore(store);
+  if (typeof flushPersistModeratorStrikesSetting === 'function') {
+    flushPersistModeratorStrikesSetting();
+  }
   if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
     maybeRunModStrikeNineAmCheckpoint({ silent: true });
   }
