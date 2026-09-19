@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818w';
-const APP_UPDATED_AT = '09/18/2026 19:32';
+const APP_VERSION = '1.3.091818x';
+const APP_UPDATED_AT = '09/18/2026 20:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -45741,6 +45741,14 @@ function operatorInProgressAssignment(candidates) {
   const today = getPSTDateString();
   const sd = String((state && state.sessionDate) || '').trim();
   if (state && sd && sd < today && !state.sessionCompletedAt) {
+    // Stale sessionDate with no arrival/station progress must not pin the
+    // carousel on unfinished yesterday after 9 AM when a newer booking
+    // exists (Jashit-tw Patrick → Rebecca). Real in-progress is handled
+    // by the loops above.
+    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+      && isPastModStrikeCheckpointHour();
+    const hasNewer = list.some(a => a && String(a.date || '') >= today);
+    if (gateOpen && hasNewer) return null;
     const match = list.find(x => x && String(x.date) === sd);
     if (match) {
       try {
@@ -45805,11 +45813,14 @@ function applyAdminBookingQueueGate(list, todayPst) {
 }
 
 function applySameTeamSequentialBookingGate(list) {
+  // Sequence only within the same team + calendar day. An unfinished
+  // yesterday booking must not hide today's same-team booking (Venkata x
+  // Jashit / Patrick → Rebecca). Same-day AM→PM still waits for wrap-up.
   const groups = new Map();
   (list || []).forEach(a => {
     if (!a) return;
     if (a.teamId == null || a.teamId === '') return;
-    const k = String(a.teamId);
+    const k = String(a.teamId) + '|' + String(a.date || '');
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(a);
   });
@@ -45850,9 +45861,19 @@ function bookingQueueGateBlocker(candidates, todayPst) {
     return true;
   };
 
-  // Only yesterday (PST) may block today's queue. Older incompletes are
-  // hard-dropped from My session queue / Admin booking queue relevance —
-  // they must not pin the carousel forever.
+  // After 9 AM PT: if a newer booking (today or later) exists, do not let
+  // unfinished yesterday pin/hide it. Moderators still see yesterday in the
+  // carousel for wrap-up, but today's assigned session (with its address)
+  // can advance. Before 9 AM: unfinished yesterday still blocks today
+  // (overnight / early-morning continuity). Older than yesterday remains
+  // hard-dropped upstream in operatorCarouselCandidateAssignments.
+  if (gateOpen) {
+    const hasNewer = list.some(a => a && String(a.date || '') >= today);
+    if (hasNewer) return null;
+  }
+
+  // Only yesterday (PST) may block today's queue when the 9 AM gate is
+  // still closed (or when there is no newer booking after 9 AM).
   for (const a of list) {
     if (!a || !a.date) continue;
     const d = String(a.date);

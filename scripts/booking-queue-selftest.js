@@ -167,11 +167,10 @@ runCase('unfinished yesterday stays before 9 AM; today hidden', () => {
   if (ids.includes('today')) throw new Error('today should stay hidden before 9 AM while yesterday unfinished');
 });
 
-runCase('after 9 AM unfinished yesterday still blocks today (admin gate parity)', () => {
-  // Prefer Admin Booking Queue gate consistency over a literal reading of
-  // "after 9 AM always advance": an incomplete yesterday remains the blocker
-  // until checklist wrap-up (session_done), even after the 9 AM PT checkpoint.
-  // 9 AM only opens the path once that prior session is cleared.
+runCase('after 9 AM unfinished yesterday yields to newer today booking', () => {
+  // David 2026-09-18: after 9 AM PT, a newer OD/admin booking must advance
+  // even if yesterday is still unfinished. Yesterday stays visible for
+  // wrap-up; today is no longer hidden (address + session for Jashit-tw).
   const ids = runQueue({
     today: '2026-09-16',
     gateOpen: true,
@@ -182,8 +181,25 @@ runCase('after 9 AM unfinished yesterday still blocks today (admin gate parity)'
     isSessionWrapUpDone: () => false,
     state: {},
   });
-  if (!ids.includes('yesterday')) throw new Error('expected unfinished yesterday to remain visible after 9 AM');
-  if (ids.includes('today')) throw new Error('today must stay hidden until yesterday wrap-up, got ' + JSON.stringify(ids));
+  if (!ids.includes('yesterday')) throw new Error('expected unfinished yesterday still visible after 9 AM');
+  if (!ids.includes('today')) throw new Error('today must advance after 9 AM when booked, got ' + JSON.stringify(ids));
+});
+
+runCase('cross-day same team: unfinished yesterday does not hide today after 9 AM', () => {
+  const teamId = 'team_vxj';
+  const ids = runQueue({
+    today: '2026-09-18',
+    gateOpen: true,
+    assignments: [
+      { id: 'patrick', teamId, date: '2026-09-17', startMin: 19 * 60, endMin: 26 * 60, status: 'Booked' },
+      { id: 'rebecca', teamId, date: '2026-09-18', startMin: 20 * 60, endMin: 27 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: () => false,
+    state: { sessionDate: '2026-09-17' },
+  });
+  if (!ids.includes('rebecca')) {
+    throw new Error('expected Rebecca (today) visible for Venkata x Jashit, got ' + JSON.stringify(ids));
+  }
 });
 
 if (process.exitCode) process.exit(process.exitCode);

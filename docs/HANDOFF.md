@@ -1,15 +1,28 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · Moderator Hub LoginRole filter + Overview deep-link (1.3.091818w)
+**Last updated:** 2026-09-18 · Cursor · Jashit-tw queue/address gate (1.3.091818x)
 **Read this file first every session.** Update it before you sign off.
 
 ---
+
+## 2026-09-18 · Jashit-tw My session queue + address (1.3.091818x)
+
+**Symptom:** Jashit-tw only saw yesterday (Patrick Steffens / Venkata x Jashit) and not today’s Rebecca Young address.
+
+**Root cause (code):** `1.3.091818s` 2-day floor + unfinished-yesterday blocker + same-team sequential gate (teamId only) kept Patrick after 9 AM PT and hid Rebecca even though OD/List had today’s booking with Stanwood address.
+
+**Fix:** After 9 AM PT, unfinished yesterday no longer hides a newer today+ booking (yesterday stays visible for wrap-up). Same-team sequential is per `teamId|date` (same-day AM→PM still gated). Stale `sessionDate` without progress no longer pins yesterday when a newer booking exists after 9 AM.
+
+**Data:** List rows for `od_917b4f60…` / Jashit-tw + Venkata-tw already carry preferred Rebecca address. Jashit has **no** SessionState row for Rebecca yet (Venkata does). Ask Watchdog to ping PA to create/patch Jashit SessionState for Rebecca if checklist hydrate still misses address after refresh. Do **not** clobber preferred-addresses on next OD sync.
+
+**Verify (Jashit):** hard refresh → My session should land on **today Rebecca Young** · address **15022 W. Lake Goodwin Rd., Stanwood, WA 98292**. Yesterday Patrick may still appear for wrap-up.
+
 
 ## Current live state
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818w`** on `main` (Moderator Hub LoginRole filter + Overview deep-link) |
+| **`main` version** | **`1.3.091818x`** on `main` (Moderator Hub LoginRole filter + Overview deep-link) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
