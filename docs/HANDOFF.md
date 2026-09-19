@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Grok · Save links Lakitu blank fix (1.3.091818q)
+**Last updated:** 2026-09-18 · Grok · Strike ladder Warning/Final Chance fix (1.3.091818r)
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,13 +9,14 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818q`** on `main` (Save links Lakitu blank fix) |
+| **`main` version** | **`1.3.091818r`** on `main` (strike ladder Warning 1/2 + Final Chance at 1★) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
 
 ### This session (2026-09-18 PT)
 
+- **v1.3.091818r** — Strike ladder aligned to David’s table: 4★ Ok, 3★ Warning 1, 2★ Warning 2, 1★ Locked until Final Chance (no warn popup), 0★ Deactivated / Admin “Wasted”. Final Chance moved from 2★ → 1★.
 - **v1.3.091818q** — Admin Booking **Save links** no longer blanks the Lakitu/Ring selects after Night Time migration. Legacy `centific-*` keys are canonicalized to `night-time-*` for the picker; Save force-stamps the assignment (gap-fill alone left alias keys that matched no `<option>`).
 
 ### Recently shipped on `main` (Sep 16)

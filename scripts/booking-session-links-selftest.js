@@ -249,8 +249,8 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091818q', /const APP_VERSION = '1\.3\.091818q'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818q'));
+assert('APP_VERSION is 1.3.091818r', /const APP_VERSION = '1\.3\.091818r'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818r'));
 assert(
   'Week + assign open locks booking page scroll',
   html.includes('body.booking-week-assign-open')
