@@ -633,8 +633,8 @@ a.icon-btn:focus-visible {
   .st-flow-label { font-size: 16px; }
 }
 
-/* Mobile scenario cover-flow · phones only. Desktop/tablet use stacked cards.
-   One focused scenario card stays truly centered; neighbors peek and blur. */
+/* Mobile scenario soft 2D slide · phones only. Desktop/tablet use stacked cards.
+   Jimmy motion: soft slide + light focus — NOT cover-flow 3D. (1.3.091820e) */
 .sc-flow { display: none; }
 @media (max-width: 760px) {
   .sc-flow {
@@ -642,7 +642,8 @@ a.icon-btn:focus-visible {
     flex-direction: column;
     gap: 6px;
     margin: 2px 0 4px;
-    --sc-flow-ease: var(--apple-ease, cubic-bezier(0.16, 1, 0.3, 1));
+    --sc-flow-ms: 0.48s;
+    --sc-flow-ease: cubic-bezier(0.23, 1, 0.32, 1);
   }
   .scenario-table-wrap.has-sc-flow {
     padding: 0;
@@ -759,8 +760,6 @@ a.icon-btn:focus-visible {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    perspective: 1200px;
-    perspective-origin: 50% 50%;
   }
   .sc-flow.is-x {
     flex: 0 0 auto;
@@ -787,7 +786,6 @@ a.icon-btn:focus-visible {
     align-items: stretch;
     min-height: 100%;
     width: max-content;
-    perspective: 1200px;
   }
   .sc-flow-spacer { flex: 0 0 auto; pointer-events: none; }
   .sc-flow.is-y .sc-flow-spacer { height: 32px; width: 1px; }
@@ -826,7 +824,7 @@ a.icon-btn:focus-visible {
     background: var(--card-bg, var(--bg2));
     color: var(--text);
     scroll-snap-align: center;
-    scroll-snap-stop: normal;
+    scroll-snap-stop: always;
     overflow: visible;
     transform: none;
     box-shadow: 0 14px 36px rgba(0,0,0,0.12);
@@ -842,14 +840,24 @@ a.icon-btn:focus-visible {
     flex: 0 0 auto;
     padding: 10px 10px 8px;
     transform-origin: center center;
-    transform-style: preserve-3d;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    transition: filter 0.22s ease, opacity 0.22s ease, transform 0.22s ease;
-    will-change: transform, filter, opacity;
+    opacity: 0.55;
+    transform: scale(0.96);
+    transition: transform var(--sc-flow-ms) var(--sc-flow-ease),
+                opacity var(--sc-flow-ms) var(--sc-flow-ease);
+  }
+  .sc-flow-tile.is-current .sc-flow-face {
+    opacity: 1;
+    transform: scale(1);
   }
   .sc-flow.is-scrolling .sc-flow-face {
-    transition-duration: 0.05s;
+    transition-duration: 0.12s;
+  }
+  /* AHP: suppress snap interference + face transition flash during programmatic slide */
+  .sc-flow.is-programmatic-scroll .sc-flow-viewport {
+    scroll-snap-type: none !important;
+  }
+  .sc-flow.is-snapping .sc-flow-face {
+    transition: none !important;
   }
   .sc-flow-tile.is-fit {
     overflow: hidden;
@@ -1039,8 +1047,14 @@ a.icon-btn:focus-visible {
   }
 }
 @media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+  .sc-flow {
+    --sc-flow-ms: 0.01ms;
+  }
   .sc-flow-viewport { scroll-behavior: auto; }
-  .sc-flow-axis-btn, .sc-flow-nav, .sc-flow-tile, .sc-flow-face { transition: none; }
+  .sc-flow-axis-btn, .sc-flow-nav, .sc-flow-tile, .sc-flow-face {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
 }
 
 .station-item.active .lights-pill.off {
@@ -2260,12 +2274,58 @@ a.icon-btn:focus-visible {
 }
 .cal-guide-inline.is-acked {
   border-color: rgba(61, 139, 95, 0.28);
+  /* Compact acked chip so Scenario section stays visible in both
+     vertical and horizontal layouts (1.3.091820e). */
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-height: 0;
 }
-.cal-guide-inline.is-acked strong { color: #3D8B5F; }
+.cal-guide-inline.is-acked strong {
+  color: #3D8B5F;
+  display: inline;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cal-guide-inline.is-acked .cal-guide-inline-copy span { display: none; }
+.cal-guide-inline.is-acked .cal-guide-inline-btn {
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
 @media (max-width: 760px) {
   .cal-guide-inline { flex-wrap: wrap; }
+  .cal-guide-inline.is-acked {
+    flex-wrap: nowrap;
+    padding: 3px 8px;
+    margin: 0 0 6px;
+    gap: 6px;
+  }
+  .cal-guide-inline.is-acked strong { font-size: 11.5px; }
+  .cal-guide-inline.is-acked .cal-guide-inline-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
   .acc-motion-badge,
   .acc-length-badge { font-size: 8px; padding: 2px 6px; }
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .cal-guide-inline.is-acked {
+    margin: 0 0 4px;
+    padding: 2px 8px;
+  }
+  .cal-guide-inline.is-acked strong { font-size: 11px; }
+  .cal-guide-inline.is-acked .cal-guide-inline-btn {
+    padding: 2px 8px;
+    font-size: 10.5px;
+  }
 }
 
 .cal-guide-footer {
@@ -6427,6 +6487,35 @@ input#ent_lakitu.lakitu-invalid {
     height: auto;
     max-height: none;
     min-height: min-content;
+    overflow: visible;
+  }
+  /* Mobile Stations: hide Previous/Submit until last scenario of the
+     open station is done, then slide the bar up (1.3.091820e). */
+  .content:has(.station-accordion.in-station) > .actions-bar {
+    transform: translateY(110%);
+    opacity: 0;
+    pointer-events: none !important;
+    max-height: 0;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
+    transition:
+      transform 0.38s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.28s ease,
+      max-height 0.38s cubic-bezier(0.32, 0.72, 0, 1),
+      padding 0.28s ease,
+      margin 0.28s ease;
+  }
+  .content:has(.station-accordion.in-station) > .actions-bar.is-station-complete {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: none;
+    max-height: 120px;
+    margin-top: 8px !important;
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
     overflow: visible;
   }
   .content:has(.station-accordion.in-station) > .actions-bar {
@@ -18327,7 +18416,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091820b" defer></script>
+<script src="twilight.js?v=twilight-1.3.091820e" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

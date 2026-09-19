@@ -50,11 +50,31 @@ function sliceBetween(startMarker, endMarker) {
   return src.slice(begin, end);
 }
 
-console.log('Moderator session day-gate policy self-test (1.3.091820b)');
+console.log('Moderator session day-gate policy self-test (1.3.091820e)');
 
-assert('APP_VERSION is 1.3.091820b',
-  /const APP_VERSION = '1\.3\.091820b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820b'));
+assert('APP_VERSION is 1.3.091820e',
+  /const APP_VERSION = '1\.3\.091820e'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820e'));
+assert('approval day-gate bind helpers present',
+  /function approvalSessionDateYmd\(/.test(src)
+  && /function approvalRowBelongsToActiveSession\(/.test(src)
+  && /function scrubApprovalGateToActiveAssignment\(/.test(src));
+assert('pollMyApprovals binds by assignment+sessionDate',
+  /approvalRowBelongsToActiveSession\(a, asgnId, sessionYmd\)/.test(src)
+  && /scrubApprovalGateToActiveAssignment\(asgnId, sessionYmd\)/.test(src));
+assert('createApprovalRequest stamps session_date',
+  /session_date: sessionDate/.test(src));
+assert('mobile actions-bar slides up when station complete',
+  /is-station-complete/.test(src)
+  && /is-station-complete/.test(html));
+assert('cal-guide-inline.is-acked compact CSS present',
+  /cal-guide-inline\.is-acked/.test(html)
+  && /Compact acked chip/.test(html));
+assert('scenario soft 2D flow tokens present',
+  /--sc-flow-ms:\s*0\.48s/.test(html)
+  && /function scenarioFlowSnapBehavior\(/.test(src)
+  && /function softBindScenarioFlowAfterPoll\(/.test(src)
+  && /is-programmatic-scroll/.test(html));
 assert('scrubSyncableStateForOpenBooking present',
   /function scrubSyncableStateForOpenBooking\(/.test(src)
   && /mergeTeammateState\(/.test(src)

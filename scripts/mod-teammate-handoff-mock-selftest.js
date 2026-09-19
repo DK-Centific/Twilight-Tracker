@@ -159,7 +159,7 @@ ctx.state = modB;
 assert('team completion locks session', isSessionLocked({ id: 'asgn_team1_today', date: '2026-09-17' }));
 
 assert('wrap-up comment says Station 4', /after Station 4 Submit/.test(src));
-assert('APP_VERSION 1.3.091820b', /const APP_VERSION = '1\.3\.091820b'/.test(src));
+assert('APP_VERSION 1.3.091820e', /const APP_VERSION = '1\.3\.091820e'/.test(src));
 
 console.log(failed ? '\n' + failed + ' failed' : '\nAll handoff mock checks passed');
 process.exit(failed ? 1 : 0);
