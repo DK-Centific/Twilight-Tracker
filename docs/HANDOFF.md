@@ -1,7 +1,19 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · Jashit-tw queue/address gate (1.3.091818x)
+**Last updated:** 2026-09-18 · Cursor · My session today-priority after 9 AM (1.3.091818y)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-18 · My session today priority (1.3.091818y)
+
+**Symptom residual after #129 / 091818x:** Live mods still saw unfinished **yesterday** in My session alongside (or instead of) today’s booking.
+
+**Root cause:** `091818x` stopped yesterday from *blocking* today after 9 AM PT but still left yesterday in the carousel for wrap-up; `operatorInProgressAssignment` could also pin prior-day progress and hide today.
+
+**Fix:** After 9 AM PT, if the mod has any today+ eligible booking, `applyBookingQueueGate` scopes My session to **today+ only** (yesterday/older incompletes excluded). Prior-day in-progress is skipped when today+ exists after the gate. Before 9 AM overnight carry unchanged. Same-day AM→PM still `teamId|date`. Hard-drop >2 days unchanged. Version **1.3.091818y**.
+
+**Verify:** hard refresh → My session shows **today only** when today is booked after 9 AM PT (e.g. Rebecca for Jashit / Venkata x Jashit); yesterday alone still shows if no today booking.
 
 ---
 
@@ -17,12 +29,11 @@
 
 **Verify (Jashit):** hard refresh → My session should land on **today Rebecca Young** · address **15022 W. Lake Goodwin Rd., Stanwood, WA 98292**. Yesterday Patrick may still appear for wrap-up.
 
-
 ## Current live state
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818x`** on `main` (Moderator Hub LoginRole filter + Overview deep-link) |
+| **`main` version** | **`1.3.091818y`** on `main` (My session today-priority after 9 AM) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
