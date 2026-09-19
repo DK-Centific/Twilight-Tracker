@@ -1,7 +1,28 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · Live status flicker (1.3.091819c)
+**Last updated:** 2026-09-18 · Grok · Moderator day-gate policy harden (1.3.091820a)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-18 · Moderator day-gate policy harden (1.3.091820a)
+
+**Policy (David, authoritative):**
+1. Same team’s prior incomplete **or** Admin Skip on flag gate must **never** interfere with **current/today** moderator Booking/Session flow (status, address, geo fence, station progress, checklist hydrate, My session).
+2. Anything Sep 17 → Sep 18 **before 9:00 AM PT** is discarded from moderator Booking/Session flow (Admin may still process that data).
+3. After the **9 AM PT** day gate, moderator flow binds only to the current/today session (`assignmentId` + `sessionDate`).
+
+**Gaps found on top of 1.3.091819a–c:**
+1. **`mergeTeammateState` / `applySelfSyncReplace`** rehydrated foreign `stationCompletedAt` / `stations` from cloud/teammate SessionState onto today’s open booking (address already preferred booking fence; progress did not).
+2. **Legacy Admin Skip** `teamId → true` still returned mute for **any** assignmentId of that team, contradicting the occurrence-scope comment and allowing Skip to theoretically mute a today booking if consulted with today’s id.
+
+**Fixes:**
+- `scrubSyncableStateForOpenBooking` — scrub syncable payloads to the open booking date before teammate merge and self-browser adopt.
+- `modStrikeCheckpointMapHas` — legacy bare-team mute no longer covers a today+ booking; occurrence keys stay authoritative; yesterday checkpoint subject still covered.
+- Selftest: `scripts/mod-session-day-gate-policy-selftest.js` (+ legacy today unmute in mod-strike selftest).
+- Version **1.3.091820a**.
+
+**Verify (David):** Hard refresh → **1.3.091820a**. After 9 AM PT with today booked: My session / status / address / fence / checklist show **today only**. Admin Skip on yesterday’s incomplete must not blank today’s Live or My session. Pre-9 AM overnight still binds until the gate.
 
 ---
 
@@ -96,7 +117,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091819c`** (Live status flicker) on `main` |
+| **`main` version** | **`1.3.091820a`** (Moderator day-gate policy) (Live status flicker) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |

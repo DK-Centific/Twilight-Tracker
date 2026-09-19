@@ -152,7 +152,7 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Live status flicker self-test (1.3.091819c)');
+console.log('Live status flicker self-test (1.3.091820a)');
 
 // Mid-afternoon PT on booking day
 const realNow = Date.now;

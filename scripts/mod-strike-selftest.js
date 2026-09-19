@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818z',
-  /const APP_VERSION = '1\.3\.091818z'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818z'));
+assert('version bump 091820a',
+  /const APP_VERSION = '1\.3\.091820a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820a'));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
@@ -299,6 +299,16 @@ ctx.saveModStrikeStore({
 });
 assert('legacy teamId skip still covers checkpoint row',
   ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn1') === true);
+
+// Seed a today booking for the same team · legacy bare-team Skip must
+// not mute today's new assignment (David policy: Admin Skip never
+// interferes with current/today moderator Booking/Session flow).
+ctx.adminState.assignments = (ctx.adminState.assignments || []).concat([{
+  id: 'asgn_today', teamId: 't1', date: '2026-09-17', status: 'Booked',
+  startMin: 14 * 60, endMin: 18 * 60,
+}]);
+assert('legacy teamId skip does not mute today booking',
+  ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn_today') === false);
 
 // Banner: hides when no pending; shows only when date filter matches.
 ctx.saveModStrikeStore({

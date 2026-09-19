@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091819c';
-const APP_UPDATED_AT = '09/18/2026 20:40';
+const APP_VERSION = '1.3.091820a';
+const APP_UPDATED_AT = '09/18/2026 20:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -26107,7 +26107,23 @@ function modStrikeCheckpointMapHas(map, teamId, assignmentId) {
   const v = map[tid];
   if (v == null || v === false) return false;
   // Legacy boolean mute · one checkpoint row per team for yesterday.
-  if (v === true) return true;
+  // Must NOT mute a different assignmentId for the same team (today's
+  // Booking / Session / Live). Occurrence keys are authoritative when
+  // present; pure legacy still covers yesterday's checkpoint subject
+  // but never a today+ booking for that team.
+  if (v === true) {
+    if (!aid) return true;
+    const hasOcc = Object.keys(map).some(k => k !== tid && !!map[k]);
+    if (hasOcc) return false;
+    try {
+      const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '').trim() : '';
+      const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+        ? adminState.assignments : [];
+      const asgn = list.find(a => a && String(a.id) === aid);
+      if (asgn && today && String(asgn.date || '') >= today) return false;
+    } catch (_) {}
+    return true;
+  }
   // teamId → assignmentId binding (or accidental string stamp).
   if (aid && String(v) === aid) return true;
   return false;
@@ -38925,6 +38941,36 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
   return clean;
 }
 
+
+// Moderator Booking/Session policy: cloud / teammate SessionState must not
+// rehydrate prior-day or pre-gate progress into the open booking. Scrub
+// syncable payloads to the active assignment's booking date before merge.
+function resolveOpenBookingYmdForScrub() {
+  try {
+    const asgn = (typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getAssignedOpenSession === 'function')
+        ? getAssignedOpenSession()
+        : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+    if (asgn && asgn.date) return String(asgn.date).trim();
+  } catch (_) {}
+  try {
+    if (typeof state !== 'undefined' && state && state.sessionDate) {
+      return String(state.sessionDate).trim();
+    }
+  } catch (_) {}
+  return (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '').trim() : '';
+}
+
+function scrubSyncableStateForOpenBooking(syncable) {
+  if (!syncable || typeof syncable !== 'object') return syncable || {};
+  const booked = resolveOpenBookingYmdForScrub();
+  if (!booked || typeof scrubSessionStateProgressToBooking !== 'function') {
+    return Object.assign({}, syncable);
+  }
+  return scrubSessionStateProgressToBooking(Object.assign({}, syncable), booked);
+}
+
 function resolveAssignmentBookingYmd(asgnId) {
   if (!asgnId) return '';
   const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
@@ -39988,6 +40034,12 @@ async function findTeammateSessionState(prefetchedRows) {
 // for debounce.
 function mergeTeammateState(syncableState) {
   if (!syncableState || typeof syncableState !== 'object') return;
+  // Drop prior-day / foreign station progress before overlay so a teammate
+  // or stale SS row cannot re-attach yesterday (or pre-9AM) work onto
+  // today's moderator Booking/Session flow.
+  if (typeof scrubSyncableStateForOpenBooking === 'function') {
+    syncableState = scrubSyncableStateForOpenBooking(syncableState);
+  }
   // Overlay each syncable field. Keep our identity fields untouched.
   if (syncableState.participantId)      state.participantId      = syncableState.participantId;
   if (syncableState.participantName)    state.participantName    = syncableState.participantName;
@@ -40151,6 +40203,11 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
 // outside the syncable subset and are untouched.
 function applySelfSyncReplace(s) {
   if (!s || typeof s !== 'object') return;
+  // Same booking-day scrub as mergeTeammateState · other-browser adopt must
+  // not restore foreign station / wrap-up stamps onto today's open session.
+  if (typeof scrubSyncableStateForOpenBooking === 'function') {
+    s = scrubSyncableStateForOpenBooking(s);
+  }
   state.participantId      = s.participantId      || '';
   state.participantName    = s.participantName    || '';
   {
