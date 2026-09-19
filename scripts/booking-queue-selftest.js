@@ -133,5 +133,58 @@ runCase('same team shows second booking after first wrap-up', () => {
   if (!ids.includes('pm')) throw new Error('expected pm booking after am wrap-up, got ' + JSON.stringify(ids));
 });
 
+
+runCase('hard-drops bookings older than yesterday (2-day cap)', () => {
+  const ids = runQueue({
+    today: '2026-09-16',
+    gateOpen: true,
+    assignments: [
+      { id: 'ancient', date: '2026-09-13', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+      { id: 'day-before-yest', date: '2026-09-14', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+      { id: 'yesterday', date: '2026-09-15', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+      { id: 'today', date: '2026-09-16', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: (a) => a && (a.id === 'yesterday' || a.id === 'ancient' || a.id === 'day-before-yest'),
+    state: { sessionDate: '2026-09-16', sessionCompletedAt: '2026-09-16T09:30:00.000Z' },
+  });
+  if (ids.includes('ancient') || ids.includes('day-before-yest')) {
+    throw new Error('expected >2-day bookings dropped, got ' + JSON.stringify(ids));
+  }
+  if (!ids.includes('today')) throw new Error('expected today visible after prior wrap-up, got ' + JSON.stringify(ids));
+});
+
+runCase('unfinished yesterday stays before 9 AM; today hidden', () => {
+  const ids = runQueue({
+    today: '2026-09-16',
+    gateOpen: false,
+    assignments: [
+      { id: 'yesterday', date: '2026-09-15', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+      { id: 'today', date: '2026-09-16', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+    ],
+    state: {},
+  });
+  if (!ids.includes('yesterday')) throw new Error('expected unfinished yesterday visible before 9 AM');
+  if (ids.includes('today')) throw new Error('today should stay hidden before 9 AM while yesterday unfinished');
+});
+
+runCase('after 9 AM unfinished yesterday still blocks today (admin gate parity)', () => {
+  // Prefer Admin Booking Queue gate consistency over a literal reading of
+  // "after 9 AM always advance": an incomplete yesterday remains the blocker
+  // until checklist wrap-up (session_done), even after the 9 AM PT checkpoint.
+  // 9 AM only opens the path once that prior session is cleared.
+  const ids = runQueue({
+    today: '2026-09-16',
+    gateOpen: true,
+    assignments: [
+      { id: 'yesterday', date: '2026-09-15', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+      { id: 'today', date: '2026-09-16', startMin: 10 * 60, endMin: 18 * 60, status: 'Booked' },
+    ],
+    isSessionWrapUpDone: () => false,
+    state: {},
+  });
+  if (!ids.includes('yesterday')) throw new Error('expected unfinished yesterday to remain visible after 9 AM');
+  if (ids.includes('today')) throw new Error('today must stay hidden until yesterday wrap-up, got ' + JSON.stringify(ids));
+});
+
 if (process.exitCode) process.exit(process.exitCode);
 console.log('booking-queue-selftest done');

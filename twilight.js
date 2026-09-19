@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818r';
+const APP_VERSION = '1.3.091818s';
 const APP_UPDATED_AT = '09/18/2026 17:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -5130,21 +5130,15 @@ function getAssignedOpenSession() {
   const active = (typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment() : null;
   if (isOpen(active)) return active;
-  const lists = [];
+  // Only the gated carousel list — never the raw full history. Falling back
+  // to getOperatorAssignments() resurrected incomplete bookings older than
+  // the 2-day My session queue window.
   try {
     if (typeof getOperatorCarouselAssignments === 'function') {
-      lists.push(getOperatorCarouselAssignments() || []);
+      const hit = (getOperatorCarouselAssignments() || []).find(isOpen);
+      if (hit) return hit;
     }
   } catch (_) {}
-  try {
-    if (typeof getOperatorAssignments === 'function') {
-      lists.push(getOperatorAssignments() || []);
-    }
-  } catch (_) {}
-  for (const list of lists) {
-    const hit = (list || []).find(isOpen);
-    if (hit) return hit;
-  }
   return null;
 }
 
@@ -6163,11 +6157,31 @@ function approvalAckToken(src) {
   return String(id) + '#' + String(rc);
 }
 // True once the mod has confirmed the Approved popup for this exact checkpoint.
-// Stored on the gate object (state.approvalGate[asgn|station]), which is
-// persisted via saveState · so it survives reloads and TTL re-verifies.
+// Ack is stored BOTH on the gate row (assignment|station) AND in a token-keyed
+// map (state.approvalAckedTokens). The map survives carousel/assignment-id
+// churn and session resets so a TTL re-verify or poll cannot re-prompt after
+// Confirm unless resubmit_count (token) changes.
 function isApprovalAcked(k, token) {
   if (!token) return false;
-  return String(getGate(k).ackedToken || '') === String(token);
+  try {
+    if (state && state.approvalAckedTokens && state.approvalAckedTokens[String(token)]) return true;
+  } catch (_) {}
+  try {
+    if (String(getGate(k).ackedToken || '') === String(token)) return true;
+  } catch (_) {}
+  return false;
+}
+function markApprovalAcked(k, token) {
+  if (!token) return;
+  try {
+    state.approvalAckedTokens = state.approvalAckedTokens || {};
+    state.approvalAckedTokens[String(token)] = true;
+  } catch (_) {}
+  if (k) {
+    try { setGate(k, { ackedToken: token }); } catch (_) {}
+  } else {
+    try { saveState(); } catch (_) {}
+  }
 }
 // Transient (NOT persisted) guard so two overlapping polls that both observe
 // the same approval transition can't stack two identical popups before the
@@ -6186,7 +6200,7 @@ function showApprovalApprovedPopup(k, token) {
     message: 'Your calibration recording was approved. The remaining scenarios are now unlocked.',
   }).then(() => {
     // Record acknowledgment for THIS checkpoint so it never reappears.
-    if (k && token) { try { setGate(k, { ackedToken: token }); } catch (_) {} }
+    if (token) { try { markApprovalAcked(k, token); } catch (_) {} }
     if (token) delete _apprPopupInFlight[flightId];
   });
 }
@@ -6382,20 +6396,26 @@ async function pollMyApprovals() {
         const cloudStatus = mine.status;
         if (cloudStatus === 'Approved' || cloudStatus === 'AutoApproved') {
           // Cloud confirms approval · stamp verifiedAt EVERY time so the TTL
-          // stays fresh while the session is live. Fire the popup only on the
-          // transition into an (unlocked) approved state.
-          const wasApproved = gateApproved(k);
+          // stays fresh while the session is live. Popup decision uses the
+          // PRIOR local status (not gateApproved / TTL): a TTL lapse must
+          // re-verify unlock silently without re-prompting after Confirm.
+          const prevStatus = String(g.status || '');
+          const wasLocallyApproved = (prevStatus === 'Approved' || prevStatus === 'AutoApproved');
+          const token = approvalAckToken(mine);
           setGate(k, {
             status: cloudStatus, verifiedAt: Date.now(),
-            approvalId: mine.approval_id, decidedBy: mine.decided_by || '', note: mine.feedback_note || '',
+            approvalId: mine.approval_id,
+            resubmitCount: (mine.resubmit_count != null ? mine.resubmit_count : g.resubmitCount) || 0,
+            decidedBy: mine.decided_by || '', note: mine.feedback_note || '',
           });
-          if (!wasApproved) {
-            // Visual unlock always happens; the confirm popup only the first
-            // time per approved checkpoint (showApprovalApprovedPopup skips it
-            // if this token was already acknowledged).
-            const token = approvalAckToken(mine);
+          if (!wasLocallyApproved && !isApprovalAcked(k, token)) {
+            // First time this checkpoint reaches Approved locally · unlock UI
+            // and ask the mod to Confirm once (acked token prevents re-popup).
             animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
             showApprovalApprovedPopup(k, token);
+          } else if (!wasLocallyApproved && isApprovalAcked(k, token)) {
+            // Already confirmed earlier (token map) · unlock silently.
+            animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
           }
         } else if (cloudStatus !== g.status) {
           // Pending / InReview / Rejected · mirror it and clear verifiedAt
@@ -6449,9 +6469,13 @@ function runClientAutoApprove() {
         submitted_at: g.submittedAt || '', resubmit_count: String(g.resubmitCount || 0),
       });
     }
-    const token = approvalAckToken(g);
+    const gAfter = getGate(k);
+    const token = approvalAckToken({
+      approvalId: gAfter.approvalId || g.approvalId,
+      resubmitCount: gAfter.resubmitCount || g.resubmitCount || 0,
+    });
     animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
-    showApprovalApprovedPopup(k, token);
+    if (!isApprovalAcked(k, token)) showApprovalApprovedPopup(k, token);
   }
 }
 
@@ -10607,6 +10631,9 @@ function perfTeamMembers(team) {
 // operator local state).
 function perfTeamBookingCandidates(teamId) {
   const todayStr = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const floorYmd = (todayStr && typeof addDaysToYmd === 'function')
+    ? addDaysToYmd(todayStr, -1)
+    : todayStr;
   const raw = (adminState.assignments || []).filter(a =>
     a && String(a.teamId) === String(teamId)
     && a.status !== 'Cancelled' && a.status !== 'Unassigned'
@@ -10615,20 +10642,23 @@ function perfTeamBookingCandidates(teamId) {
   const seen = new Set();
   const consider = (asgn) => {
     if (!asgn || seen.has(String(asgn.id))) return;
+    const startYmd = String(asgn.date || '');
+    if (!startYmd || !todayStr) return;
+    const endYmd = (typeof assignmentQueueEndCalendarYmd === 'function')
+      ? assignmentQueueEndCalendarYmd(asgn)
+      : startYmd;
+    // Same 2-day relevance window as moderator My session queue.
+    if (startYmd < todayStr && String(endYmd || startYmd) < floorYmd) return;
+    // Completed / wrap-up done stay out of the live queue (classifier may
+    // still use broader history elsewhere).
+    if (asgn.status === 'Completed') return;
+    try {
+      if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(asgn)) return;
+    } catch (_) {}
     seen.add(String(asgn.id));
     out.push(asgn);
   };
   raw.forEach(consider);
-  raw.forEach(a => {
-    if (!a || !a.date || !todayStr || String(a.date) >= todayStr) return;
-    const endYmd = (typeof assignmentQueueEndCalendarYmd === 'function')
-      ? assignmentQueueEndCalendarYmd(a)
-      : String(a.date);
-    if (endYmd >= todayStr) consider(a);
-    else if (typeof assignmentSessionStartedNotDone === 'function' && assignmentSessionStartedNotDone(a)) {
-      consider(a);
-    }
-  });
   out.sort((a, b) => {
     const aKey = (a.date || '') + '_' + String(a.startMin || 0).padStart(4, '0') + '_' + (a.id || '');
     const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
@@ -45239,10 +45269,14 @@ function bookingQueueGateBlocker(candidates, todayPst) {
     return true;
   };
 
+  // Only yesterday (PST) may block today's queue. Older incompletes are
+  // hard-dropped from My session queue / Admin booking queue relevance —
+  // they must not pin the carousel forever.
   for (const a of list) {
     if (!a || !a.date) continue;
     const d = String(a.date);
     if (d >= today) continue;
+    if (d < yesterday) continue;
     if (!incompletePrior(a)) continue;
     return a;
   }
@@ -45278,6 +45312,9 @@ function applyBookingQueueGate(list, todayPst) {
 
 function operatorCarouselCandidateAssignments() {
   const todayStr = getPSTDateString();
+  // Hard floor: session end calendar day must be >= yesterday (PST).
+  // "Older than 2 days" bookings never enter My session queue.
+  const floorYmd = addDaysToYmd(todayStr, -1);
   const raw = (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : []);
   const out = [];
   const seen = new Set();
@@ -45288,15 +45325,19 @@ function operatorCarouselCandidateAssignments() {
     try {
       if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return;
     } catch (_) {}
+    const startYmd = String(a.date || '');
+    if (!startYmd) return;
+    const endYmd = (typeof assignmentQueueEndCalendarYmd === 'function')
+      ? assignmentQueueEndCalendarYmd(a)
+      : startYmd;
+    // Today / future always eligible (gate may still hide until 9 AM PT).
+    // Past starts: keep only when end calendar day is still within
+    // yesterday..today relevance (overnight carry + unfinished yesterday).
+    if (startYmd < todayStr && String(endYmd || startYmd) < floorYmd) return;
     seen.add(String(a.id));
     out.push(a);
   };
   raw.forEach(consider);
-  raw.forEach(a => {
-    if (!a || !a.date || a.date >= todayStr) return;
-    const endYmd = assignmentQueueEndCalendarYmd(a);
-    if (endYmd >= todayStr || operatorProgressOnAssignment(a)) consider(a);
-  });
   out.sort((a, b) => {
     const aKey = (a.date || '') + '_' + String(a.startMin || 0).padStart(4, '0') + '_' + (a.id || '');
     const bKey = (b.date || '') + '_' + String(b.startMin || 0).padStart(4, '0') + '_' + (b.id || '');
@@ -46277,6 +46318,11 @@ function resetOperatorSessionState(opts) {
   fresh.username = state.username;
   fresh.theme = state.theme;
   fresh.modProfile = state.modProfile;
+  // Keep confirmed approval tokens across session advances so poll cannot
+  // re-prompt for an already-confirmed checkpoint after wrap-up / next booking.
+  if (state.approvalAckedTokens && typeof state.approvalAckedTokens === 'object') {
+    fresh.approvalAckedTokens = { ...state.approvalAckedTokens };
+  }
   if (preserveEquipment && state.equipment) {
     // Deep-copy equipment so it survives the reset
     fresh.equipment = { ...state.equipment };
