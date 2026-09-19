@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818n';
-const APP_UPDATED_AT = '09/18/2026 16:40';
+const APP_VERSION = '1.3.091818o';
+const APP_UPDATED_AT = '09/18/2026 17:17';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -4555,7 +4555,7 @@ function isValidLakituUrl(v) {
 // to its own Lakitu session URL.
 const LAKITU_PROJECTS = [
   { key: 'night-time-1', label: 'US - BEV+ LeapFrog Night Time - 1', url: 'https://lakitu.ring.amazon.dev/?session=366312c2-735e-4062-8e16-ef065f1061df' },
-  { key: 'night-time-2', label: 'US - BEV+ LeapFrog Night Time - 2', url: 'https://lakitu.ring.amazon.dev/?session=976f4e68-c49f-4009-aee5-66bf1bac8448' },
+  { key: 'night-time-2', label: 'US - BEV+ LeapFrog Night Time - 2', url: 'https://lakitu.ring.amazon.dev/?session=64e4968b-7b04-49a0-a0b9-1ab3fb69fd34' },
   { key: 'night-time-3', label: 'US - BEV+ LeapFrog Night Time - 3', url: 'https://lakitu.ring.amazon.dev/?session=5cb8382e-583f-43d9-b91d-4b02c0337b89' },
   { key: 'night-time-4', label: 'US - BEV+ LeapFrog Night Time - 4', url: 'https://lakitu.ring.amazon.dev/?session=d02cfd8c-7f28-4289-a2a2-66df354513da' },
   { key: 'night-time-5', label: 'US - BEV+ LeapFrog Night Time - 5', url: 'https://lakitu.ring.amazon.dev/?session=18ab428e-fe68-48ae-80f7-1f2bd7882691' },
