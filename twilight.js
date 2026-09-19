@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818v';
-const APP_UPDATED_AT = '09/18/2026 19:05';
+const APP_VERSION = '1.3.091818w';
+const APP_UPDATED_AT = '09/18/2026 19:32';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -7518,6 +7518,76 @@ function modGridStyleAttr() {
 }
 
 
+// Moderator Hub · LoginRole filter (All / Moderator / Reviewer / Admin /
+// Master Admin). Default = Moderator so the hub opens showing Mods only.
+// Persisted across reloads; Overview → Moderators tile always forces Mod.
+const MOD_ROLE_FILTER_KEY = 'orbit_mod_role_filter';
+const MOD_ROLE_FILTER_ALL = 'all';
+const MOD_ROLE_FILTER_DEFAULT = 'Mod';
+function normalizeModRoleFilter(raw) {
+  if (raw === MOD_ROLE_FILTER_ALL || String(raw || '').toLowerCase() === 'all') {
+    return MOD_ROLE_FILTER_ALL;
+  }
+  const c = (typeof canonicalizeDirectoryLoginRole === 'function')
+    ? canonicalizeDirectoryLoginRole(raw)
+    : String(raw || '').trim();
+  if (DIRECTORY_LOGIN_ROLE_OPTIONS.some(o => o.value === c)) return c;
+  return MOD_ROLE_FILTER_DEFAULT;
+}
+function loadModRoleFilter() {
+  try {
+    const raw = localStorage.getItem(MOD_ROLE_FILTER_KEY);
+    if (raw == null || raw === '') return MOD_ROLE_FILTER_DEFAULT;
+    return normalizeModRoleFilter(raw);
+  } catch (e) { /* ignore */ }
+  return MOD_ROLE_FILTER_DEFAULT;
+}
+function saveModRoleFilter(v) {
+  const next = normalizeModRoleFilter(v);
+  try { localStorage.setItem(MOD_ROLE_FILTER_KEY, next); }
+  catch (e) { /* ignore */ }
+  return next;
+}
+function setModRoleFilter(v, { persist = true } = {}) {
+  const next = normalizeModRoleFilter(v);
+  if (typeof adminState !== 'undefined' && adminState) adminState.modRoleFilter = next;
+  if (persist) saveModRoleFilter(next);
+  return next;
+}
+function moderatorMatchesRoleFilter(row, filter) {
+  const f = normalizeModRoleFilter(filter == null
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.modRoleFilter) || MOD_ROLE_FILTER_DEFAULT)
+    : filter);
+  if (f === MOD_ROLE_FILTER_ALL) return true;
+  const role = (typeof canonicalizeDirectoryLoginRole === 'function')
+    ? canonicalizeDirectoryLoginRole(directoryLoginRole(row))
+    : String(directoryLoginRole(row) || '').trim();
+  return role === f;
+}
+function filterModeratorsByLoginRole(mods, filter) {
+  const list = Array.isArray(mods) ? mods : [];
+  const f = normalizeModRoleFilter(filter == null
+    ? ((typeof adminState !== 'undefined' && adminState && adminState.modRoleFilter) || MOD_ROLE_FILTER_DEFAULT)
+    : filter);
+  if (f === MOD_ROLE_FILTER_ALL) return list.slice();
+  return list.filter(m => moderatorMatchesRoleFilter(m, f));
+}
+function modRoleFilterSelectOptionsHTML(mods, selected) {
+  const sel = normalizeModRoleFilter(selected);
+  // Always offer All + every canonical LoginRole so the control stays stable
+  // even when the directory has no Reviewers/Admins yet.
+  const opts = [{ value: MOD_ROLE_FILTER_ALL, label: 'All' }, ...DIRECTORY_LOGIN_ROLE_OPTIONS];
+  if (!opts.some(o => o.value === sel)) {
+    const lab = (typeof directoryLoginRoleLabel === 'function')
+      ? directoryLoginRoleLabel(sel) : sel;
+    opts.push({ value: sel, label: lab });
+  }
+  return opts.map(o =>
+    `<option value="${escapeHTML(o.value)}" ${o.value === sel ? 'selected' : ''}>${escapeHTML(o.label)}</option>`
+  ).join('');
+}
+
+
 // Moderator Hub → All → List table column visibility (show/hide). Patterned
 // on PARTICIPANT_COLUMNS. Grid layout keeps the cards-per-row select; List
 // uses this menu instead. Name + Twilight Login ID + Actions are always on.
@@ -7578,6 +7648,8 @@ const adminState = {
   modGridColumnCount: loadModGridColumnCount(),  // 2–6 cards per row in grid layout
   modListColumns: loadModListColumnPrefs(),  // { key: visible(bool) } · List table only
   modListColMenuOpen: false,
+  modRoleFilter: loadModRoleFilter(),  // 'all' | 'Mod' | 'Reviewer' | 'Admin' | 'Master Admin' · default Mod
+
   modListSort: null,  // set on first header click · { key, dir:'asc'|'desc' }
   modUserModal: null,        // { mode:'create'|'edit', values:{}, error:'', saving:false } | null
   activitiesTeamId: '',      // selected team context in the Activities map
@@ -8718,10 +8790,16 @@ function selectAdminTab(tab, opts) {
   const prevSubtab = adminState.subtab;
   const prevView = adminState.modView;
   const prevSection = adminState.perfSection;
+  const prevRoleFilter = adminState.modRoleFilter;
   if (opts.subtab) adminState.subtab = opts.subtab;
   if (opts.modView) adminState.modView = opts.modView;
   if (opts.perfSection) adminState.perfSection = opts.perfSection;
-  if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo && !opts.perfSection) return;
+  // Overview Moderators tile (and any caller) can force LoginRole filter.
+  if (opts.modRoleFilter !== undefined && typeof setModRoleFilter === 'function') {
+    setModRoleFilter(opts.modRoleFilter, { persist: true });
+  }
+  if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo && !opts.perfSection
+      && opts.modRoleFilter === undefined) return;
   adminState.tab = tab;
   if (prevTab !== tab) {
     // Clear the Assignment calendar's team filter AND the side-panel
@@ -8742,7 +8820,8 @@ function selectAdminTab(tab, opts) {
   const tabChanged = prevTab !== adminState.tab;
   const innerChanged = prevSubtab !== adminState.subtab
     || prevView !== adminState.modView
-    || prevSection !== adminState.perfSection;
+    || prevSection !== adminState.perfSection
+    || prevRoleFilter !== adminState.modRoleFilter;
   if (tabChanged || innerChanged) {
     // Main tabs swap in place. Subtabs keep the fade-up.
     renderAdminTabBody({ animate: !tabChanged && innerChanged ? 'subtab' : false });
@@ -13229,7 +13308,14 @@ function renderOverview(body) {
     const go = () => {
       const kind = tile.dataset.tile;
       if (kind === 'moderators') {
-        selectAdminTab('moderators', { subtab: 'moderators', modView: 'list', scrollTo: 'modviewBody' });
+        // Always land on hub with Role filter = Moderator (even if user
+        // previously picked another role / All).
+        selectAdminTab('moderators', {
+          subtab: 'moderators',
+          modView: 'list',
+          modRoleFilter: 'Mod',
+          scrollTo: 'modviewBody',
+        });
       } else if (kind === 'livestatus') {
         selectAdminTab('performance', { scrollTo: 'modStrikeCheckpointBanner' });
       } else if (kind === 'teams') {
@@ -14978,10 +15064,19 @@ async function loadModerators(force = false) {
 }
 
 function renderModerators() {
-  // Keep the subtab count badge in sync (always · even if subtab not active)
+  // Keep the subtab count badge in sync (always · even if subtab not active).
+  // On All (list) view the count matches the LoginRole filter; other hub
+  // views keep the full directory length.
   const modCountEl = document.getElementById('modCount');
   if (modCountEl) {
-    modCountEl.textContent = adminState.moderators ? adminState.moderators.length : '··';
+    if (!adminState.moderators) {
+      modCountEl.textContent = '··';
+    } else if ((adminState.modView || 'list') === 'list'
+        && typeof filterModeratorsByLoginRole === 'function') {
+      modCountEl.textContent = filterModeratorsByLoginRole(adminState.moderators).length;
+    } else {
+      modCountEl.textContent = adminState.moderators.length;
+    }
   }
   if (adminState.subtab !== 'moderators') return;
   const body = document.getElementById('subtabBody');
@@ -19260,7 +19355,21 @@ function renderModListView() {
   const wrap = document.getElementById('modviewBody');
   if (!wrap) return;
   const layout = adminState.modListLayout === 'list' ? 'list' : 'grid';
-  const mods = adminState.moderators || [];
+  const allMods = adminState.moderators || [];
+  if (adminState.modRoleFilter == null) {
+    adminState.modRoleFilter = (typeof loadModRoleFilter === 'function')
+      ? loadModRoleFilter() : MOD_ROLE_FILTER_DEFAULT;
+  }
+  const roleFilter = normalizeModRoleFilter(adminState.modRoleFilter);
+  adminState.modRoleFilter = roleFilter;
+  const mods = (typeof filterModeratorsByLoginRole === 'function')
+    ? filterModeratorsByLoginRole(allMods, roleFilter)
+    : allMods;
+  const roleFilterHTML = `
+        <label class="mod-role-filter-control" title="Filter by LoginRole">
+          <span class="mod-role-filter-label">Role</span>
+          <select id="modRoleFilterSelect" aria-label="Filter by role">${modRoleFilterSelectOptionsHTML(allMods, roleFilter)}</select>
+        </label>`;
 
   const gridCols = clampModGridColumnCount(adminState.modGridColumnCount);
   const colsOpts = MOD_GRID_COLUMN_COUNT_OPTIONS.map(n =>
@@ -19335,14 +19444,21 @@ function renderModListView() {
             List
           </button>
         </div>
+        ${roleFilterHTML}
         ${columnsControlHTML}
       </div>
       <button type="button" class="btn btn-primary mod-add-user-btn" id="modAddUserBtn">Add User</button>
     </div>`;
 
   let body;
-  if (!mods.length) {
+  if (!allMods.length) {
     body = `<div class="admin-empty">No moderators in the directory yet. Click <strong>Add User</strong> to create one.</div>`;
+  } else if (!mods.length) {
+    const roleLab = roleFilter === MOD_ROLE_FILTER_ALL
+      ? 'All'
+      : ((typeof directoryLoginRoleLabel === 'function')
+          ? directoryLoginRoleLabel(roleFilter) : roleFilter);
+    body = `<div class="admin-empty">No directory users with LoginRole <strong>${escapeHTML(roleLab)}</strong>. Try another role or <strong>All</strong>.</div>`;
   } else if (layout === 'list') {
     body = renderModTableHTML(mods);
   } else {
@@ -19362,6 +19478,19 @@ function renderModListView() {
       renderModListView();
     });
   });
+  const roleSelect = document.getElementById('modRoleFilterSelect');
+  if (roleSelect) {
+    roleSelect.addEventListener('change', () => {
+      setModRoleFilter(roleSelect.value, { persist: true });
+      adminState.modListColMenuOpen = false;
+      // Refresh hub count badge to match filtered set
+      const modCountEl = document.getElementById('modCount');
+      if (modCountEl && adminState.moderators) {
+        modCountEl.textContent = filterModeratorsByLoginRole(adminState.moderators).length;
+      }
+      renderModListView();
+    });
+  }
   const colsSelect = document.getElementById('modGridColsSelect');
   if (colsSelect) {
     colsSelect.addEventListener('change', () => {
