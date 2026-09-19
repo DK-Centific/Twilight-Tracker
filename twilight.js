@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818o';
-const APP_UPDATED_AT = '09/18/2026 17:17';
+const APP_VERSION = '1.3.091818p';
+const APP_UPDATED_AT = '09/18/2026 17:23';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -7428,6 +7428,38 @@ function saveParticipantPageSize(size) {
   catch (e) { /* ignore */ }
 }
 
+
+// Moderator card-grid column count (2–6). Persisted so admins keep their
+// preferred cards-per-row across reloads. Only applies when modListLayout
+// is "grid"; list/table layout ignores it.
+const MOD_GRID_COLUMN_COUNT_KEY = 'orbit_mod_grid_column_count';
+const MOD_GRID_COLUMN_COUNT_OPTIONS = [2, 3, 4, 5, 6];
+const MOD_GRID_COLUMN_COUNT_DEFAULT = 4;
+function clampModGridColumnCount(n) {
+  const v = parseInt(n, 10);
+  if (MOD_GRID_COLUMN_COUNT_OPTIONS.includes(v)) return v;
+  return MOD_GRID_COLUMN_COUNT_DEFAULT;
+}
+function loadModGridColumnCount() {
+  try {
+    const raw = localStorage.getItem(MOD_GRID_COLUMN_COUNT_KEY);
+    return clampModGridColumnCount(raw);
+  } catch (e) { /* ignore */ }
+  return MOD_GRID_COLUMN_COUNT_DEFAULT;
+}
+function saveModGridColumnCount(n) {
+  const v = clampModGridColumnCount(n);
+  try { localStorage.setItem(MOD_GRID_COLUMN_COUNT_KEY, String(v)); }
+  catch (e) { /* ignore */ }
+  return v;
+}
+function modGridStyleAttr() {
+  const cols = clampModGridColumnCount(
+    (typeof adminState !== 'undefined' && adminState && adminState.modGridColumnCount) || MOD_GRID_COLUMN_COUNT_DEFAULT
+  );
+  return `style="--mod-grid-cols:${cols}"`;
+}
+
 const adminState = {
   tab: 'overview',           // 'overview' | 'moderators' | 'performance'
   subtab: 'moderators',      // 'moderators' | 'participants'
@@ -7445,6 +7477,7 @@ const adminState = {
   partPageSize: loadParticipantPageSize(),  // 20 | 50 | 100
   modView: 'list',           // 'list' | 'team' | 'assignment' · view modes for Moderators subtab
   modListLayout: 'grid',
+  modGridColumnCount: loadModGridColumnCount(),  // 2–6 cards per row in grid layout
   modListSort: null,  // set on first header click · { key, dir:'asc'|'desc' }
   modUserModal: null,        // { mode:'create'|'edit', values:{}, error:'', saving:false } | null
   activitiesTeamId: '',      // selected team context in the Activities map
@@ -19093,17 +19126,27 @@ function renderModListView() {
   const layout = adminState.modListLayout === 'list' ? 'list' : 'grid';
   const mods = adminState.moderators || [];
 
+  const gridCols = clampModGridColumnCount(adminState.modGridColumnCount);
+  const colsOpts = MOD_GRID_COLUMN_COUNT_OPTIONS.map(n =>
+    `<option value="${n}" ${n === gridCols ? 'selected' : ''}>${n}</option>`
+  ).join('');
   const toolbar = `
     <div class="mod-all-toolbar">
-      <div class="mod-layout-toggle" role="group" aria-label="Moderator layout">
-        <button type="button" class="mod-layout-btn ${layout === 'grid' ? 'active' : ''}" data-mod-layout="grid" title="Card grid">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
-          Grid
-        </button>
-        <button type="button" class="mod-layout-btn ${layout === 'list' ? 'active' : ''}" data-mod-layout="list" title="Table list">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-          List
-        </button>
+      <div class="mod-all-toolbar-left">
+        <div class="mod-layout-toggle" role="group" aria-label="Moderator layout">
+          <button type="button" class="mod-layout-btn ${layout === 'grid' ? 'active' : ''}" data-mod-layout="grid" title="Card grid">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
+            Grid
+          </button>
+          <button type="button" class="mod-layout-btn ${layout === 'list' ? 'active' : ''}" data-mod-layout="list" title="Table list">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            List
+          </button>
+        </div>
+        <label class="mod-grid-cols-control" title="Cards per row">
+          <span class="mod-grid-cols-label">Columns</span>
+          <select id="modGridColsSelect" aria-label="Cards per row" ${layout !== 'grid' ? 'disabled' : ''}>${colsOpts}</select>
+        </label>
       </div>
       <button type="button" class="btn btn-primary mod-add-user-btn" id="modAddUserBtn">Add User</button>
     </div>`;
@@ -19114,7 +19157,7 @@ function renderModListView() {
   } else if (layout === 'list') {
     body = renderModTableHTML(mods);
   } else {
-    body = `<div class="mod-grid">${mods.map((m, i) => modCardHTML(m, i)).join('')}</div>`;
+    body = `<div class="mod-grid" ${modGridStyleAttr()}>${mods.map((m, i) => modCardHTML(m, i)).join('')}</div>`;
   }
 
   wrap.innerHTML = toolbar + body;
@@ -19129,6 +19172,14 @@ function renderModListView() {
       renderModListView();
     });
   });
+  const colsSelect = document.getElementById('modGridColsSelect');
+  if (colsSelect) {
+    colsSelect.addEventListener('change', () => {
+      const next = clampModGridColumnCount(colsSelect.value);
+      adminState.modGridColumnCount = saveModGridColumnCount(next);
+      renderModListView();
+    });
+  }
   const addBtn = document.getElementById('modAddUserBtn');
   if (addBtn) addBtn.addEventListener('click', () => openModUserModal('create'));
 
@@ -19248,9 +19299,11 @@ function renderModTableHTML(mods) {
 
 function extractModeratorFields(m) {
   m = m || {};
-  // Whitelist only — never pick Password / password / secret columns.
-  // If the directory read flow still returns Password, stripModeratorSecrets
-  // removes it before rows land in adminState.moderators / localStorage.
+  // Whitelist only — never pick Password / password / secret columns from
+  // directory READ. Admin reveal/set uses ADMIN_PA_MODERATOR_LOGIN_URL
+  // (adminGetPassword / adminSetPassword) against Moderator_Masterlist
+  // Twilight v2; stripModeratorSecrets still strips any accidental Password
+  // keys before rows land in adminState.moderators / localStorage.
   return {
     orbitLoginId: pickField(m, 'orbitLoginId', 'orbit_login_id', 'OrbitLoginID', 'OrbitLoginId', 'Orbit Login ID', 'loginId', 'username', 'id'),
     firstName: pickField(m, 'firstName', 'first_name', 'FirstName', 'First Name', 'givenName', 'given_name', 'GivenName', 'Given Name', 'firstname', 'First'),
@@ -19270,8 +19323,9 @@ function extractModeratorFields(m) {
 }
 
 // Drop any password/secret keys from a directory row before it is stored in
-// adminState.moderators or rendered. Defense in depth if the PA read flow
-// still maps Password — the read flow should exclude it (see docs).
+// adminState.moderators or rendered. Directory READ never returns Password;
+// admin reveal uses the LOGIN flow only. Defense in depth if a flow still
+// maps a Password column by mistake.
 function stripModeratorSecrets(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
   const out = Object.assign({}, row);
@@ -19304,6 +19358,286 @@ function emptyModUserFormValues() {
   };
 }
 
+
+function requestingAdminOrbitId() {
+  try {
+    if (typeof state !== 'undefined' && state) {
+      const fromProfile = state.modProfile && state.modProfile.orbitLoginId;
+      const id = String(fromProfile || state.username || '').trim();
+      if (id) return id;
+    }
+  } catch (_) {}
+  if (typeof getCurrentAdminId === 'function') {
+    const fallback = String(getCurrentAdminId() || '').trim();
+    if (fallback && fallback !== 'unknown') return fallback;
+  }
+  return '';
+}
+
+function emptyModUserPasswordUi() {
+  return {
+    status: 'idle',       // idle | loading | loaded | notset | unavailable
+    passwordSet: false,
+    password: '',         // revealed value · modal memory only, never persisted
+    revealed: false,
+    draft: '',
+    setting: false,
+    error: '',
+    message: '',
+  };
+}
+
+async function adminGetPassword(orbitLoginId) {
+  const orbitId = String(orbitLoginId || '').trim();
+  if (!orbitId) {
+    const err = new Error('missing_orbit_login_id');
+    throw err;
+  }
+  return postPasswordAuth({
+    operation: 'adminGetPassword',
+    orbitLoginId: orbitId,
+    requestingAdminOrbitId: requestingAdminOrbitId(),
+  });
+}
+
+async function adminSetPassword(orbitLoginId, password) {
+  const orbitId = String(orbitLoginId || '').trim();
+  const pw = String(password || '');
+  if (!orbitId) {
+    const err = new Error('missing_orbit_login_id');
+    throw err;
+  }
+  return postPasswordAuth({
+    operation: 'adminSetPassword',
+    orbitLoginId: orbitId,
+    password: pw,
+    requestingAdminOrbitId: requestingAdminOrbitId(),
+  });
+}
+
+function validateAdminPasswordDraft(pw) {
+  const s = String(pw || '');
+  if (!s || s.length < 8) return 'Password must be at least 8 characters.';
+  if (s === DEFAULT_FIRST_LOGIN_PASSWORD) {
+    return 'Choose a different password than the default first-login password.';
+  }
+  return '';
+}
+
+async function fetchModUserPasswordOnOpen() {
+  const modal = adminState.modUserModal;
+  if (!modal || modal.mode !== 'edit') return;
+  const orbitId = String((modal.values && modal.values.orbitLoginId) || modal.originalOrbitLoginId || '').trim();
+  const paint = () => {
+    syncModUserFormIntoModalState();
+    renderModUserModal();
+  };
+  if (!orbitId) {
+    modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+      status: 'unavailable',
+      message: 'Password lookup unavailable',
+    });
+    paint();
+    return;
+  }
+  modal.passwordUi = Object.assign(emptyModUserPasswordUi(), { status: 'loading' });
+  paint();
+  try {
+    if (!isAuthUrlConfigured() && !(typeof window !== 'undefined' && typeof window.__orbitTestAuthHandler === 'function')) {
+      modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+        status: 'unavailable',
+        message: 'Password lookup unavailable',
+      });
+      paint();
+      return;
+    }
+    const result = await adminGetPassword(orbitId);
+    // Modal may have been closed while the request was in flight.
+    if (!adminState.modUserModal || adminState.modUserModal !== modal) return;
+    if (!result || result.ok === false) {
+      modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+        status: 'unavailable',
+        message: 'Password lookup unavailable',
+      });
+      paint();
+      return;
+    }
+    const passwordSet = !!(result.passwordSet || (result.password != null && String(result.password).length > 0));
+    const password = passwordSet ? String(result.password || '') : '';
+    if (!passwordSet || !password) {
+      modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+        status: 'notset',
+        passwordSet: false,
+        message: 'Password not set',
+      });
+    } else {
+      modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+        status: 'loaded',
+        passwordSet: true,
+        password,
+        revealed: false,
+      });
+    }
+    paint();
+  } catch (e) {
+    if (!adminState.modUserModal || adminState.modUserModal !== modal) return;
+    console.warn('[Twilight] adminGetPassword failed:', e && e.message);
+    modal.passwordUi = Object.assign(emptyModUserPasswordUi(), {
+      status: 'unavailable',
+      message: 'Password lookup unavailable',
+    });
+    paint();
+  }
+}
+
+async function submitModUserPasswordSet() {
+  const modal = adminState.modUserModal;
+  if (!modal || !modal.passwordUi || modal.passwordUi.setting) return;
+  const pwUi = modal.passwordUi;
+  const paint = () => {
+    syncModUserFormIntoModalState();
+    renderModUserModal();
+  };
+  const draftEl = document.getElementById('modUser_passwordDraft');
+  const draft = draftEl ? String(draftEl.value || '') : String(pwUi.draft || '');
+  pwUi.draft = draft;
+  const orbitId = String(
+    (document.getElementById('modUser_orbitLoginId') && document.getElementById('modUser_orbitLoginId').value)
+    || (modal.values && modal.values.orbitLoginId)
+    || modal.originalOrbitLoginId
+    || ''
+  ).trim();
+  pwUi.error = '';
+  pwUi.message = '';
+  if (!orbitId) {
+    pwUi.error = 'Twilight Login ID is required before setting a password.';
+    paint();
+    return;
+  }
+  const verr = validateAdminPasswordDraft(draft);
+  if (verr) {
+    pwUi.error = verr;
+    paint();
+    return;
+  }
+  if (!isAuthUrlConfigured() && !(typeof window !== 'undefined' && typeof window.__orbitTestAuthHandler === 'function')) {
+    pwUi.error = 'Login flow is not configured yet. Password set could not run.';
+    paint();
+    return;
+  }
+  pwUi.setting = true;
+  paint();
+  try {
+    const result = await adminSetPassword(orbitId, draft);
+    if (!adminState.modUserModal || adminState.modUserModal !== modal) return;
+    if (!result || result.ok === false) {
+      pwUi.setting = false;
+      pwUi.error = 'Could not update password. Check your connection and try again.';
+      paint();
+      return;
+    }
+    // Keep the new value in modal memory only (reveal UI); never write into
+    // adminState.moderators / localStorage.
+    pwUi.setting = false;
+    pwUi.error = '';
+    pwUi.passwordSet = true;
+    pwUi.password = draft;
+    pwUi.status = 'loaded';
+    pwUi.revealed = false;
+    pwUi.message = 'Password updated';
+    // Clear draft in DOM before sync so re-render does not resurrect it.
+    if (draftEl) draftEl.value = '';
+    pwUi.draft = '';
+    paint();
+    if (typeof toast === 'function') toast('Password updated');
+  } catch (e) {
+    if (!adminState.modUserModal || adminState.modUserModal !== modal) return;
+    console.warn('[Twilight] adminSetPassword failed:', e && e.message);
+    pwUi.setting = false;
+    if (e && e.isAuthConfigMissing) {
+      pwUi.error = 'Login flow is not configured yet. Password set could not run.';
+    } else if (e && e.isAuthFlowNoResponse) {
+      pwUi.error = 'Password service did not respond. The adminSetPassword operation may not be live yet — try again later.';
+    } else {
+      pwUi.error = "Couldn't reach the password service. You can still save the profile and retry set later.";
+    }
+    paint();
+  }
+}
+
+function renderModUserPasswordFieldHTML(state) {
+  const pwUi = (state && state.passwordUi) || emptyModUserPasswordUi();
+  const isEdit = state && state.mode === 'edit';
+  const disabled = !!(state && state.saving) || !!pwUi.setting;
+  let statusHtml = '';
+  if (pwUi.status === 'loading') {
+    statusHtml = `<div class="mod-user-pw-status" role="status">Loading password…</div>`;
+  } else if (pwUi.status === 'unavailable') {
+    statusHtml = `<div class="mod-user-pw-status is-warn" role="status">${escapeHTML(pwUi.message || 'Password lookup unavailable')}</div>`;
+  } else if (pwUi.status === 'notset' || (!isEdit && pwUi.status === 'idle')) {
+    statusHtml = `<div class="mod-user-pw-status" role="status">Password not set</div>`;
+  } else if (pwUi.status === 'loaded' && pwUi.passwordSet) {
+    const shown = pwUi.revealed ? String(pwUi.password || '') : '••••••••';
+    statusHtml = `
+      <div class="mod-user-pw-current">
+        <code class="mod-user-pw-value" id="modUser_passwordValue">${escapeHTML(shown)}</code>
+        <button type="button" class="btn btn-ghost mod-user-pw-reveal" id="modUserPasswordRevealBtn"
+          aria-pressed="${pwUi.revealed ? 'true' : 'false'}" ${disabled ? 'disabled' : ''}>
+          ${pwUi.revealed ? 'Hide' : 'Show'}
+        </button>
+      </div>`;
+  } else if (pwUi.message) {
+    statusHtml = `<div class="mod-user-pw-status" role="status">${escapeHTML(pwUi.message)}</div>`;
+  }
+
+  const setLabel = (pwUi.passwordSet || pwUi.status === 'loaded') ? 'Reset password' : 'Set password';
+  return `
+    <div class="asgn-field mod-user-pw-field" style="grid-column: 1 / -1;">
+      <span class="asgn-field-label">Password</span>
+      <div class="asgn-field-hint">Stored on Moderator Masterlist (LOGIN flow). Never kept in the directory cache.</div>
+      ${statusHtml}
+      <div class="mod-user-pw-set-row">
+        <input type="password" id="modUser_passwordDraft" value="${escapeHTML(pwUi.draft || '')}"
+          placeholder="New password (min 8 characters)" autocomplete="new-password" spellcheck="false"
+          ${disabled ? 'disabled' : ''} />
+        <button type="button" class="btn btn-ghost" id="modUserPasswordSetBtn" ${disabled ? 'disabled' : ''}>
+          ${pwUi.setting ? 'Saving…' : setLabel}
+        </button>
+      </div>
+      ${pwUi.error ? `<div class="mod-user-form-error" role="alert">${escapeHTML(pwUi.error)}</div>` : ''}
+      ${pwUi.message && pwUi.status === 'loaded' ? `<div class="mod-user-pw-status is-ok" role="status">${escapeHTML(pwUi.message)}</div>` : ''}
+    </div>`;
+}
+
+function wireModUserPasswordField(state) {
+  const revealBtn = document.getElementById('modUserPasswordRevealBtn');
+  if (revealBtn) {
+    revealBtn.addEventListener('click', () => {
+      if (!state.passwordUi || state.passwordUi.setting) return;
+      state.passwordUi.revealed = !state.passwordUi.revealed;
+      const valEl = document.getElementById('modUser_passwordValue');
+      if (valEl) {
+        valEl.textContent = state.passwordUi.revealed
+          ? String(state.passwordUi.password || '')
+          : '••••••••';
+      }
+      revealBtn.textContent = state.passwordUi.revealed ? 'Hide' : 'Show';
+      revealBtn.setAttribute('aria-pressed', state.passwordUi.revealed ? 'true' : 'false');
+    });
+  }
+  const draftEl = document.getElementById('modUser_passwordDraft');
+  if (draftEl) {
+    draftEl.addEventListener('input', () => {
+      if (!state.passwordUi) return;
+      state.passwordUi.draft = String(draftEl.value || '');
+    });
+  }
+  const setBtn = document.getElementById('modUserPasswordSetBtn');
+  if (setBtn) {
+    setBtn.addEventListener('click', () => submitModUserPasswordSet());
+  }
+}
+
 function ensureModUserModal() {
   if (document.getElementById('modUserModal')) return;
   const overlay = document.createElement('div');
@@ -19334,15 +19668,24 @@ function openModUserModal(mode, row) {
     });
     values.LoginRole = canonicalizeDirectoryLoginRole(values.LoginRole) || 'Mod';
   }
+  // personalEmail stays on values for write round-trip (hidden from the form).
+  // Password UI state is modal-only — never copied into adminState.moderators.
   adminState.modUserModal = {
     mode: mode === 'edit' ? 'edit' : 'create',
     values,
     originalOrbitLoginId: mode === 'edit' ? values.orbitLoginId : '',
     error: '',
     saving: false,
+    passwordUi: Object.assign(emptyModUserPasswordUi(), {
+      status: mode === 'edit' ? 'loading' : 'notset',
+      message: mode === 'edit' ? '' : 'Password not set',
+    }),
   };
   renderModUserModal();
   showModUserModal();
+  if (mode === 'edit') {
+    fetchModUserPasswordOnOpen();
+  }
 }
 
 function showModUserModal() {
@@ -19357,6 +19700,13 @@ function closeModUserModal() {
   const m = document.getElementById('modUserModal');
   if (o) o.classList.remove('open');
   if (m) m.classList.remove('open');
+  // Drop any revealed/draft password from modal memory immediately.
+  if (adminState.modUserModal && adminState.modUserModal.passwordUi) {
+    adminState.modUserModal.passwordUi.password = '';
+    adminState.modUserModal.passwordUi.draft = '';
+  }
+  const draftEl = document.getElementById('modUser_passwordDraft');
+  if (draftEl) draftEl.value = '';
   adminState.modUserModal = null;
 }
 
@@ -19430,8 +19780,8 @@ function renderModUserModal() {
         ${field('lastName', 'Last Name', { required: true })}
         ${field('phoneNumber', 'Phone Number')}
         ${field('centificEmail', 'Centific Email', { type: 'email' })}
-        ${field('personalEmail', 'Personal Email', { type: 'email' })}
         ${field('carType', 'Vehicle Type')}
+        ${renderModUserPasswordFieldHTML(state)}
       </div>
       <div class="mod-user-deactivate-row">
         <div class="mod-user-deactivate-copy">
@@ -19465,6 +19815,7 @@ function renderModUserModal() {
       if (hint) hint.textContent = next ? 'This person cannot sign in.' : 'Turn on to block sign-in for this person.';
     });
   }
+  wireModUserPasswordField(state);
 }
 
 function modUserStatusPillHTML(orbitId, row) {
@@ -19488,6 +19839,22 @@ function readModUserFormValues() {
   const deactBtn = document.getElementById('modUserDeactivateToggle');
   out.deactivated = !!(deactBtn && deactBtn.classList.contains('on'));
   return out;
+}
+
+// Keep typed profile fields when password UI re-renders the modal.
+// personalEmail is not an input anymore — preserve whatever was loaded.
+function syncModUserFormIntoModalState() {
+  const modal = adminState.modUserModal;
+  if (!modal) return;
+  const prevEmail = modal.values && modal.values.personalEmail;
+  const next = Object.assign({}, modal.values || emptyModUserFormValues(), readModUserFormValues());
+  if (prevEmail != null && next.personalEmail === '') next.personalEmail = prevEmail;
+  // Password draft lives only on passwordUi.
+  const draftEl = document.getElementById('modUser_passwordDraft');
+  if (modal.passwordUi && draftEl) {
+    modal.passwordUi.draft = String(draftEl.value || '');
+  }
+  modal.values = next;
 }
 
 function isBasicEmailOk(s) {
@@ -19847,7 +20214,7 @@ function renderModAssignmentView() {
           <h3 class="mod-group-title">No assignments yet</h3>
           <span class="mod-group-count">${withoutAssignments.length}</span>
         </div>
-        <div class="mod-grid">
+        <div class="mod-grid" ${modGridStyleAttr()}>
           ${withoutAssignments.map(({ m }) => modCardHTML(m, adminState.moderators.indexOf(m))).join('')}
         </div>
       </div>`;
@@ -49149,7 +49516,7 @@ function unwrapAuthResponse(data) {
     try { return unwrapAuthResponse(JSON.parse(trimmed)); } catch (_) { return data; }
   }
   if (!data || typeof data !== 'object') return data;
-  if ('ok' in data || 'mustChangePassword' in data || 'profile' in data || 'error' in data || 'reason' in data) {
+  if ('ok' in data || 'mustChangePassword' in data || 'passwordSet' in data || 'password' in data || 'profile' in data || 'error' in data || 'reason' in data) {
     return data;
   }
   let body = data.body != null ? data.body
