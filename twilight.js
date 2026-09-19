@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091819b';
+const APP_VERSION = '1.3.091819c';
 const APP_UPDATED_AT = '09/18/2026 20:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -10879,6 +10879,19 @@ function perfTeamBookingCandidates(teamId) {
 function perfAssignmentVisibleInAdminQueue(a) {
   if (!a || !a.id) return false;
   if (a.teamId == null || a.teamId === '') return true;
+  // Checked-in / in-progress on *today's* booking (or overnight that still
+  // overlaps today) stays visible even if a prior-day unfinished row briefly
+  // pins the admin queue between polls. Do NOT bypass for future queued
+  // bookings — overnight incomplete must still hide next-day until the
+  // 9 AM gate / wrap-up rules allow it.
+  try {
+    if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)) {
+      const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+      if (today && String(a.date || '') === today) return true;
+      if (today && typeof perfBookingOverlapsPacificDay === 'function'
+          && perfBookingOverlapsPacificDay(a, today)) return true;
+    }
+  } catch (_) {}
   const visible = perfTeamBookingCandidates(a.teamId);
   return visible.some(x => String(x.id) === String(a.id));
 }
@@ -38831,6 +38844,17 @@ function sessionStateProgressForeignToBooking(parsed, bookingYmd) {
   if (!parsed || typeof parsed !== 'object') return false;
   const booked = String(bookingYmd || '').trim();
   if (!booked) return false;
+  // Booking-day arrival means mixed progress (keep arrived; strip foreign
+  // stations in the non-foreign scrub path). Treating this as fully foreign
+  // wiped sessionStatus/arrived and made Live flicker off after poll.
+  if (parsed.arrivedAt && sessionStateStampOnOrAfterBooking(parsed.arrivedAt, booked)) {
+    return false;
+  }
+  const statusHint = String(parsed.sessionStatus || '').trim();
+  if (statusHint === 'arrived' || statusHint === 'office_checkin') {
+    const sd = String(parsed.sessionDate || '').trim();
+    if (!sd || sd >= booked) return false;
+  }
   const stamps = [];
   const sca = parsed.stationCompletedAt;
   if (sca && typeof sca === 'object') {
@@ -38882,14 +38906,22 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
   const clean = Object.assign({}, parsed);
   clean.stationCompletedAt = {};
   clean.sessionCompletedAt = null;
-  clean.sessionStatus = '';
   clean.stations = {};
   clean.progressScore = 0;
   clean.progressAt = '';
   clean.progressBy = '';
-  if (clean.arrivedAt && !sessionStateStampOnOrAfterBooking(clean.arrivedAt, booked)) {
-    clean.arrivedAt = '';
-  }
+  const keepArrived = !!(clean.arrivedAt
+    && sessionStateStampOnOrAfterBooking(clean.arrivedAt, booked));
+  if (!keepArrived) clean.arrivedAt = '';
+  // Preserve a booking-day Check-in signal so Live does not flash off when
+  // only foreign station stamps forced a full scrub.
+  const prevStatus = String(parsed.sessionStatus || '').trim();
+  const sd = String(parsed.sessionDate || '').trim();
+  const statusOk = (!sd || sd >= booked)
+    && (prevStatus === 'arrived' || prevStatus === 'office_checkin');
+  if (keepArrived) clean.sessionStatus = 'arrived';
+  else if (statusOk) clean.sessionStatus = prevStatus;
+  else clean.sessionStatus = '';
   return clean;
 }
 
@@ -46051,7 +46083,15 @@ function operatorOpenBookingAssignment(candidates) {
 
 function adminOpenBookingAssignment(candidates) {
   const list = candidates || [];
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  const hasNewer = !!(today && list.some(a => a && String(a.date || '') >= today));
+  // After 9 AM PT with a today+ booking: never pin Admin Live / Performance
+  // on unfinished yesterday (Venkata×Jashit Patrick → Rebecca flicker).
+  const preferToday = !!(gateOpen && hasNewer);
   for (const a of list) {
+    if (preferToday && String(a.date || '') < today) continue;
     if (typeof assignmentSessionStartedNotDone === 'function' && assignmentSessionStartedNotDone(a)) {
       try {
         if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) continue;
@@ -46060,9 +46100,9 @@ function adminOpenBookingAssignment(candidates) {
     }
   }
   const now = Date.now();
-  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
   for (const a of list) {
     if (!a || !a.date || !today || String(a.date) >= today) continue;
+    if (preferToday) continue;
     const endMs = (typeof assignmentBookingSessionEndMs === 'function')
       ? assignmentBookingSessionEndMs(a)
       : NaN;
@@ -46078,10 +46118,17 @@ function adminOpenBookingAssignment(candidates) {
 function applyAdminBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const inProg = adminOpenBookingAssignment(list);
-  const blocker = bookingQueueGateBlocker(list, today);
+  const hasTodayOrLater = (list || []).some(a => a && String(a.date || '') >= today);
+  // Parity with moderator applyBookingQueueGate: after 9 AM PT, unfinished
+  // yesterday must not hide today's checked-in Live team on Overview /
+  // Performance (appeared-then-disappeared flicker).
+  const scoped = (gateOpen && hasTodayOrLater)
+    ? (list || []).filter(a => a && String(a.date || '') >= today)
+    : (list || []);
+  const inProg = adminOpenBookingAssignment(scoped);
+  const blocker = bookingQueueGateBlocker(scoped, today);
 
-  return (list || []).filter(a => {
+  return scoped.filter(a => {
     if (!a) return false;
     if (inProg && String(a.id) === String(inProg.id)) return true;
     if (blocker && String(a.id) === String(blocker.id)) return true;

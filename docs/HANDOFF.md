@@ -1,7 +1,25 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · My session address rebind (1.3.091819b)
+**Last updated:** 2026-09-18 · Cursor · Live status flicker (1.3.091819c)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-18 · Live status flicker · Venkata×Jashit (1.3.091819c)
+
+**Symptom:** Team **Venkata x Jashit** (Jashit-tw / Venkata-tw) **appeared then quickly disappeared** from Overview Live / Performance Live while checked in on today’s Rebecca Young (`od_917b4f60…`).
+
+**Root cause:**
+1. **Admin queue pin (primary):** After 9 AM PT, moderator My session already scoped to today+, but `applyAdminBookingQueueGate` / `adminOpenBookingAssignment` still pinned the **unfinished yesterday** Patrick booking once SessionState loaded (`arrived`). That hid today’s Rebecca from `perfAssignmentVisibleInAdminQueue` → Overview Live dropped the team (poll flicker).
+2. **SessionState scrub over-scrub:** `1.3.091819a` treated payloads with only foreign station stamps as fully foreign and cleared `sessionStatus` / could drop Check-in when `arrivedAt` was booking-day — Live briefly null then restored.
+
+**Fix:**
+- Admin queue parity with mod carousel: after 9 AM + today+ booking → scope to today+; prefer today’s in-progress over yesterday.
+- `perfAssignmentVisibleInAdminQueue`: today (or overnight-overlapping) checked-in stays visible across polls; future queued still gated.
+- Scrub: booking-day `arrived` / `arrivedAt` is mixed not fully foreign; full scrub preserves Check-in.
+- Version **1.3.091819c**. Selftest: `scripts/live-status-flicker-selftest.js` (arrived stays Live across poll).
+
+**Verify (David):** Hard refresh → **1.3.091819c**. Overview Live + Performance Live: Venkata×Jashit stays while checked in on Rebecca until wrap-up / past session end. Watch 2–3 poll cycles (~30s) — no flash off.
 
 ---
 
@@ -78,7 +96,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091819b`** (My session address rebind) on `main` |
+| **`main` version** | **`1.3.091819c`** (Live status flicker) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
@@ -220,7 +238,7 @@ Power Automate setup guides: `docs/power-automate-worklog-overwrite.md`, `docs/p
 Copy this block and fill it in at session end:
 
 ```
-**Last updated:** 2026-09-18 · Cursor · My session address rebind (1.3.091819b)
+**Last updated:** 2026-09-18 · Cursor · Live status flicker (1.3.091819c)
 **Version after work:** x.x.xxxxxxx
 **Completed:** …
 **Blocked / waiting:** …
