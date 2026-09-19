@@ -1,7 +1,26 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Grok · Moderator day-gate policy harden (1.3.091820a)
+**Last updated:** 2026-09-18 · Grok · PA cutover harden (1.3.091820b)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-18 · PA cutover harden (1.3.091820b)
+
+**Source:** Policy cutover Watchdog app notes (Yuan He / Rebecca / Romo Skip / orphan geo).
+
+**Covered already in 1.3.091820a:**
+1. Legacy bare-team Skip mute never covers a **today+** booking (`modStrikeCheckpointMapHas`).
+2. SessionState progress scrub + merge scrub for open booking day.
+
+**New gaps closed:**
+1. **Skip:** Prior-day checkpoint bare `100019` (Romo, checkpoint 2026-09-17) must not mute Yuan today — tightened so unknown assignmentIds fail open (no bare hitch); selftest covers Romo≠Yuan + unknown id.
+2. **Picker / bind:** `pickLatestTeamProgress` / `newestSessionStatePerUser` / `findSelfSessionStateUpdate` never bind Booking/Session from `geo_presence` / `asgn_remote` when targeting a live assignment; resolve `ss_od_*` via `sessionStateId` even when assignmentId column is null.
+3. **PA WRITE caveat:** Short code comment near SessionState `stateJson` write — never post `{state: object}` (wipes SharePoint); no PA flow changes.
+
+**Version:** **1.3.091820b**. Selftests: `mod-session-day-gate-policy-selftest.js`, `sessionstate-ss-od-prefer-selftest.js`, `mod-strike-selftest.js`.
+
+**Verify (David):** Hard refresh → **1.3.091820b**. Narendra×Pradeepreddy Yuan He My session / Live bind `ss_od_e3dc4442…` only (not geo_presence 447). Admin Skip on Romo checkpoint 2026-09-17 does not blank Yuan today.
 
 ---
 

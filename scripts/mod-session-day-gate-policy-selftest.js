@@ -50,11 +50,11 @@ function sliceBetween(startMarker, endMarker) {
   return src.slice(begin, end);
 }
 
-console.log('Moderator session day-gate policy self-test (1.3.091820a)');
+console.log('Moderator session day-gate policy self-test (1.3.091820b)');
 
-assert('APP_VERSION is 1.3.091820a',
-  /const APP_VERSION = '1\.3\.091820a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820a'));
+assert('APP_VERSION is 1.3.091820b',
+  /const APP_VERSION = '1\.3\.091820b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820b'));
 assert('scrubSyncableStateForOpenBooking present',
   /function scrubSyncableStateForOpenBooking\(/.test(src)
   && /mergeTeammateState\(/.test(src)
@@ -257,6 +257,33 @@ assert('occurrence Skip does not mute different today assignment',
   skipCtx.modStrikeCheckpointMapHas({ t1: true, asgn_yest: true }, 't1', 'asgn_today') === false);
 assert('occurrence Skip still mutes the skipped assignment',
   skipCtx.modStrikeCheckpointMapHas({ asgn_yest: true }, 't1', 'asgn_yest') === true);
+
+
+// --- Prior-day checkpoint bare team Skip must not mute today Yuan ---
+// PA cutover: Romo Skip is checkpoint 2026-09-17 skippedTeams.100019 (bare).
+// Team 100019 spans Romo + Yuan; never apply that prior-day bare mute to Yuan today.
+{
+  const yuanCtx = {
+    console, Date, Intl,
+    adminState: {
+      assignments: [
+        { id: 'od_romo_sep17', teamId: '100019', date: '2026-09-17', status: 'Booked' },
+        { id: 'od_e3dc4442-1e61-43bd-80ba-8c88d366d399', teamId: '100019', date: '2026-09-18', status: 'Booked' },
+      ],
+    },
+    getPSTDateString: () => '2026-09-18',
+  };
+  vm.createContext(yuanCtx);
+  vm.runInContext(extractFn('modStrikeCheckpointMapHas'), yuanCtx);
+  const priorDayBare = { '100019': true }; // checkpoint 2026-09-17 shape
+  assert('prior-day bare 100019 still covers Romo assignment',
+    yuanCtx.modStrikeCheckpointMapHas(priorDayBare, '100019', 'od_romo_sep17') === true);
+  assert('prior-day bare 100019 does not mute today Yuan',
+    yuanCtx.modStrikeCheckpointMapHas(
+      priorDayBare, '100019', 'od_e3dc4442-1e61-43bd-80ba-8c88d366d399') === false);
+  assert('bare mute does not hitch unknown today-looking assignmentId',
+    yuanCtx.modStrikeCheckpointMapHas(priorDayBare, '100019', 'od_unknown_today_id') === false);
+}
 
 if (failed) {
   console.error('\n' + failed + ' policy checks failed');

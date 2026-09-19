@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091820a',
-  /const APP_VERSION = '1\.3\.091820a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820a'));
+assert('version bump 091820b',
+  /const APP_VERSION = '1\.3\.091820b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820b'));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
@@ -309,6 +309,8 @@ ctx.adminState.assignments = (ctx.adminState.assignments || []).concat([{
 }]);
 assert('legacy teamId skip does not mute today booking',
   ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'asgn_today') === false);
+assert('bare mute does not hitch unknown assignmentId',
+  ctx.modStrikeCheckpointIsSkipped(todayPst, 't1', 'od_unknown_yuan') === false);
 
 // Banner: hides when no pending; shows only when date filter matches.
 ctx.saveModStrikeStore({
