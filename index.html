@@ -18327,7 +18327,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091818y" defer></script>
+<script src="twilight.js?v=twilight-1.3.091818z" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -19611,6 +19611,12 @@ body.is-reviewer #panicFab,
 <style id="reviewer-lockdown-style">
 body.is-reviewer #adminBookingBtn,
 body.is-reviewer #adminRailBooking { display: none !important; }
+/* Reviewer lockdown · also hide Admin-only menu tools + Reset (JS openMenu
+   already toggles these; CSS is the fail-closed backup if openMenu races). */
+body.is-reviewer .menu-row-admin-only,
+body.is-reviewer #masterlistRow,
+body.is-reviewer #modTrackingRow,
+body.is-reviewer #resetRow { display: none !important; }
 body.is-reviewer #panicFab,
 #panicFab.is-reviewer-hidden { display: none !important; pointer-events: none !important; }
 #lakituRow, .menu-section-quick-links { display: none !important; }

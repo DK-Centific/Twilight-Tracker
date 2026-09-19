@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818v',
-  /const APP_VERSION = '1\.3\.091818v'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818v'));
+assert('version bump 091818z',
+  /const APP_VERSION = '1\.3\.091818z'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818z'));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
@@ -53,6 +53,8 @@ assert('reviewer lockdown chrome',
   && /is-reviewer-hidden/.test(src)
   && /isAdminSession\(\)/.test(src)
   && html.includes('reviewer-lockdown-style')
+  && html.includes('body.is-reviewer #resetRow')
+  && html.includes('body.is-reviewer .menu-row-admin-only')
   && html.includes('menu-section-quick-links'));
 assert('menu Ring quick link removed',
   /Menu Ring Quick Link removed for all roles/.test(src)
