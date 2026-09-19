@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820a';
-const APP_UPDATED_AT = '09/18/2026 20:50';
+const APP_VERSION = '1.3.091820b';
+const APP_UPDATED_AT = '09/18/2026 20:57';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -26111,6 +26111,9 @@ function modStrikeCheckpointMapHas(map, teamId, assignmentId) {
   // Booking / Session / Live). Occurrence keys are authoritative when
   // present; pure legacy still covers yesterday's checkpoint subject
   // but never a today+ booking for that team.
+  // Prefer assignmentId keys + checkpointDay: bare teamId 100019 on
+  // checkpoint 2026-09-17 (Romo) must never mute Yuan today even if a
+  // prior-day map is consulted with today's assignmentId.
   if (v === true) {
     if (!aid) return true;
     const hasOcc = Object.keys(map).some(k => k !== tid && !!map[k]);
@@ -26120,9 +26123,17 @@ function modStrikeCheckpointMapHas(map, teamId, assignmentId) {
       const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
         ? adminState.assignments : [];
       const asgn = list.find(a => a && String(a.id) === aid);
-      if (asgn && today && String(asgn.date || '') >= today) return false;
-    } catch (_) {}
-    return true;
+      if (asgn) {
+        if (today && String(asgn.date || '') >= today) return false;
+        return true;
+      }
+      // Unknown assignmentId · do not apply bare-team mute. Occurrence
+      // keys are preferred; failing open avoids a prior-day bare mute
+      // hitching today's Yuan (or any not-yet-loaded booking).
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
   // teamId → assignmentId binding (or accidental string stamp).
   if (aid && String(v) === aid) return true;
@@ -39029,6 +39040,52 @@ function clearOperatorProgressForNewBooking(reason) {
   return true;
 }
 
+// Presence / synthetic remote rows are location shells — never bind
+// Booking / Session progress from them when an ss_od_* (or real
+// assignment) SessionState exists for the live booking.
+function isGeoPresenceOrRemoteAssignmentId(id) {
+  const s = String(id || '').trim().toLowerCase();
+  return s.startsWith('geo_presence_') || s.startsWith('asgn_remote_');
+}
+
+function isGeoPresenceOrRemoteSessionStateRow(r) {
+  if (!r) return false;
+  if (isGeoPresenceOrRemoteAssignmentId(r.assignmentId)) return true;
+  const sid = String(r.sessionStateId || '').trim().toLowerCase();
+  return sid.startsWith('ss_geo_presence_') || sid.startsWith('ss_asgn_remote_');
+}
+
+function assignmentIdFromSessionStateId(sid, orbitLoginId) {
+  const raw = String(sid || '').trim();
+  if (!raw) return '';
+  const lo = raw.toLowerCase();
+  if (!lo.startsWith('ss_')) return '';
+  let rest = raw.slice(3);
+  const safe = (typeof sessionStateOrbitSafe === 'function')
+    ? sessionStateOrbitSafe(orbitLoginId)
+    : String(orbitLoginId || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (safe) {
+    const suffix = '_' + safe;
+    if (rest.toLowerCase().endsWith(suffix)) {
+      rest = rest.slice(0, rest.length - suffix.length);
+    }
+  }
+  return rest;
+}
+
+function sessionStateRowResolvedAssignmentId(r) {
+  if (!r) return '';
+  const direct = String(r.assignmentId || '').trim();
+  if (direct) return direct;
+  const parsed = (typeof parseSessionStateJson === 'function')
+    ? parseSessionStateJson(r)
+    : null;
+  if (parsed && parsed.assignmentId != null && String(parsed.assignmentId).trim() !== '') {
+    return String(parsed.assignmentId).trim();
+  }
+  return assignmentIdFromSessionStateId(r.sessionStateId, r.orbitLoginId);
+}
+
 // SessionState rows may carry assignmentId on the row, inside stateJson,
 // or only in sessionStateId (ss_{asgnId}_{orbit}). Performance + Lakitu
 // lookups share this matcher so status and URLs stay aligned.
@@ -39259,7 +39316,17 @@ function pickLatestTeamProgress(rows, opts) {
     if (exclude && orbit === exclude) continue;
     const parsed = parseSessionStateJson(r);
     if (parsed.type === 'appSetting') continue;
-    if (assignmentId && !assignmentIdsMatch(r.assignmentId, assignmentId)) continue;
+    // Never bind Booking/Session from geo_presence / asgn_remote when
+    // targeting a live assignment (or team fallback). Presence rows are
+    // location shells; ss_od_{schedule}_{login} is authoritative.
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
+    if (assignmentId) {
+      const matches = (typeof sessionStateRowMatchesAssignment === 'function')
+        ? sessionStateRowMatchesAssignment(r, assignmentId)
+        : assignmentIdsMatch(r.assignmentId, assignmentId);
+      if (!matches) continue;
+    }
     if (teamId) {
       const rowTeam = sessionStateRowTeamId(r, asgnTeamMap);
       if (rowTeam && String(rowTeam) !== String(teamId)) continue;
@@ -39403,6 +39470,10 @@ function buildSessionStateCloudPayload(asgn, reason) {
     lastGeoAt:      geo && geo.at != null ? geo.at : '',
     lastGeoName:    geo && geo.name ? String(geo.name) : '',
     lastGeoRole:    geo && geo.role ? String(geo.role) : '',
+    // PA WRITE caveat: SessionState Write expects stateJson as a String.
+    // Posting a nested `{ state: object }` (or non-string stateJson) can
+    // wipe SharePoint stateJson to null (seen on Venkata SS 453). Always
+    // JSON.stringify the syncable blob. Do not change PA flows from here.
     stateJson:      JSON.stringify(syncable),
     lastActive:     new Date().toISOString(),
     appVersion:     APP_VERSION,
@@ -39896,8 +39967,12 @@ function newestSessionStatePerUser(rows) {
   if (!Array.isArray(rows)) return [];
   const newest = new Map();  // key: `${orbitId}|${asgnId}` → row
   for (const r of rows) {
-    if (!r || !r.orbitLoginId || !r.assignmentId) continue;
-    const key = `${String(r.orbitLoginId).toLowerCase()}|${String(r.assignmentId)}`;
+    if (!r || !r.orbitLoginId) continue;
+    const aid = (typeof sessionStateRowResolvedAssignmentId === 'function')
+      ? sessionStateRowResolvedAssignmentId(r)
+      : String(r.assignmentId || '').trim();
+    if (!aid) continue;
+    const key = `${String(r.orbitLoginId).toLowerCase()}|${aid}`;
     const prev = newest.get(key);
     const prevMs = prev ? parseLastActiveMs(prev.lastActive) : 0;
     const nextMs = parseLastActiveMs(r.lastActive);
@@ -40180,9 +40255,14 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
   let winner = null;
   let winnerMs = 0;
   for (const r of rows) {
-    if (!r || !r.orbitLoginId || !r.assignmentId) continue;
+    if (!r || !r.orbitLoginId) continue;
     if (String(r.orbitLoginId).toLowerCase() !== myIdLower) continue;
-    if (!assignmentIdsMatch(r.assignmentId, asgn.id)) continue;
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
+    const matches = (typeof sessionStateRowMatchesAssignment === 'function')
+      ? sessionStateRowMatchesAssignment(r, asgn.id)
+      : assignmentIdsMatch(r.assignmentId, asgn.id);
+    if (!matches) continue;
     const ms = parseLastActiveMs(r.lastActive);
     if (!winner || ms >= winnerMs) {
       winner = r;
