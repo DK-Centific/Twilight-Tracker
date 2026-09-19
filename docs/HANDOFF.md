@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · Moderator Hub List column visibility (1.3.091818u)
+**Last updated:** 2026-09-18 · Cursor · Moderator Hub LoginRole filter + Overview deep-link (1.3.091818w)
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,12 +9,14 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818u`** on `main` (Moderator Hub List Columns menu) |
+| **`main` version** | **`1.3.091818w`** on `main` (Moderator Hub LoginRole filter + Overview deep-link) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
 
 ### This session (2026-09-18 PT)
+
+- **v1.3.091818w** — Moderator Hub **Role** filter (LoginRole: All / Moderator / Reviewer / Admin / Master Admin). Default **Moderator**. Persisted in `adminState.modRoleFilter` + `localStorage` (`orbit_mod_role_filter`). Applies to Grid cards + List table + `#modCount` on All view. **Overview → Moderators tile** deep-links with `modRoleFilter: 'Mod'` (forces Moderator even if prior choice differed). Add User / Edit / Strike unchanged on visible rows.
 
 - **v1.3.091818u** — Moderator Hub **List** view: real **Columns** visibility menu (Participants pattern). Grid keeps cards-per-row select; List shows show/hide for table fields. Always-on: Name, Twilight Login ID, Actions. Optional: Role, Status, Phone, Centific Email (default on) + Personal Email, Vehicle Type, Strikes (default off). Prefs: `twilight_mod_list_columns_v1`.
 
