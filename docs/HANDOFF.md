@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor Cloud Agent · Mod strike checkpoint attention (Live glow + banner Strike, PR #113)  
+**Last updated:** 2026-09-18 · Grok · Save links Lakitu blank fix (1.3.091818q)
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,10 +9,14 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091728k`** on `main` |
+| **`main` version** | **`1.3.091818q`** on `main` (Save links Lakitu blank fix) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
+
+### This session (2026-09-18 PT)
+
+- **v1.3.091818q** — Admin Booking **Save links** no longer blanks the Lakitu/Ring selects after Night Time migration. Legacy `centific-*` keys are canonicalized to `night-time-*` for the picker; Save force-stamps the assignment (gap-fill alone left alias keys that matched no `<option>`).
 
 ### Recently shipped on `main` (Sep 16)
 
