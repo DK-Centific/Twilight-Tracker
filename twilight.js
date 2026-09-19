@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820b';
-const APP_UPDATED_AT = '09/18/2026 20:57';
+const APP_VERSION = '1.3.091820e';
+const APP_UPDATED_AT = '09/18/2026 22:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -2754,6 +2754,45 @@ let _scenarioFlowTicking = false;
 let _scenarioFlowSnapping = false;
 let _scenarioFlowLayoutBound = false;
 let _scenarioFlowXLockH = 0;
+let _scenarioFlowLayoutSig = '';
+let _scenarioFlowPaintSig = '';
+let _scenarioFlowSnapUnlockTimer = null;
+let _scenarioFlowAdvanceTimer = null;
+let _scenarioFlowSavedScroll = 0;
+let _scenarioFlowFromNum = '';
+let _scenarioFlowUnlockRaf = 0;
+/** Soft 2D slide knobs (Jimmy). Easy to retune without hunting call sites. */
+const SCENARIO_FLOW_SMOOTH_MS = 520;
+const SCENARIO_FLOW_AUTO_UNLOCK_MS = 70;
+const SCENARIO_FLOW_ADVANCE_SETTLE_MS = 360;
+
+/** Narrow / phone layout used by Stations accordion + scenario flow. */
+function isScenarioFlowMobile() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Smooth for user/Uploaded unless reduced-motion or explicit auto. */
+function scenarioFlowSnapBehavior(requested) {
+  if (requested === 'auto') return 'auto';
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return 'auto';
+    }
+  } catch (_) {}
+  return requested === 'smooth' ? 'smooth' : 'auto';
+}
+
+function scenarioFlowPrefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
 
 function isScenarioFlowMode() {
   return typeof isStationAccordionMode === 'function' && isStationAccordionMode();
@@ -2788,9 +2827,11 @@ function setScenarioFlowAxis(axis) {
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
   const relayout = () => {
-    layoutScenarioFlowViewport();
+    if (_scenarioFlowSnapping) return;
+    _scenarioFlowLayoutSig = '';
+    layoutScenarioFlowViewport(true);
     snapScenarioFlowToFocus('auto');
-    paintScenarioFlow();
+    paintScenarioFlow(true);
   };
   requestAnimationFrame(() => {
     requestAnimationFrame(relayout);
@@ -2800,7 +2841,17 @@ function setScenarioFlowAxis(axis) {
 
 function markScenarioFlowAdvance(stationKey, num) {
   if (!isScenarioFlowMode()) return;
-  _scenarioFlowAdvanceOnComplete = { key: String(stationKey || ''), num: String(num || '') };
+  const root = document.getElementById('scenarioFlow');
+  const vp = document.getElementById('scenarioFlowViewport');
+  const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
+  const scroll = vp ? (axis === 'x' ? vp.scrollLeft : vp.scrollTop) : 0;
+  _scenarioFlowSavedScroll = scroll;
+  _scenarioFlowAdvanceOnComplete = {
+    key: String(stationKey || ''),
+    num: String(num || ''),
+    fromNum: String(num || ''),
+    scroll: scroll
+  };
 }
 
 function nextOpenScenarioNumAfter(stationKey, doneNum) {
@@ -2941,7 +2992,8 @@ function scenarioFlowTileNaturalHeight(tile) {
   return Math.max(1, h);
 }
 
-function layoutScenarioFlowViewport() {
+function layoutScenarioFlowViewport(force) {
+  if (_scenarioFlowSnapping && !force) return;
   const root = document.getElementById('scenarioFlow');
   const vp = document.getElementById('scenarioFlowViewport');
   const start = document.getElementById('scenarioFlowStart');
@@ -2951,6 +3003,20 @@ function layoutScenarioFlowViewport() {
   const tiles = [...vp.querySelectorAll('.sc-flow-tile')];
   if (!tiles.length) return;
   const peek = SCENARIO_FLOW_PEEK;
+  // Skip mid-scroll / poll thrash when axis + tile count + viewport box unchanged.
+  const box = vp.getBoundingClientRect();
+  const sig = [
+    axis,
+    tiles.length,
+    Math.round(box.width),
+    Math.round(box.height),
+    Math.round(window.innerHeight),
+    _scenarioFlowXLockH
+  ].join('|');
+  if (!force && sig === _scenarioFlowLayoutSig && (vp.style.height || axis === 'x')) {
+    return;
+  }
+  _scenarioFlowLayoutSig = sig;
 
   tiles.forEach(el => {
     el.style.width = '';
@@ -3030,9 +3096,11 @@ function bindScenarioFlowLayoutWatch() {
     if (t) clearTimeout(t);
     t = setTimeout(() => {
       if (!document.getElementById('scenarioFlowViewport')) return;
-      layoutScenarioFlowViewport();
+      if (_scenarioFlowSnapping) return;
+      _scenarioFlowLayoutSig = '';
+      layoutScenarioFlowViewport(true);
       snapScenarioFlowToFocus('auto');
-      paintScenarioFlow();
+      paintScenarioFlow(true);
     }, 120);
   });
 }
@@ -3084,64 +3152,62 @@ function scenarioFlowTileCenter(tile, axis) {
     : tile.offsetTop + tile.offsetHeight / 2;
 }
 
-function paintScenarioFlow() {
+function paintScenarioFlow(force) {
   const root = document.getElementById('scenarioFlow');
   const vp = document.getElementById('scenarioFlowViewport');
   if (!root || !vp) return;
   const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+  const scroll = axis === 'x' ? vp.scrollLeft : vp.scrollTop;
   const mid = axis === 'x'
     ? vp.scrollLeft + vp.clientWidth / 2
     : vp.scrollTop + vp.clientHeight / 2;
-  const reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const focusLock = _scenarioFlowSnapping && _scenarioFlowFocusNum;
+  const tiles = [...vp.querySelectorAll('.sc-flow-tile')];
+  let focusNum = focusLock ? _scenarioFlowFocusNum : '';
+  if (!focusNum) {
+    let best = { num: '', dist: Infinity };
+    tiles.forEach(tile => {
+      const dist = Math.abs(scenarioFlowTileCenter(tile, axis) - mid);
+      if (dist < best.dist) best = { num: tile.getAttribute('data-num') || '', dist };
+    });
+    focusNum = best.num;
+  }
+  const paintSig = [
+    axis,
+    focusNum || '',
+    Math.round(scroll),
+    tiles.length,
+    focusLock ? '1' : '0'
+  ].join('|');
+  if (!force && paintSig === _scenarioFlowPaintSig) return;
+  _scenarioFlowPaintSig = paintSig;
+
   let anyCurrent = false;
-  vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
-    const span = Math.max(1, axis === 'x' ? tile.offsetWidth : tile.offsetHeight);
-    const offset = (scenarioFlowTileCenter(tile, axis) - mid) / span;
-    const abs = Math.min(1.15, Math.abs(offset));
-    const focused = abs < 0.38;
+  tiles.forEach(tile => {
+    const num = tile.getAttribute('data-num') || '';
+    const focused = !!(focusNum && num === focusNum);
     const face = tile.querySelector('.sc-flow-face');
-    tile.style.opacity = '';
-    tile.style.transform = '';
-    tile.classList.toggle('is-current', focused);
-    tile.setAttribute('aria-current', focused ? 'true' : 'false');
-    tile.style.zIndex = String(Math.round(24 - abs * 10));
+    // Soft 2D: CSS drives scale/opacity via .is-current — clear legacy inline FX only if set.
+    if (tile.style.opacity) tile.style.opacity = '';
+    if (tile.style.transform) tile.style.transform = '';
     if (face) {
-      if (reduce) {
-        face.style.filter = '';
-        face.style.opacity = focused ? '1' : '0.5';
-        face.style.transform = '';
-      } else {
-        const blur = focused ? '0' : Math.min(2.1, abs * 2.4).toFixed(2);
-        const opac = focused ? '1' : Math.max(0.58, 1 - abs * 0.36).toFixed(3);
-        const scale = focused ? '1' : Math.max(0.84, 1 - abs * 0.14).toFixed(3);
-        const deg = focused ? 0 : Math.max(-22, Math.min(22, offset * 20));
-        const depth = focused ? 0 : -Math.min(64, abs * 56);
-        const twist = axis === 'x'
-          ? 'translateZ(' + depth.toFixed(1) + 'px) rotateY(' + (-deg).toFixed(2) + 'deg) '
-          : 'translateZ(' + depth.toFixed(1) + 'px) rotateX(' + deg.toFixed(2) + 'deg) ';
-        face.style.filter = focused ? 'blur(0px)' : 'blur(' + blur + 'px)';
-        face.style.opacity = opac;
-        face.style.transform = twist + 'scale(' + scale + ')';
-      }
+      if (face.style.filter) face.style.filter = '';
+      if (face.style.opacity) face.style.opacity = '';
+      if (face.style.transform) face.style.transform = '';
     }
+    if (tile.classList.contains('is-current') !== focused) {
+      tile.classList.toggle('is-current', focused);
+    }
+    tile.setAttribute('aria-current', focused ? 'true' : 'false');
+    tile.style.zIndex = focused ? '3' : '1';
     if (focused) anyCurrent = true;
   });
-  if (!anyCurrent) {
-    const num = nearestScenarioFlowNum();
-    const tile = num ? vp.querySelector('.sc-flow-tile[data-num="' + num + '"]') : null;
-    const face = tile && tile.querySelector('.sc-flow-face');
-    if (tile) {
-      tile.classList.add('is-current');
-      tile.setAttribute('aria-current', 'true');
-    }
-    if (face) {
-      face.style.filter = 'blur(0px)';
-      face.style.opacity = '1';
-      face.style.transform = 'scale(1)';
-    }
+  if (!anyCurrent && tiles[0]) {
+    tiles[0].classList.add('is-current');
+    tiles[0].setAttribute('aria-current', 'true');
+    tiles[0].style.zIndex = '3';
   }
   updateScenarioFlowCount();
-  const tiles = [...vp.querySelectorAll('.sc-flow-tile')];
   const cur = tiles.findIndex(t => t.classList.contains('is-current'));
   const prevBtn = root.querySelector('.sc-flow-nav-prev');
   const nextBtn = root.querySelector('.sc-flow-nav-next');
@@ -3177,35 +3243,143 @@ function nearestScenarioFlowNum() {
   return best.num;
 }
 
-function snapScenarioFlowToFocus(behavior) {
+function scenarioFlowTargetScroll(vp, tile, axis) {
+  if (axis === 'x') {
+    return Math.max(0, tile.offsetLeft - (vp.clientWidth - tile.offsetWidth) / 2);
+  }
+  return Math.max(0, tile.offsetTop - (vp.clientHeight - tile.offsetHeight) / 2);
+}
+
+function scenarioFlowScrollPos(vp, axis) {
+  return axis === 'x' ? vp.scrollLeft : vp.scrollTop;
+}
+
+function scenarioFlowSetScroll(vp, axis, pos, behavior) {
+  if (axis === 'x') vp.scrollTo({ left: pos, top: 0, behavior: behavior || 'auto' });
+  else vp.scrollTo({ left: 0, top: pos, behavior: behavior || 'auto' });
+}
+
+function scenarioFlowBeginProgrammatic(root) {
+  _scenarioFlowSnapping = true;
+  if (root) root.classList.add('is-snapping', 'is-programmatic-scroll');
+}
+
+function scenarioFlowEndProgrammatic(root) {
+  if (_scenarioFlowSnapUnlockTimer) {
+    clearTimeout(_scenarioFlowSnapUnlockTimer);
+    _scenarioFlowSnapUnlockTimer = null;
+  }
+  if (_scenarioFlowUnlockRaf) {
+    cancelAnimationFrame(_scenarioFlowUnlockRaf);
+    _scenarioFlowUnlockRaf = 0;
+  }
+  _scenarioFlowSnapping = false;
+  _scenarioFlowFromNum = '';
+  if (root) root.classList.remove('is-snapping', 'is-programmatic-scroll', 'is-scrolling');
+}
+
+/** Hold lock until scroll is within ~2px of target or scrollend (AHP). */
+function scenarioFlowWatchUnlock(vp, axis, target, root) {
+  const NEAR = 2;
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    try { vp.removeEventListener('scrollend', onScrollEnd); } catch (_) {}
+    try { vp.removeEventListener('scroll', onScrollCheck); } catch (_) {}
+    scenarioFlowEndProgrammatic(root);
+    const pos = scenarioFlowScrollPos(vp, axis);
+    _scenarioFlowSavedScroll = pos;
+    paintScenarioFlow(true);
+  };
+  const near = () => Math.abs(scenarioFlowScrollPos(vp, axis) - target) <= NEAR;
+  const onScrollEnd = () => { finish(); };
+  const onScrollCheck = () => { if (near()) finish(); };
+  try { vp.addEventListener('scrollend', onScrollEnd, { once: true }); } catch (_) {}
+  vp.addEventListener('scroll', onScrollCheck, { passive: true });
+  const tick = () => {
+    if (finished) return;
+    if (near()) { finish(); return; }
+    _scenarioFlowUnlockRaf = requestAnimationFrame(tick);
+  };
+  _scenarioFlowUnlockRaf = requestAnimationFrame(tick);
+  // Safety net only — prefer settle-based unlock above.
+  if (_scenarioFlowSnapUnlockTimer) clearTimeout(_scenarioFlowSnapUnlockTimer);
+  _scenarioFlowSnapUnlockTimer = window.setTimeout(finish, SCENARIO_FLOW_SMOOTH_MS + 240);
+}
+
+/**
+ * Snap/scroll focused tile into center.
+ * behavior 'smooth' = intentional (Uploaded / nav / tap);
+ * 'auto' = remount restore / reduced-motion.
+ * opts.fromNum | opts.restoreScroll: seed position before smooth slide (AHP).
+ */
+function snapScenarioFlowToFocus(behavior, opts) {
+  const o = opts || {};
   const root = document.getElementById('scenarioFlow');
   const vp = document.getElementById('scenarioFlowViewport');
   if (!vp) return;
   const num = _scenarioFlowFocusNum;
   const tile = num ? vp.querySelector('.sc-flow-tile[data-num="' + num + '"]') : vp.querySelector('.sc-flow-tile');
   if (!tile) return;
-  _scenarioFlowSnapping = true;
   const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
-  const smooth = behavior === 'smooth';
-  if (axis === 'x') {
-    const left = tile.offsetLeft - (vp.clientWidth - tile.offsetWidth) / 2;
-    vp.scrollTo({ left: Math.max(0, left), top: 0, behavior: smooth ? 'smooth' : 'auto' });
-  } else {
-    const top = tile.offsetTop - (vp.clientHeight - tile.offsetHeight) / 2;
-    vp.scrollTo({ left: 0, top: Math.max(0, top), behavior: smooth ? 'smooth' : 'auto' });
+  const target = scenarioFlowTargetScroll(vp, tile, axis);
+  const resolved = scenarioFlowSnapBehavior(behavior);
+  const smooth = resolved === 'smooth';
+  const cur = scenarioFlowScrollPos(vp, axis);
+
+  // Same tile / already centered: no-op.
+  if (Math.abs(cur - target) < 1.5 && !o.fromNum && o.restoreScroll == null) {
+    paintScenarioFlow(true);
+    scenarioFlowEndProgrammatic(root);
+    _scenarioFlowSavedScroll = cur;
+    return;
   }
-  paintScenarioFlow();
-  if (axis === 'x') {
-    paintScenarioFlow();
-  }
-  window.setTimeout(() => { _scenarioFlowSnapping = false; }, smooth ? 280 : 70);
+
+  scenarioFlowBeginProgrammatic(root);
+  paintScenarioFlow(true); // focusLock on _scenarioFlowFocusNum
+
+  const seedThenGo = () => {
+    // Instant seed: previous tile or restored scroll so smooth has a real start.
+    if (smooth) {
+      const fromNum = o.fromNum || _scenarioFlowFromNum || '';
+      let seeded = false;
+      if (fromNum && fromNum !== num) {
+        const fromTile = vp.querySelector('.sc-flow-tile[data-num="' + fromNum + '"]');
+        if (fromTile) {
+          scenarioFlowSetScroll(vp, axis, scenarioFlowTargetScroll(vp, fromTile, axis), 'auto');
+          seeded = true;
+        }
+      }
+      if (!seeded && o.restoreScroll != null && Number.isFinite(o.restoreScroll)) {
+        scenarioFlowSetScroll(vp, axis, Math.max(0, o.restoreScroll), 'auto');
+        seeded = true;
+      }
+      paintScenarioFlow(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scenarioFlowSetScroll(vp, axis, target, 'smooth');
+          scenarioFlowWatchUnlock(vp, axis, target, root);
+        });
+      });
+      return;
+    }
+    // Remount / reduced-motion: one instant snap, unlock when settled.
+    scenarioFlowSetScroll(vp, axis, target, 'auto');
+    paintScenarioFlow(true);
+    scenarioFlowWatchUnlock(vp, axis, target, root);
+  };
+
+  seedThenGo();
 }
 
 function stepScenarioFlow(dir) {
+  if (_scenarioFlowSnapping) return;
   const root = document.getElementById('scenarioFlow');
   if (!root) return;
   const tiles = [...root.querySelectorAll('.sc-flow-tile')];
   if (!tiles.length) return;
+  // Focus from INDEX — never nearestScenarioFlowNum mid-animation.
   const cur = tiles.findIndex(t => (t.getAttribute('data-num') || '') === _scenarioFlowFocusNum);
   const idx = Math.max(0, Math.min(tiles.length - 1, (cur < 0 ? 0 : cur) + (dir < 0 ? -1 : 1)));
   const next = tiles[idx];
@@ -3222,9 +3396,10 @@ function stepScenarioFlow(dir) {
       return;
     }
   }
+  if (nextNum === _scenarioFlowFocusNum) return;
+  _scenarioFlowFromNum = curNum;
   _scenarioFlowFocusNum = nextNum;
-  snapScenarioFlowToFocus('smooth');
-  requestAnimationFrame(paintScenarioFlow);
+  snapScenarioFlowToFocus('smooth', { fromNum: curNum });
 }
 
 function onScenarioFlowScroll() {
@@ -3244,9 +3419,22 @@ function onScenarioFlowScroll() {
       _scenarioFlowFocusNum = num;
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
     }
+    const vp = document.getElementById('scenarioFlowViewport');
+    const axis = root && root.dataset.axis === 'x' ? 'x' : 'y';
+    if (vp) _scenarioFlowSavedScroll = scenarioFlowScrollPos(vp, axis);
     if (root) root.classList.remove('is-scrolling');
-    paintScenarioFlow();
+    paintScenarioFlow(true);
   }, 160);
+}
+
+/** Soft poll path: flow DOM intact — do not remount-snap or rewrite layout. */
+function softBindScenarioFlowAfterPoll() {
+  const root = document.getElementById('scenarioFlow');
+  const vp = document.getElementById('scenarioFlowViewport');
+  if (!root || !vp) return;
+  syncNavScenarioAxes();
+  if (_scenarioFlowSnapping) return;
+  paintScenarioFlow();
 }
 
 function bindScenarioFlow() {
@@ -3267,28 +3455,63 @@ function bindScenarioFlow() {
     vp.querySelectorAll('.sc-flow-tile').forEach(tile => {
       tile.addEventListener('click', e => {
         if (e.target.closest('button, input, textarea, a, .iter-stepper, .scenario-status-group, .record-flow, .cal-rig-card, .sc-scen-pencil, label')) return;
+        if (_scenarioFlowSnapping) return;
         const num = tile.getAttribute('data-num');
-        if (!num) return;
+        if (!num || num === _scenarioFlowFocusNum) return;
+        _scenarioFlowFromNum = _scenarioFlowFocusNum;
         _scenarioFlowFocusNum = num;
-        snapScenarioFlowToFocus('smooth');
-        requestAnimationFrame(paintScenarioFlow);
+        snapScenarioFlowToFocus('smooth', { fromNum: _scenarioFlowFromNum });
       });
     });
   }
   const stationKey = root.dataset.station || '';
-  const afterLayout = (behavior) => {
-    layoutScenarioFlowViewport();
-    snapScenarioFlowToFocus(behavior);
-    paintScenarioFlow();
-  };
+  _scenarioFlowLayoutSig = '';
+  _scenarioFlowPaintSig = '';
+
+  if (_scenarioFlowAdvanceTimer) {
+    clearTimeout(_scenarioFlowAdvanceTimer);
+    _scenarioFlowAdvanceTimer = null;
+  }
+
+  // ---- Uploaded / complete → intentional smooth advance (AHP + Jimmy) ----
   if (_scenarioFlowAdvanceOnComplete && _scenarioFlowAdvanceOnComplete.key === stationKey) {
-    const doneNum = _scenarioFlowAdvanceOnComplete.num;
+    if (_scenarioFlowSnapping && _scenarioFlowSnapUnlockTimer) {
+      _scenarioFlowAdvanceOnComplete = null;
+      return;
+    }
+    const adv = _scenarioFlowAdvanceOnComplete;
     _scenarioFlowAdvanceOnComplete = null;
+    const doneNum = adv.num;
+    const fromNum = adv.fromNum || doneNum;
+    const restoreScroll = (adv.scroll != null) ? adv.scroll : _scenarioFlowSavedScroll;
     _scenarioFlowStationKey = stationKey;
     _scenarioFlowFocusNum = nextOpenScenarioNumAfter(stationKey, doneNum) || doneNum;
-    requestAnimationFrame(() => afterLayout('smooth'));
+    _scenarioFlowFromNum = fromNum;
+    scenarioFlowBeginProgrammatic(root);
+    requestAnimationFrame(() => {
+      layoutScenarioFlowViewport(true);
+      // Seed at previous tile / saved scroll immediately (kills scroll=0 → 02 flash).
+      const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+      const fromTile = fromNum ? vp.querySelector('.sc-flow-tile[data-num="' + fromNum + '"]') : null;
+      if (fromTile) {
+        scenarioFlowSetScroll(vp, axis, scenarioFlowTargetScroll(vp, fromTile, axis), 'auto');
+      } else if (restoreScroll != null) {
+        scenarioFlowSetScroll(vp, axis, Math.max(0, restoreScroll), 'auto');
+      }
+      paintScenarioFlow(true);
+      const settle = scenarioFlowPrefersReducedMotion() ? 0 : SCENARIO_FLOW_ADVANCE_SETTLE_MS;
+      _scenarioFlowAdvanceTimer = window.setTimeout(() => {
+        _scenarioFlowAdvanceTimer = null;
+        snapScenarioFlowToFocus(
+          scenarioFlowPrefersReducedMotion() ? 'auto' : 'smooth',
+          { fromNum: fromNum, restoreScroll: restoreScroll }
+        );
+      }, settle);
+    });
     return;
   }
+
+  // ---- Remount (iter / poll wipe / axis): keep focus, one auto snap ----
   const focusStillHere = _scenarioFlowFocusNum
     && vp.querySelector('.sc-flow-tile[data-num="' + _scenarioFlowFocusNum + '"]');
   if (_scenarioFlowStationKey !== stationKey || !focusStillHere) {
@@ -3297,12 +3520,22 @@ function bindScenarioFlow() {
     const st = STATIONS.find(s => s.key === stationKey);
     const data = st && state.stations ? state.stations[st.key] : null;
     _scenarioFlowFocusNum = firstOpenScenarioNum(st, data);
+  } else {
+    _scenarioFlowStationKey = stationKey;
   }
+
+  scenarioFlowBeginProgrammatic(root);
   requestAnimationFrame(() => {
-    afterLayout('auto');
-    requestAnimationFrame(() => afterLayout('auto'));
-    setTimeout(() => afterLayout('auto'), 180);
-    setTimeout(() => afterLayout('auto'), 420);
+    layoutScenarioFlowViewport(true);
+    const axis = root.dataset.axis === 'x' ? 'x' : 'y';
+    // Restore prior scroll before auto-centering so we never paint at scroll=0.
+    if (_scenarioFlowSavedScroll > 0) {
+      scenarioFlowSetScroll(vp, axis, _scenarioFlowSavedScroll, 'auto');
+    }
+    paintScenarioFlow(true);
+    requestAnimationFrame(() => {
+      snapScenarioFlowToFocus('auto', { restoreScroll: _scenarioFlowSavedScroll });
+    });
   });
 }
 
@@ -4245,10 +4478,68 @@ function mountAccordionStepper(openKey) {
   });
 }
 
+function stationOpenContentSig(key) {
+  const data = state.stations && state.stations[key];
+  if (!data) return '';
+  const parts = [];
+  const sc = data.scenarios || {};
+  Object.keys(sc).sort().forEach(n => {
+    const r = sc[n] || {};
+    parts.push([
+      n,
+      r.status || '',
+      r.iterations || 0,
+      String(r.notes || '').length,
+      r.rig1 ? 1 : 0,
+      r.rig2 ? 1 : 0
+    ].join(':'));
+  });
+  const cams = data.cameras || {};
+  parts.push('c:' + Object.keys(cams).filter(k => cams[k]).sort().join(','));
+  if (typeof getScenarioFlowAxis === 'function') parts.push('axis:' + getScenarioFlowAxis());
+  if (typeof stationApprovalBlocksAdvance === 'function') {
+    parts.push('appr:' + (stationApprovalBlocksAdvance(key) ? '1' : '0'));
+  }
+  return parts.join('|');
+}
+
+function patchAccordionHeaderStatuses(root) {
+  if (!root) return;
+  root.querySelectorAll('.acc-item').forEach(item => {
+    const key = item.getAttribute('data-key') || '';
+    if (!key) return;
+    const status = typeof getStationStatus === 'function' ? getStationStatus(key) : '';
+    const pill = item.querySelector('.status-pill, .acc-status, .acc-head .status-pill');
+    // Best-effort: update known pill class tokens without rebuilding HTML.
+    item.querySelectorAll('.status-pill').forEach(el => {
+      el.classList.remove('complete', 'inprogress', 'pending', 'notstarted');
+      if (status) el.classList.add(status);
+      if (typeof pillLabel === 'function') el.textContent = pillLabel(status);
+    });
+  });
+}
+
 function renderStationsAccordion() {
   const c = document.getElementById('content');
   if (!c) return;
   const openKey = _accordionCollapsed ? null : currentStationKey;
+
+  // AHP flash fix: poll / teammate-echo with unchanged open-station signature
+  // must NOT wipe tile innerHTML (that resets scroll=0 and restyles faces).
+  if (!_scenarioFlowAdvanceOnComplete && openKey) {
+    const existing = c.querySelector('.station-accordion');
+    const inner = c.querySelector('.acc-inner[data-key="' + openKey + '"]');
+    const sig = typeof stationOpenContentSig === 'function' ? stationOpenContentSig(openKey) : '';
+    if (existing && inner && sig && inner.dataset.contentSig === sig
+        && inner.querySelector('#scenarioFlow')) {
+      patchAccordionHeaderStatuses(c);
+      mountAccordionStepper(openKey);
+      placeMobileStationActions(inner);
+      softBindScenarioFlowAfterPoll();
+      syncNavScenarioAxes();
+      return;
+    }
+  }
 
   // My Session drawer sits above the accordion (mobile-only context).
   // The up/down stepper is mounted on document.body (not here) so
@@ -4303,7 +4594,12 @@ function renderStationsAccordion() {
   // the drawer's fields still work.
   if (openKey != null) {
     const inner = c.querySelector(`.acc-inner[data-key="${openKey}"]`);
-    if (inner) renderStation(openKey, { container: inner, omitTitle: true });
+    if (inner) {
+      renderStation(openKey, { container: inner, omitTitle: true });
+      if (typeof stationOpenContentSig === 'function') {
+        inner.dataset.contentSig = stationOpenContentSig(openKey);
+      }
+    }
     placeMobileStationActions(inner);
   } else if (typeof bindEntryFields === 'function') {
     bindEntryFields();
@@ -4382,7 +4678,12 @@ function onAccordionHeadTap(key) {
   _accordionCollapsed = false;
   currentStationKey = key;
   const inner = tapped.querySelector('.acc-inner');
-  if (inner) renderStation(key, { container: inner, omitTitle: true });
+  if (inner) {
+    renderStation(key, { container: inner, omitTitle: true });
+    if (typeof stationOpenContentSig === 'function') {
+      inner.dataset.contentSig = stationOpenContentSig(key);
+    }
+  }
   placeMobileStationActions(inner);
   mountAccordionStepper(key);
   requestAnimationFrame(() => {
@@ -4503,8 +4804,9 @@ function stationActionsHTML(station, data) {
   const stationCode = STATION_KEY_TO_STATUS[station.key];
   const stationAlreadySubmitted = myStatus && stationCode && statusOrderIdx(myStatus.status) >= statusOrderIdx(stationCode);
 
+  const stationComplete = (total > 0 && unresolved === 0);
   return `
-    <div class="actions-bar">
+    <div class="actions-bar${stationComplete ? ' is-station-complete' : ''}" data-station-complete="${stationComplete ? '1' : '0'}">
       ${reminder}
       <div class="left">
         <span class="station-summary">
@@ -5571,7 +5873,7 @@ function calGuideInlineHTML() {
   return `
     <div class="cal-guide-inline${acked ? ' is-acked' : ''}">
       <div class="cal-guide-inline-copy">
-        <strong>${acked ? 'Guide acknowledged this session' : 'Before you record'}</strong>
+        <strong>${acked ? 'Guide acknowledged' : 'Before you record'}</strong>
         <span>Motion Detection OFF · recordings at least 90 seconds · follow the calibration guide.</span>
       </div>
       <button type="button" class="cal-guide-inline-btn" onclick="openCalGuideForAck()">
@@ -6399,6 +6701,99 @@ function decorateApprovalGate(c, station) {
 }
 
 // --- poll: mirror cloud decisions into local gates + client auto-approve ---
+
+// --- Approval day-gate binding (1.3.091820c-preview) -----------------
+// Same moderator Booking/Session policy applied to approval prompts:
+//   1. Prior incomplete / Admin Skip must not re-trigger approval UX today.
+//   2. Pre-9 AM PT overnight bleed discarded from mod-facing prompts after
+//      the day gate.
+//   3. Bind approval state to current/today assignmentId + sessionDate.
+function approvalSessionDateYmd() {
+  try {
+    const asgn = (typeof _resolveGateAssignment === 'function') ? _resolveGateAssignment() : null;
+    if (asgn && asgn.date) return String(asgn.date).trim().slice(0, 10);
+  } catch (_) {}
+  try {
+    if (typeof state !== 'undefined' && state && state.sessionDate) {
+      return String(state.sessionDate).trim().slice(0, 10);
+    }
+  } catch (_) {}
+  try {
+    if (typeof getPSTDateString === 'function') {
+      return String(getPSTDateString() || '').trim().slice(0, 10);
+    }
+  } catch (_) {}
+  return '';
+}
+
+function approvalRowSessionYmd(row) {
+  if (!row) return '';
+  const direct = String(row.session_date || row.sessionDate || '').trim().slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(direct)) return direct;
+  const raw = row.submitted_at || row.submittedAt || row.last_modified || row.decided_at || '';
+  if (!raw) return '';
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(d);
+    const y = (parts.find(p => p.type === 'year') || {}).value;
+    const m = (parts.find(p => p.type === 'month') || {}).value;
+    const day = (parts.find(p => p.type === 'day') || {}).value;
+    if (y && m && day) return y + '-' + m + '-' + day;
+  } catch (_) {}
+  return '';
+}
+
+function approvalRowBelongsToActiveSession(row, asgnId, sessionYmd) {
+  if (!row) return false;
+  const rowAsgn = String(row.assignment_id || row.assignmentId || '').trim();
+  const wantAsgn = String(asgnId || '').trim();
+  // No live assignment · never adopt cloud history (Admin Skip / unbound).
+  if (!wantAsgn) return false;
+  if (!rowAsgn || rowAsgn === 'unbound') return false;
+  const asgnMatch = (typeof assignmentIdsMatch === 'function')
+    ? assignmentIdsMatch(rowAsgn, wantAsgn)
+    : (String(rowAsgn) === String(wantAsgn));
+  if (!asgnMatch) return false;
+  const rowDay = approvalRowSessionYmd(row);
+  const wantDay = String(sessionYmd || '').trim().slice(0, 10);
+  if (wantDay && rowDay && rowDay !== wantDay) return false;
+  // Legacy rows with no parseable day: after 9 AM PT day gate, refuse so
+  // overnight bleed cannot re-prompt.
+  if (wantDay && !rowDay) {
+    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+      && isPastModStrikeCheckpointHour();
+    if (gateOpen) return false;
+  }
+  return true;
+}
+
+function scrubApprovalGateToActiveAssignment(asgnId, sessionYmd) {
+  if (typeof state === 'undefined' || !state || !state.approvalGate
+      || typeof state.approvalGate !== 'object') return;
+  const want = String(asgnId || '').trim();
+  const wantDay = String(sessionYmd || '').trim().slice(0, 10);
+  const next = {};
+  let dropped = 0;
+  Object.keys(state.approvalGate).forEach(key => {
+    const val = state.approvalGate[key];
+    if (!val || typeof val !== 'object') { dropped++; return; }
+    const keyAsgn = String(key).split('|')[0] || '';
+    const rowDay = String(val.sessionDate || val.session_date || '').trim().slice(0, 10);
+    if (want && keyAsgn && keyAsgn !== want) { dropped++; return; }
+    if (wantDay && rowDay && rowDay !== wantDay) { dropped++; return; }
+    if (want && keyAsgn === want) next[key] = val;
+    else dropped++;
+  });
+  if (dropped > 0) {
+    state.approvalGate = next;
+    try { if (typeof saveState === 'function') saveState(); } catch (_) {}
+  }
+}
+
 async function pollMyApprovals() {
   let resolved = [];
   let readOk = false;
@@ -6410,6 +6805,8 @@ async function pollMyApprovals() {
     } catch (_) { resolved = []; readOk = false; }
   }
   const asgnId = _gateAsgnId();
+  const sessionYmd = approvalSessionDateYmd();
+  scrubApprovalGateToActiveAssignment(asgnId, sessionYmd);
   const orbitId = (state.modProfile && state.modProfile.orbitLoginId) || state.username || '';
   if (orbitId) {
     for (const k of GATE_ALL_KEYS) {
@@ -6419,10 +6816,12 @@ async function pollMyApprovals() {
         const sameMod = String(a.orbit_login_id || '').toLowerCase() === String(orbitId).toLowerCase();
         const sameStation = String(a.station) === label;
         if (!sameMod || !sameStation) return false;
+        // Day-gate + assignment bind · prior incomplete / Admin Skip /
+        // overnight bleed must not re-trigger today's approval UX.
+        if (!approvalRowBelongsToActiveSession(a, asgnId, sessionYmd)) return false;
         if (g0.approvalId && String(a.approval_id) === String(g0.approvalId)) return true;
         const rowAsgn = String(a.assignment_id || '').trim();
         if (asgnId && rowAsgn === String(asgnId)) return true;
-        if (!asgnId && (!rowAsgn || rowAsgn === 'unbound')) return true;
         return false;
       });
       const g = getGate(k);
@@ -6441,6 +6840,8 @@ async function pollMyApprovals() {
             approvalId: mine.approval_id,
             resubmitCount: (mine.resubmit_count != null ? mine.resubmit_count : g.resubmitCount) || 0,
             decidedBy: mine.decided_by || '', note: mine.feedback_note || '',
+            sessionDate: sessionYmd || approvalRowSessionYmd(mine) || '',
+            assignmentId: asgnId || String(mine.assignment_id || ''),
           });
           if (!wasLocallyApproved && !isApprovalAcked(k, token)) {
             // First time this checkpoint reaches Approved locally · unlock UI
@@ -38671,6 +39072,9 @@ async function createApprovalRequest(p) {
   const station = p.station || '';
   const id = p.approval_id || `appr_${orbitId}_${asgn}_${String(station).replace(/\s+/g, '')}_${Date.now()}`;
   const nowIso = new Date().toISOString();
+  const sessionDate = (p.sessionDate && String(p.sessionDate).trim().slice(0, 10))
+    || ((typeof approvalSessionDateYmd === 'function') ? approvalSessionDateYmd() : '')
+    || ((typeof getPSTDateString === 'function') ? String(getPSTDateString() || '').trim().slice(0, 10) : '');
   const row = {
     approval_id: id,
     event_type:  p.resubmit ? 'resubmitted' : 'submitted',
@@ -38688,6 +39092,7 @@ async function createApprovalRequest(p) {
     resubmit_count: String(p.resubmitCount || 0),
     last_modified: nowIso,
     app_version: APP_VERSION,
+    session_date: sessionDate,
   };
   const ok = await writeApprovalEvent(row);
   return ok ? id : null;
@@ -39030,6 +39435,10 @@ function clearOperatorProgressForNewBooking(reason) {
   state.arrivalGeo = null;
   state.calGuideAck = null;
   state.recordLakituUrl = '';
+  // Drop gate rows for the prior booking so yesterday's Approved notice
+  // cannot re-prompt on today's session. Keep approvalAckedTokens so a
+  // Confirm for the same approval_id#resubmit never nags again.
+  state.approvalGate = {};
   // Drop stale session address so My session / fence rebind to the new
   // booking (same-id OD reschedule kept Romo address after Yuan He).
   state.participantAddress = '';
