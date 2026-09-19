@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818d',
-  /const APP_VERSION = '1\.3\.091818d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818d'));
+assert('version bump 091818r',
+  /const APP_VERSION = '1\.3\.091818r'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818r'));
 assert('overview live status strike attention glow',
   /function modStrikeCheckpointAttentionActive/.test(src)
   && /function syncOverviewLiveStatusStrikeAttention/.test(src)
@@ -97,7 +97,8 @@ assert('strike animations wired',
   && html.includes('mod-star-strike-away')
   && html.includes('mod-strike-wasted-enter'));
 assert('strike store + stars helpers',
-  /MOD_STRIKE_MAX_STARS = 3/.test(src)
+  /MOD_STRIKE_MAX_STARS = 4/.test(src)
+  && /MOD_STRIKE_LOCK_AT_LOST = 3/.test(src)
   && /function getModStrikeStars/.test(src)
   && /function maybeRunModStrikeNineAmCheckpoint/.test(src));
 assert('mod hub overlay + perf banner',
@@ -140,7 +141,10 @@ function assignmentModalNormalizeEndMin(s, e) {
 function escapeHTML(s) { return String(s); }
 function getPSTDateString() { return '2026-09-17'; }
 function toast() {}
+function syncOverviewLiveStatusStrikeAttention() {}
+function modStrikeRefreshUi() {}
 `;
+ctx.document = { querySelector() { return null; }, querySelectorAll() { return []; }, getElementById() { return null; } };
 vm.createContext(ctx);
 vm.runInContext(patched, ctx);
 
@@ -148,17 +152,35 @@ assert('warning copy level 1 bold', ctx.modStrikeWarningMessageHTML(1).includes(
 assert('warning contact line break', ctx.modStrikeWarningMessageHTML(1).includes('<br><br>Please contact'));
 assert('warning copy level 3 locked', ctx.modStrikeWarningMessageHTML(3).includes('under review.<br><br>Please contact'));
 assert('lock overlay has no wasted banner', !/mod-strike-mod-wasted/.test(src));
-assert('warning level from stars', ctx.getModStrikeWarningLevel('c-orbit') === 0);
+assert('4 stars is Ok (no warn)', ctx.getModStrikeWarningLevel('c-orbit') === 0);
+assert('4 stars not locked', !ctx.isModeratorStrikeLocked('c-orbit'));
 ctx.manualModStrike('c-orbit', 't');
-assert('one strike is warning 1', ctx.getModStrikeWarningLevel('c-orbit') === 1);
+assert('3 stars is Warning 1', ctx.getModStrikeStars('c-orbit') === 3 && ctx.getModStrikeWarningLevel('c-orbit') === 1);
+assert('3 stars not locked', !ctx.isModeratorStrikeLocked('c-orbit'));
+ctx.manualModStrike('c-orbit', 't');
+assert('2 stars is Warning 2', ctx.getModStrikeStars('c-orbit') === 2 && ctx.getModStrikeWarningLevel('c-orbit') === 2);
+assert('2 stars not locked (Final Chance is at 1★)', !ctx.isModeratorStrikeLocked('c-orbit'));
+ctx.manualModStrike('c-orbit', 't');
+assert('1 star locks until Final Chance', ctx.getModStrikeStars('c-orbit') === 1 && ctx.isModeratorStrikeLocked('c-orbit'));
+assert('1 star warn level is lock path (no Warning 1/2 popup)', ctx.getModStrikeWarningLevel('c-orbit') === 3);
+assert('Warning 1 modal not shown at 1★', !ctx.shouldShowModStrikeWarningModal('c-orbit', 1));
+assert('Warning 2 modal not shown at 1★', !ctx.shouldShowModStrikeWarningModal('c-orbit', 2));
+ctx.grantModStrikeFinalChance('c-orbit');
+assert('Final Chance unlocks at 1★', ctx.getModStrikeStars('c-orbit') === 1 && !ctx.isModeratorStrikeLocked('c-orbit'));
+ctx.manualModStrike('c-orbit', 't');
+assert('0 stars deactivates', ctx.getModStrikeStars('c-orbit') === 0 && ctx.isModeratorStrikeDeactivated('c-orbit'));
 
 for (let i = 0; i < 3; i++) ctx.manualModStrike('a-orbit', 'test');
-assert('three strikes lock account', ctx.getModStrikeStars('a-orbit') === 0 && ctx.isModeratorStrikeLocked('a-orbit'));
+assert('three strikes → 1★ lock', ctx.getModStrikeStars('a-orbit') === 1 && ctx.isModeratorStrikeLocked('a-orbit'));
 ctx.manualModStrike('b-orbit', 'test');
-assert('manual strike decrements', ctx.getModStrikeStars('b-orbit') === 2);
+assert('manual strike decrements', ctx.getModStrikeStars('b-orbit') === 3);
 ctx.resetModStrikeStars('a-orbit');
-assert('reset restores three stars', ctx.getModStrikeStars('a-orbit') === 3 && !ctx.isModeratorStrikeLocked('a-orbit'));
+assert('reset restores four stars', ctx.getModStrikeStars('a-orbit') === 4 && !ctx.isModeratorStrikeLocked('a-orbit'));
 ctx.resetModStrikeStars('b-orbit');
+ctx.resetModStrikeStars('c-orbit');
+
+assert('Final Chance UI gated at 1★', /stars === 1 && !\(typeof hasModStrikeFinalChance/.test(src));
+assert('warning ladder comment', /4→Ok, 3→Warning 1, 2→Warning 2/.test(src));
 
 const rep = ctx.buildModStrikeCheckpointReport();
 assert('report finds yesterday booking', rep.yesterday === '2026-09-16' && rep.teams.length === 1);

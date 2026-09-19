@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818q';
-const APP_UPDATED_AT = '09/18/2026 17:37';
+const APP_VERSION = '1.3.091818r';
+const APP_UPDATED_AT = '09/18/2026 17:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -5027,8 +5027,11 @@ function getModListSortValue(mod, key) {
   if (key === 'phone') return f.phoneNumber || '';
   if (key === 'centificEmail') return f.centificEmail || '';
   if (key === 'status') {
+    if (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(f.orbitLoginId)) {
+      return (state && state.appView === 'moderator') ? 'Deactivated' : 'Wasted';
+    }
     if (typeof isUserDeactivated === 'function' && isUserDeactivated(f.orbitLoginId, f)) return 'Deactivated';
-    if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(f.orbitLoginId)) return (state && state.appView === 'moderator') ? 'Locked' : 'Wasted';
+    if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(f.orbitLoginId)) return 'Locked';
     return 'Active';
   }
   return '';
@@ -19313,7 +19316,7 @@ function renderModTableHTML(mods) {
         <td class="mod-table-actions">
           ${showStrike ? `
             <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="strike" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Strike</button>
-            ${(typeof getModStrikeStars === 'function' && getModStrikeStars(f.orbitLoginId) === 2 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(f.orbitLoginId))) ? `<button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="final-chance" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Final Chance</button>` : ''}
+            ${(typeof getModStrikeStars === 'function' && getModStrikeStars(f.orbitLoginId) === 1 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(f.orbitLoginId))) ? `<button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="final-chance" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Final Chance</button>` : ''}
             <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="reset" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Reset</button>
           ` : ''}
           <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${idx}">Edit</button>
@@ -19846,11 +19849,16 @@ function renderModUserModal() {
 }
 
 function modUserStatusPillHTML(orbitId, row) {
+  if (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId)) {
+    return (typeof state !== 'undefined' && state && state.appView === 'moderator')
+      ? `<span class="mod-status-pill is-deactivated">Deactivated</span>`
+      : '<span class="mod-strike-status-plain">Wasted</span>';
+  }
   if (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, row)) {
     return `<span class="mod-status-pill is-deactivated">Deactivated</span>`;
   }
   if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) {
-    return '<span class="mod-strike-status-plain">Wasted</span>';
+    return '<span class="mod-strike-status-plain">Locked</span>';
   }
   return `<span class="mod-status-pill is-active">Active</span>`;
 }
@@ -20352,9 +20360,11 @@ function modCardHTML(m, i, role) {
 
   const isExpanded = !!adminState.expandedMods[i];
 
-  const accountStatus = (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m))
-    ? 'Deactivated'
-    : ((typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) ? ((state && state.appView === 'moderator') ? 'locked' : 'wasted · 0 stars') : 'Active');
+  const accountStatus = (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId))
+    ? ((state && state.appView === 'moderator') ? 'Deactivated' : 'Wasted')
+    : ((typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m))
+      ? 'Deactivated'
+      : ((typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) ? 'Locked' : 'Active'));
 
   const rows = [
     { label: 'Twilight Login ID', value: orbitId, mono: true },
@@ -24612,7 +24622,7 @@ function parseYMD(s) {
 const MOD_STRIKE_MAX_STARS = 4;
 /** Previous max before 4★ rollout — used once to migrate stored full/partial counts. */
 const MOD_STRIKE_PREV_MAX_STARS = 3;
-/** After this many lost stars the mod is app-locked (Wasted) but may still sign in. */
+/** After this many lost stars the mod is app-locked until Final Chance (may still sign in). */
 const MOD_STRIKE_LOCK_AT_LOST = 3;
 /** Hitting 0★ (4th strike) auto-deactivates — cannot sign in. */
 const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
@@ -24692,6 +24702,23 @@ function ingestModeratorStrikesFromSessionRows(rows) {
       }
     });
   }
+  // Normalize starScale: unstamped (3★-era) records migrate once; stamped keep remaining stars.
+  if (nextMods && typeof nextMods === 'object') {
+    Object.keys(nextMods).forEach(k => {
+      const rec = nextMods[k];
+      if (!rec || typeof rec !== 'object' || rec.stars == null) return;
+      const raw = Number(rec.stars);
+      if (!Number.isFinite(raw)) return;
+      if (modStrikeRecordIsOnCurrentScale(rec)) {
+        nextMods[k] = Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
+      } else {
+        nextMods[k] = Object.assign({}, rec, {
+          stars: migrateModStrikeStarsFromPrevMax(raw),
+          starScale: MOD_STRIKE_MAX_STARS,
+        });
+      }
+    });
+  }
   _modStrikeIngestInFlight = true;
   saveModStrikeStore({
     mods: nextMods,
@@ -24702,12 +24729,19 @@ function ingestModeratorStrikesFromSessionRows(rows) {
     Object.keys(nextMods).forEach(k => {
       const prevRec = cur.mods && cur.mods[k];
       const nextRec = nextMods[k];
-      const prevN = prevRec && prevRec.stars != null
-        ? (typeof migrateModStrikeStarsFromPrevMax === 'function' ? migrateModStrikeStarsFromPrevMax(Number(prevRec.stars)) : Number(prevRec.stars))
-        : MOD_STRIKE_MAX_STARS;
-      const nextN = nextRec && nextRec.stars != null
-        ? (typeof migrateModStrikeStarsFromPrevMax === 'function' ? migrateModStrikeStarsFromPrevMax(Number(nextRec.stars)) : Number(nextRec.stars))
-        : MOD_STRIKE_MAX_STARS;
+      const readStars = (rec) => {
+        if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
+        const raw = Number(rec.stars);
+        if (!Number.isFinite(raw)) return MOD_STRIKE_MAX_STARS;
+        if (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(rec)) {
+          return clampModStrikeStars(raw);
+        }
+        return (typeof migrateModStrikeStarsFromPrevMax === 'function')
+          ? migrateModStrikeStarsFromPrevMax(raw)
+          : raw;
+      };
+      const prevN = readStars(prevRec);
+      const nextN = readStars(nextRec);
       if (prevN !== nextN) applyModStrikeDeactivateSideEffect(k, nextN, prevN);
     });
   }
@@ -24764,7 +24798,7 @@ async function persistModeratorStrikesSetting() {
 }
 
 function migrateModStrikeStarsFromPrevMax(n) {
-  // Preserve warning depth when raising max 3 → 4:
+  // One-shot remap for pre-4★ records (no starScale stamp yet):
   // full 3→4, lost-1 2→3, lost-2 1→2, old-lock 0→1 (still lock, not deactivate).
   // New 0★ is only for the 4th strike → deactivate (can't log in).
   const prevMax = (typeof MOD_STRIKE_PREV_MAX_STARS === 'number') ? MOD_STRIKE_PREV_MAX_STARS : 3;
@@ -24782,6 +24816,17 @@ function migrateModStrikeStarsFromPrevMax(n) {
   return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, rounded));
 }
 
+function modStrikeRecordIsOnCurrentScale(rec) {
+  if (!rec || typeof rec !== 'object') return false;
+  const scale = Number(rec.starScale);
+  return Number.isFinite(scale) && scale >= MOD_STRIKE_MAX_STARS;
+}
+
+function clampModStrikeStars(n) {
+  if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
+  return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(n)));
+}
+
 function getModStrikeStars(orbitId) {
   const key = modStrikeOrbitKey(orbitId);
   if (!key) return MOD_STRIKE_MAX_STARS;
@@ -24790,7 +24835,13 @@ function getModStrikeStars(orbitId) {
   if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
   const n = Number(rec.stars);
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
-  return migrateModStrikeStarsFromPrevMax(n);
+  // Already on 4★ scale — trust stored remaining stars (do not re-run 3→4 remap).
+  if (modStrikeRecordIsOnCurrentScale(rec)) return clampModStrikeStars(n);
+  const migrated = migrateModStrikeStarsFromPrevMax(n);
+  // Persist stamp so later strikes at 3/2/1★ are not remapped as old-era values.
+  store.mods[key] = Object.assign({}, rec, { stars: migrated, starScale: MOD_STRIKE_MAX_STARS });
+  saveModStrikeStore(store);
+  return migrated;
 }
 
 function modStrikeLockRemainingStars() {
@@ -24802,8 +24853,9 @@ function modStrikeLockRemainingStars() {
 
 function isModeratorStrikeLocked(orbitId) {
   const stars = getModStrikeStars(orbitId);
-  if (stars <= 1) return true;
-  if (stars === 2) return !hasModStrikeFinalChance(orbitId);
+  // 0★ = deactivated (also treated locked for gates); 1★ = locked until Final Chance; 2★+ = open.
+  if (stars <= 0) return true;
+  if (stars === 1) return !hasModStrikeFinalChance(orbitId);
   return false;
 }
 
@@ -24826,9 +24878,11 @@ function grantModStrikeFinalChance(orbitId) {
   const store = loadModStrikeStore();
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
   const starsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-  const stars = (typeof migrateModStrikeStarsFromPrevMax === 'function')
-    ? migrateModStrikeStarsFromPrevMax(starsRaw)
-    : starsRaw;
+  const stars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+    ? clampModStrikeStars(starsRaw)
+    : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
+      ? migrateModStrikeStarsFromPrevMax(starsRaw)
+      : starsRaw);
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
   log.unshift({
     at: new Date().toISOString(),
@@ -24837,7 +24891,8 @@ function grantModStrikeFinalChance(orbitId) {
     by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
   });
   const rec = Object.assign({}, prev, {
-    stars: Number.isFinite(stars) ? stars : MOD_STRIKE_MAX_STARS,
+    stars: Number.isFinite(stars) ? clampModStrikeStars(stars) : MOD_STRIKE_MAX_STARS,
+    starScale: MOD_STRIKE_MAX_STARS,
     finalChance: true,
     log: log.slice(0, 20),
   });
@@ -24845,7 +24900,7 @@ function grantModStrikeFinalChance(orbitId) {
   saveModStrikeStore(store);
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
   else if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
-  if (typeof toast === 'function') toast('Final Chance granted · unlocked at 2★');
+  if (typeof toast === 'function') toast('Final Chance granted · unlocked at 1★');
 }
 
 
@@ -24864,10 +24919,11 @@ function modStrikeOperatorOrbitId() {
 function getModStrikeWarningLevel(orbitId) {
   if (!orbitId) return 0;
   const stars = getModStrikeStars(orbitId);
-  // Remaining-stars ladder: 4→W1, 3→W2, ≤2→lock path (level 3+)
-  if (stars >= 4) return 1;
-  if (stars === 3) return 2;
-  if (stars <= 2) return 3;
+  // Remaining-stars ladder (David): 4→Ok, 3→Warning 1, 2→Warning 2, ≤1→lock (no warn popup)
+  if (stars >= 4) return 0;
+  if (stars === 3) return 1;
+  if (stars === 2) return 2;
+  if (stars <= 1) return 3;
   return 0;
 }
 
@@ -24921,8 +24977,12 @@ function ackModStrikeWarning(orbitId, level) {
 
 
 function shouldShowModStrikeWarningModal(orbitId, level) {
-  // Only Warning 1 / Warning 2 (levels 1–2). Lock uses the overlay path.
+  // Only Warning 1 / Warning 2 (levels 1–2). Lock (1★) / deactivate (0★) use overlay / login block — never warn popups.
   if (level < 1 || level > 2) return false;
+  if (typeof isModeratorStrikeLocked === 'function' && isModeratorStrikeLocked(orbitId)) return false;
+  if (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId)) return false;
+  // Only show the modal that matches the current remaining-stars step (3★→W1, 2★→W2).
+  if (typeof getModStrikeWarningLevel === 'function' && getModStrikeWarningLevel(orbitId) !== level) return false;
   const store = loadModStrikeWarnAckStore();
   return !store[modStrikeWarnAckKey(orbitId, level)];
 }
@@ -25090,24 +25150,26 @@ function setModStrikeStars(orbitId, stars, entry) {
   const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
   const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-  const prevStars = (typeof migrateModStrikeStarsFromPrevMax === 'function')
-    ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
-    : prevStarsRaw;
+  const prevStars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+    ? clampModStrikeStars(prevStarsRaw)
+    : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
+      ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
+      : prevStarsRaw);
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
   if (entry) log.unshift(entry);
-  const rec = { stars: n, log: log.slice(0, 20) };
+  const rec = { stars: n, starScale: MOD_STRIKE_MAX_STARS, log: log.slice(0, 20) };
   if (prev.strikeDeactivated && n > 0) {
     /* cleared in side effect */
   } else if (prev.strikeDeactivated) {
     rec.strikeDeactivated = true;
   }
-  // Final Chance only applies at exactly 2★; clear when dropping below 2.
-  if (n < 2) {
+  // Final Chance only applies at exactly 1★; clear when dropping below 1 (0★ deactivate).
+  if (n < 1) {
     /* finalChance cleared */
   } else if (prev.finalChance) {
     rec.finalChance = true;
   }
-  if (n <= 2 && !(n === 2 && rec.finalChance)) rec.lockedAt = new Date().toISOString();
+  if (n <= 1 && !(n === 1 && rec.finalChance)) rec.lockedAt = new Date().toISOString();
   store.mods[key] = rec;
   saveModStrikeStore(store);
   // Stars increased (Admin reset / restore) → clear warn acks so Warning 1/2 can show again later.
@@ -25144,12 +25206,14 @@ function resetModStrikeStars(orbitId) {
       by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
     });
     // Clear finalChance + strikeDeactivated; stars back to 4
-    store.mods[key] = { stars: MOD_STRIKE_MAX_STARS, log: log.slice(0, 20) };
+    store.mods[key] = { stars: MOD_STRIKE_MAX_STARS, starScale: MOD_STRIKE_MAX_STARS, log: log.slice(0, 20) };
     saveModStrikeStore(store);
     const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-    const prevStars = (typeof migrateModStrikeStarsFromPrevMax === 'function')
-      ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
-      : prevStarsRaw;
+    const prevStars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+      ? clampModStrikeStars(prevStarsRaw)
+      : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
+        ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
+        : prevStarsRaw);
     if (typeof clearModStrikeWarnAcksForOrbit === 'function') clearModStrikeWarnAcksForOrbit(orbitId);
     applyModStrikeDeactivateSideEffect(orbitId, MOD_STRIKE_MAX_STARS, prevStars);
   } else {
@@ -25182,7 +25246,7 @@ function renderModStarsHTML(stars, maxStars, orbitId) {
 function renderModStrikeOverlayHTML(orbitId) {
   if (!orbitId) return '';
   const stars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(orbitId) : MOD_STRIKE_MAX_STARS;
-  const showFinal = stars === 2 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(orbitId));
+  const showFinal = stars === 1 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(orbitId));
   const finalBtn = showFinal
     ? `<button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="final-chance" data-mod-orbit="${escapeHTML(String(orbitId))}">Final Chance</button>`
     : '';
@@ -25207,7 +25271,8 @@ function renderTeamModChipHTML(orbitId, opts) {
   const title = backup
     ? ('Backup moderator · ' + getModeratorDisplayName(id))
     : getModeratorDisplayName(id);
-  const wastedOnAvatar = strikeLocked && (typeof renderModStrikeWastedLabelHTML === 'function')
+  const strikeWasted = (typeof isModeratorStrikeDeactivated === 'function') && isModeratorStrikeDeactivated(id);
+  const wastedOnAvatar = strikeWasted && (typeof renderModStrikeWastedLabelHTML === 'function')
     ? renderModStrikeWastedLabelHTML({ orbitId: id, onAvatar: true })
     : '';
   const stars = showStrike && (typeof renderModStarsHTML === 'function')
@@ -25242,15 +25307,16 @@ function renderModAvatarHTML(letters, opts) {
   opts = opts || {};
   const small = !!opts.small;
   const perf = !!opts.perf;
-  const strikeLocked = !!opts.strikeLocked;
   const orbitId = opts.orbitId || '';
+  const showWasted = !!opts.strikeWasted
+    || (!!orbitId && typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId));
   const wrapCls = 'mod-avatar-wrap'
     + (small ? ' mod-avatar-wrap-sm' : '')
     + (perf ? ' mod-avatar-wrap-perf' : '');
   const avatarInner = perf
     ? `<div class="perf-tile-avatar mod">${escapeHTML(letters)}</div>`
     : `<div class="mod-avatar${small ? ' mod-avatar-sm' : ''}">${escapeHTML(letters)}</div>`;
-  const wasted = strikeLocked && (typeof renderModStrikeWastedLabelHTML === 'function')
+  const wasted = showWasted && (typeof renderModStrikeWastedLabelHTML === 'function')
     ? renderModStrikeWastedLabelHTML({ orbitId: orbitId, onAvatar: true })
     : '';
   return `<div class="${wrapCls}">${avatarInner}${wasted}</div>`;
@@ -25807,7 +25873,7 @@ function handleModStrikeActionClick(e, btn) {
         const after = getModStrikeStars(orbitId);
         modStrikeRefreshUi();
         requestAnimationFrame(() => {
-          if (typeof isModeratorStrikeLocked === 'function' ? isModeratorStrikeLocked(orbitId) : after <= 1) {
+          if (after <= 0 || (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId))) {
             modStrikeRunWastedEnter(orbitId);
           }
         });
