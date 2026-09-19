@@ -1,10 +1,23 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · Sanity pass + reviewer CSS + selftests (1.3.091818z)
+**Last updated:** 2026-09-18 · Cursor · SessionState booking-scope harden (1.3.091819a)
 **Read this file first every session.** Update it before you sign off.
 
 ---
 
+## 2026-09-18 · SessionState booking-scope (1.3.091819a)
+
+**Symptom:** Narendra × Pradeepreddy (team ~100019) showed **Station 4** in Admin/Performance Live for today’s Yuan He booking (`od_e3dc4442…`) right after arrival — impossible.
+
+**Root cause:** Same OD assignment id reused after reschedule. Narendra SessionState rows **SS 444+445** still carried Sep 17 `station_4_done` / full station maps / score 8601 while `sessionDate` had been rewritten to 2026-09-18. Admin `deriveLatestStatusFromSessionState` trusted those stamps (and Uploaded scenario inference) keyed only by assignmentId. Pradeepreddy **SS 446** was clean. Prior Romo booking untouched.
+
+**Data (PA, done):** Reset SS 444+445 to Not Started / score 0 / assignmentId set. Ask Watchdog only if Live still shows St 4 after hard refresh (append-only duplicates).
+
+**Code:** Live status scrubs SessionState progress to the assignment **booking date** (PST). Foreign `stationCompletedAt` / `sessionStatus` / scenario maps cannot inflate St N. Assignment / sessionDate changes clear local station progress. `getOpenTeamSession` prefers today’s booking. Cloud write strips foreign progress. Selftest: `scripts/sessionstate-booking-scope-selftest.js`.
+
+**Verify:** Hard refresh → version **1.3.091819a**. Admin → Performance / Live for Narendra×Pradeepreddy today (Yuan He) → not Station 4 (Booked / Check-in / Live tracking only until real station work). Console: `getLatestStatusForAssignment('od_e3dc4442-1e61-43bd-80ba-8c88d366d399')` should not return `station_4_done`.
+
+---
 
 ## 2026-09-18 · Sanity pass (1.3.091818z)
 
@@ -47,7 +60,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818z`** on `main` (sanity pass after y) |
+| **`main` version** | **`1.3.091819a`** (SessionState booking-scope) on `main` (sanity pass after y) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
