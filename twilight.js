@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818t';
-const APP_UPDATED_AT = '09/18/2026 18:55';
+const APP_VERSION = '1.3.091818u';
+const APP_UPDATED_AT = '09/18/2026 19:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -5026,6 +5026,12 @@ function getModListSortValue(mod, key) {
   }
   if (key === 'phone') return f.phoneNumber || '';
   if (key === 'centificEmail') return f.centificEmail || '';
+  if (key === 'personalEmail') return f.personalEmail || '';
+  if (key === 'carType') return f.carType || '';
+  if (key === 'strikes') {
+    if (typeof getModStrikeStars === 'function') return String(getModStrikeStars(f.orbitLoginId));
+    return '';
+  }
   if (key === 'status') {
     if (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(f.orbitLoginId)) {
       return (state && state.appView === 'moderator') ? 'Deactivated' : 'Wasted';
@@ -7497,6 +7503,47 @@ function modGridStyleAttr() {
   return `style="--mod-grid-cols:${cols}"`;
 }
 
+
+// Moderator Hub → All → List table column visibility (show/hide). Patterned
+// on PARTICIPANT_COLUMNS. Grid layout keeps the cards-per-row select; List
+// uses this menu instead. Name + Twilight Login ID + Actions are always on.
+const MOD_LIST_COLUMNS = [
+  { key: 'name',          label: 'Name',              default: true,  alwaysOn: true  },
+  { key: 'orbitLoginId',  label: 'Twilight Login ID', default: true,  alwaysOn: true  },
+  { key: 'role',          label: 'Role',              default: true                   },
+  { key: 'status',        label: 'Status',            default: true                   },
+  { key: 'phone',         label: 'Phone',             default: true                   },
+  { key: 'centificEmail', label: 'Centific Email',    default: true                   },
+  { key: 'personalEmail', label: 'Personal Email',    default: false                  },
+  { key: 'carType',       label: 'Vehicle Type',      default: false                  },
+  { key: 'strikes',       label: 'Strikes',           default: false                  },
+  { key: 'actions',       label: 'Actions',           default: true,  alwaysOn: true  },
+];
+const MOD_LIST_COLUMN_PREFS_KEY = 'twilight_mod_list_columns_v1';
+
+function loadModListColumnPrefs() {
+  try {
+    const raw = localStorage.getItem(MOD_LIST_COLUMN_PREFS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const out = {};
+        MOD_LIST_COLUMNS.forEach(c => {
+          out[c.key] = c.alwaysOn ? true : (typeof parsed[c.key] === 'boolean' ? parsed[c.key] : !!c.default);
+        });
+        return out;
+      }
+    }
+  } catch (e) { /* ignore */ }
+  const out = {};
+  MOD_LIST_COLUMNS.forEach(c => { out[c.key] = !!(c.default || c.alwaysOn); });
+  return out;
+}
+function saveModListColumnPrefs(prefs) {
+  try { localStorage.setItem(MOD_LIST_COLUMN_PREFS_KEY, JSON.stringify(prefs)); }
+  catch (e) { /* ignore */ }
+}
+
 const adminState = {
   tab: 'overview',           // 'overview' | 'moderators' | 'performance'
   subtab: 'moderators',      // 'moderators' | 'participants'
@@ -7515,6 +7562,8 @@ const adminState = {
   modView: 'list',           // 'list' | 'team' | 'assignment' · view modes for Moderators subtab
   modListLayout: 'grid',
   modGridColumnCount: loadModGridColumnCount(),  // 2–6 cards per row in grid layout
+  modListColumns: loadModListColumnPrefs(),  // { key: visible(bool) } · List table only
+  modListColMenuOpen: false,
   modListSort: null,  // set on first header click · { key, dir:'asc'|'desc' }
   modUserModal: null,        // { mode:'create'|'edit', values:{}, error:'', saving:false } | null
   activitiesTeamId: '',      // selected team context in the Activities map
@@ -19190,6 +19239,62 @@ function renderModListView() {
   const colsOpts = MOD_GRID_COLUMN_COUNT_OPTIONS.map(n =>
     `<option value="${n}" ${n === gridCols ? 'selected' : ''}>${n}</option>`
   ).join('');
+
+  // Grid: cards-per-row select. List: column visibility menu (Participants pattern).
+  let columnsControlHTML = '';
+  if (layout === 'grid') {
+    columnsControlHTML = `
+        <label class="mod-grid-cols-control" title="Cards per row">
+          <span class="mod-grid-cols-label">Columns</span>
+          <select id="modGridColsSelect" aria-label="Cards per row">${colsOpts}</select>
+        </label>`;
+  } else {
+    if (!adminState.modListColumns) adminState.modListColumns = loadModListColumnPrefs();
+    const visibleCount = MOD_LIST_COLUMNS.filter(c => adminState.modListColumns[c.key]).length;
+    const totalCols = MOD_LIST_COLUMNS.length;
+    const hiddenCount = totalCols - visibleCount;
+    const menuOpen = !!adminState.modListColMenuOpen;
+    columnsControlHTML = `
+        <div class="col-menu-wrap" id="modColMenuWrap">
+          <button type="button" class="col-menu-trigger ${menuOpen ? 'open' : ''}" id="modColMenuTrigger" aria-expanded="${menuOpen}" aria-haspopup="true">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M6 3v10M10 3v10" stroke="currentColor" stroke-width="1.4"/>
+            </svg>
+            Columns
+            <span class="col-menu-count">${visibleCount}</span>
+            <svg class="chev" width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="col-menu-popover ${menuOpen ? 'open' : ''}" role="menu">
+            <div class="col-menu-head">
+              <h4>Visible columns</h4>
+              <div class="col-menu-head-actions">
+                <button type="button" class="col-menu-quick" id="modColMenuShowAll" ${visibleCount === totalCols ? 'disabled' : ''}>Show all</button>
+                <button type="button" class="col-menu-quick" id="modColMenuReset">Reset</button>
+              </div>
+            </div>
+            <div class="col-menu-list">
+              ${MOD_LIST_COLUMNS.map(c => `
+                <div class="col-menu-item ${adminState.modListColumns[c.key] ? 'checked' : ''} ${c.alwaysOn ? 'always-on' : ''}" data-mod-col="${c.key}" role="menuitemcheckbox" aria-checked="${!!adminState.modListColumns[c.key]}" tabindex="0">
+                  <span class="col-menu-check" aria-hidden="true">
+                    <svg width="11" height="9" viewBox="0 0 13 10" fill="none">
+                      <path d="M1.5 5L5 8.5L11.5 1.5" stroke="#001114" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  <span class="col-menu-label">${escapeHTML(c.label)}</span>
+                  ${c.alwaysOn ? '<span style="font-size:10px; color: var(--text3); letter-spacing:0.06em; text-transform:uppercase; font-weight:600;">Pinned</span>' : ''}
+                </div>
+              `).join('')}
+            </div>
+            <div class="col-menu-foot">
+              ${hiddenCount === 0 ? 'All columns visible' : `${hiddenCount} column${hiddenCount === 1 ? '' : 's'} hidden`} · saved on this device
+            </div>
+          </div>
+        </div>`;
+  }
+
   const toolbar = `
     <div class="mod-all-toolbar">
       <div class="mod-all-toolbar-left">
@@ -19203,10 +19308,7 @@ function renderModListView() {
             List
           </button>
         </div>
-        <label class="mod-grid-cols-control" title="Cards per row">
-          <span class="mod-grid-cols-label">Columns</span>
-          <select id="modGridColsSelect" aria-label="Cards per row" ${layout !== 'grid' ? 'disabled' : ''}>${colsOpts}</select>
-        </label>
+        ${columnsControlHTML}
       </div>
       <button type="button" class="btn btn-primary mod-add-user-btn" id="modAddUserBtn">Add User</button>
     </div>`;
@@ -19229,6 +19331,7 @@ function renderModListView() {
       if (next !== 'grid' && next !== 'list') return;
       if (adminState.modListLayout === next) return;
       adminState.modListLayout = next;
+      adminState.modListColMenuOpen = false;
       renderModListView();
     });
   });
@@ -19240,6 +19343,77 @@ function renderModListView() {
       renderModListView();
     });
   }
+
+  // List column visibility menu (Participants Columns pattern)
+  const modColTrigger = document.getElementById('modColMenuTrigger');
+  if (modColTrigger) {
+    modColTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      adminState.modListColMenuOpen = !adminState.modListColMenuOpen;
+      renderModListView();
+    });
+  }
+  wrap.querySelectorAll('[data-mod-col]').forEach(item => {
+    const toggle = (e) => {
+      e.stopPropagation();
+      const k = item.getAttribute('data-mod-col');
+      const col = MOD_LIST_COLUMNS.find(c => c.key === k);
+      if (col && col.alwaysOn) return;
+      if (!adminState.modListColumns) adminState.modListColumns = loadModListColumnPrefs();
+      adminState.modListColumns[k] = !adminState.modListColumns[k];
+      saveModListColumnPrefs(adminState.modListColumns);
+      renderModListView();
+    };
+    item.addEventListener('click', toggle);
+    item.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        toggle(e);
+      }
+    });
+  });
+  const modShowAll = document.getElementById('modColMenuShowAll');
+  if (modShowAll) {
+    modShowAll.addEventListener('click', (e) => {
+      e.stopPropagation();
+      MOD_LIST_COLUMNS.forEach(c => { adminState.modListColumns[c.key] = true; });
+      saveModListColumnPrefs(adminState.modListColumns);
+      renderModListView();
+    });
+  }
+  const modReset = document.getElementById('modColMenuReset');
+  if (modReset) {
+    modReset.addEventListener('click', (e) => {
+      e.stopPropagation();
+      MOD_LIST_COLUMNS.forEach(c => { adminState.modListColumns[c.key] = !!(c.default || c.alwaysOn); });
+      saveModListColumnPrefs(adminState.modListColumns);
+      renderModListView();
+    });
+  }
+  if (adminState.modListColMenuOpen) {
+    const closeOnOutside = (e) => {
+      const menuWrap = document.getElementById('modColMenuWrap');
+      if (menuWrap && !menuWrap.contains(e.target)) {
+        adminState.modListColMenuOpen = false;
+        document.removeEventListener('click', closeOnOutside, true);
+        document.removeEventListener('keydown', closeOnEsc, true);
+        renderModListView();
+      }
+    };
+    const closeOnEsc = (e) => {
+      if (e.key === 'Escape') {
+        adminState.modListColMenuOpen = false;
+        document.removeEventListener('click', closeOnOutside, true);
+        document.removeEventListener('keydown', closeOnEsc, true);
+        renderModListView();
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', closeOnOutside, true);
+      document.addEventListener('keydown', closeOnEsc, true);
+    }, 0);
+  }
+
   const addBtn = document.getElementById('modAddUserBtn');
   if (addBtn) addBtn.addEventListener('click', () => openModUserModal('create'));
 
@@ -19300,21 +19474,72 @@ function renderModListView() {
   });
 }
 
+function modListColumnHeaderHTML(col, sortSpec) {
+  if (!col) return '';
+  if (col.key === 'actions' || col.key === 'strikes') {
+    return `<th>${escapeHTML(col.label)}</th>`;
+  }
+  return modListSortHeaderButton(col.key, col.label, sortSpec);
+}
+
+function modListColumnCellHTML(col, ctx) {
+  const { f, m, idx, name, strikeLocked, strikeStars, showStrike, strikesColVisible } = ctx;
+  switch (col.key) {
+    case 'name':
+      return `<td>
+          <div class="mod-table-name">
+            ${(typeof renderModAvatarHTML === 'function')
+              ? renderModAvatarHTML(avatarLetters(f.firstName, f.lastName), { small: true, strikeLocked: strikeLocked, orbitId: f.orbitLoginId })
+              : `<div class="mod-avatar mod-avatar-sm">${escapeHTML(avatarLetters(f.firstName, f.lastName))}</div>`}
+            <span>${escapeHTML(name)}</span>
+            ${showStrike && !strikesColVisible && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, f.orbitLoginId) : ''}
+          </div>
+        </td>`;
+    case 'orbitLoginId':
+      return `<td class="mod-table-mono">${escapeHTML(f.orbitLoginId || '—')}</td>`;
+    case 'role':
+      return `<td><span class="mod-role-pill">${escapeHTML(directoryLoginRoleLabel(f.LoginRole))}</span></td>`;
+    case 'status':
+      return `<td>${modUserStatusPillHTML(f.orbitLoginId, m)}</td>`;
+    case 'phone':
+      return `<td>${escapeHTML(f.phoneNumber || '—')}</td>`;
+    case 'centificEmail':
+      return `<td>${f.centificEmail ? `<a href="mailto:${escapeForUrl(f.centificEmail)}">${escapeHTML(f.centificEmail)}</a>` : '—'}</td>`;
+    case 'personalEmail':
+      return `<td>${f.personalEmail ? `<a href="mailto:${escapeForUrl(f.personalEmail)}">${escapeHTML(f.personalEmail)}</a>` : '—'}</td>`;
+    case 'carType':
+      return `<td>${escapeHTML(f.carType || '—')}</td>`;
+    case 'strikes':
+      return `<td>${showStrike && (typeof renderModStarsHTML === 'function')
+        ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, f.orbitLoginId)
+        : '—'}</td>`;
+    case 'actions':
+      return `<td class="mod-table-actions">
+          ${showStrike ? `
+            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="strike" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Strike</button>
+            ${(typeof getModStrikeStars === 'function' && getModStrikeStars(f.orbitLoginId) === 1 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(f.orbitLoginId))) ? `<button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="final-chance" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Final Chance</button>` : ''}
+            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="reset" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Reset</button>
+          ` : ''}
+          <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${idx}">Edit</button>
+          <button type="button" class="btn btn-ghost mod-fb-btn" data-mod-idx="${idx}" data-mod-login="${escapeHTML(f.orbitLoginId || '')}">Send feedback</button>
+        </td>`;
+    default:
+      return '<td>—</td>';
+  }
+}
+
 function renderModTableHTML(mods) {
   const sortSpec = (adminState && adminState.modListSort) || null;
   const sorted = sortSpec ? sortModeratorListRows(mods, sortSpec) : (mods || []).slice();
+  if (!adminState.modListColumns) adminState.modListColumns = loadModListColumnPrefs();
+  const visibleCols = MOD_LIST_COLUMNS.filter(c => adminState.modListColumns[c.key]);
+  const strikesColVisible = !!adminState.modListColumns.strikes;
   const head = `
     <div class="mod-table-wrap">
       <table class="mod-table">
         <thead>
           <tr>
-            ${modListSortHeaderButton('name', 'Name', sortSpec)}
-            ${modListSortHeaderButton('orbitLoginId', 'Twilight Login ID', sortSpec)}
-            ${modListSortHeaderButton('role', 'Role', sortSpec)}
-            ${modListSortHeaderButton('status', 'Status', sortSpec)}
-            ${modListSortHeaderButton('phone', 'Phone', sortSpec)}
-            ${modListSortHeaderButton('centificEmail', 'Centific Email', sortSpec)}
-            <th>Actions</th>
+            ${visibleCols.map(c => modListColumnHeaderHTML(c, sortSpec)).join('')}
           </tr>
         </thead>
         <tbody>`;
@@ -19327,31 +19552,10 @@ function renderModTableHTML(mods) {
     const strikeLocked = !deactivated && (typeof isModeratorStrikeLocked === 'function') && isModeratorStrikeLocked(f.orbitLoginId);
     const strikeStars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(f.orbitLoginId) : MOD_STRIKE_MAX_STARS;
     const showStrike = (typeof modStrikeEligible === 'function') && modStrikeEligible(m);
+    const ctx = { f, m, idx, name, strikeLocked, strikeStars, showStrike, strikesColVisible };
     return `
       <tr class="${deactivated ? 'is-deactivated' : (strikeLocked ? 'is-strike-locked' : '')}" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">
-        <td>
-          <div class="mod-table-name">
-            ${(typeof renderModAvatarHTML === 'function')
-              ? renderModAvatarHTML(avatarLetters(f.firstName, f.lastName), { small: true, strikeLocked: strikeLocked, orbitId: f.orbitLoginId })
-              : `<div class="mod-avatar mod-avatar-sm">${escapeHTML(avatarLetters(f.firstName, f.lastName))}</div>`}
-            <span>${escapeHTML(name)}</span>
-            ${showStrike && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, f.orbitLoginId) : ''}
-          </div>
-        </td>
-        <td class="mod-table-mono">${escapeHTML(f.orbitLoginId || '—')}</td>
-        <td><span class="mod-role-pill">${escapeHTML(directoryLoginRoleLabel(f.LoginRole))}</span></td>
-        <td>${modUserStatusPillHTML(f.orbitLoginId, m)}</td>
-        <td>${escapeHTML(f.phoneNumber || '—')}</td>
-        <td>${f.centificEmail ? `<a href="mailto:${escapeForUrl(f.centificEmail)}">${escapeHTML(f.centificEmail)}</a>` : '—'}</td>
-        <td class="mod-table-actions">
-          ${showStrike ? `
-            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="strike" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Strike</button>
-            ${(typeof getModStrikeStars === 'function' && getModStrikeStars(f.orbitLoginId) === 1 && !(typeof hasModStrikeFinalChance === 'function' && hasModStrikeFinalChance(f.orbitLoginId))) ? `<button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="final-chance" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Final Chance</button>` : ''}
-            <button type="button" class="btn btn-ghost mod-strike-action" data-mod-strike="reset" data-mod-orbit="${escapeHTML(f.orbitLoginId || '')}">Reset</button>
-          ` : ''}
-          <button type="button" class="btn btn-ghost mod-edit-btn" data-mod-idx="${idx}">Edit</button>
-          <button type="button" class="btn btn-ghost mod-fb-btn" data-mod-idx="${idx}" data-mod-login="${escapeHTML(f.orbitLoginId || '')}">Send feedback</button>
-        </td>
+        ${visibleCols.map(c => modListColumnCellHTML(c, ctx)).join('')}
       </tr>`;
   }).join('');
   return head + rows + '</tbody></table></div>';
