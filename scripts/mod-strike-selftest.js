@@ -23,9 +23,19 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091818r',
-  /const APP_VERSION = '1\.3\.091818r'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091818r'));
+assert('version bump 091818t',
+  /const APP_VERSION = '1\.3\.091818t'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818t'));
+assert('skip/strike checkpoint merge on SessionState ingest',
+  /function mergeModStrikeCheckpoints/.test(src)
+  && /function mergeModStrikeBoolMap/.test(src)
+  && /function modStrikeCheckpointsHaveLocalExtras/.test(src)
+  && /mergedCheckpoints/.test(src)
+  && /needRepersist/.test(src));
+assert('skip/strike flush persist (no debounce race)',
+  /function flushPersistModeratorStrikesSetting/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\)/.test(src)
+  && /Also stamp resolvedTeams/.test(src));
 assert('overview live status strike attention glow',
   /function modStrikeCheckpointAttentionActive/.test(src)
   && /function syncOverviewLiveStatusStrikeAttention/.test(src)
@@ -185,6 +195,47 @@ assert('warning ladder comment', /4→Ok, 3→Warning 1, 2→Warning 2/.test(src
 const rep = ctx.buildModStrikeCheckpointReport();
 assert('report finds yesterday booking', rep.yesterday === '2026-09-16' && rep.teams.length === 1);
 assert('incomplete booking flagged', rep.teams[0] && rep.teams[0].completed === false);
+
+// Skip must survive a stale SessionState ingest that lacks skippedTeams.
+ctx.persistModeratorStrikesSetting = async function() { return { ok: true }; };
+ctx.SESSIONSTATE_PA_WRITE_URL = 'https://example.test/write';
+ctx.fetchWithRetry = async () => ({ ok: true });
+ctx.fetch = async () => ({ ok: true });
+ctx.skipModStrikeCheckpointTeam('t1');
+let afterSkip = ctx.buildModStrikeCheckpointReport();
+assert('skip marks team skipped', afterSkip.teams[0] && afterSkip.teams[0].skipped === true);
+assert('skip also marks resolved', afterSkip.teams[0] && afterSkip.teams[0].resolved === true);
+assert('skip clears attention', !ctx.modStrikeCheckpointAttentionActive());
+
+const todayPst = ctx.getPSTDateString();
+const staleRow = {
+  sessionStateId: ctx.MODERATOR_STRIKES_SETTING_ID || 'ss_app_setting_moderator_strikes',
+  lastActive: '2099-01-01T00:00:00.000Z',
+  stateJson: JSON.stringify({
+    type: 'appSetting',
+    key: 'moderatorStrikes',
+    mods: {},
+    checkpoints: {
+      [todayPst]: { applied: false, skippedTeams: {}, resolvedTeams: {} },
+    },
+    updatedAt: '2099-01-01T00:00:00.000Z',
+  }),
+};
+ctx.ingestModeratorStrikesFromSessionRows([staleRow]);
+const afterIngest = ctx.buildModStrikeCheckpointReport();
+assert('skip survives stale SessionState ingest', afterIngest.teams[0] && afterIngest.teams[0].skipped === true,
+  JSON.stringify(afterIngest.teams[0] || {}));
+assert('resolved survives stale ingest', afterIngest.teams[0] && afterIngest.teams[0].resolved === true);
+assert('attention stays clear after stale ingest', !ctx.modStrikeCheckpointAttentionActive());
+
+// Pure merge helper: local skip ∪ remote resolve
+const merged = ctx.mergeModStrikeCheckpoints(
+  { '2026-09-18': { skippedTeams: { t1: true }, applied: false } },
+  { '2026-09-18': { resolvedTeams: { t2: true }, applied: false } }
+);
+assert('merge unions skipped+resolved maps',
+  merged['2026-09-18'].skippedTeams.t1 === true
+  && merged['2026-09-18'].resolvedTeams.t2 === true);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

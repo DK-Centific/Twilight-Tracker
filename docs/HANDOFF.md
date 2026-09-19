@@ -1,6 +1,6 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · My session queue 2-day cap + approval ack fix (1.3.091818s)
+**Last updated:** 2026-09-18 · Cursor · Skip flag persistence fix (1.3.091818t)
 **Read this file first every session.** Update it before you sign off.
 
 ---
@@ -9,12 +9,15 @@
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091818s`** on `main` (My session queue 2-day cap + approval ack) |
+| **`main` version** | **`1.3.091818t`** on `main` (Skip flag persistence · SessionState merge) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
 
 ### This session (2026-09-18 PT)
+
+- **v1.3.091818t** — Admin Performance **Skip** on flagged teams now persists: checkpoint `skippedTeams`/`resolvedTeams` are **merged** on SessionState ingest (stale poll no longer wipes Skip), Skip/Strike **flush** persist immediately (no 450ms debounce race), and Skip also stamps `resolvedTeams` so Overview glow matches Performance.
+
 
 - **v1.3.091818s** — Moderator **My session queue**: hard-drop bookings whose session end calendar day is older than yesterday (PST); unfinished yesterday stays until wrap-up (Admin Booking Queue gate parity — still blocks after 9 AM PT until checklist `session_done`); overnight live before 9 AM preserved. **Approval gate**: popup uses prior local status (not TTL `gateApproved`) + token-keyed `approvalAckedTokens` so Confirm survives reload/poll/carousel churn.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* Self-test: approval Approved popup must not reappear after Confirm
- * on TTL re-verify / reload / poll (v1.3.091818s).
+ * on TTL re-verify / reload / poll (v1.3.091818t).
  */
 'use strict';
 
