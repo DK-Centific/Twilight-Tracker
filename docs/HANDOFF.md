@@ -1,7 +1,25 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Cursor · SessionState booking-scope harden (1.3.091819a)
+**Last updated:** 2026-09-18 · Cursor · My session address rebind (1.3.091819b)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-18 · My session address / geofence rebind (1.3.091819b)
+
+**Symptom:** Narendra × Pradeepreddy showed **old session address** in My session and Admin **Outside assignment area** while on site for today’s Yuan He (`od_e3dc4442…`). Same class as Jashit sticky-address after booking switch.
+
+**Root cause (code):**
+1. `applyAssignmentToEntryFields` only filled `state.participantAddress` **if empty** — after Romo / prior day, local + SessionState address never rebound when the open booking became Yuan He (same OD `assignmentId` reused after reschedule).
+2. `clearOperatorProgressForNewBooking` cleared stations but **not** address.
+3. Teammate/self SessionState merge + `assignmentLocationSnapshot` could re-stamp the old address / coords onto today’s row.
+4. Perf geo track seeded fence lat/lng from SS row even when row address ≠ live booking fence.
+
+**Code fix:** `syncBookedParticipantAddress` rebinds on `assignmentId|sessionDate|fenceAddress` change; progress clear drops address; cloud merge / location snapshot / perf fence prefer **TODAY’s booking** `assignmentFenceAddress`. My session team-address row prefers booking fence over sticky TeamLog preferred address. Version **1.3.091819b**. Selftest: `scripts/session-address-rebind-selftest.js`.
+
+**Data (PA — if still wrong after hard refresh):** On Assignment List for `od_e3dc4442-1e61-43bd-80ba-8c88d366d399` confirm Address = today’s **Yuan He** site (not Romo). On SessionState **SS 444 / 445** (Narendra) and **SS 446** (Pradeepreddy): set `assignmentAddress` (+ `assignmentLat`/`assignmentLng` if present) and `stateJson.participantAddress` / `assignmentAddress` to that same Yuan He line; clear foreign lat/lng if they still geocode Romo. Do **not** clobber other teams’ preferred-addresses.
+
+**Verify (David):** Hard refresh → version **1.3.091819b**. As Narendra-tw / Pradeepreddy-tw → My session shows **Yuan He** + **today’s Yuan He address** (not Romo). Console: `getAssignedOpenSession()` id `od_e3dc4442…`, `assignmentFenceAddress(getAssignedOpenSession())` is Yuan He. Admin Performance should not show Outside solely from Romo coords.
 
 ---
 
@@ -60,7 +78,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091819a`** (SessionState booking-scope) on `main` (sanity pass after y) |
+| **`main` version** | **`1.3.091819b`** (My session address rebind) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
@@ -202,7 +220,7 @@ Power Automate setup guides: `docs/power-automate-worklog-overwrite.md`, `docs/p
 Copy this block and fill it in at session end:
 
 ```
-**Last updated:** YYYY-MM-DD · <agent name>
+**Last updated:** 2026-09-18 · Cursor · My session address rebind (1.3.091819b)
 **Version after work:** x.x.xxxxxxx
 **Completed:** …
 **Blocked / waiting:** …
