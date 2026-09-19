@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091819a';
-const APP_UPDATED_AT = '09/18/2026 20:35';
+const APP_VERSION = '1.3.091819b';
+const APP_UPDATED_AT = '09/18/2026 20:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -495,6 +495,11 @@ function defaultState() {
     // that, swiping the carousel or admin removing the team are the
     // only triggers; mid-booking user edits to the name field stick.
     _lastSeenActiveAsgnId: null,
+    // Address bind key = assignmentId|sessionDate|fenceAddress. Rescheduled
+    // OD rows reuse the same id while the booked address changes (Romo →
+    // Yuan He); this key forces participantAddress to rebind to TODAY's
+    // booking fence address instead of keeping yesterday's local/SS value.
+    _lastSeenAddressBindKey: null,
     // Calibration / workflow guide acknowledgment for this session.
     // null = not yet acknowledged. When mod clicks "I acknowledge the
     // workflow and this guideline" in the cal-guide modal, this gets
@@ -902,6 +907,9 @@ function migrateState(loaded) {
   // build prefills naturally. See syncBookedParticipantName.
   if (typeof loaded._lastSeenActiveAsgnId !== 'string' && loaded._lastSeenActiveAsgnId !== null) {
     loaded._lastSeenActiveAsgnId = null;
+  }
+  if (typeof loaded._lastSeenAddressBindKey !== 'string' && loaded._lastSeenAddressBindKey !== null) {
+    loaded._lastSeenAddressBindKey = null;
   }
   // calGuideAck added in 1.2.052813. Legacy state has no key · treat
   // as "not yet acknowledged" so the mod will see the button on the
@@ -10529,15 +10537,37 @@ function perfGeoTrackDisplay(a) {
       ? lastGeoPingAtMs(geo)
       : (parseLastActiveMs(r.lastActive) || Number(geo.at) || 0);
     const pos = Object.assign({}, geo, { at: atMs || geo.at });
+    // Fence against the LIVE booking address. SessionState rows for a
+    // reused OD id can still carry yesterday's assignmentAddress/lat/lng
+    // (Romo) after PA progress reset — do not let those coords redefine
+    // today's Yuan He fence.
     const fenceAsgn = Object.assign({}, a);
+    const liveAddr = (typeof assignmentFenceAddress === 'function')
+      ? String(assignmentFenceAddress(a) || '').trim()
+      : '';
     const rowAddr = String(r.assignmentAddress || parsed.assignmentAddress || '').trim();
     const rowLat = Number(r.assignmentLat != null ? r.assignmentLat : parsed.assignmentLat);
     const rowLng = Number(r.assignmentLng != null ? r.assignmentLng : parsed.assignmentLng);
-    if (rowAddr && Number.isFinite(rowLat) && Number.isFinite(rowLng) && typeof seedGeocodeCacheEntry === 'function') {
-      seedGeocodeCacheEntry(rowAddr, rowLat, rowLng);
-      if (!fenceAsgn.address) fenceAsgn.address = rowAddr;
-      fenceAsgn.assignmentLat = rowLat;
-      fenceAsgn.assignmentLng = rowLng;
+    const liveKey = liveAddr.toLowerCase();
+    const rowKey = rowAddr.toLowerCase();
+    if (rowAddr && Number.isFinite(rowLat) && Number.isFinite(rowLng)
+        && typeof seedGeocodeCacheEntry === 'function') {
+      // Only seed coords under the row address when it matches the live
+      // booking (or booking has no address yet).
+      if (!liveKey || liveKey === rowKey) {
+        seedGeocodeCacheEntry(rowAddr, rowLat, rowLng);
+        if (!fenceAsgn.address) fenceAsgn.address = rowAddr;
+        fenceAsgn.assignmentLat = rowLat;
+        fenceAsgn.assignmentLng = rowLng;
+      }
+    }
+    if (liveAddr) {
+      // Force fence address to booking; drop foreign lat/lng overrides.
+      fenceAsgn.address = liveAddr;
+      if (liveKey && rowKey && liveKey !== rowKey) {
+        delete fenceAsgn.assignmentLat;
+        delete fenceAsgn.assignmentLng;
+      }
     }
     const check = (typeof liveLocationInsideAssignmentFence === 'function')
       ? liveLocationInsideAssignmentFence(fenceAsgn, pos, { maxAgeMs: 24 * 60 * 60 * 1000 })
@@ -38911,6 +38941,10 @@ function clearOperatorProgressForNewBooking(reason) {
   state.arrivalGeo = null;
   state.calGuideAck = null;
   state.recordLakituUrl = '';
+  // Drop stale session address so My session / fence rebind to the new
+  // booking (same-id OD reschedule kept Romo address after Yuan He).
+  state.participantAddress = '';
+  state._lastSeenAddressBindKey = null;
   state._progressScore = 0;
   state._progressAt = '';
   state._progressBy = '';
@@ -39175,8 +39209,15 @@ function pickLatestTeamProgress(rows, opts) {
 }
 
 function assignmentLocationSnapshot(asgn) {
-  const addr = (typeof assignmentFenceAddress === 'function' ? assignmentFenceAddress(asgn) : '')
-    || (state && state.participantAddress) || '';
+  // Fence / SessionState address MUST come from the active booking first.
+  // Falling back to state.participantAddress while the booking already has
+  // an address re-stamped yesterday's Romo coords onto today's Yuan He row.
+  const booked = (typeof assignmentFenceAddress === 'function')
+    ? assignmentFenceAddress(asgn)
+    : '';
+  const addr = booked
+    || (state && state.participantAddress)
+    || '';
   let lat = null, lng = null, miles = null;
   if (addr && typeof loadGeocodeCache === 'function') {
     const hit = loadGeocodeCache()[String(addr).trim().toLowerCase()];
@@ -39918,7 +39959,25 @@ function mergeTeammateState(syncableState) {
   // Overlay each syncable field. Keep our identity fields untouched.
   if (syncableState.participantId)      state.participantId      = syncableState.participantId;
   if (syncableState.participantName)    state.participantName    = syncableState.participantName;
-  if (syncableState.participantAddress) state.participantAddress = syncableState.participantAddress;
+  if (syncableState.participantAddress) {
+    const cloudAddr = String(syncableState.participantAddress || '').trim();
+    let bookedAddr = '';
+    try {
+      const asgnNow = (typeof getActiveOperatorAssignment === 'function')
+        ? getActiveOperatorAssignment()
+        : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
+      bookedAddr = (typeof assignmentFenceAddress === 'function')
+        ? String(assignmentFenceAddress(asgnNow) || '').trim()
+        : '';
+    } catch (_) { bookedAddr = ''; }
+    // Prefer TODAY's booking fence. Cloud/SS can still carry the prior
+    // session address on a reused assignmentId after reschedule.
+    if (!bookedAddr || bookedAddr.toLowerCase() === cloudAddr.toLowerCase()) {
+      state.participantAddress = cloudAddr;
+    } else {
+      state.participantAddress = bookedAddr;
+    }
+  }
   if (syncableState.sessionDate) {
     const incomingDate = String(syncableState.sessionDate).trim();
     const asgn = (typeof getActiveOperatorAssignment === 'function')
@@ -40062,7 +40121,21 @@ function applySelfSyncReplace(s) {
   if (!s || typeof s !== 'object') return;
   state.participantId      = s.participantId      || '';
   state.participantName    = s.participantName    || '';
-  state.participantAddress = s.participantAddress || '';
+  {
+    const cloudAddr = String(s.participantAddress || '').trim();
+    let bookedAddr = '';
+    try {
+      const asgnNow = (typeof getActiveOperatorAssignment === 'function')
+        ? getActiveOperatorAssignment()
+        : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
+      bookedAddr = (typeof assignmentFenceAddress === 'function')
+        ? String(assignmentFenceAddress(asgnNow) || '').trim()
+        : '';
+    } catch (_) { bookedAddr = ''; }
+    state.participantAddress = (bookedAddr && bookedAddr.toLowerCase() !== cloudAddr.toLowerCase())
+      ? bookedAddr
+      : cloudAddr;
+  }
   if (s.sessionDate) {
     const incomingDate = String(s.sessionDate).trim();
     const asgn = (typeof getActiveOperatorAssignment === 'function')
@@ -46413,11 +46486,20 @@ function renderMySessionSection() {
     const showMeta = typeof shouldBindAssignedSessionLinks === 'function'
       ? shouldBindAssignedSessionLinks() : true;
     const addrTeam = (typeof getSessionDisplayTeam === 'function' && getSessionDisplayTeam()) || tileTeam;
-    const teamAddr = showMeta
-      ? ((typeof getTeamOfficeAddress === 'function')
-          ? getTeamOfficeAddress(addrTeam)
-          : (addrTeam.teamAddress ? String(addrTeam.teamAddress).trim() : ''))
-      : '';
+    // Prefer the active booking fence address for the team-address row when
+    // the sticky TeamLog / preferred teamAddress still points at a prior
+    // session (Romo) while My session is on today's Yuan He.
+    let teamAddr = '';
+    if (showMeta) {
+      const bookingFence = (typeof assignmentFenceAddress === 'function')
+        ? String(assignmentFenceAddress(asgn) || '').trim()
+        : '';
+      const office = (typeof getTeamOfficeAddress === 'function')
+        ? getTeamOfficeAddress(addrTeam)
+        : (addrTeam && addrTeam.teamAddress ? String(addrTeam.teamAddress).trim() : '');
+      if (bookingFence) teamAddr = bookingFence;
+      else if (office) teamAddr = office;
+    }
     const teamAddrMap = teamAddr
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(teamAddr)}`
       : '';
@@ -46745,13 +46827,80 @@ function renderNavTeamChip() {
     </div>`;
 }
 
+function resolveBookedParticipantAddress(asgn) {
+  const session = asgn || ((typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  if (!session) return '';
+  if (typeof assignmentFenceAddress === 'function') {
+    const fence = String(assignmentFenceAddress(session) || '').trim();
+    if (fence) return fence;
+  }
+  if (!session.participantData) return '';
+  const contact = (typeof assignmentParticipantContact === 'function')
+    ? assignmentParticipantContact(session)
+    : null;
+  if (contact && contact.address) return String(contact.address).trim();
+  const p = session.participantData;
+  return (typeof formatParticipantAddressLine === 'function')
+    ? formatParticipantAddressLine(p)
+    : [p.address, p.state, p.zipCode].filter(Boolean).join(', ');
+}
+
+function addressBindKeyForAssignment(asgn) {
+  if (!asgn) return '';
+  const id = asgn.id != null ? String(asgn.id) : '';
+  const day = asgn.date != null ? String(asgn.date).trim() : '';
+  const addr = resolveBookedParticipantAddress(asgn);
+  return [id, day, addr.toLowerCase()].join('|');
+}
+
+// Rebind state.participantAddress when the open session identity OR the
+// booking's fence address changes. Same-id OD reschedules (Romo → Yuan He)
+// kept the old local/SS address because fill-if-empty never overwrote it.
+function syncBookedParticipantAddress(asgn) {
+  if (typeof state === 'undefined' || !state) return false;
+  const session = asgn || ((typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment()
+    : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
+  const key = addressBindKeyForAssignment(session);
+  const last = state._lastSeenAddressBindKey || null;
+  if (key && key === last) {
+    // Same booking + address · sanitize only, preserve intentional empty.
+    if (state.participantAddress) {
+      state.participantAddress = (typeof sanitizeSharePointPlainText === 'function')
+        ? sanitizeSharePointPlainText(state.participantAddress)
+        : String(state.participantAddress).trim();
+      if (typeof collapseDuplicateLocationParts === 'function') {
+        state.participantAddress = collapseDuplicateLocationParts(state.participantAddress);
+      }
+    }
+    return false;
+  }
+  const formatted = resolveBookedParticipantAddress(session);
+  state._lastSeenAddressBindKey = key || null;
+  if (formatted) {
+    state.participantAddress = (typeof sanitizeSharePointPlainText === 'function')
+      ? sanitizeSharePointPlainText(formatted)
+      : formatted;
+    if (typeof collapseDuplicateLocationParts === 'function') {
+      state.participantAddress = collapseDuplicateLocationParts(state.participantAddress);
+    }
+  } else if (last && !key) {
+    // No open booking anymore · clear leftover address.
+    state.participantAddress = '';
+  } else if (formatted === '' && key && last && key !== last) {
+    // Booking changed but new row has no address yet · clear old so fence
+    // does not keep yesterday's location.
+    state.participantAddress = '';
+  }
+  return true;
+}
+
 function applyAssignmentToEntryFields() {
-  // Address still gets the "fill if empty" treatment · admin sometimes
-  // has to manually correct addresses (e.g. apt # missing from the
-  // booking), so we don't want to clobber a mod's typed-in fix on
-  // every render. But participant NAME is now strictly booking-derived
-  // (per the read-only treatment in entryBarHTML); syncBookedParticipantName
-  // is the canonical writer for it.
+  // Participant NAME is booking-derived (read-only). ADDRESS also rebinds
+  // when the open session / booking fence changes — fill-if-empty left
+  // Narendra×Pradeepreddy stuck on Romo after Yuan He reschedule.
   syncBookedParticipantName();
   const asgn = (typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment()
@@ -46759,27 +46908,10 @@ function applyAssignmentToEntryFields() {
   if (typeof syncSessionDateFromActiveAssignment === 'function') {
     syncSessionDateFromActiveAssignment(asgn);
   }
-  if (!asgn || !asgn.participantData) return;
-  const contact = (typeof assignmentParticipantContact === 'function')
-    ? assignmentParticipantContact(asgn)
-    : null;
-  const p = asgn.participantData;
-  const formatted = (contact && contact.address)
-    || ((typeof formatParticipantAddressLine === 'function')
-      ? formatParticipantAddressLine(p)
-      : [p.address, p.state, p.zipCode].filter(Boolean).join(', '));
-  if (state.participantAddress) {
-    state.participantAddress = (typeof sanitizeSharePointPlainText === 'function')
-      ? sanitizeSharePointPlainText(state.participantAddress)
-      : String(state.participantAddress).trim();
-    if (typeof collapseDuplicateLocationParts === 'function') {
-      state.participantAddress = collapseDuplicateLocationParts(state.participantAddress);
-    }
+  if (typeof syncBookedParticipantAddress === 'function') {
+    syncBookedParticipantAddress(asgn);
   }
-  if (!state.participantAddress) {
-    state.participantAddress = formatted;
-  }
-  saveState();
+  if (typeof saveState === 'function') saveState();
 }
 
 // Returns the booked participant's display name for the active
