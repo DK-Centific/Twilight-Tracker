@@ -171,6 +171,44 @@ assert(
 );
 
 assert(
+  'canonicalLakituProjectKey maps legacy centific keys onto Night Time',
+  typeof context.canonicalLakituProjectKey === 'function'
+    && context.canonicalLakituProjectKey('centific-1') === 'night-time-1'
+    && context.canonicalLakituProjectKey('night-time-3') === 'night-time-3'
+    && context.canonicalLakituProjectKey('centific-6') === ''
+);
+
+// Simulate Admin Save links after Night Time migration: assignment still
+// carries a legacy key that resolves via alias. Gap-fill alone would leave
+// centific-1 in place (select blank). Force-stamp like saveAssignmentSessionLinks.
+{
+  const legacyAsgn = {
+    id: 'asgn_legacy',
+    lakituProjectKey: 'centific-1',
+    lakituProjectUrl: centific1.url,
+  };
+  const pick = buildSessionLinkOverrideEntry('asgn_legacy', 'night-time-2', '');
+  // Mirror the Save links force-write for the Lakitu side.
+  legacyAsgn.lakituProjectKey = pick.lakituProjectKey;
+  legacyAsgn.lakituProjectUrl = pick.lakituProjectUrl;
+  const displayKey = context.canonicalLakituProjectKey(
+    legacyAsgn.lakituProjectKey || ''
+  );
+  assert(
+    'Save links force-write makes Night Time select key stick after legacy alias',
+    displayKey === 'night-time-2'
+      && resolveAssignmentLakituUrl(legacyAsgn, emptyTeam, pick) === context.getLakituProjectByKey('night-time-2').url
+  );
+}
+
+assert(
+  'saveAssignmentSessionLinks force-stamps assignment (not gap-fill only)',
+  /Explicit Admin Save links must stamp/.test(src)
+    && /canonicalLakituProjectKey\(rawLakitu\)/.test(src)
+    && /upsertSessionLinkOverride\(entry, \{ lakitu: !!lakituKey, ring: !!ringKey \}\)/.test(src)
+);
+
+assert(
   'key-only records resolve through the catalog',
   resolveLakituUrlFromRecord({ lakituProjectKey: 'centific-5' }) === context.getLakituProjectByKey('centific-5').url
     && resolveRingUrlFromRecord({ ringDashboardKey: 'nighttime-centific-5' }) === context.getRingDashboardByKey('nighttime-centific-5').url
@@ -211,8 +249,8 @@ assert('getAssignedLakituUrl uses assignment resolver', /resolveAssignmentLakitu
 assert('getAssignedRingUrl uses assignment resolver', /resolveAssignmentRingUrl\(asgn, team, override\)/.test(src));
 assert('Approval Lakitu prefers assigned project before DEFAULT', /resolveAssignmentLakituUrl\(asgn, team, override\)/.test(src)
   && /return \(typeof DEFAULT_LAKITU_URL !== 'undefined'\)/.test(src));
-assert('APP_VERSION is 1.3.091626n', /const APP_VERSION = '1\.3\.091626n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091626n'));
+assert('APP_VERSION is 1.3.091818q', /const APP_VERSION = '1\.3\.091818q'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091818q'));
 assert(
   'Week + assign open locks booking page scroll',
   html.includes('body.booking-week-assign-open')

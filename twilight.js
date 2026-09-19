@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091818p';
-const APP_UPDATED_AT = '09/18/2026 17:23';
+const APP_VERSION = '1.3.091818q';
+const APP_UPDATED_AT = '09/18/2026 17:37';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -4586,6 +4586,16 @@ function getLakituProjectByKey(key) {
   };
   if (legacy[k]) k = legacy[k];
   return LAKITU_PROJECTS.find(p => p.key === k) || null;
+}
+
+// Map any stored Lakitu key (including legacy centific-1..5) onto the
+// live catalog key used by <select> options. Returns '' for unknown /
+// retired keys so the Admin picker does not look "selected" with a
+// value that is not in LAKITU_PROJECTS.
+function canonicalLakituProjectKey(key) {
+  if (!key) return '';
+  const proj = getLakituProjectByKey(key);
+  return proj && proj.key ? String(proj.key) : '';
 }
 
 // Admin-assigned Ring account dashboards (Nighttime Centific 1–5).
@@ -16342,11 +16352,28 @@ function getSessionLinkOverride(asgnId) {
   return hit && typeof hit === 'object' ? hit : null;
 }
 
-function upsertSessionLinkOverride(entry) {
+function upsertSessionLinkOverride(entry, sides) {
   if (!entry || !entry.assignmentId) return;
   const id = String(entry.assignmentId);
   const next = Object.assign({}, _sessionLinkOverrides);
-  next[id] = Object.assign({}, next[id] || {}, entry, { assignmentId: id });
+  // sides = { lakitu: bool, ring: bool } when Admin Save links only
+  // touched one dropdown. Omitting sides keeps the prior full-merge
+  // behavior used by SessionState ingest.
+  if (!sides) {
+    next[id] = Object.assign({}, next[id] || {}, entry, { assignmentId: id });
+  } else {
+    const out = Object.assign({}, next[id] || {}, { assignmentId: id });
+    if (sides.lakitu) {
+      out.lakituProjectKey = entry.lakituProjectKey || '';
+      out.lakituProjectUrl = entry.lakituProjectUrl || '';
+    }
+    if (sides.ring) {
+      out.ringDashboardKey = entry.ringDashboardKey || '';
+      out.ringDashboardUrl = entry.ringDashboardUrl || '';
+    }
+    if (entry.updatedAt) out.updatedAt = entry.updatedAt;
+    next[id] = out;
+  }
   cacheSessionLinkOverrides(next);
 }
 
@@ -31914,8 +31941,8 @@ function renderTeamModal() {
       <div class="asgn-field">
         <label class="asgn-field-label">Lakitu project <span style="color: var(--text3); font-weight: 500; text-transform: none; letter-spacing: 0;">(optional)</span></label>
         <select id="teamLakituProject" class="teams-sort" aria-label="Lakitu project">
-          <option value="" ${!m.lakituProjectKey ? 'selected' : ''}>No project assigned</option>
-          ${LAKITU_PROJECTS.map(p => `<option value="${escapeHTML(p.key)}" ${m.lakituProjectKey === p.key ? 'selected' : ''}>${escapeHTML(p.label)}</option>`).join('')}
+          <option value="" ${!(typeof canonicalLakituProjectKey === 'function' ? canonicalLakituProjectKey(m.lakituProjectKey) : m.lakituProjectKey) ? 'selected' : ''}>No project assigned</option>
+          ${LAKITU_PROJECTS.map(p => `<option value="${escapeHTML(p.key)}" ${(typeof canonicalLakituProjectKey === 'function' ? canonicalLakituProjectKey(m.lakituProjectKey) : m.lakituProjectKey) === p.key ? 'selected' : ''}>${escapeHTML(p.label)}</option>`).join('')}
         </select>
         <div class="asgn-field-hint">Assign the Lakitu project link this team's moderators should open · it appears as a clickable link in their Lakitu session field.</div>
       </div>
@@ -32117,8 +32144,13 @@ function saveTeam() {
   // Resolve the admin-assigned Lakitu project (if any) to a stored key +
   // mapped url. Empty key clears any prior assignment (falls back to the
   // moderator's manual paste flow).
-  const lakituProjectKey = m.lakituProjectKey || '';
-  const lakituProject = getLakituProjectByKey(lakituProjectKey);
+  const lakituProjectKeyRaw = m.lakituProjectKey || '';
+  const lakituProject = getLakituProjectByKey(lakituProjectKeyRaw);
+  // Prefer live catalog key (night-time-*) when a legacy centific-* key
+  // still resolves, so TeamLog does not keep retired option values.
+  const lakituProjectKey = (lakituProject && lakituProject.key)
+    ? lakituProject.key
+    : lakituProjectKeyRaw;
   const lakituProjectUrl = lakituProject ? lakituProject.url : '';
   // Ring dashboard (optional) · https URL only.
   const ringDashboardKey = m.ringDashboardKey || '';
@@ -34512,7 +34544,7 @@ async function saveAssignment() {
 }
 
 function openViewAssignmentModal(asgnId) {
-  const a = adminState.assignments.find(x => x.id === asgnId);
+  const a = (adminState.assignments || []).find(x => x && String(x.id) === String(asgnId));
   if (!a) return;
   // Track which assignment is being viewed so post-fetch hooks (e.g.,
   // loadParticipants completing after the modal opened) can refresh the
@@ -34525,7 +34557,7 @@ function openViewAssignmentModal(asgnId) {
   // data. Idempotent · does nothing if fields are already populated.
   enrichOneAssignmentParticipantData(a);
 
-  const team = adminState.teams.find(t => t.id === a.teamId);
+  const team = (adminState.teams || []).find(t => t && String(t.id) === String(a.teamId));
   const dateLabel = parseYMD(a.date).toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'});
   const partName = a.participantData ? [a.participantData.firstName, a.participantData.lastName].filter(Boolean).join(' ') : '·';
   const status = a.status || 'Booked';
@@ -34720,7 +34752,12 @@ function openViewAssignmentModal(asgnId) {
         const chips = chipLabels.map(label =>
           `<span class="bk-link-chip">${escapeHTML(label)}</span>`
         ).join('');
-        const currentLakitu = (a.lakituProjectKey || (team && team.lakituProjectKey) || (ov && ov.lakituProjectKey) || '');
+        const rawLakitu = (a.lakituProjectKey || (team && team.lakituProjectKey) || (ov && ov.lakituProjectKey) || '');
+        // Canonicalize so legacy centific-* keys select the matching
+        // Night Time option instead of leaving the <select> blank.
+        const currentLakitu = (typeof canonicalLakituProjectKey === 'function')
+          ? (canonicalLakituProjectKey(rawLakitu) || '')
+          : rawLakitu;
         const currentRing = (a.ringDashboardKey || (team && team.ringDashboardKey) || (ov && ov.ringDashboardKey) || '');
         const lakituOpts = (typeof LAKITU_PROJECTS !== 'undefined' ? LAKITU_PROJECTS : []).map(p =>
           `<option value="${escapeHTML(p.key)}" ${currentLakitu === p.key ? 'selected' : ''}>${escapeHTML(p.label)}</option>`
@@ -34873,8 +34910,11 @@ function saveAssignmentSessionLinks(asgnId) {
   if (!a) return;
   const lakituSel = document.getElementById('asgnLakituProject');
   const ringSel = document.getElementById('asgnRingDashboard');
-  const lakituKey = lakituSel ? String(lakituSel.value || '').trim() : '';
+  const lakituKeyRaw = lakituSel ? String(lakituSel.value || '').trim() : '';
   const ringKey = ringSel ? String(ringSel.value || '').trim() : '';
+  const lakituKey = (typeof canonicalLakituProjectKey === 'function')
+    ? (canonicalLakituProjectKey(lakituKeyRaw) || lakituKeyRaw)
+    : lakituKeyRaw;
   if (!lakituKey && !ringKey) {
     if (typeof toast === 'function') toast('Pick a Lakitu project or Ring dashboard first');
     return;
@@ -34886,19 +34926,54 @@ function saveAssignmentSessionLinks(asgnId) {
         lakituProjectKey: lakituKey,
         ringDashboardKey: ringKey,
       };
-  if (typeof applySessionLinkOverrideGapFill === 'function') {
-    applySessionLinkOverrideGapFill(a, entry);
+  // Explicit Admin Save links must stamp the picked sides onto the
+  // assignment. Gap-fill alone left legacy centific-* keys in place
+  // (URLs still resolved via catalog alias) so the Night Time <select>
+  // had no matching option and looked blank after re-open.
+  if (lakituKey) {
+    a.lakituProjectKey = entry.lakituProjectKey || lakituKey;
+    a.lakituProjectUrl = entry.lakituProjectUrl
+      || ((typeof resolveLakituUrlFromRecord === 'function')
+        ? resolveLakituUrlFromRecord(entry)
+        : '')
+      || '';
+  }
+  if (ringKey) {
+    a.ringDashboardKey = entry.ringDashboardKey || ringKey;
+    let ringUrl = entry.ringDashboardUrl
+      || ((typeof resolveRingUrlFromRecord === 'function')
+        ? resolveRingUrlFromRecord(entry)
+        : '')
+      || '';
+    if (ringUrl && typeof isSafeHttpsUrl === 'function' && !isSafeHttpsUrl(ringUrl)) ringUrl = '';
+    a.ringDashboardUrl = ringUrl;
   }
   const team = (adminState.teams || []).find(t => t && String(t.id) === String(a.teamId));
   let teamFilled = false;
-  if (team && typeof applySessionLinkOverrideGapFill === 'function') {
+  if (team) {
     const beforeL = team.lakituProjectKey || team.lakituProjectUrl || '';
     const beforeR = team.ringDashboardKey || team.ringDashboardUrl || '';
-    applySessionLinkOverrideGapFill(team, entry);
+    // Rewrite legacy catalog aliases on the team so TeamLog + selects
+    // store Night Time keys (same project, live catalog key).
+    if (team.lakituProjectKey && typeof canonicalLakituProjectKey === 'function') {
+      const canon = canonicalLakituProjectKey(team.lakituProjectKey);
+      if (canon && canon !== String(team.lakituProjectKey)) {
+        team.lakituProjectKey = canon;
+        const proj = (typeof getLakituProjectByKey === 'function')
+          ? getLakituProjectByKey(canon)
+          : null;
+        if (proj && proj.url) team.lakituProjectUrl = String(proj.url).trim();
+      }
+    }
+    if (typeof applySessionLinkOverrideGapFill === 'function') {
+      applySessionLinkOverrideGapFill(team, entry);
+    }
     teamFilled = (team.lakituProjectKey || team.lakituProjectUrl || '') !== beforeL
       || (team.ringDashboardKey || team.ringDashboardUrl || '') !== beforeR;
   }
-  if (typeof upsertSessionLinkOverride === 'function') upsertSessionLinkOverride(entry);
+  if (typeof upsertSessionLinkOverride === 'function') {
+    upsertSessionLinkOverride(entry, { lakitu: !!lakituKey, ring: !!ringKey });
+  }
   a.updatedAt = new Date().toISOString();
   if (typeof saveAssignmentData === 'function') saveAssignmentData();
   if (typeof persistTeamSessionAssignment === 'function') {
