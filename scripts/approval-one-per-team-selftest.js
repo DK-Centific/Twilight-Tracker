@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: One Approval per team/session (1.3.091820v).
+/* Self-test: One Approval per team/session + Approved beats newer Pending (1.3.091820w).
  * approval_id = appr_{assignmentId}_{StationLabel} (no orbit/timestamp).
  * Admin list dedupes one card per assignment_id|station.
  */
@@ -25,11 +25,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('One Approval per team/session self-test (1.3.091820v)');
+console.log('One Approval per team/session self-test (1.3.091820w)');
 
-assert('APP_VERSION 1.3.091820v',
-  /const APP_VERSION = '1\.3\.091820v'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820v'));
+assert('APP_VERSION 1.3.091820w',
+  /const APP_VERSION = '1\.3\.091820w'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820w'));
 
 assert('buildTeamSessionApprovalId helper present',
   /function buildTeamSessionApprovalId\(assignmentId, station\)/.test(src));
@@ -97,6 +97,8 @@ vm.runInContext(
   extractFn('approvalStationKey') + '\n'
   + extractFn('buildTeamSessionApprovalId') + '\n'
   + extractFn('approvalTeamStationDedupeKey') + '\n'
+  + extractFn('approvalStatusIsTerminalApprove') + '\n'
+  + extractFn('approvalStatusIsOpen') + '\n'
   + extractFn('dedupeApprovalsByTeamStation'),
   ctx
 );
@@ -161,6 +163,45 @@ const decided = ctx.dedupeApprovalsByTeamStation([
 assert('tie → Approved beats Pending',
   decided.length === 1 && decided[0].status === 'Approved',
   decided[0] && decided[0].status);
+
+// PxM repro · Pradeep Approved early, Manoj Pending later must NOT clobber.
+const newerPending = ctx.dedupeApprovalsByTeamStation([
+  {
+    approval_id: 'appr_Pradeep_od_pxm_Station1_111',
+    assignment_id: 'od_27c50635-ed73-400a-8dad-69a4d350cf1d', station: 'Station1',
+    status: 'Approved', orbit_login_id: 'Pradeepreddy-tw',
+    _epoch: 1000, last_modified: '2026-09-20T04:11:35.708Z',
+  },
+  {
+    approval_id: 'appr_Manoj_od_pxm_Station1_222',
+    assignment_id: 'od_27c50635-ed73-400a-8dad-69a4d350cf1d', station: 'Station1',
+    status: 'Pending', orbit_login_id: 'Manoj-tw',
+    _epoch: 9000, last_modified: '2026-09-20T08:29:41.239Z',
+  },
+]);
+assert('Approved beats newer Pending (PxM Station1)',
+  newerPending.length === 1 && newerPending[0].status === 'Approved'
+    && newerPending[0].orbit_login_id === 'Pradeepreddy-tw',
+  newerPending[0] && newerPending[0].status + '/' + newerPending[0].orbit_login_id);
+
+// Rejected → later Pending resubmit still wins.
+const afterReject = ctx.dedupeApprovalsByTeamStation([
+  {
+    approval_id: 'appr_od_x_Station3',
+    assignment_id: 'od_x', station: 'Station3',
+    status: 'Rejected', orbit_login_id: 'ModA',
+    _epoch: 1000, last_modified: '2026-09-20T09:00:00.000Z',
+  },
+  {
+    approval_id: 'appr_od_x_Station3',
+    assignment_id: 'od_x', station: 'Station3',
+    status: 'Pending', orbit_login_id: 'ModB',
+    _epoch: 2000, last_modified: '2026-09-20T10:00:00.000Z',
+  },
+]);
+assert('Pending resubmit after Reject still wins',
+  afterReject.length === 1 && afterReject[0].status === 'Pending',
+  afterReject[0] && afterReject[0].status);
 
 const sameStable = ctx.dedupeApprovalsByTeamStation([
   {

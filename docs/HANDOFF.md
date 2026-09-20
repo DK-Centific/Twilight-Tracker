@@ -1,5 +1,39 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-20 · Grok · Admin station merge + Approval dedupe (1.3.091820w)
+
+## 2026-09-20 · Admin station merge prefer-richer + Approval Approved>Pending (1.3.091820w)
+
+**Ask:** Yesterday (2026-09-19 PT) PxM Rohit + MxS lisa payne finished stations + checkout but Admin showed wrong state after 1.3.091820v. PA fixing SS maps + session_done + Approvals — investigate remaining **client** gaps.
+
+**Live data (diagnose 11:28 AM PT):**
+| Team | OD | SS | Approvals |
+|------|----|----|-----------|
+| Pradeepreddy×Manoj · Rohit | `od_27c50635…` | 468/470 both `station_4_done` all 8/8 · **no sessionCompletedAt** | Manoj Station1 **Pending** (08:29) after Pradeep Station1 **Approved** (04:11) |
+| Muhammad×Sravya · lisa payne | `od_d9286d02…` | 455 Sravya `station_4_done` 8/8 · 454 Muhammad Station3 **2/8** | Sravya St3 Approved · Muhammad St3 Pending (stable id) |
+
+**Client gaps found (code):**
+1. **Admin Performance station panel** (`renderPerfStationListHTML`) first-wins by `lastActive` per station key → newer empty/partial heartbeat clobbers richer teammate map → **Station3 2/8** while overall pill is Completed (`station_4_done` past end).
+2. **Approval list dedupe** (`dedupeApprovalsByTeamStation`) newest-epoch wins → later Pending clobbers earlier Approved → **Approval pending** while session detail shows all stations done.
+3. Completion write to wrong SS / scrub wipe: **not reproduced** on these rows — writes landed on correct `ss_od_*`; `state.assignmentId` null in JSON is normal (`extractSyncableState` omits it; SharePoint column set). Missing `sessionCompletedAt` = wrap-up never stamped (checkout-only) · PA stamp + existing 820g pin cover.
+
+**Fix (1.3.091820w):**
+- `mergeStationMapsPreferRicher` + `pickBetterScenario` soft-merge in Admin station panel; skip geo_presence/remote shells.
+- `dedupeApprovalsByTeamStation`: Approved/AutoApproved always beat Pending/InReview; Rejected still yields to later Pending resubmit.
+- Selftests: `admin-station-merge-prefer-richer-selftest.js`, extended `approval-one-per-team-selftest.js`.
+
+**PA coordinate (data — still needed):**
+1. Stamp `session_done` + `sessionCompletedAt` on SS 468/470/455 (and soft-merge 455→454 station maps if Muhammad stays 2/8).
+2. Soft-delete or Approve leftover Pending: Manoj `appr_Manoj-tw_od_27c50635…_Station1_…`; Muhammad `appr_od_d9286d02…_Station3`.
+3. Strikes cp **2026-09-20** Skip/resolved for both assignmentIds if flag still shows after session_done.
+4. Do **not** invent Assignment List Completed (OD sync owns status).
+
+**Verify (David):** Hard refresh → **1.3.091820w**. Perf panel for lisa payne: Station3 **8/8** (not 2/8). Approvals: Rohit Station1 shows **Approved** (not Pending). After PA stamp: both teams Completed / not flagged incomplete.
+
+**PR:** ship after selftests green.
+
+---
+
 **Last updated:** 2026-09-20 · Grok · Master-Admin Approval Delete soft-append go-live (1.3.091820o)
 
 ## 2026-09-20 · Enable Master-Admin Approval Delete via soft-append (1.3.091820o)
