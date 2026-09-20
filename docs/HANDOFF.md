@@ -12,6 +12,8 @@
 
 **Version:** **1.3.091820n**.
 
+**PR:** [#147](https://github.com/DK-Centific/Twilight-Tracker/pull/147) · merged to `main`.
+
 ---
 
 ## 2026-09-19 · One Approval per team/session (1.3.091820m)
