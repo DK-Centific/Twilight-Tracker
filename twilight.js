@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820j';
+const APP_VERSION = '1.3.091820k';
 const APP_UPDATED_AT = '09/19/2026 23:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -22256,7 +22256,7 @@ const PANIC_TEAMS_FOLLOW_UP = 'Also, please notify the managers in the Teams cha
 // Empty until the PanicLog write flow URL is pasted here.
 const PANICLOG_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/25/workflows/c6ce5448f600450bbd947871da0bc0f6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rFHMxswsjCYL-1I5uZxrRMqXnLvst0t-5Qwr3qwmUqI';
 // Empty until the PanicLog read flow URL is pasted here.
-const PANICLOG_PA_READ_URL = '';
+const PANICLOG_PA_READ_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/23/workflows/ef8b9a533932481e953493557c9c0fd6/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=GG2DJpbmspryoVU9cnl3OJtBCY15RQDJCCqfb-HkwT0';
 
 // =====================================================================
 // EMAIL LOG · audit trail for every confirmation email sent
@@ -24098,13 +24098,39 @@ function normalizePanicLogRow(row) {
   const reportType = normalizePanicReportType(pickPanicField(r, ['reportType', 'report_type', 'reportKey']), reportLabel);
   const meta = panicKindMeta(reportType);
   const reportedAt = pickPanicField(r, ['reportedAt', 'reported_at']);
-  const sessionDate = pickPanicField(r, ['sessionDate', 'session_date']);
+  const sessionDateRaw = pickPanicField(r, ['sessionDate', 'session_date']);
+  // Prefer ISO sessionDate; Excel often stores sessionDate as a serial
+  // (e.g. "46274") which breaks perfDateInRange/parseYMD filters when left
+  // raw. Normalize serials to YYYY-MM-DD via the UTC day-of-serial, then
+  // fall back to reportedAt day when sessionDate is missing/unparseable.
+  let sessionDate = '';
+  const rawStr = (sessionDateRaw == null) ? '' : String(sessionDateRaw).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(rawStr)) {
+    sessionDate = rawStr.slice(0, 10);
+  } else if (rawStr && /^\d+(\.\d+)?$/.test(rawStr)) {
+    const n = Number(rawStr);
+    if (n > 25000 && n < 75000) {
+      const ms = (n - 25569) * 86400 * 1000;
+      const d = new Date(ms);
+      if (!isNaN(d.getTime())) {
+        sessionDate = d.getUTCFullYear() + '-' +
+          String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+          String(d.getUTCDate()).padStart(2, '0');
+      }
+    }
+  } else if (rawStr && typeof coerceToDate === 'function') {
+    const d = coerceToDate(rawStr);
+    if (d && !isNaN(d.getTime())) {
+      sessionDate = (typeof ymd === 'function') ? ymd(d) : d.toISOString().slice(0, 10);
+    }
+  }
   let date = sessionDate;
   if (!date && reportedAt) {
     const d = new Date(reportedAt);
     if (!isNaN(d.getTime())) date = d.toISOString().slice(0, 10);
     else date = String(reportedAt).slice(0, 10);
   }
+  if (!date && rawStr) date = rawStr;
   return {
     panicLogId: pickPanicField(r, ['panicLogId', 'panic_log_id']) || ('pl_' + Date.now()),
     reportedAt: reportedAt,
@@ -24113,7 +24139,7 @@ function normalizePanicLogRow(row) {
     teamId: pickPanicField(r, ['teamId', 'team_id']),
     teamName: pickPanicField(r, ['teamName', 'team_name']),
     assignmentId: pickPanicField(r, ['assignmentId', 'assignment_id']),
-    sessionDate: sessionDate,
+    sessionDate: sessionDate || rawStr,
     date: date,
     reportType: reportType,
     reportLabel: reportLabel || meta.label,

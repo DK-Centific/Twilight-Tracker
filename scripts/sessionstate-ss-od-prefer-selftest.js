@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * PA cutover harden (1.3.091820j):
+ * PA cutover harden (1.3.091820k):
  * Never bind Booking/Session from geo_presence / asgn_remote when an
  * ss_od_{schedule}_{login} SessionState row exists for the live assignment.
  */
@@ -39,11 +39,11 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('SessionState ss_od_ prefer over geo_presence self-test (1.3.091820j)');
+console.log('SessionState ss_od_ prefer over geo_presence self-test (1.3.091820k)');
 
-assert('APP_VERSION is 1.3.091820j',
-  /const APP_VERSION = '1\.3\.091820j'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820j'));
+assert('APP_VERSION is 1.3.091820k',
+  /const APP_VERSION = '1\.3\.091820k'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820k'));
 assert('presence/remote helpers present',
   /function isGeoPresenceOrRemoteSessionStateRow\(/.test(src)
   && /function sessionStateRowResolvedAssignmentId\(/.test(src));
