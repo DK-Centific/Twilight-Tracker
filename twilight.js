@@ -6872,9 +6872,14 @@ function findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId,
     if (st !== 'Approved' && st !== 'AutoApproved') return false;
     if (String(a.station) !== label) return false;
     if (!belongs(a)) return false;
+    // OD TeamLog team_id can diverge across co-mod rows (100018 vs 100019).
+    // assignmentId match via belongs() is authoritative for shared unlock.
     if (teamId) {
       const rowTeam = String(a.team_id || a.teamId || '').trim();
-      if (rowTeam && String(rowTeam) !== String(teamId)) return false;
+      const rowAsgn = String(a.assignment_id || a.assignmentId || '').trim();
+      const asgnOk = asgnId && rowAsgn && (typeof assignmentIdsMatch === 'function'
+        ? assignmentIdsMatch(rowAsgn, asgnId) : rowAsgn === String(asgnId));
+      if (rowTeam && String(rowTeam) !== String(teamId) && !asgnOk) return false;
     }
     return true;
   });

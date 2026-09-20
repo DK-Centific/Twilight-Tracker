@@ -76,6 +76,7 @@ assert('newestSessionStatePerUser prefers progress score',
     console, String, Date,
     state: { approvalGate: {} },
     getGate(k) { return { status: 'none' }; },
+    assignmentIdsMatch(a, b) { return String(a) === String(b); },
     approvalRowBelongsToActiveSession(row, asgnId, sessionYmd) {
       if (String(row.assignment_id) !== String(asgnId)) return false;
       if (sessionYmd && row.session_date && row.session_date !== sessionYmd) return false;
@@ -121,9 +122,16 @@ assert('newestSessionStatePerUser prefers progress score',
   assert('team Approved unlocks when no own row',
     onlyTeam && onlyTeam.fromTeammate && onlyTeam.row.status === 'Approved');
 
-  const wrongTeam = ctx.findApprovalRowForGate(
+  // Same assignmentId + divergent TeamLog team_id still unlocks (100018 vs 100019).
+  const divergeTeam = ctx.findApprovalRowForGate(
     [{ ...rows[0], team_id: '999' }], 'station1', 'Station1', asgn, day, 'Narendra-tw', '100019');
-  assert('wrong team_id does not unlock', !wrongTeam);
+  assert('assignmentId match unlocks despite divergent team_id',
+    divergeTeam && divergeTeam.row.status === 'Approved');
+
+  const wrongAsgn = ctx.findApprovalRowForGate(
+    [{ ...rows[0], assignment_id: 'od_other', team_id: '999' }],
+    'station1', 'Station1', asgn, day, 'Narendra-tw', '100019');
+  assert('wrong assignment_id does not unlock', !wrongAsgn);
 }
 
 // --- Behavioral: getAssignedOpenSession prefer today ---
