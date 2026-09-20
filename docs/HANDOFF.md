@@ -1,5 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-19 · Grok · Approval toast + soft chime (1.3.091820l)
+
+## 2026-09-19 · Approval toast + soft chime (1.3.091820l)
+
+**Ask:** After Approval delete (820j) + PanicLog READ (820k), add notification popup + sound **just like arrival** for approvals.
+
+**Who hears what**
+- **Admin + Reviewer:** edge-detect new **Pending / InReview** (bound assignment only) → Soft Sage toast (“Calibration submitted for review” · team + station) + soft chime (`playArrivalChimeOnce`, debounced). Dismiss / Open Approval / viewing the Approval tab marks day-scoped seen. No re-toast after day roll, unbound rows, or soft-delete scrub.
+- **Moderator:** on transition to **Approved** / **Rejected** / AutoApproved from `pollMyApprovals` (in addition to existing modal) → brief toast + same soft chime once. Respects ack tokens + day-gate (no re-chime for yesterday / already-acked / unbound).
+- **prefers-reduced-motion:** skips sound (shared arrival chime helper).
+
+**Impl:** `#ovApprovalToastStack` / `.approval-toast-stack` parallel to arrival; LS key `twilight_approval_alerts_v1`. Wired in `startApprovalPoll` + `pollMyApprovals` / `runClientAutoApprove`.
+
+**Selftest:** `scripts/approval-toast-chime-selftest.js`. Version **1.3.091820l**.
+
+**PR:** (pending merge)
+
+---
+
 **Last updated:** 2026-09-19 · Grok · approval assignment harden (1.3.091820i)
 
 ## 2026-09-19 · Approval assignment harden (1.3.091820i)
