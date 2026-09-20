@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * 1.3.091820n — Yuan He team unlock + Team A→Team B day bind
+ * 1.3.091820o — Yuan He team unlock + Team A→Team B day bind
  * ----------------------------------------------------------
  * 1. Reviewer Approve for one primary unlocks BOTH (assignmentId+sessionDate).
  * 2. teammateAtMs defined so checkAndOfferTeammateSync does not throw.
@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Approval team unlock + day-bind self-test (1.3.091820n)');
+console.log('Approval team unlock + day-bind self-test (1.3.091820o)');
 
-assert('APP_VERSION 1.3.091820n',
-  /const APP_VERSION = '1\.3\.091820n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820n'));
+assert('APP_VERSION 1.3.091820o',
+  /const APP_VERSION = '1\.3\.091820o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820o'));
 assert('findApprovalRowForGate present',
   /function findApprovalRowForGate\(/.test(src));
 assert('poll uses findApprovalRowForGate',

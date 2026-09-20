@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 1.3.091820n — My session address rebind after same-id OD reschedule
+ * 1.3.091820o — My session address rebind after same-id OD reschedule
  * (Narendra×Pradeepreddy Romo → Yuan He).
  */
 
@@ -89,7 +89,7 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('session-address-rebind-selftest (1.3.091820n)');
+console.log('session-address-rebind-selftest (1.3.091820o)');
 
 assert('starts with Romo sticky', state.participantAddress === ROMO);
 
