@@ -1,21 +1,25 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-19 · Grok · Approval toast + soft chime (1.3.091820l)
+**Last updated:** 2026-09-19 · Grok · One Approval per team/session + toast (1.3.091820m)
 
-## 2026-09-19 · Approval toast + soft chime (1.3.091820l)
+## 2026-09-19 · One Approval per team/session (1.3.091820m)
 
-**Ask:** After Approval delete (820j) + PanicLog READ (820k), add notification popup + sound **just like arrival** for approvals.
+**Ask:** Ship one approval card per team/session; PA WRITE OK confirmed.
 
-**Who hears what**
-- **Admin + Reviewer:** edge-detect new **Pending / InReview** (bound assignment only) → Soft Sage toast (“Calibration submitted for review” · team + station) + soft chime (`playArrivalChimeOnce`, debounced). Dismiss / Open Approval / viewing the Approval tab marks day-scoped seen. No re-toast after day roll, unbound rows, or soft-delete scrub.
-- **Moderator:** on transition to **Approved** / **Rejected** / AutoApproved from `pollMyApprovals` (in addition to existing modal) → brief toast + same soft chime once. Respects ack tokens + day-gate (no re-chime for yesterday / already-acked / unbound).
-- **prefers-reduced-motion:** skips sound (shared arrival chime helper).
+**A — Stable approval_id**
+- `approval_id` = `appr_{assignmentId}_{StationLabel}` (no orbit, no timestamp)
+- `orbit_login_id` remains the submitter on WRITE
+- Either primary submit/resubmit reuses the same id
+- Admin Approvals list: dedupe one card per `assignment_id|station` (team + submitter)
+- Approve/Reject once unlocks both (existing teammate unlock + Admin 1 row)
+- Soft-delete by `approval_id` unchanged
+- Selftest: `scripts/approval-one-per-team-selftest.js`
 
-**Impl:** `#ovApprovalToastStack` / `.approval-toast-stack` parallel to arrival; LS key `twilight_approval_alerts_v1`. Wired in `startApprovalPoll` + `pollMyApprovals` / `runClientAutoApprove`.
+**B — PanicLog READ** — already on main as **1.3.091820k** (`PANICLOG_PA_READ_URL` + Excel-serial `sessionDate` normalize).
 
-**Selftest:** `scripts/approval-toast-chime-selftest.js`. Version **1.3.091820l**.
+**C — Approval arrival-style toast + chime** — included from 820l (Admin/Reviewer on new Pending; mod on Approved/Rejected).
 
-**PR:** [#145](https://github.com/DK-Centific/Twilight-Tracker/pull/145) · merged to `main`.
+**Version:** **1.3.091820m** (past 820j delete + 820k PanicLog + 820l toast).
 
 ---
 

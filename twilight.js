@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820l';
+const APP_VERSION = '1.3.091820m';
 const APP_UPDATED_AT = '09/19/2026 23:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -6499,7 +6499,17 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
     return null;
   }
   const g = getGate(stationKey);
-  const apprId = g.approvalId || ('appr_' + ctx.orbitId + '_' + asgnId + '_' + gateStationLabel(stationKey) + '_' + Date.now());
+  const stationLabel = gateStationLabel(stationKey);
+  // One approval per team/session · stable id (no orbit / timestamp).
+  // Either primary submit/resubmit reuses the same approval_id so Admin
+  // sees one card and Approve unlocks both moderators.
+  const apprId = (typeof buildTeamSessionApprovalId === 'function')
+    ? buildTeamSessionApprovalId(asgnId, stationLabel)
+    : ('appr_' + asgnId + '_' + String(stationLabel || '').replace(/\s+/g, ''));
+  if (!apprId) {
+    await showApprovalAssignmentRequired();
+    return null;
+  }
   const resubmitCount = (g.resubmitCount || 0) + (resubmit ? 1 : 0);
   const lakituUrl = (lakituUrlOverride && String(lakituUrlOverride).trim())
     || (state.recordLakituUrl && String(state.recordLakituUrl).trim())
@@ -6522,7 +6532,7 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
     approval_id: apprId, assignmentId: asgnId,
     teamId: ctx.teamId, teamName: ctx.teamName,
     orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
-    station: gateStationLabel(stationKey), scenario: 'calibration',
+    station: stationLabel, scenario: 'calibration',
     lakituUrl, resubmit: !!resubmit, resubmitCount,
   });
   if (!writtenId && typeof showToast === 'function') {
@@ -15400,10 +15410,12 @@ function renderApprovalListInto() {
     const delBtn = canDeleteAppr
       ? `<button type="button" class="appr-row-delete" data-appr-del="${idEsc}" title="Delete approval (Master Admin)" aria-label="Delete approval">Delete</button>`
       : '';
+    // One card per team/session: team name + submitter (orbit) · station · time.
+    const submitter = mod ? ('Submitted by ' + mod) : '';
     return `<div class="appr-row${isSel}" data-appr="${idEsc}">
       <div class="appr-row-main">
         <div class="appr-row-team">${team}</div>
-        <div class="appr-row-sub">${mod}${mod ? ' · ' : ''}${st}${ts ? ' · ' + ts : ''}</div>
+        <div class="appr-row-sub">${submitter}${submitter && st ? ' · ' : ''}${st}${ts ? ' · ' + ts : ''}</div>
       </div>
       <span class="appr-pill ${cls}">${lbl}</span>
       ${delBtn}
@@ -39790,8 +39802,12 @@ async function ensureApprovalData(opts) {
   }
   const rows = await fetchApprovalRows();
   adminState.approvalRows = rows;
-  adminState.approvals = resolveApprovals(rows);
+  // Newest-per-approval_id, then one Admin card per assignment|station
+  // (legacy dual-mod rows with different ids collapse to a single card).
+  adminState.approvals = dedupeApprovalsByTeamStation(resolveApprovals(rows));
   applyApprovalOverrides();   // re-inject the admin's own just-made decisions
+  // Overrides can reintroduce a legacy twin — collapse again for Admin 1-row.
+  adminState.approvals = dedupeApprovalsByTeamStation(adminState.approvals || []);
   adminState._apprFetchedAt = now;
   return adminState.approvals;
 }
@@ -39821,6 +39837,47 @@ function applyApprovalOverrides() {
   });
 }
 
+// --- one approval per team/session (1.3.091820m) -------------------
+// Stable key: appr_{assignmentId}_{StationLabel} — no orbit, no timestamp.
+// orbit_login_id remains the submitter on WRITE. Either primary can
+// submit/resubmit the same id; Admin list dedupes by assignment|station.
+function approvalStationKey(station) {
+  return String(station == null ? '' : station).replace(/\s+/g, '');
+}
+function buildTeamSessionApprovalId(assignmentId, station) {
+  const asgn = String(assignmentId == null ? '' : assignmentId).trim();
+  const st = approvalStationKey(station);
+  if (!asgn || !st) return '';
+  return 'appr_' + asgn + '_' + st;
+}
+function approvalTeamStationDedupeKey(a) {
+  if (!a) return '';
+  const asgn = String(a.assignment_id || a.assignmentId || '').trim();
+  const st = approvalStationKey(a.station);
+  if (!asgn || !st) return '';
+  return asgn + '|' + st;
+}
+// Collapse Admin cards to one row per assignment_id|station (team session).
+// Newest epoch wins; status rank breaks ties so a decision beats Pending.
+function dedupeApprovalsByTeamStation(list) {
+  const byKey = new Map();
+  const leftovers = [];
+  for (const a of (list || [])) {
+    const key = approvalTeamStationDedupeKey(a);
+    if (!key) { leftovers.push(a); continue; }
+    const prev = byKey.get(key);
+    if (!prev) { byKey.set(key, a); continue; }
+    const ae = (a._epoch != null ? a._epoch : (typeof approvalEpoch === 'function' ? approvalEpoch(a) : 0)) || 0;
+    const pe = (prev._epoch != null ? prev._epoch : (typeof approvalEpoch === 'function' ? approvalEpoch(prev) : 0)) || 0;
+    const newer = ae > pe;
+    const tie = ae === pe;
+    if (newer || (tie && _apprRank(a.status) >= _apprRank(prev.status))) {
+      byKey.set(key, a);
+    }
+  }
+  return [...byKey.values(), ...leftovers];
+}
+
 // --- mutations ---
 // Moderator submit / resubmit. Returns the approval_id (stable key) or null.
 async function createApprovalRequest(p) {
@@ -39829,7 +39886,9 @@ async function createApprovalRequest(p) {
   const asgn    = _approvalAssignmentId(p.assignmentId);
   if (!asgn) return null;
   const station = p.station || '';
-  const id = p.approval_id || `appr_${orbitId}_${asgn}_${String(station).replace(/\s+/g, '')}_${Date.now()}`;
+  // Prefer stable team/session id; ignore legacy orbit+timestamp ids.
+  const id = buildTeamSessionApprovalId(asgn, station) || p.approval_id || '';
+  if (!id) return null;
   const nowIso = new Date().toISOString();
   const sessionDate = (p.sessionDate && String(p.sessionDate).trim().slice(0, 10))
     || ((typeof approvalSessionDateYmd === 'function') ? approvalSessionDateYmd() : '')

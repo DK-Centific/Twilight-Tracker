@@ -315,8 +315,8 @@ assert('editor card still renders when both rigs are off', /cal-rig-card-editor/
   && /Rig 1/.test(emptyCard)
   && /Rig 2/.test(emptyCard));
 
-assert('APP_VERSION is 1.3.091820l', /const APP_VERSION = '1\.3\.091820l'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820l'));
+assert('APP_VERSION is 1.3.091820m', /const APP_VERSION = '1\.3\.091820m'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820m'));
 assert('editor change log is capped to 5.5 rows with hidden scrollbars',
   html.includes('#scenCatalogModal .scen-log')
     && html.includes('5.5 * var(--scen-log-row-h)')
