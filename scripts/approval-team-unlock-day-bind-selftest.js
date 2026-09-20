@@ -44,20 +44,19 @@ function extractFn(name) {
 
 console.log('Approval team unlock + day-bind self-test (1.3.091820w)');
 
-assert('APP_VERSION 1.3.091820w',
-  /const APP_VERSION = '1\.3\.091820w'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820w'));
+assert('APP_VERSION 1.3.091820w/x',
+  /const APP_VERSION = '1\.3\.091820[wx]'/.test(src)
+  && /twilight\.js\?v=twilight-1\.3\.091820[wx]/.test(html));
 assert('findApprovalRowForGate present',
   /function findApprovalRowForGate\(/.test(src));
 assert('poll uses findApprovalRowForGate',
   /findApprovalRowForGate\(resolved, k, label, asgnId, sessionYmd, orbitId, teamIdForGate\)/.test(src));
-assert('teammateAtMs defined before use',
-  /const teammateAtMs = parseLastActiveMs\(teammateAt\);/.test(src)
-  && src.indexOf('const teammateAtMs = parseLastActiveMs(teammateAt);')
-    < src.indexOf('const alreadyAdopted = !!(localAtMs && teammateAtMs'));
+assert('freshness / score gate for teammate sync (820x)',
+  /function sessionStateRowFreshnessIso\(/.test(src)
+  && /teammateScore > myScore && teammateScore > lastMergeScore/.test(src));
 assert('soft-merge when teammateNewer (not only !bHasOwnWork)',
   /if \(teammateNewer\) \{/.test(src)
-  && /pickBetterScenario so local work is never downgraded/.test(src));
+  && /_lastSyncMergeScore/.test(src));
 assert('getAssignedOpenSession preferToday guard',
   /After 9 AM PT with a today\+ booking: NEVER bind/.test(src));
 assert('getSessionDisplayTeam blocks teams\[0\] fallback after gate',

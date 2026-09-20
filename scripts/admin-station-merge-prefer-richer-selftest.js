@@ -29,9 +29,9 @@ function assert(name, cond, detail) {
 
 console.log('Admin station merge prefer-richer self-test (1.3.091820w)');
 
-assert('APP_VERSION 1.3.091820w',
-  /const APP_VERSION = '1\.3\.091820w'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820w'));
+assert('APP_VERSION 1.3.091820w/x',
+  /const APP_VERSION = '1\.3\.091820[wx]'/.test(src)
+  && /twilight\.js\?v=twilight-1\.3\.091820[wx]/.test(html));
 
 assert('mergeStationMapsPreferRicher helper present',
   /function mergeStationMapsPreferRicher\(dst, src\)/.test(src)
