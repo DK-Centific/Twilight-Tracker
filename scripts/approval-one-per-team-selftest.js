@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: One Approval per team/session (1.3.091820m).
+/* Self-test: One Approval per team/session (1.3.091820n).
  * approval_id = appr_{assignmentId}_{StationLabel} (no orbit/timestamp).
  * Admin list dedupes one card per assignment_id|station.
  */
@@ -25,11 +25,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('One Approval per team/session self-test (1.3.091820m)');
+console.log('One Approval per team/session self-test (1.3.091820n)');
 
-assert('APP_VERSION 1.3.091820m',
-  /const APP_VERSION = '1\.3\.091820m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820m'));
+assert('APP_VERSION 1.3.091820n',
+  /const APP_VERSION = '1\.3\.091820n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820n'));
 
 assert('buildTeamSessionApprovalId helper present',
   /function buildTeamSessionApprovalId\(assignmentId, station\)/.test(src));

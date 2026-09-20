@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-19 · Grok · One Approval per team/session + toast (1.3.091820m)
+**Last updated:** 2026-09-19 · Grok · PA-gated Master-Admin Approval Delete (1.3.091820n)
+
+## 2026-09-19 · Gate Approval Delete until PA soft-delete is saved (1.3.091820n)
+
+**Ask:** PA soft-delete `operation:'delete'` is not saved yet; keep the live Master-Admin Delete action off.
+
+**Fix:** Added explicit `APPROVAL_PA_DELETE_ENABLED = false` near the existing Write/Delete URL alias. The Approval list does not render Delete for Master Admin while false, and the delete handlers fail closed as a defensive backstop. Flip the one boolean to `true` after PA confirms delete probes.
+
+**Selftest:** `scripts/approval-delete-selftest.js` covers the disabled default and render gate.
+
+**Version:** **1.3.091820n**.
+
+---
 
 ## 2026-09-19 · One Approval per team/session (1.3.091820m)
 

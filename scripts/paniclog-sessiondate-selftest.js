@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: PanicLog READ URL + Excel-serial sessionDate normalize (1.3.091820m). */
+/* Self-test: PanicLog READ URL + Excel-serial sessionDate normalize (1.3.091820n). */
 const fs = require('fs');
 const path = require('path');
 
@@ -13,11 +13,11 @@ function assert(label, cond) {
   else { console.error('  FAIL  ' + label); failed++; }
 }
 
-console.log('PanicLog READ + sessionDate normalize self-test (1.3.091820m)');
+console.log('PanicLog READ + sessionDate normalize self-test (1.3.091820n)');
 
-assert('APP_VERSION 1.3.091820m',
-  /const APP_VERSION = '1\.3\.091820m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820m'));
+assert('APP_VERSION 1.3.091820n',
+  /const APP_VERSION = '1\.3\.091820n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820n'));
 
 const readUrlMatch = src.match(/const PANICLOG_PA_READ_URL = '([^']*)';/);
 assert('PANICLOG_PA_READ_URL is set (non-empty)', !!(readUrlMatch && readUrlMatch[1]));

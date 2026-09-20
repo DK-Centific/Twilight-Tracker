@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Master-Admin-only Approval list Delete (1.3.091820m). */
+/* Self-test: Master-Admin-only Approval list Delete (1.3.091820n). */
 'use strict';
 
 const fs = require('fs');
@@ -21,11 +21,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval Master-Admin delete self-test (1.3.091820m)');
+console.log('Approval Master-Admin delete self-test (1.3.091820n)');
 
-assert('APP_VERSION 1.3.091820m',
-  /const APP_VERSION = '1\.3\.091820m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820m'));
+assert('APP_VERSION 1.3.091820n',
+  /const APP_VERSION = '1\.3\.091820n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820n'));
 
 assert('APPROVAL_PA_DELETE_URL constant exists',
   /const APPROVAL_PA_DELETE_URL\s*=/.test(src));
@@ -35,8 +35,12 @@ assert('delete payload uses operation delete + requestingAdminOrbitId',
   && /requestingAdminOrbitId:\s*\(typeof requestingAdminOrbitId === 'function'\)/.test(src)
   && /async function deleteApprovalRequest\(approvalId\)/.test(src));
 
+assert('PA delete gate defaults off and hides button',
+  /const APPROVAL_PA_DELETE_ENABLED = false/.test(src)
+  && /const canDeleteAppr = APPROVAL_PA_DELETE_ENABLED && typeof isMasterAdminUser === 'function' && isMasterAdminUser\(\)/.test(src));
+
 assert('Master Admin gate on delete (UI + writer)',
-  /const canDeleteAppr = typeof isMasterAdminUser === 'function' && isMasterAdminUser\(\)/.test(src)
+  /const canDeleteAppr = APPROVAL_PA_DELETE_ENABLED && typeof isMasterAdminUser === 'function' && isMasterAdminUser\(\)/.test(src)
   && /async function deleteApprovalRequest\(approvalId\) \{[\s\S]{0,220}isMasterAdminUser\(\)/.test(src)
   && /async function confirmAndDeleteApproval\(approvalId\) \{[\s\S]{0,180}isMasterAdminUser\(\)/.test(src));
 
