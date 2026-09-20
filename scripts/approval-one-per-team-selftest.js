@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: One Approval per team/session (1.3.091820n).
+/* Self-test: One Approval per team/session (1.3.091820o).
  * approval_id = appr_{assignmentId}_{StationLabel} (no orbit/timestamp).
  * Admin list dedupes one card per assignment_id|station.
  */
@@ -25,11 +25,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('One Approval per team/session self-test (1.3.091820n)');
+console.log('One Approval per team/session self-test (1.3.091820o)');
 
-assert('APP_VERSION 1.3.091820n',
-  /const APP_VERSION = '1\.3\.091820n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820n'));
+assert('APP_VERSION 1.3.091820o',
+  /const APP_VERSION = '1\.3\.091820o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820o'));
 
 assert('buildTeamSessionApprovalId helper present',
   /function buildTeamSessionApprovalId\(assignmentId, station\)/.test(src));
@@ -54,8 +54,9 @@ assert('Admin ensureApprovalData dedupes by team/station',
 
 assert('soft-delete still keyed by approval_id',
   /async function deleteApprovalRequest\(approvalId\)/.test(src)
-  && /approval_id: id/.test(src)
-  && /operation: 'delete'/.test(src));
+  && /row\.approval_id = id/.test(src)
+  && /row\.status = 'Deleted'/.test(src)
+  && /row\.event_type = 'deleted'/.test(src));
 
 assert('Admin list shows team + submitter',
   /Submitted by /.test(src)

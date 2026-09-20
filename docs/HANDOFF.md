@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-19 · Grok · PA-gated Master-Admin Approval Delete (1.3.091820n)
+**Last updated:** 2026-09-20 · Grok · Master-Admin Approval Delete soft-append go-live (1.3.091820o)
+
+## 2026-09-20 · Enable Master-Admin Approval Delete via soft-append (1.3.091820o)
+
+**Ask:** PA Condition `operation:'delete'` is still not saved; soft-delete append already works on Approval WRITE URL `ab87a7c7…`. Flip Delete ON for Master Admin using WRITE append `{ approval_id, status:'Deleted' }` / `event_type=deleted`.
+
+**Fix:**
+- `APPROVAL_PA_DELETE_ENABLED = true`
+- `deleteApprovalRequest` soft-appends via `writeApprovalEvent` (`status:'Deleted'`, `event_type:'deleted'`, optional `requestingAdminOrbitId`) — does **not** POST `operation:'delete'`
+- Master Admin only (`isMasterAdminUser`) unchanged
+- Confirm → refresh list (`ensureApprovalData({ force:true })`); `isApprovalSoftDeleted` / `resolveApprovals` filter Deleted rows
+
+**Selftest:** `scripts/approval-delete-selftest.js` (+ one-per-team soft-delete assert).
+
+**Version:** **1.3.091820o**.
+
+---
 
 ## 2026-09-19 · Gate Approval Delete until PA soft-delete is saved (1.3.091820n)
 
@@ -15,7 +31,6 @@
 **PR:** [#147](https://github.com/DK-Centific/Twilight-Tracker/pull/147) · merged to `main`.
 
 ---
-
 ## 2026-09-19 · One Approval per team/session (1.3.091820m)
 
 **Ask:** Ship one approval card per team/session; PA WRITE OK confirmed.

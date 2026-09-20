@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820n';
+const APP_VERSION = '1.3.091820o';
 const APP_UPDATED_AT = '09/19/2026 23:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -39419,12 +39419,13 @@ const SESSIONSTATE_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6
    ===================================================================== */
 const APPROVAL_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ab87a7c7cfa4456d88d14c0b82ec6571/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=HWJq3ruIIfSrmHpCHFRzhR_YqYozaBbUAJEd2DJYOmc';   // PA "Approval Write" flow · append one event row
 const APPROVAL_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/41d9757babff4eb7ac2d3881804af96c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=FMNIOJoSnhglArGlE5DuEZqEERwyQSV7fzp1cQqCO1g';   // PA "Approval Read" flow · list all rows (pagination ON)
-// Master-Admin delete · POST { operation:'delete', approval_id, requestingAdminOrbitId }.
-// Reuses Approval Write when that flow handles operation delete; set to a dedicated
-// flow URL if PA ships one separately. Empty ⇒ UI toasts "Delete not configured".
+// Master-Admin delete · soft-append on Approval WRITE URL (ab87a7c7…):
+// { approval_id, status:'Deleted', event_type:'deleted', requestingAdminOrbitId? }.
+// Do NOT rely on PA Condition operation:'delete' — that path is not saved yet.
+// Soft-deleted rows are filtered by isApprovalSoftDeleted / resolveApprovals.
 const APPROVAL_PA_DELETE_URL = APPROVAL_PA_WRITE_URL;
-// Keep Delete hidden until PA pings the soft-delete delete probes OK.
-const APPROVAL_PA_DELETE_ENABLED = false;
+// Soft-append delete go-live · Master Admin only (isMasterAdminUser).
+const APPROVAL_PA_DELETE_ENABLED = true;
 const APPROVAL_CACHE_TTL_MS = 30000;
 const APPROVAL_AUTO_MIN     = 15;   // minutes pending before the time gate auto-approves
 const APPROVAL_AUTO_LS_KEY = 'centific_twilight_approval_auto_v1';
@@ -39839,7 +39840,7 @@ function applyApprovalOverrides() {
   });
 }
 
-// --- one approval per team/session (1.3.091820n) -------------------
+// --- one approval per team/session (1.3.091820o) -------------------
 // Stable key: appr_{assignmentId}_{StationLabel} — no orbit, no timestamp.
 // orbit_login_id remains the submitter on WRITE. Either primary can
 // submit/resubmit the same id; Admin list dedupes by assignment|station.
@@ -39969,9 +39970,9 @@ async function writeApprovalAutoApprove(appr) {
   return writeApprovalEvent(row);
 }
 
-// Master Admin only · soft-delete / cancel an approval row via PA.
-// Contract: { operation:'delete', approval_id, requestingAdminOrbitId }.
-// When the row is gone (or status Deleted), pollMyApprovals clears mod gates.
+// Master Admin only · soft-delete via Approval WRITE append (same URL as approve/reject).
+// PA Condition operation:'delete' is not saved; append status Deleted / event_type deleted
+// instead. resolveApprovals filters via isApprovalSoftDeleted so the row leaves the list.
 async function deleteApprovalRequest(approvalId) {
   if (!APPROVAL_PA_DELETE_ENABLED) {
     if (typeof showToast === 'function') showToast('Delete not enabled yet', 'warn', 3500);
@@ -39983,27 +39984,36 @@ async function deleteApprovalRequest(approvalId) {
   }
   const id = String(approvalId || '').trim();
   if (!id) return false;
-  const url = approvalDeleteEndpoint();
-  if (!url) {
+  if (!APPROVAL_PA_WRITE_URL && !approvalDeleteEndpoint()) {
     if (typeof showToast === 'function') showToast('Delete not configured', 'warn', 3500);
     return false;
   }
-  const payload = {
-    operation: 'delete',
-    approval_id: id,
-    requestingAdminOrbitId: (typeof requestingAdminOrbitId === 'function') ? requestingAdminOrbitId() : '',
-  };
-  try {
-    console.log('[Twilight] approval delete payload \u2192', JSON.stringify(payload));
-    await fetchWithRetry(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
-    });
-    console.log('[Twilight] deleteApprovalRequest OK \u00b7 approval_id', id);
-    return true;
-  } catch (e) {
-    console.warn('[Twilight] deleteApprovalRequest failed:', e && e.message);
+  // Prefer the live Admin list row so the append carries assignment_id + fields PA expects.
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.approvals) || [];
+  const rows = (typeof adminState !== 'undefined' && adminState && adminState.approvalRows) || [];
+  const cur = list.find(a => String(a.approval_id) === id)
+    || rows.find(a => String(a.approval_id) === id);
+  if (!cur) {
+    if (typeof showToast === 'function') showToast('Approval not found', 'error', 3200);
     return false;
   }
+  const who = (typeof currentAdminIdentity === 'function') ? currentAdminIdentity() : { name: '', id: '' };
+  const nowIso = new Date().toISOString();
+  const row = { ...cur }; delete row._epoch;
+  row.approval_id = id;
+  row.event_type = 'deleted';
+  row.status = 'Deleted';
+  row.decided_at = nowIso;
+  row.decided_by = who.name || '';
+  row.decided_by_id = who.id || '';
+  row.last_modified = nowIso;
+  row.app_version = APP_VERSION;
+  // Optional metadata for PA audit trails (not required by soft-append Condition).
+  row.requestingAdminOrbitId = (typeof requestingAdminOrbitId === 'function') ? requestingAdminOrbitId() : '';
+  const ok = await writeApprovalEvent(row);
+  if (ok) console.log('[Twilight] deleteApprovalRequest OK \u00b7 soft-append Deleted \u00b7 approval_id', id);
+  else console.warn('[Twilight] deleteApprovalRequest failed \u00b7 soft-append');
+  return ok;
 }
 
 async function confirmAndDeleteApproval(approvalId) {

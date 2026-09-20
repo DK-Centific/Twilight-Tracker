@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Approval toast + soft chime (1.3.091820n).
+/* Self-test: Approval toast + soft chime (1.3.091820o).
  * Mirrors arrival check-in alerts for Admin/Reviewer Pending edges and
  * Moderator Approved/Rejected transitions.
  */
@@ -24,11 +24,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval toast + soft chime self-test (1.3.091820n)');
+console.log('Approval toast + soft chime self-test (1.3.091820o)');
 
-assert('APP_VERSION 1.3.091820n',
-  /const APP_VERSION = '1\.3\.091820n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820n'));
+assert('APP_VERSION 1.3.091820o',
+  /const APP_VERSION = '1\.3\.091820o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820o'));
 
 assert('day-scoped LS store key twilight_approval_alerts_v1',
   /const APPROVAL_ALERTS_LS_KEY = 'twilight_approval_alerts_v1'/.test(src)

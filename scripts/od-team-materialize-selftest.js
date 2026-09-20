@@ -83,11 +83,11 @@ function odAsgn(partial) {
   }, partial);
 }
 
-console.log('OD team materialize self-test (1.3.091820n)');
+console.log('OD team materialize self-test (1.3.091820o)');
 
-assert('APP_VERSION is 1.3.091820n',
-  /const APP_VERSION = '1\.3\.091820n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820n'));
+assert('APP_VERSION is 1.3.091820o',
+  /const APP_VERSION = '1\.3\.091820o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820o'));
 
 // 1. Create + stamp
 {

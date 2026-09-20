@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Master-Admin-only Approval list Delete (1.3.091820n). */
+/* Self-test: Master-Admin-only Approval soft-append Delete (1.3.091820o). */
 'use strict';
 
 const fs = require('fs');
@@ -21,22 +21,28 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval Master-Admin delete self-test (1.3.091820n)');
+console.log('Approval Master-Admin soft-append delete self-test (1.3.091820o)');
 
-assert('APP_VERSION 1.3.091820n',
-  /const APP_VERSION = '1\.3\.091820n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820n'));
+assert('APP_VERSION 1.3.091820o',
+  /const APP_VERSION = '1\.3\.091820o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820o'));
 
-assert('APPROVAL_PA_DELETE_URL constant exists',
-  /const APPROVAL_PA_DELETE_URL\s*=/.test(src));
+assert('APPROVAL_PA_DELETE_URL aliases WRITE',
+  /const APPROVAL_PA_DELETE_URL\s*=\s*APPROVAL_PA_WRITE_URL/.test(src));
 
-assert('delete payload uses operation delete + requestingAdminOrbitId',
-  /operation:\s*'delete'/.test(src)
-  && /requestingAdminOrbitId:\s*\(typeof requestingAdminOrbitId === 'function'\)/.test(src)
-  && /async function deleteApprovalRequest\(approvalId\)/.test(src));
+// Extract deleteApprovalRequest body so comments mentioning operation:'delete' elsewhere don't fail.
+const delFnMatch = src.match(/async function deleteApprovalRequest\(approvalId\) \{[\s\S]*?\n\}/);
+const delFn = delFnMatch ? delFnMatch[0] : '';
+assert('delete soft-appends Deleted / event_type deleted via WRITE',
+  !!delFn
+  && /row\.status\s*=\s*'Deleted'/.test(delFn)
+  && /row\.event_type\s*=\s*'deleted'/.test(delFn)
+  && /await writeApprovalEvent\(row\)/.test(delFn)
+  && /row\.requestingAdminOrbitId\s*=/.test(delFn)
+  && !/operation:\s*'delete'/.test(delFn));
 
-assert('PA delete gate defaults off and hides button',
-  /const APPROVAL_PA_DELETE_ENABLED = false/.test(src)
+assert('PA delete enabled + Master Admin UI gate',
+  /const APPROVAL_PA_DELETE_ENABLED = true/.test(src)
   && /const canDeleteAppr = APPROVAL_PA_DELETE_ENABLED && typeof isMasterAdminUser === 'function' && isMasterAdminUser\(\)/.test(src));
 
 assert('Master Admin gate on delete (UI + writer)',
