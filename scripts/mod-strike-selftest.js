@@ -23,9 +23,34 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091820o',
-  /const APP_VERSION = '1\.3\.091820o'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820o'));
+assert('version bump 091820v',
+  /const APP_VERSION = '1\.3\.091820v'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820v'));
+assert('strike scale v4 one-shot helpers',
+  /function ensureModStrikeScaleV4/.test(src)
+  && /function mergeModStrikeMods/.test(src)
+  && /function modStrikeStoreSig/.test(src)
+  && /MOD_STRIKE_SCALE_V4_FLAG_KEY/.test(src)
+  && /Cloud wins over empty/.test(src));
+assert('perf Helios motion helpers + tokens (v)',
+  /function perfPlayMotion/.test(src)
+  && /function perfQueueMotion/.test(src)
+  && /function perfApplyDetailEnter/.test(src)
+  && /perfQueueMotion\('crossfade'\)/.test(src)
+  && html.includes('--perf-ease')
+  && html.includes('perf-shell.perf-enter')
+  && html.includes('perf-detail-enter'));
+assert('perf poll signature skip (no Flagged re-stagger)',
+  /function perfLiveContentSig/.test(src)
+  && /function refreshPerfLiveDataInPlace/.test(src)
+  && /refreshPerfLiveDataInPlace\(\{ reason: 'modStrike' \}\)/.test(src)
+  && /fhRefreshBody\(root, \{ motion: 'none'/.test(src));
+assert('SS persist refuses empty mods + flush on strike writes',
+  /refuse-empty-mods/.test(src)
+  && /backfill-local-to-cloud/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'set-stars' \}\)/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'final-chance' \}\)/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'reset-stars' \}\)/.test(src));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)

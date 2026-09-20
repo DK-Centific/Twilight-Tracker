@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820o';
-const APP_UPDATED_AT = '09/19/2026 23:45';
+const APP_VERSION = '1.3.091820v';
+const APP_UPDATED_AT = '09/20/2026 01:03';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8372,6 +8372,25 @@ const adminState = {
   perfStatusScope: 'all',
   perfSessionStateRows: null,
   _perfSSFetching: false,
+  // perfListLayout: 'grid' | 'list' · card tiles vs dense list (Moderator Hub mirror)
+  perfListLayout: (function () {
+    try { return localStorage.getItem('orbit_perf_list_layout') === 'list' ? 'list' : 'grid'; }
+    catch (_) { return 'grid'; }
+  })(),
+  // Deep-link from Overview Live status row → Performance team focus
+  perfFocusTeamId: null,
+  // Flagged history sub-view (when perfStatusScope === 'flagged')
+  perfFlaggedFilter: 'all',   // all | warn | final | locked | deact
+  perfFlaggedSort: 'date-desc', // date-desc | date-asc | stars-asc | team-asc
+  perfFlaggedSearch: '',
+  // List (A) | Split (Helios C) · persist twilight_fh_view
+  perfFlaggedViewMode: (function () {
+    try {
+      const v = localStorage.getItem('twilight_fh_view');
+      return (v === 'split') ? 'split' : 'list';
+    } catch (_) { return 'list'; }
+  })(),
+  perfFlaggedSelectedKey: null, // orbitId::teamId for Split detail
 };
 
 // Field-name resolver: tolerates camelCase, PascalCase, snake_case,
@@ -9402,12 +9421,26 @@ function selectAdminTab(tab, opts) {
   if (opts.subtab) adminState.subtab = opts.subtab;
   if (opts.modView) adminState.modView = opts.modView;
   if (opts.perfSection) adminState.perfSection = opts.perfSection;
+  if (opts.perfStatusScope !== undefined) adminState.perfStatusScope = opts.perfStatusScope;
+  if (opts.perfFocusTeamId !== undefined) {
+    adminState.perfFocusTeamId = opts.perfFocusTeamId;
+    if (opts.perfFocusTeamId) {
+      const tid = 'team-' + String(opts.perfFocusTeamId);
+      if (adminState.perfExpanded && typeof adminState.perfExpanded.add === 'function') {
+        adminState.perfExpanded.add(tid);
+      }
+    }
+  }
+  if (opts.perfDateRange !== undefined) adminState.perfDateRange = opts.perfDateRange;
+  if (opts.perfView !== undefined) adminState.perfView = opts.perfView;
   // Overview Moderators tile (and any caller) can force LoginRole filter.
   if (opts.modRoleFilter !== undefined && typeof setModRoleFilter === 'function') {
     setModRoleFilter(opts.modRoleFilter, { persist: true });
   }
   if (adminState.tab === tab && !opts.subtab && !opts.modView && !opts.scrollTo && !opts.perfSection
-      && opts.modRoleFilter === undefined) return;
+      && opts.modRoleFilter === undefined
+      && opts.perfStatusScope === undefined && opts.perfFocusTeamId === undefined
+      && opts.perfDateRange === undefined && opts.perfView === undefined) return;
   adminState.tab = tab;
   if (prevTab !== tab) {
     // Clear the Assignment calendar's team filter AND the side-panel
@@ -9859,9 +9892,17 @@ function renderOverviewLiveStatusList(lines) {
   const list = document.getElementById('ovLiveStatusList');
   if (!list) return;
   if (!lines || !lines.length) {
-    list.innerHTML = '<li class="ov-ls-empty">No teams checked in for this view</li>';
+    const emptyHtml = '<li class="ov-ls-empty">No teams checked in for this view</li>';
+    if (list.dataset.ovLsSig === 'empty' && list.innerHTML.indexOf('ov-ls-empty') >= 0) return;
+    list.dataset.ovLsSig = 'empty';
+    list.innerHTML = emptyHtml;
     return;
   }
+  const sig = lines.map(row => {
+    return [row.kind, row.teamId, row.assignmentId, row.teamName, row.station].map(x => String(x == null ? '' : x)).join(':');
+  }).join('|');
+  if (list.dataset.ovLsSig === sig) return;
+  list.dataset.ovLsSig = sig;
   list.innerHTML = lines.map(row => {
     const kind = row.kind || 'scheduled';
     const teamName = escapeHTML(row.teamName || 'Team');
@@ -9880,9 +9921,12 @@ function renderOverviewLiveStatusList(lines) {
       : '';
     const chipHtml = isFresh ? '<span class="chip-new">New</span>' : '';
     const freshCls = isFresh ? ' is-fresh' : '';
+    const flaggedAttn = (kind === 'flagged') ? ' is-flagged-attn' : '';
     const asgnAttr = asgnId ? (' data-asgn-id="' + escapeHTML(asgnId) + '"') : '';
+    const teamAttr = row.teamId != null ? (' data-team-id="' + escapeHTML(String(row.teamId)) + '"') : '';
+    const kindAttr = ' data-ov-ls-kind="' + escapeHTML(kind) + '"';
     return (
-      '<li class="ov-ls-row is-' + kind + freshCls + '"' + asgnAttr + '>'
+      '<li class="ov-ls-row is-' + kind + freshCls + flaggedAttn + '"' + asgnAttr + teamAttr + kindAttr + ' role="button" tabindex="0">'
       + '<span class="ov-ls-rail" aria-hidden="true"></span>'
       + '<div class="ov-ls-main">'
       + '<div class="ov-ls-team" title="' + teamName + '">' + teamName + '</div>'
@@ -9896,6 +9940,35 @@ function renderOverviewLiveStatusList(lines) {
       + '</li>'
     );
   }).join('');
+  // Wire row click → Performance deep-link (team + Live/Flagged scope)
+  if (!list._ovLsClickBound) {
+    list._ovLsClickBound = true;
+    list.addEventListener('click', (e) => {
+      const row = e.target.closest('.ov-ls-row[data-team-id]');
+      if (!row) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const teamId = row.getAttribute('data-team-id');
+      const kind = row.getAttribute('data-ov-ls-kind') || 'inprogress';
+      const scope = (kind === 'flagged') ? 'flagged' : 'inprogress';
+      if (typeof selectAdminTab === 'function') {
+        selectAdminTab('performance', {
+          perfSection: 'sessions',
+          perfStatusScope: scope,
+          perfFocusTeamId: teamId,
+          perfView: 'teams',
+          perfDateRange: 'today',
+        });
+      }
+    });
+    list.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = e.target.closest('.ov-ls-row[data-team-id]');
+      if (!row) return;
+      e.preventDefault();
+      row.click();
+    });
+  }
 }
 
 function overviewLiveStatusFootText(snapshots) {
@@ -11683,13 +11756,784 @@ function perfDateRangeOptions() {
   if (cs && ce)      customSub = `${fmtShort(cs)}–${fmtShort(ce)}`;
   else if (cs)       customSub = `from ${fmtShort(cs)}`;
   else if (ce)       customSub = `until ${fmtShort(ce)}`;
+  // 1.3.091820p-preview · "This month" removed from Performance date range.
+  if (adminState.perfDateRange === 'month') adminState.perfDateRange = 'all';
   return [
     { key: 'today',  label: 'Today',     sub: now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) },
     { key: 'week',   label: 'This week', sub: `from ${wkStartLabel}` },
-    { key: 'month',  label: 'This month',sub: monthName },
     { key: 'all',    label: 'All time',  sub: '' },
     { key: 'custom', label: 'Custom',    sub: customSub },
   ];
+}
+
+
+// =====================================================================
+// Flagged tile · PA contract (1.3.091820p-preview)
+// flagged = pastSessionEnd && !isComplete && !isSkipOrResolved
+// isComplete = Assignment.status==='Completed' OR SS session_done /
+//              sessionCompletedAt for that assignmentId
+// isSkipOrResolved = checkpoints[day].skippedTeams/resolvedTeams
+//   prefer assignmentId keys; day = session end calendar PT
+//   (also check today's checkpoint for legacy Skip/Strike stamps)
+// Count = distinct assignmentIds in Performance date filter window.
+// History ledger = strikes store stars remaining + ladder (no event table).
+// =====================================================================
+function assignmentSessionEndYmdPt(a) {
+  const endMs = (typeof assignmentBookingSessionEndMs === 'function')
+    ? assignmentBookingSessionEndMs(a) : NaN;
+  if (!Number.isFinite(endMs)) {
+    const m = (typeof assignmentPerfMaterialize === 'function') ? assignmentPerfMaterialize(a) : a;
+    return String((m && m.date) || '').split('T')[0] || '';
+  }
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(endMs));
+  } catch (_) {
+    return '';
+  }
+}
+
+function assignmentHasSessionDoneStamp(a) {
+  if (!a || a.id == null) return false;
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id) : null;
+  if (live) {
+    if (live.status === 'session_done' || live.status === 'office_checkout') return true;
+    if (live.sessionCompletedAt) return true;
+  }
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const aid = String(a.id);
+  for (const r of rows) {
+    if (!r) continue;
+    const rid = String(r.assignmentId || r.AssignmentId || r.id || '');
+    if (rid !== aid) continue;
+    if (r.sessionCompletedAt || r.SessionCompletedAt) return true;
+    const st = String(r.sessionStatus || r.status || r.Status || '').toLowerCase();
+    if (st === 'session_done' || st === 'office_checkout') return true;
+  }
+  return false;
+}
+
+function isAssignmentCompleteForFlagged(a) {
+  if (!a) return false;
+  if (a.status === 'Completed') return true;
+  return assignmentHasSessionDoneStamp(a);
+}
+
+function isAssignmentSkipOrResolvedForFlagged(a) {
+  if (!a) return false;
+  const teamId = a.teamId;
+  const asgnId = a.id;
+  const endDay = assignmentSessionEndYmdPt(a);
+  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+  const days = [];
+  if (endDay) days.push(endDay);
+  if (today && today !== endDay) days.push(today);
+  for (const day of days) {
+    if (typeof modStrikeCheckpointIsSkipped === 'function'
+        && modStrikeCheckpointIsSkipped(day, teamId, asgnId)) return true;
+    if (typeof modStrikeCheckpointIsResolved === 'function'
+        && modStrikeCheckpointIsResolved(day, teamId, asgnId)) return true;
+  }
+  return false;
+}
+
+function isAssignmentFlaggedForPerf(a) {
+  if (!a) return false;
+  if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+  if (typeof isPastAssignmentSessionEnd === 'function') {
+    if (!isPastAssignmentSessionEnd(a)) return false;
+  }
+  if (isAssignmentCompleteForFlagged(a)) return false;
+  if (isAssignmentSkipOrResolvedForFlagged(a)) return false;
+  return true;
+}
+
+function perfFlaggedAssignmentsInDateRange() {
+  const dateRange = (typeof adminState !== 'undefined' && adminState)
+    ? (adminState.perfDateRange || 'all') : 'all';
+  const seen = new Set();
+  const out = [];
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  for (const a of list) {
+    if (!a || a.id == null) continue;
+    const key = String(a.id);
+    if (seen.has(key)) continue;
+    if (typeof perfDateInRange === 'function' && !perfDateInRange(a, dateRange)) continue;
+    if (!isAssignmentFlaggedForPerf(a)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
+
+function perfFlaggedStatusPillForOrbit(orbitId) {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const stars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(orbitId) : max;
+  const deactivated = (typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId))
+    || (typeof isModeratorStrikeDeactivated === 'function' && isModeratorStrikeDeactivated(orbitId));
+  if (deactivated || stars <= 0) {
+    return { key: 'deact', label: 'Deactivated', filter: 'deact', stars };
+  }
+  if (stars === 1) {
+    const fc = (typeof hasModStrikeFinalChance === 'function') && hasModStrikeFinalChance(orbitId);
+    if (fc) return { key: 'final', label: 'Final chance', filter: 'final', stars };
+    return { key: 'locked', label: 'Account locked', filter: 'locked', stars };
+  }
+  if (stars === 2) return { key: 'warn2', label: 'Warning 2', filter: 'warn', stars };
+  if (stars === 3) return { key: 'warn', label: 'Warning received', filter: 'warn', stars };
+  return { key: 'ok', label: 'Ok', filter: 'ok', stars };
+}
+
+function perfModDisplayNameByOrbit(orbitId) {
+  if (typeof getModeratorDisplayName === 'function') return getModeratorDisplayName(orbitId);
+  return String(orbitId || '');
+}
+
+function buildFlaggedHistoryRows() {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const store = (typeof loadModStrikeStore === 'function') ? loadModStrikeStore() : { mods: {} };
+  const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  const rows = [];
+
+  const findTeamsForOrbit = (orbitId) => {
+    const key = String(orbitId || '').trim().toLowerCase();
+    const hits = [];
+    for (const t of teams) {
+      if (!t) continue;
+      const primaries = (t.primaryIds || []).map(x => String(x).toLowerCase());
+      const backups = (typeof getTeamBackupIds === 'function' ? getTeamBackupIds(t) : (t.backupIds || []))
+        .map(x => String(x).toLowerCase());
+      const isPrimary = primaries.includes(key);
+      const isBackup = backups.includes(key);
+      if (isPrimary || isBackup) {
+        hits.push({ team: t, isPrimary, primaries: t.primaryIds || [], backups: (typeof getTeamBackupIds === 'function' ? getTeamBackupIds(t) : (t.backupIds || [])) });
+      }
+    }
+    return hits;
+  };
+
+  Object.keys(store.mods || {}).forEach(orbitKey => {
+    const rec = store.mods[orbitKey];
+    if (!rec) return;
+    const pill = perfFlaggedStatusPillForOrbit(orbitKey);
+    if (pill.filter === 'ok' || pill.stars >= max) return; // Ok · exclude from Flagged default
+    const log = Array.isArray(rec.log) ? rec.log : [];
+    const latest = log[0] || null;
+    const atIso = (latest && latest.at) || rec.updatedAt || '';
+    const atMs = atIso ? Date.parse(atIso) : 0;
+    const teamHits = findTeamsForOrbit(orbitKey);
+    const primaryHit = teamHits.find(h => h.isPrimary) || teamHits[0] || null;
+    const team = primaryHit ? primaryHit.team : null;
+    const teamName = (team && team.name) || (latest && latest.teamName) || '—';
+    const teamId = team ? team.id : (latest && latest.teamId) || '';
+    let otherMods = [];
+    if (primaryHit) {
+      const others = [...(primaryHit.primaries || []), ...(primaryHit.backups || [])]
+        .map(String)
+        .filter(id => id.trim().toLowerCase() !== String(orbitKey).toLowerCase());
+      // unique
+      const seen = new Set();
+      otherMods = others.filter(id => {
+        const k = id.toLowerCase();
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      }).slice(0, 4);
+    }
+    rows.push({
+      orbitId: orbitKey,
+      teamId,
+      teamName,
+      dateIso: atIso,
+      dateMs: Number.isFinite(atMs) ? atMs : 0,
+      stars: pill.stars,
+      pill,
+      otherMods,
+      reason: (latest && latest.reason) || '',
+    });
+  });
+
+  // Also surface currently-flagged incomplete assignments whose primary
+  // mods may still be at 4★ (pending Strike) so the ledger isn't empty
+  // when the PA incomplete set is non-zero but strikes haven't landed.
+  const flaggedAsgns = perfFlaggedAssignmentsInDateRange();
+  for (const a of flaggedAsgns) {
+    const team = teams.find(t => String(t.id) === String(a.teamId));
+    const primaries = (team && team.primaryIds) || [];
+    for (const orbitId of primaries) {
+      const key = String(orbitId || '').trim().toLowerCase();
+      if (!key) continue;
+      if (rows.some(r => String(r.orbitId).toLowerCase() === key
+          && String(r.teamId) === String(a.teamId))) continue;
+      const pill = perfFlaggedStatusPillForOrbit(key);
+      // Keep incomplete-session rows even at 4★ — show as pending warning context
+      const endMs = (typeof assignmentBookingSessionEndMs === 'function')
+        ? assignmentBookingSessionEndMs(a) : NaN;
+      rows.push({
+        orbitId: key,
+        teamId: a.teamId,
+        teamName: (team && team.name) || a.teamName || 'Team',
+        dateIso: Number.isFinite(endMs) ? new Date(endMs).toISOString() : (a.date || ''),
+        dateMs: Number.isFinite(endMs) ? endMs : (Date.parse(String(a.date) + 'T12:00:00') || 0),
+        stars: pill.stars,
+        pill: pill.filter === 'ok'
+          ? { key: 'warn', label: 'Warning received', filter: 'warn', stars: pill.stars }
+          : pill,
+        otherMods: primaries.map(String).filter(id => id.toLowerCase() !== key).slice(0, 3),
+        reason: 'Incomplete past session end',
+        assignmentId: a.id,
+        pending: pill.filter === 'ok',
+      });
+    }
+  }
+  return rows;
+}
+
+function filterSortFlaggedHistoryRows(rows) {
+  const filter = (adminState && adminState.perfFlaggedFilter) || 'all';
+  const sort = (adminState && adminState.perfFlaggedSort) || 'date-desc';
+  const q = String((adminState && adminState.perfFlaggedSearch) || '').trim().toLowerCase();
+  let out = (rows || []).slice();
+  if (filter !== 'all') {
+    out = out.filter(r => r.pill && r.pill.filter === filter);
+  }
+  if (q) {
+    out = out.filter(r => {
+      const team = String(r.teamName || '').toLowerCase();
+      const primary = perfModDisplayNameByOrbit(r.orbitId).toLowerCase();
+      const others = (r.otherMods || []).map(id => perfModDisplayNameByOrbit(id).toLowerCase()).join(' ');
+      return team.includes(q) || primary.includes(q) || others.includes(q);
+    });
+  }
+  out.sort((a, b) => {
+    if (sort === 'date-asc') return (a.dateMs || 0) - (b.dateMs || 0);
+    if (sort === 'stars-asc') return (a.stars - b.stars) || String(a.teamName).localeCompare(String(b.teamName));
+    if (sort === 'team-asc') return String(a.teamName || '').localeCompare(String(b.teamName || ''));
+    // date-desc default
+    return (b.dateMs || 0) - (a.dateMs || 0);
+  });
+  return out;
+}
+
+function formatFlaggedHistoryDate(isoOrMs) {
+  let d = null;
+  if (typeof isoOrMs === 'number' && Number.isFinite(isoOrMs) && isoOrMs > 0) d = new Date(isoOrMs);
+  else if (isoOrMs) d = new Date(isoOrMs);
+  if (!d || isNaN(d.getTime())) return { day: '—', time: '' };
+  const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  return { day, time };
+}
+
+function fhRowKey(r) {
+  return String(r.orbitId || '') + '::' + String(r.teamId || '');
+}
+
+function renderFlaggedHistoryStarsGlyph(stars, max) {
+  const n = Math.max(0, Math.min(max, Number(stars) || 0));
+  let html = '';
+  for (let i = 0; i < max; i++) {
+    html += i < n ? '<span class="on">★</span>' : '<span class="off">★</span>';
+  }
+  return html;
+}
+
+function renderFlaggedHistoryListHTML(rows, max) {
+  if (!rows.length) {
+    return `<div class="fh-empty fh-empty-in"><strong>No flagged history…</strong>Strike checkpoints and incomplete past-end sessions will appear here.</div>`;
+  }
+  return `<ul class="fh-list" id="fhList">` + rows.map(r => {
+    const dt = formatFlaggedHistoryDate(r.dateMs || r.dateIso);
+    const primaryName = escapeHTML(perfModDisplayNameByOrbit(r.orbitId));
+    const starsHtml = (typeof renderModStarsHTML === 'function')
+      ? renderModStarsHTML(r.stars, max, r.orbitId)
+      : '';
+    const othersHtml = (r.otherMods || []).map(id => {
+      const n = escapeHTML(perfModDisplayNameByOrbit(id));
+      const s = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : max;
+      const sh = (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(s, max, id) : '';
+      return `<span class="fh-other-mod">${n} ${sh}</span>`;
+    }).join(' ');
+    const pillCls = r.pill.key === 'warn2' ? 'warn warn2' : r.pill.key;
+    const lockedCls = (r.pill.filter === 'locked') ? ' is-locked' : '';
+    return `<li class="fh-row${lockedCls}" data-orbit="${escapeHTML(String(r.orbitId))}" data-team-id="${escapeHTML(String(r.teamId || ''))}" data-fh-key="${escapeHTML(fhRowKey(r))}">
+      <div class="fh-date">${escapeHTML(dt.day)}${dt.time ? `<small>${escapeHTML(dt.time)}</small>` : ''}</div>
+      <div>
+        <div class="fh-team">${escapeHTML(r.teamName || 'Team')}</div>
+        <div class="fh-mods">${primaryName} · ${starsHtml}</div>
+      </div>
+      <div class="fh-mods fh-others">${othersHtml}</div>
+      <div class="fh-stars-n">${r.stars}<span class="unit">/${max} left</span></div>
+      <span class="fh-pill ${pillCls}">${escapeHTML(r.pill.label)}</span>
+    </li>`;
+  }).join('') + `</ul>`;
+}
+
+function renderFlaggedHistorySplitDetailHTML(r, max) {
+  if (!r) {
+    return `<div class="fh-split-empty">Select a flagged team</div>`;
+  }
+  const dt = formatFlaggedHistoryDate(r.dateMs || r.dateIso);
+  const when = [dt.day, dt.time].filter(Boolean).join(', ') + (dt.time ? ' PT' : '');
+  const primaryName = escapeHTML(perfModDisplayNameByOrbit(r.orbitId));
+  const others = (r.otherMods || []).map(id => escapeHTML(perfModDisplayNameByOrbit(id))).filter(Boolean);
+  const modsLine = [primaryName].concat(others).join(' · ') || '—';
+  const pillCls = r.pill.key === 'warn2' ? 'warn warn2' : r.pill.key;
+  const hero = renderFlaggedHistoryStarsGlyph(r.stars, max);
+  const starsHtml = (typeof renderModStarsHTML === 'function')
+    ? `<div class="fh-star-hero">${renderModStarsHTML(r.stars, max, r.orbitId)}</div>`
+    : `<div class="fh-star-hero" aria-label="${r.stars} of ${max} stars remaining">${hero}</div>`;
+  return `
+    <h3>${escapeHTML(r.teamName || 'Team')}</h3>
+    ${starsHtml}
+    <span class="fh-pill ${pillCls}" style="align-self:flex-start">${escapeHTML(r.pill.label)}</span>
+    <dl class="fh-kv">
+      <dt>Stars left</dt><dd>${r.stars} / ${max}</dd>
+      <dt>Moderators</dt><dd>${modsLine}</dd>
+      <dt>Last event</dt><dd>${escapeHTML(when || '—')}</dd>
+      <dt>Source</dt><dd>Strike checkpoint</dd>
+    </dl>`;
+}
+
+function renderFlaggedHistorySplitHTML(rows, max) {
+  if (!rows.length) {
+    return `<div class="fh-empty fh-empty-in"><strong>No flagged history…</strong>Strike checkpoints and incomplete past-end sessions will appear here.</div>`;
+  }
+  let selKey = adminState.perfFlaggedSelectedKey;
+  if (selKey && !rows.some(r => fhRowKey(r) === selKey)) {
+    selKey = null;
+    adminState.perfFlaggedSelectedKey = null;
+  }
+  const selected = selKey ? (rows.find(r => fhRowKey(r) === selKey) || null) : null;
+  const listItems = rows.map(r => {
+    const dt = formatFlaggedHistoryDate(r.dateMs || r.dateIso);
+    const when = [dt.day, dt.time].filter(Boolean).join(' · ');
+    const pillCls = r.pill.key === 'warn2' ? 'warn warn2' : r.pill.key;
+    const shortLabel = (r.pill.filter === 'final') ? 'Final'
+      : (r.pill.filter === 'locked') ? 'Locked'
+      : (r.pill.filter === 'deact') ? 'Off'
+      : (r.pill.key === 'warn2') ? 'Warn 2'
+      : 'Warn';
+    const sel = fhRowKey(r) === selKey ? ' sel' : '';
+    return `<div class="fh-split-item${sel}" role="button" tabindex="0"
+      data-fh-key="${escapeHTML(fhRowKey(r))}"
+      data-orbit="${escapeHTML(String(r.orbitId))}"
+      data-team-id="${escapeHTML(String(r.teamId || ''))}">
+      <div class="t">
+        <div class="name">${escapeHTML(r.teamName || 'Team')}</div>
+        <div class="when">${escapeHTML(when)}</div>
+      </div>
+      <span class="fh-pill ${pillCls}">${escapeHTML(shortLabel)}</span>
+    </div>`;
+  }).join('');
+  return `<div class="fh-split" id="fhSplit">
+    <div class="fh-split-list" id="fhSplitList" role="listbox" aria-label="Flagged teams">${listItems}</div>
+    <aside class="fh-split-detail" id="fhSplitDetail">${renderFlaggedHistorySplitDetailHTML(selected, max)}</aside>
+  </div>`;
+}
+
+
+function exportFlaggedHistoryXLSX() {
+  if (typeof XLSX === 'undefined') { toast('Excel library not loaded · try refreshing'); return; }
+  const rows = filterSortFlaggedHistoryRows(buildFlaggedHistoryRows());
+  if (!rows.length) { toast('Nothing to export for the current flagged filters'); return; }
+  const header = ['Date', 'Team', 'Moderator', 'Other moderators', 'Stars left', 'Status', 'Reason', 'Assignment'];
+  const data = [header].concat(rows.map(r => {
+    const dt = formatFlaggedHistoryDate(r.dateMs || r.dateIso);
+    return [
+      [dt.day, dt.time].filter(Boolean).join(' · '),
+      r.teamName || '',
+      perfModDisplayNameByOrbit(r.orbitId),
+      (r.otherMods || []).map(id => perfModDisplayNameByOrbit(id)).filter(Boolean).join(', '),
+      r.stars,
+      (r.pill && r.pill.label) || '',
+      r.reason || '',
+      r.assignmentId || ''
+    ];
+  }));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [18, 28, 24, 34, 12, 22, 34, 28].map(wch => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, ws, 'Flagged history');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+  const fname = `Twilight_Performance_flagged_${stamp}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  toast(`Exported ${fname}`);
+}
+
+function renderFlaggedHistoryViewHTML() {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const allRows = buildFlaggedHistoryRows();
+  const rows = filterSortFlaggedHistoryRows(allRows);
+  const filter = adminState.perfFlaggedFilter || 'all';
+  const sort = adminState.perfFlaggedSort || 'date-desc';
+  const search = adminState.perfFlaggedSearch || '';
+  const mode = (adminState.perfFlaggedViewMode === 'split') ? 'split' : 'list';
+  const chips = [
+    { key: 'all', label: 'All' },
+    { key: 'warn', label: 'Warning' },
+    { key: 'final', label: 'Final chance' },
+    { key: 'locked', label: 'Locked' },
+    { key: 'deact', label: 'Deactivated' },
+  ];
+  const bodyHtml = (mode === 'split')
+    ? renderFlaggedHistorySplitHTML(rows, max)
+    : renderFlaggedHistoryListHTML(rows, max);
+
+  return `
+    <div id="perfFlaggedView" class="perf-flagged-view fh-shell" data-fh-mode="${mode}">
+      <div class="fh-head">
+        <button type="button" class="fh-back" id="fhBack" aria-label="Back to Teams">← Teams</button>
+        <div class="fh-title">Flagged history</div>
+        <div class="fh-view-toggle" id="fhViewToggle" role="group" aria-label="Flagged history layout" data-mode="${mode}">
+          <span class="fh-view-thumb" aria-hidden="true"></span>
+          <button type="button" class="fh-view-btn ${mode === 'list' ? 'active' : ''}" data-fh-view="list" aria-pressed="${mode === 'list' ? 'true' : 'false'}">List</button>
+          <button type="button" class="fh-view-btn ${mode === 'split' ? 'active' : ''}" data-fh-view="split" aria-pressed="${mode === 'split' ? 'true' : 'false'}">Split</button>
+        </div>
+        <div class="fh-meta">${rows.length} record${rows.length === 1 ? '' : 's'} · strike checkpoint</div>
+      </div>
+      <div class="fh-toolbar">
+        <input class="fh-search" id="fhSearch" type="search" placeholder="Search team or moderator" aria-label="Search"
+               value="${escapeHTML(search)}"/>
+        <div class="fh-filters" role="group" aria-label="Status filter">
+          ${chips.map(c => `<button type="button" class="fh-chip ${filter === c.key ? 'active' : ''}" data-fh-filter="${c.key}">${escapeHTML(c.label)}</button>`).join('')}
+        </div>
+        <select class="fh-sort" id="fhSort" aria-label="Sort">
+          <option value="date-desc" ${sort === 'date-desc' ? 'selected' : ''}>Date · newest</option>
+          <option value="date-asc" ${sort === 'date-asc' ? 'selected' : ''}>Date · oldest</option>
+          <option value="stars-asc" ${sort === 'stars-asc' ? 'selected' : ''}>Stars · fewest left</option>
+          <option value="team-asc" ${sort === 'team-asc' ? 'selected' : ''}>Team · A–Z</option>
+        </select>
+        <button type="button" class="perf-export-btn" id="fhExportBtn"
+                title="Export the filtered flagged history to Excel">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2v7m0 0L5.3 6.3M8 9l2.7-2.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M3 11v2a1 1 0 001 1h8a1 1 0 001-1v-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          Export Excel
+        </button>
+      </div>
+      <div class="fh-body" id="fhBody">${bodyHtml}</div>
+    </div>`;
+}
+
+function perfRepaintFromFlagged() {
+  if (typeof renderAdminTabBody === 'function') {
+    renderAdminTabBody({ animate: false });
+    return;
+  }
+  const body = document.getElementById('adminTabBody')
+    || document.querySelector('#adminContent .admin-tab-body')
+    || document.querySelector('#adminContent');
+  if (body && typeof renderPerformance === 'function') renderPerformance(body);
+  else if (typeof renderAdmin === 'function') renderAdmin();
+}
+
+function fhPrefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function fhClearMotionClasses(root) {
+  if (!root) return;
+  root.classList.remove('fh-enter', 'fh-restagger');
+  const body = root.querySelector('#fhBody');
+  if (body) body.classList.remove('fh-crossfade');
+  const detail = root.querySelector('#fhSplitDetail');
+  if (detail) detail.classList.remove('fh-detail-enter');
+  root.querySelectorAll('.fh-star-hero.fh-star-pop').forEach(el => el.classList.remove('fh-star-pop'));
+}
+
+function fhPlayMotion(root, kind) {
+  if (!root) return;
+  fhClearMotionClasses(root);
+  if (fhPrefersReducedMotion()) return;
+  const body = root.querySelector('#fhBody');
+  if (kind === 'enter') {
+    root.classList.add('fh-enter');
+    const ms = 520;
+    clearTimeout(root._fhEnterTimer);
+    root._fhEnterTimer = setTimeout(() => root.classList.remove('fh-enter'), ms);
+  } else if (kind === 'restagger') {
+    root.classList.add('fh-restagger');
+    const ms = 480;
+    clearTimeout(root._fhRestaggerTimer);
+    root._fhRestaggerTimer = setTimeout(() => root.classList.remove('fh-restagger'), ms);
+  } else if (kind === 'crossfade' && body) {
+    // force restart
+    void body.offsetWidth;
+    body.classList.add('fh-crossfade');
+    clearTimeout(root._fhCrossTimer);
+    root._fhCrossTimer = setTimeout(() => body.classList.remove('fh-crossfade'), 380);
+  }
+}
+
+function fhUpdateMeta(root, count) {
+  const meta = root && root.querySelector('.fh-meta');
+  if (!meta) return;
+  const n = Number(count) || 0;
+  meta.textContent = n + ' record' + (n === 1 ? '' : 's') + ' · strike checkpoint';
+}
+
+/** Performance-wide Helios motion (extends Flagged fh* tokens). */
+function perfPrefersReducedMotion() {
+  if (typeof fhPrefersReducedMotion === 'function') return fhPrefersReducedMotion();
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function perfMotionShell(body) {
+  if (!body) return null;
+  return body.querySelector('#subtabBody') || body;
+}
+
+function perfClearMotionClasses(shell) {
+  if (!shell) return;
+  shell.classList.remove('perf-enter', 'perf-restagger', 'perf-crossfade');
+  const grid = shell.querySelector('#perfTileGrid');
+  if (grid) grid.classList.remove('perf-crossfade');
+}
+
+function perfPlayMotion(body, kind) {
+  const shell = perfMotionShell(body);
+  if (!shell) return;
+  shell.classList.add('perf-shell');
+  perfClearMotionClasses(shell);
+  if (perfPrefersReducedMotion()) return;
+  const k = kind || 'none';
+  if (k === 'none' || !k) return;
+  if (k === 'enter') {
+    // force restart
+    void shell.offsetWidth;
+    shell.classList.add('perf-enter');
+    clearTimeout(shell._perfEnterTimer);
+    shell._perfEnterTimer = setTimeout(() => shell.classList.remove('perf-enter'), 560);
+  } else if (k === 'restagger') {
+    void shell.offsetWidth;
+    shell.classList.add('perf-restagger');
+    clearTimeout(shell._perfRestaggerTimer);
+    shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
+  } else if (k === 'crossfade') {
+    void shell.offsetWidth;
+    shell.classList.add('perf-crossfade');
+    clearTimeout(shell._perfCrossTimer);
+    shell._perfCrossTimer = setTimeout(() => shell.classList.remove('perf-crossfade'), 380);
+  }
+}
+
+/** Consume queued motion kind (set by callers before remount). Default enter. */
+function perfConsumeMotionKind() {
+  const kind = (adminState && adminState._perfMotionKind) || 'enter';
+  if (adminState) adminState._perfMotionKind = null;
+  return kind || 'enter';
+}
+
+function perfQueueMotion(kind) {
+  if (adminState) adminState._perfMotionKind = kind || 'enter';
+}
+
+function perfApplyDetailEnter(el) {
+  if (!el || perfPrefersReducedMotion()) return;
+  el.classList.remove('perf-detail-enter');
+  void el.offsetWidth;
+  el.classList.add('perf-detail-enter');
+  clearTimeout(el._perfDetailTimer);
+  el._perfDetailTimer = setTimeout(() => el.classList.remove('perf-detail-enter'), 400);
+}
+
+
+function fhUpdateFilterChips(root) {
+  if (!root) return;
+  const filter = (adminState && adminState.perfFlaggedFilter) || 'all';
+  root.querySelectorAll('[data-fh-filter]').forEach(btn => {
+    btn.classList.toggle('active', (btn.getAttribute('data-fh-filter') || '') === filter);
+  });
+}
+
+function fhRenderBodyHTML() {
+  const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+  const rows = filterSortFlaggedHistoryRows(buildFlaggedHistoryRows());
+  const mode = (adminState.perfFlaggedViewMode === 'split') ? 'split' : 'list';
+  const html = (mode === 'split')
+    ? renderFlaggedHistorySplitHTML(rows, max)
+    : renderFlaggedHistoryListHTML(rows, max);
+  return { html, rows, max, mode };
+}
+
+/** In-place body refresh — keeps head/toolbar/thumb mounted (List↔Split / filter / search). */
+function fhRefreshBody(root, opts) {
+  if (!root) return;
+  const motion = (opts && opts.motion) || 'none';
+  const preserveSelected = !!(opts && opts.preserveSelected);
+  if (!preserveSelected && opts && opts.clearSelected) {
+    adminState.perfFlaggedSelectedKey = null;
+  }
+  const { html, rows, mode } = fhRenderBodyHTML();
+  root.setAttribute('data-fh-mode', mode);
+  const body = root.querySelector('#fhBody');
+  if (body) {
+    body.innerHTML = html;
+  }
+  fhUpdateMeta(root, rows.length);
+  fhUpdateFilterChips(root);
+  wireFlaggedHistoryBody(root);
+  if (motion && motion !== 'none') fhPlayMotion(root, motion);
+}
+
+function fhApplyDetailEnter(detail) {
+  if (!detail || fhPrefersReducedMotion()) return;
+  detail.classList.remove('fh-detail-enter');
+  void detail.offsetWidth;
+  detail.classList.add('fh-detail-enter');
+  const hero = detail.querySelector('.fh-star-hero');
+  if (hero) {
+    hero.classList.remove('fh-star-pop');
+    void hero.offsetWidth;
+    hero.classList.add('fh-star-pop');
+    clearTimeout(detail._fhStarTimer);
+    detail._fhStarTimer = setTimeout(() => hero.classList.remove('fh-star-pop'), 420);
+  }
+}
+
+function wireFlaggedHistoryBody(root) {
+  if (!root) return;
+  const selectSplitItem = (key, opts) => {
+    if (!key) return;
+    adminState.perfFlaggedSelectedKey = key;
+    const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
+    const rows = filterSortFlaggedHistoryRows(buildFlaggedHistoryRows());
+    const selected = rows.find(r => fhRowKey(r) === key) || null;
+    root.querySelectorAll('.fh-split-item').forEach(el => {
+      el.classList.toggle('sel', el.getAttribute('data-fh-key') === key);
+    });
+    const detail = root.querySelector('#fhSplitDetail');
+    if (detail) {
+      detail.innerHTML = renderFlaggedHistorySplitDetailHTML(selected, max);
+      if (!opts || opts.animate !== false) fhApplyDetailEnter(detail);
+    }
+  };
+  root.querySelectorAll('.fh-split-item').forEach(item => {
+    const activate = () => selectSplitItem(item.getAttribute('data-fh-key'));
+    item.addEventListener('click', activate);
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); }
+    });
+  });
+  // Initial split selection: play detail enter once when body mounts in split
+  if ((adminState.perfFlaggedViewMode === 'split') && adminState.perfFlaggedSelectedKey) {
+    const detail = root.querySelector('#fhSplitDetail');
+    if (detail && detail.querySelector('.fh-star-hero, .fh-kv, h3')) {
+      fhApplyDetailEnter(detail);
+    }
+  }
+}
+
+function wireFlaggedHistoryView(root) {
+  if (!root) return;
+  if (root.dataset.fhWired === '1') {
+    // Re-entry after full remount still gets enter motion; body rewired below.
+  }
+  root.dataset.fhWired = '1';
+
+  const back = root.querySelector('#fhBack');
+  if (back && !back.dataset.fhBound) {
+    back.dataset.fhBound = '1';
+    back.addEventListener('click', () => {
+      adminState.perfStatusScope = 'all';
+      adminState.perfFlaggedSearch = '';
+      adminState.perfFlaggedFilter = 'all';
+      adminState.perfFocusTeamId = null;
+      adminState.perfFlaggedSelectedKey = null;
+      perfRepaintFromFlagged();
+    });
+  }
+
+  root.querySelectorAll('[data-fh-view]').forEach(btn => {
+    if (btn.dataset.fhBound) return;
+    btn.dataset.fhBound = '1';
+    btn.addEventListener('click', () => {
+      const next = btn.getAttribute('data-fh-view');
+      if (next !== 'list' && next !== 'split') return;
+      if ((adminState.perfFlaggedViewMode || 'list') === next) return;
+      adminState.perfFlaggedViewMode = next;
+      try { localStorage.setItem('twilight_fh_view', next); } catch (_) {}
+      // Thumb + buttons stay mounted; only body crossfades. Preserve selected team.
+      const toggle = root.querySelector('#fhViewToggle');
+      if (toggle) {
+        toggle.setAttribute('data-mode', next);
+        toggle.querySelectorAll('[data-fh-view]').forEach(b => {
+          const on = b.getAttribute('data-fh-view') === next;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+      }
+      root.setAttribute('data-fh-mode', next);
+      fhRefreshBody(root, { motion: 'crossfade', preserveSelected: true });
+    });
+  });
+
+  root.querySelectorAll('[data-fh-filter]').forEach(btn => {
+    if (btn.dataset.fhBound) return;
+    btn.dataset.fhBound = '1';
+    btn.addEventListener('click', () => {
+      adminState.perfFlaggedFilter = btn.getAttribute('data-fh-filter') || 'all';
+      adminState.perfFlaggedSelectedKey = null;
+      fhUpdateFilterChips(root);
+      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+    });
+  });
+
+  const sortEl = root.querySelector('#fhSort');
+  if (sortEl && !sortEl.dataset.fhBound) {
+    sortEl.dataset.fhBound = '1';
+    sortEl.addEventListener('change', () => {
+      adminState.perfFlaggedSort = sortEl.value || 'date-desc';
+      adminState.perfFlaggedSelectedKey = null;
+      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+    });
+  }
+
+  const flaggedExportBtn = root.querySelector('#fhExportBtn');
+  if (flaggedExportBtn && !flaggedExportBtn.dataset.fhBound) {
+    flaggedExportBtn.dataset.fhBound = '1';
+    flaggedExportBtn.addEventListener('click', exportFlaggedHistoryXLSX);
+  }
+
+  const searchEl = root.querySelector('#fhSearch');
+  if (searchEl && !searchEl.dataset.fhBound) {
+    searchEl.dataset.fhBound = '1';
+    searchEl.addEventListener('input', () => {
+      adminState.perfFlaggedSearch = searchEl.value || '';
+      adminState.perfFlaggedSelectedKey = null;
+      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+      // Keep caret at end without remounting the input
+      try {
+        const focus = root.querySelector('#fhSearch');
+        if (focus) {
+          focus.focus();
+          focus.setSelectionRange(focus.value.length, focus.value.length);
+        }
+      } catch (_) {}
+    });
+  }
+
+  wireFlaggedHistoryBody(root);
+  // One-shot enter when Flagged history mounts (from tile / back-nav remount)
+  if (!root.dataset.fhEntered) {
+    root.dataset.fhEntered = '1';
+    fhPlayMotion(root, 'enter');
+  }
 }
 
 // Compute global status counts for the toolbar tile strip.
@@ -11733,7 +12577,9 @@ function perfStatusToolbarCounts() {
       for (const a of perfTeamBookings(t.id)) countAssignment(a);
     }
   }
-  return { all: completed + inprogress + scheduled, completed, inprogress, scheduled };
+  const flagged = (typeof perfFlaggedAssignmentsInDateRange === 'function')
+    ? perfFlaggedAssignmentsInDateRange().length : 0;
+  return { all: completed + inprogress + scheduled, completed, inprogress, scheduled, flagged };
 }
 
 function refreshPerfStatusTilesInPlace() {
@@ -11754,13 +12600,18 @@ function refreshPerfStatusTilesInPlace() {
     const next = key === 'all' ? counts.all
       : (key === 'completed' ? counts.completed
         : (key === 'inprogress' ? counts.inprogress
-          : (key === 'scheduled' ? counts.scheduled : null)));
+          : (key === 'scheduled' ? counts.scheduled
+            : (key === 'flagged' ? (counts.flagged || 0) : null))));
     if (next == null) return;
     numEl.textContent = String(next);
     const isActive = (adminState.perfStatusScope || 'all') === key;
     const isDisabled = key !== 'all' && next === 0 && !isActive;
     btn.classList.toggle('disabled', isDisabled);
     btn.disabled = isDisabled;
+    if (key === 'flagged') {
+      const n = Number(numEl.textContent) || 0;
+      btn.classList.toggle('has-attention', n > 0);
+    }
   });
 }
 
@@ -11996,6 +12847,139 @@ async function ensurePerfSessionStateRows() {
 // than the data can meaningfully change.
 const PERF_LIVE_POLL_MS = 30000;
 
+/** Signature of Performance / Flagged painted content — skip full remount when unchanged. */
+function perfLiveContentSig() {
+  try {
+    const section = (adminState && adminState.perfSection) || 'sessions';
+    const scope = (adminState && adminState.perfStatusScope) || 'all';
+    const view = (adminState && adminState.perfView) || 'teams';
+    const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
+    const range = (adminState && adminState.perfDateRange) || 'all';
+    const layout = (adminState && adminState.perfListLayout) || 'grid';
+    const counts = (typeof perfStatusToolbarCounts === 'function') ? perfStatusToolbarCounts() : {};
+    const countSig = ['all', 'completed', 'inprogress', 'scheduled', 'flagged']
+      .map(k => k + ':' + String(counts[k] != null ? counts[k] : '')).join(',');
+    let bodySig = '';
+    if (scope === 'flagged' && typeof buildFlaggedHistoryRows === 'function') {
+      const rows = (typeof filterSortFlaggedHistoryRows === 'function')
+        ? filterSortFlaggedHistoryRows(buildFlaggedHistoryRows())
+        : buildFlaggedHistoryRows();
+      bodySig = (rows || []).map(r => {
+        const id = r.orbitId || r.orbitLoginId || '';
+        const team = r.teamId || '';
+        const stars = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : '';
+        return String(id) + '::' + String(team) + ':' + String(stars) + ':' + String(r.dateMs || r.dateIso || '');
+      }).join('|');
+      bodySig += '#f:' + String((adminState && adminState.perfFlaggedFilter) || 'all')
+        + '#s:' + String((adminState && adminState.perfFlaggedSort) || '')
+        + '#q:' + String((adminState && adminState.perfFlaggedSearch) || '')
+        + '#m:' + String((adminState && adminState.perfFlaggedViewMode) || 'list')
+        + '#sel:' + String((adminState && adminState.perfFlaggedSelectedKey) || '');
+    } else if (typeof renderPerfTilesHTML === 'function') {
+      // Lightweight tile fingerprint: assignment id + status bucket + star counts for visible mods
+      const html = renderPerfTilesHTML(view, search);
+      // Avoid storing huge HTML as sig key long-term — hash length + a few markers
+      bodySig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length
+        + ':' + (html.match(/class="perf-status/g) || []).length
+        + ':' + (html.match(/is-empty/g) || []).length
+        + ':' + (html.match(/mod-star /g) || []).length;
+    }
+    const strikeSig = (typeof modStrikeStoreSig === 'function' && typeof loadModStrikeStore === 'function')
+      ? modStrikeStoreSig(loadModStrikeStore())
+      : '';
+    return [section, scope, view, search, range, layout, countSig, bodySig, strikeSig].join('~');
+  } catch (_) {
+    return String(Date.now());
+  }
+}
+
+/**
+ * Patch Performance / Flagged / Overview from poll without full HTML remount.
+ * Same idea as stationOpenContentSig: if signature unchanged, only touch counts.
+ */
+function refreshPerfLiveDataInPlace(opts) {
+  opts = opts || {};
+  if (typeof adminState === 'undefined' || !adminState) return false;
+  const force = !!opts.force;
+  const sig = (typeof perfLiveContentSig === 'function') ? perfLiveContentSig() : '';
+  const host = document.getElementById('adminTabBody')
+    || document.querySelector('#adminContent .admin-tab-body');
+  if (!force && host && sig && host.dataset.perfLiveSig === sig) {
+    // Signature unchanged — still refresh numeric tiles / overview metrics lightly.
+    if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
+    if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+      updateOverviewMetrics();
+    }
+    return false;
+  }
+  if (host && sig) host.dataset.perfLiveSig = sig;
+
+  // Flagged history: patch body only — never remount shell (keeps fhEntered, no re-stagger).
+  if (adminState.tab === 'performance' && (adminState.perfStatusScope || 'all') === 'flagged') {
+    const root = document.getElementById('perfFlaggedView');
+    if (root && typeof fhRefreshBody === 'function') {
+      fhRefreshBody(root, { motion: 'none', preserveSelected: true });
+      if (typeof fhUpdateMeta === 'function') {
+        const n = (typeof filterSortFlaggedHistoryRows === 'function' && typeof buildFlaggedHistoryRows === 'function')
+          ? filterSortFlaggedHistoryRows(buildFlaggedHistoryRows()).length
+          : 0;
+        fhUpdateMeta(root, n);
+      }
+      if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
+      return true;
+    }
+  }
+
+  // Poll / in-place patch: never re-enter stagger (clear any leftover enter class).
+  const _perfShell = document.getElementById('subtabBody');
+  if (_perfShell && typeof perfClearMotionClasses === 'function') {
+    perfClearMotionClasses(_perfShell);
+  }
+
+  const grid = document.getElementById('perfTileGrid');
+  if (grid && adminState.perfSection === 'incidents') {
+    if (typeof renderIncidentTilesHTML === 'function') {
+      const html = renderIncidentTilesHTML();
+      if (grid.dataset.tileSig !== String(html.length)) {
+        grid.dataset.tileSig = String(html.length);
+        grid.innerHTML = html;
+        if (typeof wireIncidentTileGrid === 'function') wireIncidentTileGrid(grid);
+      }
+    }
+    if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
+    return true;
+  }
+  if (grid && typeof renderPerfTilesHTML === 'function') {
+    const view = adminState.perfView || 'teams';
+    const search = (adminState.perfSearch || '').trim().toLowerCase();
+    const html = renderPerfTilesHTML(view, search);
+    const tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
+    if (force || grid.dataset.tileSig !== tileSig) {
+      grid.dataset.tileSig = tileSig;
+      // Preserve open <details> tiles across patch
+      const openIds = Array.from(grid.querySelectorAll('details[open][data-tile-id]'))
+        .map(el => el.getAttribute('data-tile-id'));
+      grid.innerHTML = html;
+      openIds.forEach(id => {
+        const el = grid.querySelector('[data-tile-id="' + id + '"]');
+        if (el) el.open = true;
+      });
+      if (typeof wirePerfTileGrid === 'function') wirePerfTileGrid(grid);
+    }
+  }
+  if (typeof refreshPerfStatusTilesInPlace === 'function') refreshPerfStatusTilesInPlace();
+  if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
+    updateOverviewMetrics();
+  }
+  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
+  const panel = document.getElementById('perfPanel');
+  if (panel && panel.classList.contains('open') && panel.dataset.asgnId
+      && typeof openPerformancePanel === 'function') {
+    openPerformancePanel(panel.dataset.asgnId);
+  }
+  return true;
+}
+
 async function refreshPerfLiveData() {
   if (typeof adminState === 'undefined' || !adminState) return;
   // Force a re-fetch: the cache TTL would otherwise short-circuit
@@ -12006,8 +12990,12 @@ async function refreshPerfLiveData() {
   if (typeof ensurePerfSessionStateRows === 'function') {
     await ensurePerfSessionStateRows();
   }
-  // Re-render the tile grid in place · preserves expanded tiles, search,
-  // date-range, and scroll position (same path renderPerformance uses).
+  // Skip full HTML remount when signature unchanged (poll thrash / Flagged re-stagger).
+  if (typeof refreshPerfLiveDataInPlace === 'function') {
+    refreshPerfLiveDataInPlace({ reason: 'poll' });
+    return;
+  }
+  // Fallback (legacy): rebuild grid in place.
   const grid = document.getElementById('perfTileGrid');
   if (grid && adminState.perfSection === 'incidents') {
     if (typeof ensurePanicLogRows === 'function') {
@@ -12031,8 +13019,6 @@ async function refreshPerfLiveData() {
     updateOverviewMetrics();
   }
   if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
-  // Refresh the open side panel too, so its live status / station detail
-  // tracks along.
   const panel = document.getElementById('perfPanel');
   if (panel && panel.classList.contains('open') && panel.dataset.asgnId
       && typeof openPerformancePanel === 'function') {
@@ -12112,7 +13098,7 @@ function renderIncidentReport(body) {
 
   body.innerHTML = `
     ${renderPerfSectionTabsHTML()}
-    <div id="subtabBody">
+    <div id="subtabBody" class="perf-shell">
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by incident type">
       ${renderStatusTile('all', counts.all, 'All')}
       ${panicIncidentKinds().map((k) => renderStatusTile(k.key, counts[k.key] || 0, k.label, k.icon)).join('')}
@@ -12164,6 +13150,7 @@ function renderIncidentReport(body) {
       const next = btn.dataset.perfStatusScope;
       if (next === adminState.incidentScope) return;
       adminState.incidentScope = next;
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderIncidentReport(body);
     });
   });
@@ -12172,6 +13159,7 @@ function renderIncidentReport(body) {
       const next = btn.dataset.perfRange;
       if (next === adminState.perfDateRange) return;
       adminState.perfDateRange = next;
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderIncidentReport(body);
     });
   });
@@ -12183,6 +13171,16 @@ function renderIncidentReport(body) {
       if (grid) {
         grid.innerHTML = renderIncidentTilesHTML();
         wireIncidentTileGrid(grid);
+        // Search: restagger tiles only (chrome stays; not a poll).
+        const shell = (typeof perfMotionShell === 'function') ? perfMotionShell(body) : null;
+        if (shell && typeof perfPlayMotion === 'function') {
+          perfClearMotionClasses(shell);
+          if (!perfPrefersReducedMotion()) {
+            shell.classList.add('perf-restagger');
+            clearTimeout(shell._perfRestaggerTimer);
+            shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
+          }
+        }
       }
     });
   }
@@ -12191,12 +13189,14 @@ function renderIncidentReport(body) {
   if (cStart) {
     cStart.addEventListener('change', (e) => {
       adminState.perfCustomStart = e.target.value || '';
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderIncidentReport(body);
     });
   }
   if (cEnd) {
     cEnd.addEventListener('change', (e) => {
       adminState.perfCustomEnd = e.target.value || '';
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderIncidentReport(body);
     });
   }
@@ -12205,6 +13205,10 @@ function renderIncidentReport(body) {
     exportBtn.addEventListener('click', () => exportIncidentXLSX());
   }
   wireIncidentTileGrid(document.getElementById('perfTileGrid'));
+  if (typeof perfPlayMotion === 'function') {
+    const kind = (typeof perfConsumeMotionKind === 'function') ? perfConsumeMotionKind() : 'enter';
+    perfPlayMotion(body, kind === 'none' ? 'none' : kind);
+  }
 }
 
 function renderIncidentTilesHTML() {
@@ -12281,8 +13285,13 @@ function wireIncidentTileGrid(grid) {
       const id = tile.dataset.panicId;
       if (!id) return;
       if (!adminState.perfExpanded) adminState.perfExpanded = new Set();
-      if (tile.open) adminState.perfExpanded.add(id);
-      else adminState.perfExpanded.delete(id);
+      if (tile.open) {
+        adminState.perfExpanded.add(id);
+        const bodyEl = tile.querySelector('.perf-tile-body, .incident-tile-body');
+        if (bodyEl && typeof perfApplyDetailEnter === 'function') perfApplyDetailEnter(bodyEl);
+      } else {
+        adminState.perfExpanded.delete(id);
+      }
     });
   });
   grid.querySelectorAll('[data-open-incident]').forEach((pill) => {
@@ -12355,13 +13364,12 @@ function renderPerformance(body) {
   ensurePerfSessionStateRows().then(() => {
     // SessionState data carries the Lakitu URLs that the per-row pills
     // need. On first render the rows array is still empty so every
-    // pill renders "No url"; once the fetch resolves we need to
-    // re-render the tile grid to surface the real URLs.
-    //
-    // Cheapest path: rebuild #perfTileGrid in place via the same
-    // helper the search-as-you-type wiring uses. This preserves
-    // toolbar/search/date-range state and doesn't disturb anything
-    // outside the grid.
+    // pill renders "No url"; once the fetch resolves we patch in place
+    // (signature skip) so Flagged does not re-stagger.
+    if (typeof refreshPerfLiveDataInPlace === 'function') {
+      refreshPerfLiveDataInPlace({ reason: 'ss-hydrate' });
+      return;
+    }
     const grid = document.getElementById('perfTileGrid');
     if (grid) {
       const view = adminState.perfView || 'teams';
@@ -12369,8 +13377,6 @@ function renderPerformance(body) {
       grid.innerHTML = renderPerfTilesHTML(view, search);
       wirePerfTileGrid(grid);
     }
-    // Also refresh the side panel if it's currently open (so admin
-    // gets the timestamps appearing shortly after they clicked).
     const panel = document.getElementById('perfPanel');
     if (panel && panel.classList.contains('open') && panel.dataset.asgnId) {
       openPerformancePanel(panel.dataset.asgnId);
@@ -12396,10 +13402,11 @@ function renderPerformance(body) {
   // language.
   const renderStatusTile = (key, count, label) => {
     const isActive = statusScope === key;
-    const isDisabled = key !== 'all' && count === 0 && !isActive;
+    const isDisabled = key !== 'all' && key !== 'flagged' && count === 0 && !isActive;
+    const attn = (key === 'flagged' && count > 0) ? ' has-attention' : '';
     return `
       <button type="button"
-              class="perf-status-tile ${key} ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}"
+              class="perf-status-tile ${key} ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}${attn}"
               data-perf-status-scope="${key}"
               aria-pressed="${isActive ? 'true' : 'false'}"
               ${isDisabled ? 'disabled' : ''}>
@@ -12411,18 +13418,30 @@ function renderPerformance(body) {
 
   body.innerHTML = `
     ${renderPerfSectionTabsHTML()}
-    <div id="subtabBody">
+    <div id="subtabBody" class="perf-shell">
     ${(typeof renderPerfStrikeCheckpointBannerHTML === 'function') ? renderPerfStrikeCheckpointBannerHTML() : ''}
     <div class="perf-status-tiles" role="tablist" aria-label="Filter by status">
       ${renderStatusTile('all',        statusCounts.all,        'All')}
       ${renderStatusTile('completed',  statusCounts.completed,  'Done')}
       ${renderStatusTile('inprogress', statusCounts.inprogress, 'Live')}
       ${renderStatusTile('scheduled',  statusCounts.scheduled,  'Next')}
+      ${renderStatusTile('flagged',    statusCounts.flagged || 0, 'Flagged')}
     </div>
+    ${statusScope !== 'flagged' ? `
     <div class="perf-toolbar">
       <div class="perf-toggle" role="tablist">
         <button type="button" class="perf-toggle-btn ${view === 'teams' ? 'active' : ''}" data-perf-view="teams">Teams</button>
         <button type="button" class="perf-toggle-btn ${view === 'mods' ? 'active' : ''}" data-perf-view="mods">Moderators</button>
+      </div>
+      <div class="perf-layout-toggle mod-layout-toggle" role="group" aria-label="Performance layout">
+        <button type="button" class="mod-layout-btn ${(adminState.perfListLayout || 'grid') === 'grid' ? 'active' : ''}" data-perf-layout="grid" title="Card grid">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="2" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="9" width="5" height="5" rx="1" stroke="currentColor" stroke-width="1.4"/></svg>
+          Grid
+        </button>
+        <button type="button" class="mod-layout-btn ${(adminState.perfListLayout || 'grid') === 'list' ? 'active' : ''}" data-perf-layout="list" title="Dense list">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          List
+        </button>
       </div>
       <div class="perf-search">
         <svg class="perf-search-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -12461,7 +13480,10 @@ function renderPerformance(body) {
         <span class="perf-custom-range-hint">sessions dated in this range${(adminState.perfCustomStart || adminState.perfCustomEnd) ? '' : ' · pick dates to narrow'}</span>
       </div>
     ` : ''}
-    <div id="perfTileGrid" class="perf-tile-grid">${renderPerfTilesHTML(view, search)}</div>
+    ` : ''}
+    ${statusScope === 'flagged'
+      ? renderFlaggedHistoryViewHTML()
+      : `<div id="perfTileGrid" class="perf-tile-grid ${(adminState.perfListLayout || 'grid') === 'list' ? 'is-list' : 'is-grid'}">${renderPerfTilesHTML(view, search)}</div>`}
     </div>
   `;
 
@@ -12473,6 +13495,10 @@ function renderPerformance(body) {
       const next = btn.dataset.perfStatusScope;
       if (next === adminState.perfStatusScope) return;  // no-op click on active tile
       adminState.perfStatusScope = next;
+      if (next !== 'flagged') {
+        adminState.perfFlaggedSearch = '';
+        adminState.perfFlaggedFilter = 'all';
+      }
       // Switching to a status-specific scope makes the per-tile drill
       // chips redundant · they'd be filtering an already-filtered set
       // to (usually) the same status. Clear them so the body shows
@@ -12480,14 +13506,52 @@ function renderPerformance(body) {
       // Switching BACK to 'all' also clears them (admin's mental model
       // of "I just changed the filter" is consistent either way).
       adminState.perfStatusFilter = {};
+      if (next !== 'inprogress' && next !== 'flagged') adminState.perfFocusTeamId = null;
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderPerformance(body);
     });
   });
+
+  // Grid ↔ List layout toggle (Moderator Hub pattern)
+  body.querySelectorAll('[data-perf-layout]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const next = btn.getAttribute('data-perf-layout');
+      if (next !== 'grid' && next !== 'list') return;
+      if ((adminState.perfListLayout || 'grid') === next) return;
+      adminState.perfListLayout = next;
+      try { localStorage.setItem('orbit_perf_list_layout', next); } catch (_) {}
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('crossfade');
+      renderPerformance(body);
+    });
+  });
+
+  if (statusScope === 'flagged' && typeof wireFlaggedHistoryView === 'function') {
+    wireFlaggedHistoryView(body.querySelector('#perfFlaggedView'));
+  }
+  // Stamp live signature so SessionState / assignment polls can skip remount.
+  if (body && typeof perfLiveContentSig === 'function') {
+    try { body.dataset.perfLiveSig = perfLiveContentSig(); } catch (_) {}
+  }
+
+  // Deep-link focus: expand + scroll to team tile when Overview Live row clicked
+  if (adminState.perfFocusTeamId && statusScope !== 'flagged') {
+    const focusId = 'team-' + String(adminState.perfFocusTeamId);
+    requestAnimationFrame(() => {
+      const el = body.querySelector(`[data-tile-id="${focusId}"]`);
+      if (el) {
+        el.open = true;
+        el.classList.add('is-perf-focus');
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        setTimeout(() => el.classList.remove('is-perf-focus'), 1600);
+      }
+    });
+  }
 
   // Wire toolbar · Teams/Mods view toggle
   body.querySelectorAll('[data-perf-view]').forEach(btn => {
     btn.addEventListener('click', () => {
       adminState.perfView = btn.dataset.perfView;
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       // Clear search on view switch · keeping "John" filtering for
       // teams when admin flips to moderators would be confusing.
       // Same for the open-expansion set: tile IDs are namespaced by
@@ -12513,6 +13577,7 @@ function renderPerformance(body) {
       // "3 completed" was clicked, then admin switches to "Today" where
       // that team has 0 completed · drill would render an empty body).
       adminState.perfStatusFilter = {};
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderPerformance(body);
     });
   });
@@ -12526,6 +13591,15 @@ function renderPerformance(body) {
       if (grid) {
         grid.innerHTML = renderPerfTilesHTML(adminState.perfView, e.target.value.trim().toLowerCase());
         wirePerfTileGrid(grid);
+        const shell = (typeof perfMotionShell === 'function') ? perfMotionShell(body) : null;
+        if (shell && typeof perfClearMotionClasses === 'function') {
+          perfClearMotionClasses(shell);
+          if (typeof perfPrefersReducedMotion === 'function' && !perfPrefersReducedMotion()) {
+            shell.classList.add('perf-restagger');
+            clearTimeout(shell._perfRestaggerTimer);
+            shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
+          }
+        }
       }
     });
   }
@@ -12539,6 +13613,7 @@ function renderPerformance(body) {
     cStart.addEventListener('change', e => {
       adminState.perfCustomStart = e.target.value || '';
       adminState.perfStatusFilter = {};  // same rationale as a pill switch
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderPerformance(body);
     });
   }
@@ -12546,6 +13621,7 @@ function renderPerformance(body) {
     cEnd.addEventListener('change', e => {
       adminState.perfCustomEnd = e.target.value || '';
       adminState.perfStatusFilter = {};
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
       renderPerformance(body);
     });
   }
@@ -12555,6 +13631,21 @@ function renderPerformance(body) {
     exportBtn.addEventListener('click', () => exportPerformanceXLSX());
   }
   wirePerfTileGrid(document.getElementById('perfTileGrid'));
+  const _grid = document.getElementById('perfTileGrid');
+  if (_grid && !_grid.dataset.tileSig) {
+    try {
+      const html = _grid.innerHTML;
+      _grid.dataset.tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
+    } catch (_) {}
+  }
+  // Helios enter / crossfade (queued by section·layout·scope callers; default enter).
+  // Poll path never remounts here — refreshPerfLiveDataInPlace uses motion none.
+  if (typeof perfPlayMotion === 'function') {
+    let kind = (typeof perfConsumeMotionKind === 'function') ? perfConsumeMotionKind() : 'enter';
+    // Flagged owns its own fh enter stagger — skip outer shell enter to avoid double rise.
+    if ((adminState.perfStatusScope || 'all') === 'flagged' && kind === 'enter') kind = 'none';
+    perfPlayMotion(body, kind === 'none' ? 'none' : kind);
+  }
 }
 
 function renderPerfTilesHTML(view, search) {
@@ -12714,7 +13805,9 @@ function renderPerfTeamTilesHTML(search) {
   // name preserve their normal expanded/collapsed state to avoid
   // surprising admin who was already browsing a specific tile.
   const matchByParticipantOnly = new Set();
+  const focusTeamId = adminState.perfFocusTeamId != null ? String(adminState.perfFocusTeamId) : '';
   const filtered = teams.filter(t => {
+    if (focusTeamId && String(t.id) !== focusTeamId) return false;
     if (!search) return true;
     const nameHit = (t.name || '').toLowerCase().includes(search);
     if (nameHit) return true;
@@ -13185,6 +14278,9 @@ function wirePerfTileGrid(grid) {
         } else {
           wirePerfTileBody(tile);
         }
+        // Soft rise on detail open (no bounce / blur).
+        const bodyEl = tile.querySelector('.perf-tile-body');
+        if (bodyEl && typeof perfApplyDetailEnter === 'function') perfApplyDetailEnter(bodyEl);
       } else {
         adminState.perfExpanded.delete(id);
       }
@@ -14345,7 +15441,12 @@ function renderOverview(body) {
           scrollTo: 'modviewBody',
         });
       } else if (kind === 'livestatus') {
-        selectAdminTab('performance', { scrollTo: 'modStrikeCheckpointBanner' });
+        selectAdminTab('performance', {
+          perfSection: 'sessions',
+          perfStatusScope: 'inprogress',
+          perfDateRange: 'today',
+          scrollTo: 'modStrikeCheckpointBanner',
+        });
       } else if (kind === 'teams') {
         selectAdminTab('performance');
       } else if (kind === 'bookings') {
@@ -24717,8 +25818,12 @@ function wirePerfSectionTabs(body) {
       if (!next || next === adminState.perfSection) return;
       adminState.perfSection = next;
       if (next === 'incidents') adminState.incidentScope = adminState.incidentScope || 'all';
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('crossfade');
       renderPerformance(body);
-      playAdminSubtabEnter();
+      // Helios crossfade replaces the older generic subtab fade for Perf.
+      if (typeof perfPlayMotion !== 'function' && typeof playAdminSubtabEnter === 'function') {
+        playAdminSubtabEnter();
+      }
     });
   });
   const teamBtn = body.querySelector('#perfTeamFeedbackBtn');
@@ -26148,13 +27253,13 @@ function schedulePersistModeratorStrikesSetting() {
 }
 
 /** Flush pending SessionState write immediately (Skip/Strike must not wait for debounce). */
-function flushPersistModeratorStrikesSetting() {
+function flushPersistModeratorStrikesSetting(opts) {
   if (_modStrikePersistTimer) {
     clearTimeout(_modStrikePersistTimer);
     _modStrikePersistTimer = null;
   }
   if (typeof persistModeratorStrikesSetting === 'function') {
-    return persistModeratorStrikesSetting().catch(() => {});
+    return persistModeratorStrikesSetting(opts || { reason: 'flush' }).catch(() => {});
   }
   return Promise.resolve();
 }
@@ -26242,7 +27347,11 @@ function ingestModeratorStrikesFromSessionRows(rows) {
     clearTimeout(_modStrikePersistTimer);
     _modStrikePersistTimer = null;
   }
-  const nextMods = mods || cur.mods;
+  // PA contract: SessionState is SoT; local is cache. Cloud wins over empty
+  // local; empty/default remote must not wipe healthy local after a version bump.
+  const nextMods = (typeof mergeModStrikeMods === 'function')
+    ? mergeModStrikeMods(cur.mods, mods || {})
+    : (mods || cur.mods);
   // If Admin restored stars remotely, clear local warn acks so lock/warn can reappear on later strikes.
   if (nextMods && typeof nextMods === 'object' && typeof clearModStrikeWarnAcksForOrbit === 'function') {
     Object.keys(nextMods).forEach(k => {
@@ -26255,41 +27364,46 @@ function ingestModeratorStrikesFromSessionRows(rows) {
       }
     });
   }
-  // Normalize starScale: unstamped (3★-era) records migrate once; stamped keep remaining stars.
-  if (nextMods && typeof nextMods === 'object') {
-    Object.keys(nextMods).forEach(k => {
-      const rec = nextMods[k];
-      if (!rec || typeof rec !== 'object' || rec.stars == null) return;
-      const raw = Number(rec.stars);
-      if (!Number.isFinite(raw)) return;
-      if (modStrikeRecordIsOnCurrentScale(rec)) {
-        nextMods[k] = Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
-      } else {
-        nextMods[k] = Object.assign({}, rec, {
-          stars: migrateModStrikeStarsFromPrevMax(raw),
-          starScale: MOD_STRIKE_MAX_STARS,
-        });
-      }
-    });
-  }
+  // Scale stamp is handled inside mergeModStrikeMods / ensureModStrikeScaleV4
+  // (one-shot 3→4 only — never remigrate healthy remaining stars to max).
   const mergedCheckpoints = (typeof mergeModStrikeCheckpoints === 'function')
     ? mergeModStrikeCheckpoints(cur.checkpoints, checkpoints || {})
     : (checkpoints || cur.checkpoints);
   const needRepersist = (typeof modStrikeCheckpointsHaveLocalExtras === 'function')
     && modStrikeCheckpointsHaveLocalExtras(cur.checkpoints, checkpoints || {}, mergedCheckpoints);
+  // Heal empty cloud from healthy local cache (live SS row had mods:{}).
+  // Backfill local→cloud once instead of wiping local.
+  const healCloudFromLocal = (typeof modStrikeModsAreEmpty === 'function')
+    && modStrikeModsAreEmpty(mods)
+    && !modStrikeModsAreEmpty(nextMods);
 
-  _modStrikeIngestInFlight = true;
-  saveModStrikeStore({
+  const nextStore = {
     mods: nextMods,
     checkpoints: mergedCheckpoints,
-  });
-  _modStrikeIngestInFlight = false;
+  };
+  const beforeSig = (typeof modStrikeStoreSig === 'function') ? modStrikeStoreSig(cur) : '';
+  const afterSig = (typeof modStrikeStoreSig === 'function') ? modStrikeStoreSig(nextStore) : 'x';
+  const changed = beforeSig !== afterSig;
+
+  if (changed) {
+    _modStrikeIngestInFlight = true;
+    saveModStrikeStore(nextStore);
+    _modStrikeIngestInFlight = false;
+  }
   // Stale remote checkpoints must not cancel a pending Skip/Strike write —
   // re-schedule persist when merge preserved local-only decisions.
   if (needRepersist && typeof schedulePersistModeratorStrikesSetting === 'function') {
     schedulePersistModeratorStrikesSetting();
   }
-  if (nextMods && typeof nextMods === 'object' && typeof applyModStrikeDeactivateSideEffect === 'function') {
+  // Empty cloud + healthy local → WRITE local→cloud once (SS SoT backfill).
+  if (healCloudFromLocal && typeof flushPersistModeratorStrikesSetting === 'function') {
+    const recently = (typeof window !== 'undefined' && window._modStrikeCloudBackfillAt
+      && (Date.now() - window._modStrikeCloudBackfillAt) < 60000);
+    if (!recently) {
+      flushPersistModeratorStrikesSetting({ reason: 'backfill-local-to-cloud' });
+    }
+  }
+  if (changed && nextMods && typeof nextMods === 'object' && typeof applyModStrikeDeactivateSideEffect === 'function') {
     Object.keys(nextMods).forEach(k => {
       const prevRec = cur.mods && cur.mods[k];
       const nextRec = nextMods[k];
@@ -26300,6 +27414,10 @@ function ingestModeratorStrikesFromSessionRows(rows) {
         if (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(rec)) {
           return clampModStrikeStars(raw);
         }
+        if (typeof ensureModStrikeScaleV4 === 'function') {
+          const stamped = ensureModStrikeScaleV4(rec);
+          return clampModStrikeStars(Number(stamped && stamped.stars));
+        }
         return (typeof migrateModStrikeStarsFromPrevMax === 'function')
           ? migrateModStrikeStarsFromPrevMax(raw)
           : raw;
@@ -26309,15 +27427,28 @@ function ingestModeratorStrikesFromSessionRows(rows) {
       if (prevN !== nextN) applyModStrikeDeactivateSideEffect(k, nextN, prevN);
     });
   }
-  if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
-  if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
+  // Skip full Admin remount when strike store signature is unchanged (poll thrash fix).
+  if (changed) {
+    if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
+    if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
+  }
 }
 
-async function persistModeratorStrikesSetting() {
+async function persistModeratorStrikesSetting(opts) {
+  opts = opts || {};
   if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
     return { ok: false, reason: 'notconfigured' };
   }
   const store = loadModStrikeStore();
+  // CRITICAL: never overwrite SessionState ss_app_setting_moderator_strikes with
+  // empty mods after a version bump / cold local cache. Empty local must hydrate
+  // FROM cloud, not push zeros up. Explicit allowEmptyMods is reserved for tests.
+  if (typeof modStrikeModsAreEmpty === 'function'
+      && modStrikeModsAreEmpty(store.mods)
+      && !opts.allowEmptyMods) {
+    console.warn('[Twilight] Moderator-strikes persist skipped · refuse empty mods (would wipe SS SoT)');
+    return { ok: false, reason: 'refuse-empty-mods' };
+  }
   const payload = {
     sessionStateId: MODERATOR_STRIKES_SETTING_ID,
     assignmentId: 'app_setting_moderator_strikes',
@@ -26330,8 +27461,10 @@ async function persistModeratorStrikesSetting() {
       key: 'moderatorStrikes',
       mods: store.mods,
       checkpoints: store.checkpoints,
+      starScale: MOD_STRIKE_MAX_STARS,
       updatedAt: new Date().toISOString(),
       updatedBy: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+      reason: opts.reason || 'persist',
     }),
     lastActive: new Date().toISOString(),
     appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
@@ -26354,6 +27487,9 @@ async function persistModeratorStrikesSetting() {
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
     }
+    if (opts.reason === 'backfill-local-to-cloud') {
+      try { window._modStrikeCloudBackfillAt = Date.now(); } catch (_) {}
+    }
     return { ok: true };
   } catch (e) {
     console.warn('[Twilight] Moderator-strikes setting write failed:', e && e.message);
@@ -26365,6 +27501,8 @@ function migrateModStrikeStarsFromPrevMax(n) {
   // One-shot remap for pre-4★ records (no starScale stamp yet):
   // full 3→4, lost-1 2→3, lost-2 1→2, old-lock 0→1 (still lock, not deactivate).
   // New 0★ is only for the 4th strike → deactivate (can't log in).
+  // MUST only run once per store (see ensureModStrikeScaleV4) — re-running on
+  // healthy 4★ remaining values (e.g. 3 remaining) falsely remaps them to max.
   const prevMax = (typeof MOD_STRIKE_PREV_MAX_STARS === 'number') ? MOD_STRIKE_PREV_MAX_STARS : 3;
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
   const rounded = Math.round(n);
@@ -26391,6 +27529,137 @@ function clampModStrikeStars(n) {
   return Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(n)));
 }
 
+const MOD_STRIKE_SCALE_V4_FLAG_KEY = 'centific_mod_strike_scale_v4_done';
+
+function modStrikeModsLookLikeV4(mods) {
+  const src = (mods && typeof mods === 'object') ? mods : {};
+  for (const k of Object.keys(src)) {
+    const r = src[k];
+    if (!r || typeof r !== 'object' || r.stars == null) continue;
+    if (modStrikeRecordIsOnCurrentScale(r)) return true;
+    const n = Number(r.stars);
+    // A stored 4 (or higher) can only exist on the new scale — old max was 3.
+    if (Number.isFinite(n) && n >= MOD_STRIKE_MAX_STARS) return true;
+  }
+  return false;
+}
+
+function isModStrikeScaleV4StoreMigrated() {
+  try {
+    if (localStorage.getItem(MOD_STRIKE_SCALE_V4_FLAG_KEY) === '1') return true;
+  } catch (_) {}
+  // Any stamped record / already-4★ value means skip 3→4 remap.
+  try {
+    const store = loadModStrikeStore();
+    if (modStrikeModsLookLikeV4(store && store.mods)) return true;
+  } catch (_) {}
+  return false;
+}
+
+function markModStrikeScaleV4StoreMigrated() {
+  try { localStorage.setItem(MOD_STRIKE_SCALE_V4_FLAG_KEY, '1'); } catch (_) {}
+}
+
+/** Stamp starScale once. Remap 3→4 only on first-ever unstamped store; never remigrate healthy 4★ values to max. */
+function ensureModStrikeScaleV4(rec) {
+  if (!rec || typeof rec !== 'object' || rec.stars == null) return rec;
+  const raw = Number(rec.stars);
+  if (!Number.isFinite(raw)) return rec;
+  if (modStrikeRecordIsOnCurrentScale(rec)) {
+    return Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
+  }
+  // Store already on v4 (flag or any stamped peer) — trust raw remaining stars, stamp only.
+  if (isModStrikeScaleV4StoreMigrated()) {
+    return Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
+  }
+  // First-ever migration for this browser/store.
+  return Object.assign({}, rec, {
+    stars: migrateModStrikeStarsFromPrevMax(raw),
+    starScale: MOD_STRIKE_MAX_STARS,
+  });
+}
+
+function ensureModStrikeScaleV4OnMods(mods) {
+  const out = {};
+  const src = (mods && typeof mods === 'object') ? mods : {};
+  const keys = Object.keys(src);
+  // If any peer is stamped or already holds a 4★ value, treat the whole map as
+  // post-migration BEFORE remapping (prevents remapping healthy 3/2/1 remaining → max).
+  if (modStrikeModsLookLikeV4(src)) markModStrikeScaleV4StoreMigrated();
+  keys.forEach(k => {
+    const rec = src[k];
+    out[k] = (rec && typeof rec === 'object') ? ensureModStrikeScaleV4(rec) : rec;
+  });
+  if (keys.length) markModStrikeScaleV4StoreMigrated();
+  return out;
+}
+
+function modStrikeModsAreEmpty(mods) {
+  if (!mods || typeof mods !== 'object') return true;
+  const keys = Object.keys(mods);
+  if (!keys.length) return true;
+  // Treat all-default / no-stars maps as empty for hydrate decisions.
+  return keys.every(k => {
+    const r = mods[k];
+    return !r || typeof r !== 'object' || r.stars == null;
+  });
+}
+
+/**
+ * Merge cloud SessionState mods with local cache.
+ * PA contract: SS is SoT; local is cache. Cloud wins over empty local.
+ * Empty/default remote must NEVER wipe healthy local (version bump / cold hydrate race).
+ */
+function mergeModStrikeMods(localMods, remoteMods) {
+  const local = (localMods && typeof localMods === 'object') ? localMods : {};
+  const remote = (remoteMods && typeof remoteMods === 'object') ? remoteMods : {};
+  const localEmpty = modStrikeModsAreEmpty(local);
+  const remoteEmpty = modStrikeModsAreEmpty(remote);
+  if (remoteEmpty && !localEmpty) {
+    return ensureModStrikeScaleV4OnMods(Object.assign({}, local));
+  }
+  if (localEmpty && !remoteEmpty) {
+    return ensureModStrikeScaleV4OnMods(Object.assign({}, remote));
+  }
+  if (localEmpty && remoteEmpty) {
+    return {};
+  }
+  // Both have data: start from local cache, overlay remote (cloud SoT) per key.
+  const out = Object.assign({}, local);
+  Object.keys(remote).forEach(k => {
+    const R = remote[k];
+    const L = local[k];
+    if (!R || typeof R !== 'object') return;
+    if (R.stars == null && L && L.stars != null) {
+      out[k] = Object.assign({}, L);
+      return;
+    }
+    out[k] = Object.assign({}, L || {}, R);
+  });
+  return ensureModStrikeScaleV4OnMods(out);
+}
+
+function modStrikeStoreSig(store) {
+  try {
+    const mods = (store && store.mods) || {};
+    const ck = (store && store.checkpoints) || {};
+    const modParts = Object.keys(mods).sort().map(k => {
+      const r = mods[k] || {};
+      return k + ':' + String(r.stars) + ':' + String(r.starScale || '') + ':' + (r.finalChance ? '1' : '0') + ':' + (r.strikeDeactivated ? '1' : '0');
+    });
+    const ckParts = Object.keys(ck).sort().map(d => {
+      const c = ck[d] || {};
+      const sk = Object.keys(c.skippedTeams || {}).sort().join(',');
+      const rk = Object.keys(c.resolvedTeams || {}).sort().join(',');
+      const ak = Object.keys(c.teamAutoStrike || {}).sort().join(',');
+      return d + ':a' + (c.applied ? '1' : '0') + ':s' + sk + ':r' + rk + ':t' + ak + ':n' + String(c.struck || 0);
+    });
+    return modParts.join('|') + '#' + ckParts.join('|');
+  } catch (_) {
+    return String(Date.now());
+  }
+}
+
 function getModStrikeStars(orbitId) {
   const key = modStrikeOrbitKey(orbitId);
   if (!key) return MOD_STRIKE_MAX_STARS;
@@ -26401,10 +27670,12 @@ function getModStrikeStars(orbitId) {
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
   // Already on 4★ scale — trust stored remaining stars (do not re-run 3→4 remap).
   if (modStrikeRecordIsOnCurrentScale(rec)) return clampModStrikeStars(n);
-  const migrated = migrateModStrikeStarsFromPrevMax(n);
-  // Persist stamp so later strikes at 3/2/1★ are not remapped as old-era values.
-  store.mods[key] = Object.assign({}, rec, { stars: migrated, starScale: MOD_STRIKE_MAX_STARS });
+  const next = ensureModStrikeScaleV4(rec);
+  const migrated = (next && next.stars != null) ? clampModStrikeStars(Number(next.stars)) : clampModStrikeStars(n);
+  // Persist stamp once so later loads never remigrate healthy remaining stars to max.
+  store.mods[key] = next;
   saveModStrikeStore(store);
+  markModStrikeScaleV4StoreMigrated();
   return migrated;
 }
 
@@ -26462,6 +27733,9 @@ function grantModStrikeFinalChance(orbitId) {
   });
   store.mods[key] = rec;
   saveModStrikeStore(store);
+  if (typeof flushPersistModeratorStrikesSetting === 'function') {
+    flushPersistModeratorStrikesSetting({ reason: 'final-chance' });
+  }
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
   else if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
   if (typeof toast === 'function') toast('Final Chance granted · unlocked at 1★');
@@ -26741,6 +28015,10 @@ function setModStrikeStars(orbitId, stars, entry) {
     clearModStrikeWarnAcksForOrbit(orbitId);
   }
   applyModStrikeDeactivateSideEffect(orbitId, n, prevStars);
+  // Strike / star changes must land on SS SoT immediately (not local-only).
+  if (typeof flushPersistModeratorStrikesSetting === 'function') {
+    flushPersistModeratorStrikesSetting({ reason: 'set-stars' });
+  }
 }
 
 
@@ -26780,6 +28058,9 @@ function resetModStrikeStars(orbitId) {
         : prevStarsRaw);
     if (typeof clearModStrikeWarnAcksForOrbit === 'function') clearModStrikeWarnAcksForOrbit(orbitId);
     applyModStrikeDeactivateSideEffect(orbitId, MOD_STRIKE_MAX_STARS, prevStars);
+    if (typeof flushPersistModeratorStrikesSetting === 'function') {
+      flushPersistModeratorStrikesSetting({ reason: 'reset-stars' });
+    }
   } else {
     setModStrikeStars(orbitId, MOD_STRIKE_MAX_STARS, {
       at: new Date().toISOString(),
@@ -26973,9 +28254,15 @@ function modStrikeRefreshUi() {
     }
     return;
   }
+  // Performance / Flagged: never full-remount on strike ingest poll — patch in place
+  // (same pattern as stationOpenContentSig). Full renderPerformance re-staggers Flagged.
   if (adminState.tab === 'performance') {
-    const body = document.getElementById('adminTabBody');
-    if (body && typeof renderPerformance === 'function') renderPerformance(body);
+    if (typeof refreshPerfLiveDataInPlace === 'function') {
+      refreshPerfLiveDataInPlace({ reason: 'modStrike' });
+    } else {
+      const body = document.getElementById('adminTabBody');
+      if (body && typeof renderPerformance === 'function') renderPerformance(body);
+    }
     if (typeof syncOverviewLiveStatusStrikeAttention === 'function') {
       syncOverviewLiveStatusStrikeAttention();
     }
