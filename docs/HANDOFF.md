@@ -1,6 +1,28 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-20 · Grok · Team sync audit + toast (1.3.091820x)
+**Last updated:** 2026-09-20 · Cursor · Pixel 7 phone-class layout (1.3.091820y)
+
+## 2026-09-20 · Pixel 7 + phone-class mobile layout (1.3.091820y)
+
+**Ask:** Make the mobile UI adaptive for **Google Pixel 7** (portrait + landscape) as well as iPhone 13+ / Galaxy S20+ / Pixel 8+.
+
+**Cause:** Phone chrome keyed on `max-width: 760px` only. Pixel 7 landscape is **915×412**, so Stations cover-flow, Helios bottom bar, accordion, and docked panic switched to the desktop rail. Portrait 412 also missed the 400px Confirm Arrival compact rules.
+
+**Fix (no UA sniff):**
+- Shared `isPhoneLayout` / `isPhoneLayoutSize` — width ≤ 760 **or** landscape short side ≤ 500 and long side ≤ 1100 (Pixel 7/8 412×915, Pixel 8 Pro 448×998, iPhone 13, Galaxy S20).
+- CSS: every `max-width: 760px` also matches `(orientation: landscape) and (max-height: 500px)`; desktop `min-width: 761px` also needs `min-height: 501px`.
+- Arrival / My session compact **400px → 430px** so 412px Pixel 7/8 get full-width Confirm Arrival.
+- `100dvh` + `visualViewport` for scenario-flow height / Android URL bar.
+- `html.is-phone-layout` backup for rail / bottom bar / sc-flow.
+- Landscape login card compact so Sign In fits on a 412px-tall Pixel 7.
+
+**Version:** **1.3.091820y**. Selftest: `scripts/phone-layout-selftest.js`.
+
+**PR:** [#152](https://github.com/DK-Centific/Twilight-Tracker/pull/152) draft to `main` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091820y**. On a Pixel 7 (or Chrome DevTools 412×915): Stations tiles, actions bar, header, My session, Confirm Arrival all fit. Rotate to landscape: same mobile Stations flow (not desktop rail), nothing clipped.
+
+---
 
 ## 2026-09-20 · Team sync full audit + fix + toast (1.3.091820x)
 
@@ -305,10 +327,10 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820i`** (approval assignment harden) on `main` |
+| **`main` version** | **`1.3.091820x`** (team sync audit + toast) |
+| **This branch** | **`1.3.091820y`** · Pixel 7 phone-class layout · `cursor/pixel7-phone-layout-40e7` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
-| **Last merged** | PR #142 · approval submit/auto-approve assignment binding harden |
-| **Local branch** | `main` · clean after PR #142 merge |
+| **Last merged** | PR #151 · team sync audit pack |
 
 ### This session (2026-09-18 PT)
 
