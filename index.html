@@ -2352,6 +2352,25 @@ html.is-phone-layout .sc-flow { display: flex; flex-direction: column; }
     padding-top: 4px;
     --helios-bar-icon: 36px;
   }
+  /* Sign-in card is taller than a Pixel 7 landscape (412 CSS px).
+     Compact + allow the screen to scroll so Sign In stays reachable. */
+  .login-screen {
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding: 10px 16px;
+  }
+  .login-card {
+    padding: 16px 20px 14px;
+    max-width: min(420px, 100%);
+    margin: 0 auto;
+  }
+  .login-mark { width: 36px; height: 36px; margin-bottom: 8px; }
+  .login-title { font-size: 22px; margin-bottom: 4px; }
+  .login-sub { font-size: 13px; line-height: 1.35; margin-bottom: 10px; }
+  .login-field { margin-bottom: 8px; }
+  .login-field input { padding: 9px 12px; }
+  .login-card .btn { padding: 10px; margin-top: 4px; }
 }
 
 .cal-guide-footer {
@@ -20508,6 +20527,25 @@ html.is-phone-layout .helios-bottombar {
   border: none !important;
   box-shadow: 8px 8px 18px var(--neu-dark), -8px -8px 18px var(--neu-light) !important;
   animation: fadeUp var(--helios-ms) var(--helios-ease);
+}
+@media (orientation: landscape) and (max-height: 520px) {
+  .login-screen {
+    align-items: flex-start;
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding: 10px 16px;
+  }
+  .login-card {
+    padding: 16px 20px 14px;
+    max-width: min(420px, 100%);
+    margin: 0 auto;
+  }
+  .login-mark { width: 36px; height: 36px; margin-bottom: 8px; }
+  .login-title { font-size: 22px; margin-bottom: 4px; }
+  .login-sub { font-size: 13px; line-height: 1.35; margin-bottom: 10px; }
+  .login-field { margin-bottom: 8px; }
+  .login-field input { padding: 9px 12px; }
+  .login-card .btn { padding: 10px; margin-top: 4px; }
 }
 .login-mark {
   filter: none;

@@ -103,6 +103,10 @@ assert('html.is-phone-layout chrome backup',
 assert('phone-class comment names Pixel 7',
   html.includes('Pixel 7') && src.includes('Pixel 7')
 );
+assert('login card compact in phone landscape',
+  /@media \(orientation: landscape\) and \(max-height: 520px\) \{[\s\S]*?\.login-card \{/.test(html)
+    && /Sign-in card is taller than a Pixel 7 landscape/.test(html)
+);
 
 if (failed) {
   console.log('\n' + failed + ' failed');

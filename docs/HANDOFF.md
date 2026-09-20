@@ -14,6 +14,7 @@
 - Arrival / My session compact **400px → 430px** so 412px Pixel 7/8 get full-width Confirm Arrival.
 - `100dvh` + `visualViewport` for scenario-flow height / Android URL bar.
 - `html.is-phone-layout` backup for rail / bottom bar / sc-flow.
+- Landscape login card compact so Sign In fits on a 412px-tall Pixel 7.
 
 **Version:** **1.3.091820y**. Selftest: `scripts/phone-layout-selftest.js`.
 
