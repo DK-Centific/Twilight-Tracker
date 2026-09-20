@@ -28,8 +28,8 @@ assert('terminal marker row includes odScheduleId', (block.match(/odScheduleId:/
 assert('export headers include OD keys', html.includes('odScheduleId') || src.includes(
   "'odScheduleId','bookingGroupId','odStatus'"
 ));
-assert('APP_VERSION 1.3.091820h', /const APP_VERSION = '1\.3\.091820h'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820h'));
+assert('APP_VERSION 1.3.091820i', /const APP_VERSION = '1\.3\.091820i'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820i'));
 
 console.log(failed ? `\n${failed} failed, ${passed} passed` : `\n${passed} passed`);
 process.exit(failed ? 1 : 0);

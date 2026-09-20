@@ -27,20 +27,30 @@ function assert(name, cond, detail) {
 console.log('Approval submit / contact self-test');
 
 assert(
-  'source no longer hard-blocks submit with No active session alert',
-  !/Start your booked session before submitting calibration for review/.test(src)
+  'submit hard-blocks without a real active assignment',
+  /async function beginApprovalSubmit\(stationKey, resubmit\)[\s\S]{0,260}showApprovalAssignmentRequired\(\);[\s\S]{0,80}return null;/.test(src)
+    && /async function submitApprovalFromStation\(stationKey, resubmit, lakituUrlOverride\)[\s\S]{0,260}showApprovalAssignmentRequired\(\);[\s\S]{0,80}return null;/.test(src)
 );
 assert(
   'beginApprovalSubmit still exists',
   /async function beginApprovalSubmit\(stationKey, resubmit\)/.test(src)
 );
 assert(
-  'submit uses unbound fallback when assignment is missing',
-  /asgnId === 'unbound' \? '' : asgnId/.test(src) && /const asgnId = \(ctx\.asgn && ctx\.asgn\.id\)/.test(src)
+  'submit and create paths reject blank/unbound assignment ids',
+  /const asgnId = _realApprovalAssignmentId\(ctx\)/.test(src)
+    && !/asgnId === 'unbound' \? '' : asgnId/.test(src)
+    && /const asgn    = _approvalAssignmentId\(p\.assignmentId\);[\s\S]{0,80}if \(!asgn\) return null;/.test(src)
 );
 assert(
   'pollMyApprovals runs when orbitId is set even without asgnId',
   /if \(orbitId\) \{\s*for \(const k of GATE_ALL_KEYS\)/.test(src)
+);
+assert(
+  'auto-approve fails closed without assignment and writer rejects blank ids',
+  /const assignmentId = _realApprovalAssignmentId\(ctx\);[\s\S]{0,80}if \(!assignmentId\) continue;/.test(src)
+    && /async function writeApprovalAutoApprove\(appr\) \{[\s\S]{0,180}if \(!assignmentId\) return false;/.test(src)
+    && /async function writeApprovalEvent\(row\) \{[\s\S]{0,300}if \(!assignmentId\)/.test(src)
+    && !/assignment_id: ctx\.asgn \? ctx\.asgn\.id : ''/.test(src)
 );
 
 const beginIdx = src.indexOf('function _resolveGateAssignment()');
