@@ -50,11 +50,11 @@ function sliceBetween(startMarker, endMarker) {
   return src.slice(begin, end);
 }
 
-console.log('Moderator session day-gate policy self-test (1.3.091820g)');
+console.log('Moderator session day-gate policy self-test (1.3.091820h)');
 
-assert('APP_VERSION is 1.3.091820g',
-  /const APP_VERSION = '1\.3\.091820g'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820g'));
+assert('APP_VERSION is 1.3.091820h',
+  /const APP_VERSION = '1\.3\.091820h'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820h'));
 assert('approval day-gate bind helpers present',
   /function approvalSessionDateYmd\(/.test(src)
   && /function approvalRowBelongsToActiveSession\(/.test(src)

@@ -1,7 +1,22 @@
-# Agent handoff — Project Twilight
+# Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-19 · Grok · Approval team unlock + Team A→B day bind (1.3.091820f)
-**Read this file first every session.** Update it before you sign off.
+**Last updated:** 2026-09-19 · Grok · OD team name materialize harden (1.3.091820h)
+
+## 2026-09-19 · OD team name / materialize harden (1.3.091820h)
+
+**Symptom:** Today **Pradeepreddy × Manoj** displayed as **Manoj × Muhammad** (and Muhammad × Sravya similarly wrong). PA correcting Assignment List + TeamLog; UI still reused a stale team row.
+
+**Root cause (app):** `materializeOdTeamsFromAssignments` reused teams by `odScheduleId` / mod-set / name but **never refreshed** `team.name` or `primaryIds` from the live assignment’s mod snapshots. Preferring the Assignment `team` column over First×First let a stale label stick. Mod-set / name reuse could also bind a booking onto a team already stamped with a **different** `odScheduleId`.
+
+**Fix:**
+- Name always from current mod snapshots (First × First); Assignment column is fallback only.
+- On OD reuse / existing `teamId`: sync name + primaryIds; TeamLog WRITE includes renamed teams.
+- Mod-set / name reuse refused when the team is already bound to another OD schedule/group.
+- Stale `assignment.teamId` pointing at a conflicting OD team rematches.
+
+**Selftest:** `scripts/od-team-materialize-selftest.js` (27). Version **1.3.091820h**.
+
+**Verify (David):** Hard refresh → **1.3.091820h**. Today’s Pradeepreddy×Manoj and Muhammad×Sravya show correct First×First labels after PA List/TeamLog fix (or immediately if snapshots are already correct).
 
 ---
 
@@ -170,7 +185,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820f`** (approval team unlock + Team A→B day bind) on `main` |
+| **`main` version** | **`1.3.091820h`** (OD team name materialize harden) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820g';
-const APP_UPDATED_AT = '09/19/2026 20:30';
+const APP_VERSION = '1.3.091820h';
+const APP_UPDATED_AT = '09/19/2026 20:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -25479,9 +25479,10 @@ async function fetchAssignmentsFromPA() {
   mergedAssignments = enrichAssignmentsWithParticipants(mergedAssignments);
 
   // OD team materialize · after Excel grouping + TeamLog merge, stamp
-  // each OD assignment with a resolvable teamId. Newly created teams
-  // are written to TeamLog in one batch after persist (below).
+  // each OD assignment with a resolvable teamId. Newly created / renamed
+  // teams are written to TeamLog in one batch after persist (below).
   let createdOdTeams = [];
+  let updatedOdTeams = [];
   if (typeof materializeOdTeamsFromAssignments === 'function') {
     if (typeof adminState !== 'undefined' && adminState) adminState.teams = mergedTeams;
     const mat = materializeOdTeamsFromAssignments(mergedAssignments, mergedTeams, {
@@ -25490,8 +25491,9 @@ async function fetchAssignmentsFromPA() {
     mergedTeams = mat.teams;
     mergedAssignments = mat.assignments;
     createdOdTeams = mat.created || [];
-    if (createdOdTeams.length || mat.stamped) {
-      console.log(`[Twilight] OD team materialize: ${createdOdTeams.length} new team(s), ${mat.stamped} OD assignment(s) stamped`);
+    updatedOdTeams = mat.updated || [];
+    if (createdOdTeams.length || updatedOdTeams.length || mat.stamped) {
+      console.log(`[Twilight] OD team materialize: ${createdOdTeams.length} new, ${updatedOdTeams.length} renamed/synced, ${mat.stamped} OD assignment(s) stamped`);
     }
   }
 
@@ -25522,10 +25524,17 @@ async function fetchAssignmentsFromPA() {
     }));
   } catch (e) {}
 
-  if (createdOdTeams.length && typeof writeTeamsToTeamLogBatch === 'function') {
-    writeTeamsToTeamLogBatch(createdOdTeams, 'active').then(r => {
+  const odTeamsToWrite = [];
+  for (const t of createdOdTeams) {
+    if (t && !odTeamsToWrite.some(x => x && String(x.id) === String(t.id))) odTeamsToWrite.push(t);
+  }
+  for (const t of updatedOdTeams) {
+    if (t && !odTeamsToWrite.some(x => x && String(x.id) === String(t.id))) odTeamsToWrite.push(t);
+  }
+  if (odTeamsToWrite.length && typeof writeTeamsToTeamLogBatch === 'function') {
+    writeTeamsToTeamLogBatch(odTeamsToWrite, 'active').then(r => {
       if (r && r.ok) {
-        console.log(`[Twilight] OD team materialize: TeamLog WRITE ${r.succeeded} row(s) for ${createdOdTeams.length} new team(s)`);
+        console.log(`[Twilight] OD team materialize: TeamLog WRITE ${r.succeeded} row(s) for ${odTeamsToWrite.length} team(s) (created=${createdOdTeams.length}, updated=${updatedOdTeams.length})`);
       } else if (r && !r.skipped) {
         console.warn('[Twilight] OD team materialize: TeamLog WRITE failed', r && r.lastError);
       }
@@ -29693,11 +29702,18 @@ function assignmentIsOdOrigin(a) {
  * Auto-materialize Admin Teams from OneData Assignment rows after
  * Excel Assignment READ groups rows. Locked upsert rules:
  *   1. Prefer bookingGroupId, else odScheduleId, else normalized
- *      primary-mod set, else normalized team name.
- *   2. Reuse an existing team on any of those keys — do not duplicate.
- *   3. Stamp assignment.teamId so Performance + Approval resolve.
- *   4. New teams persist via existing TeamLog WRITE in one batch.
- *   5. OD-created teams show an OD pill; Twilight teams stay unmarked.
+ *      primary-mod set (same schedule only), else normalized team name
+ *      (same schedule only).
+ *   2. Reuse an existing team on those keys — do not duplicate, and do
+ *      NOT reuse a team already bound to a different odScheduleId /
+ *      bookingGroupId via mod-set or name alone.
+ *   3. Team name + primaryIds always refresh from the assignment's
+ *      current mod snapshots (First x First). Never keep a stale name
+ *      after the crew on that schedule changes.
+ *   4. Stamp assignment.teamId + assignment.teamName so Performance +
+ *      Booking resolve the current label.
+ *   5. New / renamed OD teams persist via TeamLog WRITE.
+ *   6. OD-created teams show an OD pill; Twilight teams stay unmarked.
  */
 function assignmentOrbitLoginIdsFromRow(r) {
   const ids = [];
@@ -29743,10 +29759,8 @@ function primaryIdsFromAssignment(a) {
   return ids;
 }
 
-function teamNameFromOdAssignment(a) {
-  const named = String((a && (a.teamName || a.team)) || '').trim();
-  if (named) return named;
-  const firsts = ((a && a.modSnapshots) || []).map(s => {
+function firstNamesFromOdAssignment(a) {
+  return ((a && a.modSnapshots) || []).map(s => {
     const fn = String((s && s.firstName) || '').trim();
     if (fn) return fn.split(/\s+/)[0];
     if (s && s.orbitLoginId && typeof getModeratorShortName === 'function') {
@@ -29755,8 +29769,16 @@ function teamNameFromOdAssignment(a) {
     }
     return '';
   }).filter(Boolean);
+}
+
+function teamNameFromOdAssignment(a) {
+  // Prefer First x First from current mod snapshots so a stale Assignment
+  // List "team" column (or a previously reused team name) cannot stick.
+  const firsts = firstNamesFromOdAssignment(a);
   if (firsts.length >= 2) return firsts[0] + ' x ' + firsts[1];
   if (firsts.length === 1) return firsts[0];
+  const named = String((a && (a.teamName || a.team)) || '').trim();
+  if (named) return named;
   return 'OD team';
 }
 
@@ -29782,11 +29804,26 @@ function teamIdIsDeleted(id, deletedIds) {
   return false;
 }
 
+function odTeamOriginToken(v) {
+  if (typeof bookingOdMeaningfulToken === 'function') return bookingOdMeaningfulToken(v);
+  return String(v == null ? '' : v).trim();
+}
+
+/** True when team is already bound to a different OD schedule/group. */
+function odTeamOriginConflicts(team, assignment) {
+  if (!team || !assignment) return false;
+  const tBg = odTeamOriginToken(team.bookingGroupId);
+  const aBg = odTeamOriginToken(assignment.bookingGroupId);
+  if (tBg && aBg && tBg !== aBg) return true;
+  const tOd = odTeamOriginToken(team.odScheduleId);
+  const aOd = odTeamOriginToken(assignment.odScheduleId);
+  if (tOd && aOd && tOd !== aOd) return true;
+  return false;
+}
+
 function findReusableTeamForOdAssignment(teams, assignment, primaryIds, teamName) {
   const list = teams || [];
-  const token = (typeof bookingOdMeaningfulToken === 'function')
-    ? bookingOdMeaningfulToken
-    : (v => String(v == null ? '' : v).trim());
+  const token = odTeamOriginToken;
   const bg = token(assignment && assignment.bookingGroupId);
   if (bg) {
     const hit = list.find(t => t && token(t.bookingGroupId) === bg);
@@ -29799,15 +29836,68 @@ function findReusableTeamForOdAssignment(teams, assignment, primaryIds, teamName
   }
   const modKey = normalizedPrimaryModSetKey(primaryIds);
   if (modKey) {
-    const hit = list.find(t => t && normalizedPrimaryModSetKey(t.primaryIds) === modKey);
+    const hit = list.find(t => {
+      if (!t || normalizedPrimaryModSetKey(t.primaryIds) !== modKey) return false;
+      // Same crew on a different OD schedule → new team row (do not steal).
+      return !odTeamOriginConflicts(t, assignment);
+    });
     if (hit) return hit;
   }
   const nameKey = normalizedTeamNameKey(teamName);
   if (nameKey) {
-    const hit = list.find(t => t && normalizedTeamNameKey(t.name) === nameKey);
+    const hit = list.find(t => {
+      if (!t || normalizedTeamNameKey(t.name) !== nameKey) return false;
+      return !odTeamOriginConflicts(t, assignment);
+    });
     if (hit) return hit;
   }
   return null;
+}
+
+/**
+ * Refresh OD team label + primaries from the live assignment.
+ * Twilight-created teams reused by mod-set/name are left unmarked.
+ * Returns true when name or primaryIds changed (caller may TeamLog WRITE).
+ */
+function syncOdTeamFromAssignment(team, assignment, primaryIds, teamName) {
+  if (!team || !teamIsOdOrigin(team)) return false;
+  let changed = false;
+  const nextName = String(teamName || '').trim();
+  if (nextName && String(team.name || '').trim() !== nextName) {
+    team.name = nextName;
+    changed = true;
+  }
+  const nextIds = (primaryIds || []).slice();
+  if (nextIds.length
+      && normalizedPrimaryModSetKey(team.primaryIds) !== normalizedPrimaryModSetKey(nextIds)) {
+    team.primaryIds = nextIds;
+    changed = true;
+  }
+  if (assignment) {
+    const aBg = odTeamOriginToken(assignment.bookingGroupId);
+    const aOd = odTeamOriginToken(assignment.odScheduleId);
+    if (aBg && !odTeamOriginToken(team.bookingGroupId)) {
+      team.bookingGroupId = aBg;
+      changed = true;
+    }
+    if (aOd && !odTeamOriginToken(team.odScheduleId)) {
+      team.odScheduleId = aOd;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+/** Stale teamId pointing at a different OD schedule+crew must rematch. */
+function odAssignmentTeamIdIsStale(team, assignment, primaryIds) {
+  if (!team || !assignment) return false;
+  if (!teamIsOdOrigin(team)) return false;
+  if (!odTeamOriginConflicts(team, assignment)) return false;
+  const aKey = normalizedPrimaryModSetKey(primaryIds);
+  const tKey = normalizedPrimaryModSetKey(team.primaryIds);
+  // Conflict on origin keys and different (or empty) mod-set → wrong bind.
+  if (!aKey || !tKey || aKey !== tKey) return true;
+  return false;
 }
 
 function materializeOdTeamsFromAssignments(assignments, teams, opts) {
@@ -29815,6 +29905,7 @@ function materializeOdTeamsFromAssignments(assignments, teams, opts) {
   const list = teams || [];
   const deletedIds = (opts && opts.deletedIds) || new Set();
   const created = [];
+  const updated = [];
   let stamped = 0;
   if (typeof adminState !== 'undefined' && adminState) adminState.teams = list;
 
@@ -29822,17 +29913,29 @@ function materializeOdTeamsFromAssignments(assignments, teams, opts) {
     if (!a || (typeof assignmentIsOdOrigin === 'function' ? !assignmentIsOdOrigin(a) : false)) continue;
     if (a.source === 'team-session') continue;
 
-    const existingById = (a.teamId != null && a.teamId !== '')
+    const primaryIds = primaryIdsFromAssignment(a);
+    const name = teamNameFromOdAssignment(a);
+
+    let existingById = (a.teamId != null && a.teamId !== '')
       ? list.find(t => t && String(t.id) === String(a.teamId))
       : null;
+    if (existingById && odAssignmentTeamIdIsStale(existingById, a, primaryIds)) {
+      a.teamId = null;
+      existingById = null;
+    }
     if (existingById) {
+      if (teamIsOdOrigin(existingById) || primaryIds.length) {
+        const changed = syncOdTeamFromAssignment(existingById, a, primaryIds, name);
+        if (changed && !updated.some(t => t && String(t.id) === String(existingById.id))) {
+          updated.push(existingById);
+        }
+      }
+      a.teamName = existingById.name || name;
       stamped++;
       continue;
     }
     if (teamIdIsDeleted(a.teamId, deletedIds)) continue;
 
-    const primaryIds = primaryIdsFromAssignment(a);
-    const name = teamNameFromOdAssignment(a);
     let team = findReusableTeamForOdAssignment(list, a, primaryIds, name);
     if (!team) {
       const id = (typeof nextTeamId === 'function') ? nextTeamId() : (Date.now());
@@ -29843,36 +29946,29 @@ function materializeOdTeamsFromAssignments(assignments, teams, opts) {
         backupIds: [],
         origin: 'od',
         source: 'od-sync',
-        bookingGroupId: tokenOrEmpty(a.bookingGroupId),
-        odScheduleId: tokenOrEmpty(a.odScheduleId),
+        bookingGroupId: odTeamOriginToken(a.bookingGroupId),
+        odScheduleId: odTeamOriginToken(a.odScheduleId),
         createdAt: new Date().toISOString(),
       };
       list.push(team);
       created.push(team);
       if (typeof adminState !== 'undefined' && adminState) adminState.teams = list;
-    } else if (teamIsOdOrigin(team)) {
-      if (!tokenOrEmpty(team.bookingGroupId) && tokenOrEmpty(a.bookingGroupId)) {
-        team.bookingGroupId = tokenOrEmpty(a.bookingGroupId);
-      }
-      if (!tokenOrEmpty(team.odScheduleId) && tokenOrEmpty(a.odScheduleId)) {
-        team.odScheduleId = tokenOrEmpty(a.odScheduleId);
+    } else {
+      const changed = syncOdTeamFromAssignment(team, a, primaryIds, name);
+      if (changed && !updated.some(t => t && String(t.id) === String(team.id))) {
+        updated.push(team);
       }
     }
     a.teamId = team.id;
-    if (!String(a.teamName || '').trim()) a.teamName = team.name;
+    a.teamName = team.name || name;
     stamped++;
   }
 
-  return { teams: list, assignments: asgns, created, stamped };
-
-  function tokenOrEmpty(v) {
-    if (typeof bookingOdMeaningfulToken === 'function') return bookingOdMeaningfulToken(v);
-    return String(v == null ? '' : v).trim();
-  }
+  return { teams: list, assignments: asgns, created, updated, stamped };
 }
 
 function applyOdTeamMaterializeToAdminState(opts) {
-  if (typeof adminState === 'undefined' || !adminState) return { created: [], stamped: 0 };
+  if (typeof adminState === 'undefined' || !adminState) return { created: [], updated: [], stamped: 0 };
   if (!Array.isArray(adminState.assignments)) adminState.assignments = [];
   if (!Array.isArray(adminState.teams)) adminState.teams = [];
   const mat = materializeOdTeamsFromAssignments(adminState.assignments, adminState.teams, {
@@ -29880,14 +29976,22 @@ function applyOdTeamMaterializeToAdminState(opts) {
   });
   adminState.teams = mat.teams;
   adminState.assignments = mat.assignments;
-  if (mat.created && mat.created.length && typeof saveAssignmentData === 'function') {
+  if (((mat.created && mat.created.length) || (mat.updated && mat.updated.length))
+      && typeof saveAssignmentData === 'function') {
     saveAssignmentData();
   }
   const persistTeamLog = !opts || opts.persistTeamLog !== false;
-  if (persistTeamLog && mat.created && mat.created.length && typeof writeTeamsToTeamLogBatch === 'function') {
-    writeTeamsToTeamLogBatch(mat.created, 'active').then(r => {
+  const toWrite = [];
+  if (mat.created && mat.created.length) toWrite.push(...mat.created);
+  if (mat.updated && mat.updated.length) {
+    for (const t of mat.updated) {
+      if (t && !toWrite.some(x => x && String(x.id) === String(t.id))) toWrite.push(t);
+    }
+  }
+  if (persistTeamLog && toWrite.length && typeof writeTeamsToTeamLogBatch === 'function') {
+    writeTeamsToTeamLogBatch(toWrite, 'active').then(r => {
       if (r && r.ok) {
-        console.log(`[Twilight] OD team materialize: TeamLog WRITE ${r.succeeded} row(s) for ${mat.created.length} new team(s)`);
+        console.log(`[Twilight] OD team materialize: TeamLog WRITE ${r.succeeded} row(s) for ${toWrite.length} team(s) (created=${(mat.created || []).length}, updated=${(mat.updated || []).length})`);
       } else if (r && !r.skipped) {
         console.warn('[Twilight] OD team materialize: TeamLog WRITE failed', r && r.lastError);
       }
