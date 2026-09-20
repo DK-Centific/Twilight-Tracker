@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820f';
+const APP_VERSION = '1.3.091820g';
 const APP_UPDATED_AT = '09/19/2026 20:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -495,6 +495,9 @@ function defaultState() {
     // that, swiping the carousel or admin removing the team are the
     // only triggers; mid-booking user edits to the name field stick.
     _lastSeenActiveAsgnId: null,
+    // Pin assignment id across wrap-up so SessionState session_done writes
+    // land on ss_od_* even after getAssignedOpenSession() returns null.
+    _completionWriteAsgnId: null,
     // Address bind key = assignmentId|sessionDate|fenceAddress. Rescheduled
     // OD rows reuse the same id while the booked address changes (Romo →
     // Yuan He); this key forces participantAddress to rebind to TODAY's
@@ -907,6 +910,9 @@ function migrateState(loaded) {
   // build prefills naturally. See syncBookedParticipantName.
   if (typeof loaded._lastSeenActiveAsgnId !== 'string' && loaded._lastSeenActiveAsgnId !== null) {
     loaded._lastSeenActiveAsgnId = null;
+  }
+  if (typeof loaded._completionWriteAsgnId !== 'string' && loaded._completionWriteAsgnId !== null) {
+    loaded._completionWriteAsgnId = null;
   }
   if (typeof loaded._lastSeenAddressBindKey !== 'string' && loaded._lastSeenAddressBindKey !== null) {
     loaded._lastSeenAddressBindKey = null;
@@ -10879,6 +10885,11 @@ function classifyBookingForPerf(a) {
     })();
   // Completed · admin marked it Completed OR the mod confirmed wrap-up.
   if (a.status === 'Completed' || (live && live.status === 'session_done')) return 'completed';
+  // After booked end: all stations submitted (no session_done stamp yet)
+  // still counts Completed for Performance + strike parity.
+  if (pastEnd && live && (live.status === 'station_4_done' || live.status === 'office_checkout')) {
+    return 'completed';
+  }
   // Live while inside the booked window and the mod has arrived (or later).
   if (inWindow && assignmentPerfSessionStarted(a)) return 'inprogress';
   // In progress · arrived through wrap-up (but not Live after booked end).
@@ -10917,6 +10928,11 @@ function perfLiveStatusDisplay(a) {
     ? getLatestStatusForAssignment(a.id)
     : null;
   if (a.status === 'Completed' || (live && live.status === 'session_done')) {
+    return { key: 'completed', label: 'Completed' };
+  }
+  if (live && live.status === 'station_4_done'
+      && typeof isPastAssignmentSessionEnd === 'function'
+      && isPastAssignmentSessionEnd(a)) {
     return { key: 'completed', label: 'Completed' };
   }
   if (live && (typeof statusOrderIdx === 'function') && statusOrderIdx(live.status) >= 0) {
@@ -26578,9 +26594,27 @@ function isPastAssignmentSessionEnd(a, nowMs) {
   return now >= endMs;
 }
 
+function assignmentLiveStatusForStrike(a) {
+  if (!a || a.id == null) return null;
+  try {
+    if (typeof getLatestStatusForAssignment === 'function') {
+      const live = getLatestStatusForAssignment(a.id);
+      return live && live.status ? String(live.status) : null;
+    }
+  } catch (_) {}
+  return null;
+}
+
 function isAssignmentCompleteForStrike(a) {
   if (!a) return false;
   if (a.status === 'Completed') return true;
+  const liveStatus = assignmentLiveStatusForStrike(a);
+  // Wrap-up / PA stamp · Admin incomplete+flag must clear.
+  if (liveStatus === 'session_done' || liveStatus === 'office_checkout') return true;
+  // All stations submitted (station_4_done) counts as completed progress for
+  // the 9 AM gate even when sessionCompletedAt never landed on the assignment
+  // SessionState row (geo_presence mis-route / policy wipe).
+  if (liveStatus === 'station_4_done') return true;
   return (typeof classifyBookingForPerf === 'function')
     && classifyBookingForPerf(a) === 'completed';
 }
@@ -39440,10 +39474,44 @@ function sessionStateProgressForeignToBooking(parsed, bookingYmd) {
 
 // Strip station / wrap-up progress that predates the booking day. Keeps
 // geo + equipment so location pins still work.
-function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
+// Overnight bookings end next calendar morning · completion stamps on
+// bookedDay or bookedDay+1 still belong to that session for Admin.
+function sessionCompletionStampBelongsToBooking(stamp, bookingYmd) {
+  const booked = String(bookingYmd || '').trim();
+  if (!booked) return true;
+  if (typeof sessionStateStampOnOrAfterBooking === 'function'
+      && sessionStateStampOnOrAfterBooking(stamp, booked)) {
+    const day = (typeof pstYmdFromTimestamp === 'function')
+      ? pstYmdFromTimestamp(stamp) : '';
+    if (!day) return true;
+    if (day === booked) return true;
+    try {
+      if (typeof addDaysToYmd === 'function' && day === addDaysToYmd(booked, 1)) return true;
+    } catch (_) {}
+    // Same-or-later already passed; keep within +1 day for overnight.
+    return day <= (typeof addDaysToYmd === 'function' ? addDaysToYmd(booked, 1) : day);
+  }
+  return false;
+}
+
+function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
   if (!parsed || typeof parsed !== 'object') return parsed || {};
   const booked = String(bookingYmd || '').trim();
   if (!booked) return parsed;
+  opts = opts || {};
+  // Admin Performance / strike still evaluate yesterday's completed rows.
+  // Day-gate scrub for the OPEN booking must not erase sessionCompletedAt
+  // when preserveSessionCompletion is set (deriveLatestStatusFromSessionState).
+  const preserveDone = !!opts.preserveSessionCompletion;
+  const keepCompletion = (p) => {
+    if (!preserveDone) return false;
+    if (p && p.sessionCompletedAt
+        && sessionCompletionStampBelongsToBooking(p.sessionCompletedAt, booked)) {
+      return true;
+    }
+    const st = String((p && p.sessionStatus) || '').trim();
+    return st === 'session_done' || st === 'office_checkout';
+  };
   if (!sessionStateProgressForeignToBooking(parsed, booked)) {
     // Still drop individual pre-booking stamps when mixed.
     const out = Object.assign({}, parsed);
@@ -39455,8 +39523,8 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
       });
       out.stationCompletedAt = next;
     }
-    if (out.sessionCompletedAt && !sessionStateStampOnOrAfterBooking(out.sessionCompletedAt, booked)) {
-      out.sessionCompletedAt = null;
+    if (out.sessionCompletedAt && !sessionCompletionStampBelongsToBooking(out.sessionCompletedAt, booked)) {
+      if (!keepCompletion(parsed)) out.sessionCompletedAt = null;
     }
     if (out.arrivedAt && !sessionStateStampOnOrAfterBooking(out.arrivedAt, booked)) {
       out.arrivedAt = '';
@@ -39465,9 +39533,27 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd) {
     if ((st.indexOf('station_') === 0 || st === 'session_done')
         && (!out.stationCompletedAt || !Object.keys(out.stationCompletedAt).length)
         && !out.sessionCompletedAt) {
-      out.sessionStatus = out.arrivedAt ? 'arrived' : '';
+      if (!(preserveDone && st === 'session_done')) {
+        out.sessionStatus = out.arrivedAt ? 'arrived' : '';
+      }
+    }
+    if (preserveDone && keepCompletion(parsed)) {
+      if (parsed.sessionCompletedAt) out.sessionCompletedAt = parsed.sessionCompletedAt;
+      if (String(parsed.sessionStatus || '') === 'session_done') out.sessionStatus = 'session_done';
     }
     return out;
+  }
+  if (preserveDone && keepCompletion(parsed)) {
+    // Foreign station map · still keep the wrap-up / session_done marker so
+    // Admin incomplete+flag can clear for prior bookings.
+    const kept = Object.assign({}, parsed);
+    kept.stationCompletedAt = {};
+    kept.stations = {};
+    kept.progressScore = kept.sessionCompletedAt ? 100000 : 0;
+    kept.progressAt = kept.sessionCompletedAt || '';
+    kept.sessionStatus = kept.sessionCompletedAt ? 'session_done'
+      : (String(parsed.sessionStatus || '') === 'office_checkout' ? 'office_checkout' : 'session_done');
+    return kept;
   }
   const clean = Object.assign({}, parsed);
   clean.stationCompletedAt = {};
@@ -39590,6 +39676,7 @@ function clearOperatorProgressForNewBooking(reason) {
   }
   state.stationCompletedAt = {};
   state.sessionCompletedAt = null;
+  state._completionWriteAsgnId = null;
   state.sessionStatus = '';
   state.arrivedAt = '';
   state.suppressAutoArrival = false;
@@ -40122,6 +40209,40 @@ function assignmentCompletionNeedsWrite(asgn) {
   }
 }
 
+function lookupAssignmentByIdForSessionWrite(asgnId) {
+  const id = asgnId != null && asgnId !== '' ? String(asgnId) : '';
+  if (!id) return null;
+  try {
+    if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments)) {
+      const hit = adminState.assignments.find(a => a && String(a.id) === id);
+      if (hit) return hit;
+    }
+  } catch (_) {}
+  try {
+    if (typeof getOperatorAssignments === 'function') {
+      const hit = (getOperatorAssignments() || []).find(a => a && String(a.id) === id);
+      if (hit) return hit;
+    }
+  } catch (_) {}
+  return { id: id };
+}
+
+function resolveCompletionWriteAssignment(opts) {
+  opts = opts || {};
+  if (opts.completionAssignment && opts.completionAssignment.id) {
+    return opts.completionAssignment;
+  }
+  const pinned = (opts.completionAssignmentId != null && opts.completionAssignmentId !== '')
+    ? String(opts.completionAssignmentId)
+    : (state && state._completionWriteAsgnId ? String(state._completionWriteAsgnId) : '');
+  if (pinned) return lookupAssignmentByIdForSessionWrite(pinned);
+  // Last-seen active booking · carousel drops wrap-up-done rows immediately.
+  if (state && state._lastSeenActiveAsgnId) {
+    return lookupAssignmentByIdForSessionWrite(state._lastSeenActiveAsgnId);
+  }
+  return null;
+}
+
 function getSessionStateWriteContext(opts) {
   opts = opts || {};
   const orbitId = (typeof moderatorGeoOrbitId === 'function')
@@ -40132,26 +40253,43 @@ function getSessionStateWriteContext(opts) {
   const open = (typeof getAssignedOpenSession === 'function')
     ? getAssignedOpenSession()
     : null;
+  // After wrap-up stamps sessionCompletedAt, getAssignedOpenSession() is
+  // null (carousel / open-session filters treat the booking as done). Without
+  // a pin, resolveSessionStateWriteTarget routes session_done onto
+  // geo_presence_* and Admin never sees Completed / clears the flag.
+  const wantsCompletionWrite = !!(opts.persistCompletion
+    || opts.geoSyncReason === 'session_completed'
+    || (state && state.sessionCompletedAt && state._completionWriteAsgnId));
+  const completionAsgn = (state && state.sessionCompletedAt && (wantsCompletionWrite || !open))
+    ? resolveCompletionWriteAssignment(opts)
+    : null;
+  const writeAsgn = open || completionAsgn;
   const persistCompletion = !!(opts.persistCompletion
     || opts.geoSyncReason === 'session_completed'
-    || (open && assignmentCompletionNeedsWrite(open)));
+    || (writeAsgn && typeof assignmentCompletionNeedsWrite === 'function'
+      && assignmentCompletionNeedsWrite(writeAsgn)));
 
   const target = (typeof resolveSessionStateWriteTarget === 'function')
     ? resolveSessionStateWriteTarget({
       orbitLoginId: orbitId,
       sessionCompletedAt: state.sessionCompletedAt,
-      openAssignmentId: open && open.id,
-      teamId: resolveMappedTeamId(open || null),
+      openAssignmentId: writeAsgn && writeAsgn.id,
+      teamId: resolveMappedTeamId(writeAsgn || null),
       hasLastGeo: !!(state.lastGeo && Number.isFinite(Number(state.lastGeo.lat))),
-      persistCompletion,
+      persistCompletion: persistCompletion || !!(state.sessionCompletedAt && completionAsgn),
       day: (typeof getPSTDateString === 'function')
         ? getPSTDateString()
         : new Date().toISOString().slice(0, 10),
     })
     : null;
   if (!target) return null;
-  if (target.kind === 'assignment' && open) {
-    return Object.assign({}, open, { teamId: target.teamId || resolveMappedTeamId(open) });
+  if (target.kind === 'assignment') {
+    const base = writeAsgn && String(writeAsgn.id) === String(target.id)
+      ? writeAsgn
+      : lookupAssignmentByIdForSessionWrite(target.id);
+    return Object.assign({}, base || { id: target.id }, {
+      teamId: target.teamId || resolveMappedTeamId(base || writeAsgn || null),
+    });
   }
   return {
     id: target.id,
@@ -41330,7 +41468,11 @@ function deriveLatestStatusFromSessionState(asgnId) {
       ? parseSessionStateJson(r)
       : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
-      parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd);
+      // Preserve wrap-up stamps on prior bookings Admin still scores for
+      // incomplete/flag (day-gate must not wipe sessionCompletedAt).
+      parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
+        preserveSessionCompletion: true,
+      });
     }
     const stHint = parsed.sessionStatus ? String(parsed.sessionStatus).trim() : '';
     if (stHint && typeof statusOrderIdx === 'function') {
@@ -47878,8 +48020,15 @@ function openWrapUpModal(asgn) {
         catch (e) { console.warn('[Twilight] session_done worklog failed:', e); }
         // Stamp the local completion marker (ISO string so cross-device /
         // teammate merges can compare timestamps; included in
-        // extractSyncableState).
-        try { state.sessionCompletedAt = new Date().toISOString(); saveState(); } catch (_) {}
+        // extractSyncableState). Pin the assignment id BEFORE save/flush so
+        // getSessionStateWriteContext still targets ss_od_* after open-session
+        // filters treat this booking as done.
+        try {
+          state.sessionCompletedAt = new Date().toISOString();
+          state.sessionStatus = 'session_done';
+          if (asgn && asgn.id != null) state._completionWriteAsgnId = String(asgn.id);
+          saveState();
+        } catch (_) {}
         // Capture and upload the moderator's current location with the final
         // completion state. This is intentionally fire-and-forget so GPS does
         // not hold the completion screen open.
@@ -47894,7 +48043,16 @@ function openWrapUpModal(asgn) {
         // completion marker, then flush immediately (terminal action · worth
         // the round trip).
         try { if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync(); } catch (_) {}
-        try { if (typeof flushSessionStateSync === 'function') flushSessionStateSync({ force: true, persistCompletion: true, geoSyncReason: 'session_completed' }); } catch (_) {}
+        try {
+          if (typeof flushSessionStateSync === 'function') {
+            flushSessionStateSync({
+              force: true,
+              persistCompletion: true,
+              geoSyncReason: 'session_completed',
+              completionAssignment: asgn,
+            });
+          }
+        } catch (_) {}
         // Send back to welcome (locked state)
         currentStationKey = null;
         try { renderApp(); } catch (e) { console.warn('[Twilight] renderApp after completion failed:', e); }
