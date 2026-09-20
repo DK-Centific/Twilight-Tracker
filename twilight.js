@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820k';
-const APP_UPDATED_AT = '09/19/2026 23:40';
+const APP_VERSION = '1.3.091820l';
+const APP_UPDATED_AT = '09/19/2026 23:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6982,6 +6982,15 @@ async function pollMyApprovals() {
             // and ask the mod to Confirm once (acked token prevents re-popup).
             animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
             showApprovalApprovedPopup(k, token);
+            if (typeof notifyModApprovalDecisionToast === 'function') {
+              try {
+                notifyModApprovalDecisionToast('approved', {
+                  token, gateKey: k,
+                  station: label,
+                  teamName: (typeof _gateModContext === 'function' && _gateModContext().teamName) || '',
+                });
+              } catch (_) { /* silent */ }
+            }
           } else if (!wasLocallyApproved && isApprovalAcked(k, token)) {
             // Already confirmed earlier (token map) · unlock silently.
             animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
@@ -6993,7 +7002,19 @@ async function pollMyApprovals() {
             status: cloudStatus, verifiedAt: null,
             approvalId: mine.approval_id, decidedBy: mine.decided_by || '', note: mine.feedback_note || '',
           });
-          if (cloudStatus === 'Rejected') showApprovalRejectedPopup(mine.decided_by, mine.feedback_note);
+          if (cloudStatus === 'Rejected') {
+            showApprovalRejectedPopup(mine.decided_by, mine.feedback_note);
+            if (typeof notifyModApprovalDecisionToast === 'function') {
+              try {
+                const rToken = approvalAckToken(mine) || (String(mine.approval_id || '') + '#rej');
+                notifyModApprovalDecisionToast('rejected', {
+                  token: rToken, gateKey: k,
+                  station: label,
+                  teamName: (typeof _gateModContext === 'function' && _gateModContext().teamName) || '',
+                });
+              } catch (_) { /* silent */ }
+            }
+          }
           if (typeof renderApp === 'function') renderApp();
         }
       } else if (readOk) {
@@ -7047,7 +7068,18 @@ function runClientAutoApprove() {
       resubmitCount: gAfter.resubmitCount || g.resubmitCount || 0,
     });
     animateApprovalSlideAway(() => { if (typeof renderApp === 'function') renderApp(); });
-    if (!isApprovalAcked(k, token)) showApprovalApprovedPopup(k, token);
+    if (!isApprovalAcked(k, token)) {
+      showApprovalApprovedPopup(k, token);
+      if (typeof notifyModApprovalDecisionToast === 'function') {
+        try {
+          notifyModApprovalDecisionToast('autoapproved', {
+            token, gateKey: k,
+            station: gateStationLabel(k),
+            teamName: ctx.teamName || '',
+          });
+        } catch (_) { /* silent */ }
+      }
+    }
   }
 }
 
@@ -10867,6 +10899,381 @@ function syncArrivalCheckInAlerts() {
   }
   syncArrivalCheckInAlertsUI();
 }
+
+
+/* ============================================================
+   APPROVAL INCOMING ALERTS (toast + soft chime · Soft Sage gold)
+   Mirrors arrival check-in alerts:
+     · Admin/Reviewer: edge-detect new Pending/InReview → toast + chime
+     · Moderator: Approved/Rejected transition → brief toast + chime
+       (in addition to existing modal). Ack tokens / day-scoped snooze
+       prevent re-toast after dismiss, day roll, scrub, or unbound rows.
+   ============================================================ */
+const APPROVAL_ALERTS_LS_KEY = 'twilight_approval_alerts_v1';
+const APPROVAL_TOAST_MAX = 3;
+const APPROVAL_TOAST_MS = 7000;
+
+/** In-memory edge-detect set of open approval_ids. null = not seeded. */
+let _apprPrevOpenIds = null;
+/** Toast UI state: [{ id, teamName, station, kind, title, sub, at }] */
+let _apprActiveToasts = [];
+let _apprToastTimers = {};
+
+function loadApprovalAlertsStore() {
+  const today = (typeof getPSTDateString === 'function')
+    ? getPSTDateString()
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  try {
+    const raw = localStorage.getItem(APPROVAL_ALERTS_LS_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== 'object') {
+      return { day: today, seen: {}, lastChimeAt: 0 };
+    }
+    const day = parsed.day ? String(parsed.day) : '';
+    if (day !== today) {
+      const rolled = { day: today, seen: {}, lastChimeAt: 0 };
+      try { localStorage.setItem(APPROVAL_ALERTS_LS_KEY, JSON.stringify(rolled)); }
+      catch (e2) { /* ignore */ }
+      return rolled;
+    }
+    return {
+      day: today,
+      seen: (parsed.seen && typeof parsed.seen === 'object') ? parsed.seen : {},
+      lastChimeAt: Number(parsed.lastChimeAt) || 0,
+    };
+  } catch (e) {
+    return { day: today, seen: {}, lastChimeAt: 0 };
+  }
+}
+
+function saveApprovalAlertsStore(store) {
+  const today = (typeof getPSTDateString === 'function')
+    ? getPSTDateString()
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  try {
+    localStorage.setItem(APPROVAL_ALERTS_LS_KEY, JSON.stringify({
+      day: store.day || today,
+      seen: store.seen || {},
+      lastChimeAt: Number(store.lastChimeAt) || 0,
+    }));
+  } catch (e) { /* ignore quota */ }
+}
+
+function isApprovalAlertSeen(key) {
+  const id = String(key || '');
+  if (!id) return true;
+  const store = loadApprovalAlertsStore();
+  return !!store.seen[id];
+}
+
+function markApprovalAlertSeen(key) {
+  const id = String(key || '');
+  if (!id) return;
+  const store = loadApprovalAlertsStore();
+  store.seen[id] = new Date().toISOString();
+  saveApprovalAlertsStore(store);
+  _apprActiveToasts = _apprActiveToasts.filter(t => String(t.id) !== id);
+  if (_apprToastTimers[id]) {
+    clearTimeout(_apprToastTimers[id]);
+    delete _apprToastTimers[id];
+  }
+}
+
+/** Bound open Pending/InReview rows eligible for Admin/Reviewer alerts. */
+function listOpenApprovalAlertRows() {
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.approvals))
+    ? adminState.approvals : [];
+  const out = [];
+  list.forEach(a => {
+    if (!a || a.approval_id == null || a.approval_id === '') return;
+    if (a.status !== 'Pending' && a.status !== 'InReview') return;
+    if (typeof isApprovalSoftDeleted === 'function' && isApprovalSoftDeleted(a)) return;
+    const asgn = String(a.assignment_id || a.assignmentId || '').trim();
+    // Day-gate / unbound: never toast orphan or legacy unbound rows.
+    if (!asgn || asgn.toLowerCase() === 'unbound') return;
+    out.push(a);
+  });
+  return out;
+}
+
+function approvalAlertTeamName(a) {
+  if (!a) return 'Team';
+  return String(a.team_name || a.teamName || '').trim() || 'Team';
+}
+
+function approvalAlertStationLabel(a) {
+  if (!a) return '';
+  const raw = a.station || '';
+  if (typeof apprStationLabel === 'function') return apprStationLabel(raw);
+  return String(raw || '');
+}
+
+function ensureApprovalToastStack() {
+  let stack = document.getElementById('ovApprovalToastStack');
+  if (stack) {
+    if (stack.parentElement && stack.parentElement !== document.body) {
+      document.body.appendChild(stack);
+    }
+    return stack;
+  }
+  stack = document.createElement('div');
+  stack.id = 'ovApprovalToastStack';
+  stack.className = 'approval-toast-stack';
+  stack.setAttribute('aria-live', 'polite');
+  document.body.appendChild(stack);
+  return stack;
+}
+
+function handleApprovalToastAction(toastId, act) {
+  const id = String(toastId || '');
+  if (act === 'dismiss' || act === 'ack') {
+    markApprovalAlertSeen(id);
+    renderApprovalToastStack();
+    return;
+  }
+  if (act === 'open-approval') {
+    markApprovalAlertSeen(id);
+    renderApprovalToastStack();
+    try {
+      if (typeof canWorkApprovalQueue === 'function' && canWorkApprovalQueue()) {
+        if (typeof adminState !== 'undefined' && adminState) adminState.tab = 'approval';
+        if (typeof hideApprovalIncomingBanner === 'function') hideApprovalIncomingBanner();
+        if (typeof selectAdminTab === 'function') selectAdminTab('approval');
+        else if (typeof renderAdmin === 'function') renderAdmin();
+      }
+    } catch (_) { /* ignore */ }
+  }
+}
+
+function renderApprovalToastStack() {
+  const stack = ensureApprovalToastStack();
+  const items = _apprActiveToasts.slice();
+  const visible = items.slice(0, APPROVAL_TOAST_MAX);
+  const more = items.length - visible.length;
+  const reduce = (typeof prefersArrivalReducedMotion === 'function')
+    ? prefersArrivalReducedMotion() : false;
+  const nextIds = visible.map(t => String(t.id));
+  const existing = Array.from(stack.querySelectorAll('.approval-toast[data-appr-toast-id]'));
+  const existingIds = existing.map(el => el.getAttribute('data-appr-toast-id'));
+  const sameSet = existingIds.length === nextIds.length && nextIds.every(id => existingIds.includes(id));
+
+  const buildToastEl = (t, animateIn) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'approval-toast' + (reduce ? ' is-reduced' : '') + (animateIn && !reduce ? ' approval-toast-in' : '');
+    wrap.setAttribute('data-appr-toast-id', String(t.id));
+    const kicker = escapeHTML(t.kicker || 'Approval');
+    const title = escapeHTML(t.title || 'Calibration submitted for review');
+    const sub = escapeHTML(t.sub || '');
+    const isMod = t.kind === 'approved' || t.kind === 'rejected' || t.kind === 'autoapproved';
+    const actions = isMod
+      ? `<button type="button" class="at-btn primary" data-appr-act="ack" data-appr-toast-id="${escapeHTML(String(t.id))}">OK</button>`
+      : `<button type="button" class="at-btn primary" data-appr-act="open-approval" data-appr-toast-id="${escapeHTML(String(t.id))}">Open Approval</button>
+         <button type="button" class="at-btn" data-appr-act="dismiss" data-appr-toast-id="${escapeHTML(String(t.id))}">Dismiss</button>`;
+    wrap.innerHTML = `
+        <div class="at-kicker">${kicker}</div>
+        <div class="at-title">${title}</div>
+        <div class="at-sub">${sub}</div>
+        <div class="at-actions">${actions}</div>`;
+    wrap.querySelectorAll('[data-appr-act]').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        handleApprovalToastAction(btn.getAttribute('data-appr-toast-id'), btn.getAttribute('data-appr-act'));
+      });
+    });
+    return wrap;
+  };
+
+  if (sameSet) {
+    let moreEl = stack.querySelector('.at-more');
+    if (more > 0) {
+      if (!moreEl) {
+        moreEl = document.createElement('div');
+        moreEl.className = 'at-more';
+        stack.appendChild(moreEl);
+      }
+      moreEl.textContent = `+${more} more approval${more === 1 ? '' : 's'}`;
+    } else if (moreEl) {
+      moreEl.remove();
+    }
+    return;
+  }
+
+  const byId = new Map(existing.map(el => [el.getAttribute('data-appr-toast-id'), el]));
+  existing.forEach(el => {
+    if (!nextIds.includes(el.getAttribute('data-appr-toast-id'))) el.remove();
+  });
+  const frag = document.createDocumentFragment();
+  nextIds.forEach(id => {
+    let el = byId.get(id);
+    if (el && el.isConnected) {
+      el.classList.remove('approval-toast-in');
+      frag.appendChild(el);
+    } else {
+      const t = visible.find(x => String(x.id) === id);
+      if (t) frag.appendChild(buildToastEl(t, true));
+    }
+  });
+  Array.from(stack.children).forEach(ch => {
+    if (!ch.classList.contains('approval-toast')) ch.remove();
+  });
+  stack.appendChild(frag);
+  if (more > 0) {
+    const moreEl = document.createElement('div');
+    moreEl.className = 'at-more';
+    moreEl.textContent = `+${more} more approval${more === 1 ? '' : 's'}`;
+    stack.appendChild(moreEl);
+  }
+}
+
+function pushApprovalToastItem(item) {
+  if (!item || item.id == null) return;
+  const id = String(item.id);
+  if (isApprovalAlertSeen(id)) return;
+  if (_apprActiveToasts.some(t => String(t.id) === id)) return;
+  _apprActiveToasts.unshift({
+    id,
+    kind: item.kind || 'pending',
+    kicker: item.kicker || 'Approval',
+    title: item.title || 'Calibration submitted for review',
+    sub: item.sub || '',
+    at: Date.now(),
+  });
+  renderApprovalToastStack();
+  if (_apprToastTimers[id]) clearTimeout(_apprToastTimers[id]);
+  _apprToastTimers[id] = setTimeout(() => {
+    _apprActiveToasts = _apprActiveToasts.filter(t => String(t.id) !== id);
+    delete _apprToastTimers[id];
+    renderApprovalToastStack();
+  }, APPROVAL_TOAST_MS);
+}
+
+function pushApprovalIncomingToast(a) {
+  if (!a || a.approval_id == null) return;
+  const id = String(a.approval_id);
+  const team = approvalAlertTeamName(a);
+  const station = approvalAlertStationLabel(a);
+  const subParts = [];
+  if (team) subParts.push(team);
+  if (station) subParts.push(station);
+  pushApprovalToastItem({
+    id,
+    kind: 'pending',
+    kicker: 'Approval',
+    title: 'Calibration submitted for review',
+    sub: subParts.join(' · ') || 'Pending review',
+  });
+}
+
+/**
+ * Edge-detect new Pending/InReview rows for Admin + Reviewer.
+ * Call after ensureApprovalData refreshes adminState.approvals.
+ * First observation seeds without toasting (no spam on login/poll start).
+ */
+function syncApprovalIncomingAlerts() {
+  if (typeof canWorkApprovalQueue === 'function' && !canWorkApprovalQueue()) return;
+  if (typeof adminState === 'undefined' || !adminState) return;
+
+  loadApprovalAlertsStore();
+
+  const current = listOpenApprovalAlertRows();
+  const currentIds = new Set(current.map(a => String(a.approval_id)));
+
+  // Drop toast UI for rows that left the open set; keep day-scoped seen.
+  _apprActiveToasts = _apprActiveToasts.filter(t => {
+    if (t.kind === 'approved' || t.kind === 'rejected' || t.kind === 'autoapproved') return true;
+    return currentIds.has(String(t.id));
+  });
+  Object.keys(_apprToastTimers).forEach(id => {
+    const still = _apprActiveToasts.some(t => String(t.id) === String(id));
+    if (!still) {
+      clearTimeout(_apprToastTimers[id]);
+      delete _apprToastTimers[id];
+    }
+  });
+
+  if (_apprPrevOpenIds === null) {
+    _apprPrevOpenIds = currentIds;
+    renderApprovalToastStack();
+    return;
+  }
+
+  const newly = [];
+  current.forEach(a => {
+    const id = String(a.approval_id);
+    if (_apprPrevOpenIds.has(id)) return;
+    if (isApprovalAlertSeen(id)) return;
+    newly.push(a);
+  });
+  _apprPrevOpenIds = currentIds;
+
+  if (newly.length) {
+    newly.forEach(a => pushApprovalIncomingToast(a));
+    if (typeof playArrivalChimeOnce === 'function') playArrivalChimeOnce();
+  }
+  renderApprovalToastStack();
+}
+
+/**
+ * Moderator decision toast + soft chime (once per ack token / day).
+ * Called alongside showApprovalApprovedPopup / showApprovalRejectedPopup.
+ */
+function notifyModApprovalDecisionToast(kind, meta) {
+  meta = meta || {};
+  const token = String(meta.token || '');
+  if (!token) return;
+  const norm = (kind === 'autoapproved') ? 'approved' : String(kind || '');
+  if (norm !== 'approved' && norm !== 'rejected') return;
+
+  // Respect existing ack for Approved (modal Confirm already recorded).
+  if (norm === 'approved' && meta.gateKey != null
+      && typeof isApprovalAcked === 'function'
+      && isApprovalAcked(meta.gateKey, token)) {
+    return;
+  }
+
+  const seenKey = 'dec:' + token + ':' + norm;
+  if (isApprovalAlertSeen(seenKey)) return;
+
+  // Day-gate / unbound: skip if no live assignment bind.
+  try {
+    const asgnId = (typeof _gateAsgnId === 'function') ? _gateAsgnId() : '';
+    if (!asgnId || String(asgnId).toLowerCase() === 'unbound') return;
+  } catch (_) { return; }
+
+  const station = meta.station
+    || (meta.gateKey && typeof gateStationLabel === 'function' ? gateStationLabel(meta.gateKey) : '')
+    || '';
+  const team = String(meta.teamName || '').trim();
+  const subParts = [];
+  if (team) subParts.push(team);
+  if (station) subParts.push(station);
+
+  const isApproved = norm === 'approved';
+  // Mark day-scoped seen first (blocks re-chime on next poll), then force-push toast.
+  const store = loadApprovalAlertsStore();
+  store.seen[seenKey] = new Date().toISOString();
+  saveApprovalAlertsStore(store);
+
+  if (!_apprActiveToasts.some(t => String(t.id) === seenKey)) {
+    _apprActiveToasts.unshift({
+      id: seenKey,
+      kind: norm,
+      kicker: isApproved ? 'Approved' : 'Sent back',
+      title: isApproved ? 'Calibration approved' : 'Calibration sent back',
+      sub: subParts.join(' · ') || (isApproved ? 'Scenarios unlocked' : 'Fix and resubmit'),
+      at: Date.now(),
+    });
+    renderApprovalToastStack();
+    if (_apprToastTimers[seenKey]) clearTimeout(_apprToastTimers[seenKey]);
+    _apprToastTimers[seenKey] = setTimeout(() => {
+      _apprActiveToasts = _apprActiveToasts.filter(t => String(t.id) !== seenKey);
+      delete _apprToastTimers[seenKey];
+      renderApprovalToastStack();
+    }, APPROVAL_TOAST_MS);
+  }
+  if (typeof playArrivalChimeOnce === 'function') playArrivalChimeOnce();
+}
+
 
 function assignmentPerfSessionStarted(a) {
   const live = (typeof getLatestStatusForAssignment === 'function')
@@ -15375,7 +15782,12 @@ function refreshApprovalTabFromCloud(opts) {
 function markApprovalsSeen() {
   adminState._seenApprovalIds = adminState._seenApprovalIds || new Set();
   ((adminState.approvals) || []).forEach(a => {
-    if (a.status === 'Pending' || a.status === 'InReview') adminState._seenApprovalIds.add(String(a.approval_id));
+    if (a.status === 'Pending' || a.status === 'InReview') {
+      const id = String(a.approval_id);
+      adminState._seenApprovalIds.add(id);
+      // Day-scoped snooze so toast/chime do not re-fire after viewing the tab.
+      if (typeof markApprovalAlertSeen === 'function') markApprovalAlertSeen(id);
+    }
   });
 }
 let _apprIncomingPoll = null;
@@ -15392,12 +15804,19 @@ function startApprovalPoll() {
       const fresh = openNow.filter(a => !adminState._seenApprovalIds.has(String(a.approval_id)));
       refreshTopApprCount();
       if (adminState.tab === 'approval') {
-        // On the tab: just refresh + absorb as seen (no banner needed).
+        // On the tab: absorb as seen first so edge-detect does not flash a toast.
         markApprovalsSeen();
+        if (typeof syncApprovalIncomingAlerts === 'function') {
+          try { syncApprovalIncomingAlerts(); } catch (_) { /* silent */ }
+        }
         renderApprovalListInto();
         renderApprovalPanelInto();
-      } else if (fresh.length) {
-        showApprovalIncomingBanner(fresh.length);
+      } else {
+        // Off-tab: edge-detect toast + soft chime for newly opened Pending/InReview.
+        if (typeof syncApprovalIncomingAlerts === 'function') {
+          try { syncApprovalIncomingAlerts(); } catch (_) { /* silent */ }
+        }
+        if (fresh.length) showApprovalIncomingBanner(fresh.length);
       }
     });
   };

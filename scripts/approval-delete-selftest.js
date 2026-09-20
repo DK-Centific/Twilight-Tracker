@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Master-Admin-only Approval list Delete (1.3.091820k). */
+/* Self-test: Master-Admin-only Approval list Delete (1.3.091820l). */
 'use strict';
 
 const fs = require('fs');
@@ -21,11 +21,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval Master-Admin delete self-test (1.3.091820k)');
+console.log('Approval Master-Admin delete self-test (1.3.091820l)');
 
-assert('APP_VERSION 1.3.091820k',
-  /const APP_VERSION = '1\.3\.091820k'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820k'));
+assert('APP_VERSION 1.3.091820l',
+  /const APP_VERSION = '1\.3\.091820l'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820l'));
 
 assert('APPROVAL_PA_DELETE_URL constant exists',
   /const APPROVAL_PA_DELETE_URL\s*=/.test(src));

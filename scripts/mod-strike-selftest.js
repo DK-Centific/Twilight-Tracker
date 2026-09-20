@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091820k',
-  /const APP_VERSION = '1\.3\.091820k'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820k'));
+assert('version bump 091820l',
+  /const APP_VERSION = '1\.3\.091820l'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820l'));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
