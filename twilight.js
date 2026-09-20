@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820m';
-const APP_UPDATED_AT = '09/19/2026 23:50';
+const APP_VERSION = '1.3.091820n';
+const APP_UPDATED_AT = '09/19/2026 23:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15397,7 +15397,7 @@ function renderApprovalListInto() {
     return;
   }
   const sel = adminState._apprSelected || '';
-  const canDeleteAppr = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
+  const canDeleteAppr = APPROVAL_PA_DELETE_ENABLED && typeof isMasterAdminUser === 'function' && isMasterAdminUser();
   listEl.innerHTML = list.map(a => {
     const team = escapeHTML(a.team_name || a.team_id || 'Team');
     const mod  = escapeHTML(a.moderator_name || a.orbit_login_id || '');
@@ -39423,6 +39423,8 @@ const APPROVAL_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.
 // Reuses Approval Write when that flow handles operation delete; set to a dedicated
 // flow URL if PA ships one separately. Empty ⇒ UI toasts "Delete not configured".
 const APPROVAL_PA_DELETE_URL = APPROVAL_PA_WRITE_URL;
+// Keep Delete hidden until PA pings the soft-delete delete probes OK.
+const APPROVAL_PA_DELETE_ENABLED = false;
 const APPROVAL_CACHE_TTL_MS = 30000;
 const APPROVAL_AUTO_MIN     = 15;   // minutes pending before the time gate auto-approves
 const APPROVAL_AUTO_LS_KEY = 'centific_twilight_approval_auto_v1';
@@ -39837,7 +39839,7 @@ function applyApprovalOverrides() {
   });
 }
 
-// --- one approval per team/session (1.3.091820m) -------------------
+// --- one approval per team/session (1.3.091820n) -------------------
 // Stable key: appr_{assignmentId}_{StationLabel} — no orbit, no timestamp.
 // orbit_login_id remains the submitter on WRITE. Either primary can
 // submit/resubmit the same id; Admin list dedupes by assignment|station.
@@ -39971,6 +39973,10 @@ async function writeApprovalAutoApprove(appr) {
 // Contract: { operation:'delete', approval_id, requestingAdminOrbitId }.
 // When the row is gone (or status Deleted), pollMyApprovals clears mod gates.
 async function deleteApprovalRequest(approvalId) {
+  if (!APPROVAL_PA_DELETE_ENABLED) {
+    if (typeof showToast === 'function') showToast('Delete not enabled yet', 'warn', 3500);
+    return false;
+  }
   if (typeof isMasterAdminUser === 'function' && !isMasterAdminUser()) {
     if (typeof showToast === 'function') showToast('Only Master Admin can delete approvals.', 'error', 3200);
     return false;
@@ -40001,6 +40007,7 @@ async function deleteApprovalRequest(approvalId) {
 }
 
 async function confirmAndDeleteApproval(approvalId) {
+  if (!APPROVAL_PA_DELETE_ENABLED) return;
   if (typeof isMasterAdminUser === 'function' && !isMasterAdminUser()) return;
   const id = String(approvalId || '').trim();
   if (!id) return;
