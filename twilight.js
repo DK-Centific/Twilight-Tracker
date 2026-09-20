@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820i';
-const APP_UPDATED_AT = '09/19/2026 23:30';
+const APP_VERSION = '1.3.091820j';
+const APP_UPDATED_AT = '09/19/2026 23:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6878,6 +6878,7 @@ function findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId,
     return true;
   };
   const own = list.find(a => {
+    if (typeof isApprovalSoftDeleted === 'function' && isApprovalSoftDeleted(a)) return false;
     const sameMod = String(a.orbit_login_id || '').toLowerCase() === String(orbitId || '').toLowerCase();
     const sameStation = String(a.station) === label;
     if (!sameMod || !sameStation) return false;
@@ -6891,6 +6892,7 @@ function findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId,
   // Prefer this over own Pending so one primary's Approve unlocks both
   // (Narendra still Pending locally while Pradeep is Approved).
   const teamHit = list.find(a => {
+    if (typeof isApprovalSoftDeleted === 'function' && isApprovalSoftDeleted(a)) return false;
     const st = String(a.status || '');
     if (st !== 'Approved' && st !== 'AutoApproved') return false;
     if (String(a.station) !== label) return false;
@@ -14978,6 +14980,7 @@ function renderApprovalListInto() {
     return;
   }
   const sel = adminState._apprSelected || '';
+  const canDeleteAppr = typeof isMasterAdminUser === 'function' && isMasterAdminUser();
   listEl.innerHTML = list.map(a => {
     const team = escapeHTML(a.team_name || a.team_id || 'Team');
     const mod  = escapeHTML(a.moderator_name || a.orbit_login_id || '');
@@ -14986,16 +14989,30 @@ function renderApprovalListInto() {
     const cls  = apprStatusClass(a.status);
     const lbl  = escapeHTML(apprStatusLabel(a.status));
     const isSel = String(a.approval_id) === String(sel) ? ' selected' : '';
-    return `<div class="appr-row${isSel}" data-appr="${escapeHTML(String(a.approval_id))}">
+    const idEsc = escapeHTML(String(a.approval_id));
+    const delBtn = canDeleteAppr
+      ? `<button type="button" class="appr-row-delete" data-appr-del="${idEsc}" title="Delete approval (Master Admin)" aria-label="Delete approval">Delete</button>`
+      : '';
+    return `<div class="appr-row${isSel}" data-appr="${idEsc}">
       <div class="appr-row-main">
         <div class="appr-row-team">${team}</div>
         <div class="appr-row-sub">${mod}${mod ? ' · ' : ''}${st}${ts ? ' · ' + ts : ''}</div>
       </div>
       <span class="appr-pill ${cls}">${lbl}</span>
+      ${delBtn}
     </div>`;
   }).join('');
   listEl.querySelectorAll('.appr-row').forEach(row => {
     row.addEventListener('click', () => selectApproval(row.dataset.appr));
+  });
+  listEl.querySelectorAll('[data-appr-del]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof confirmAndDeleteApproval === 'function') {
+        confirmAndDeleteApproval(btn.getAttribute('data-appr-del'));
+      }
+    });
   });
 }
 
@@ -38945,6 +38962,10 @@ const SESSIONSTATE_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6
    ===================================================================== */
 const APPROVAL_PA_WRITE_URL = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/ab87a7c7cfa4456d88d14c0b82ec6571/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=HWJq3ruIIfSrmHpCHFRzhR_YqYozaBbUAJEd2DJYOmc';   // PA "Approval Write" flow · append one event row
 const APPROVAL_PA_READ_URL  = 'https://default9b415834803a4da0afdcfe6b1d52d6.49.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/41d9757babff4eb7ac2d3881804af96c/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=FMNIOJoSnhglArGlE5DuEZqEERwyQSV7fzp1cQqCO1g';   // PA "Approval Read" flow · list all rows (pagination ON)
+// Master-Admin delete · POST { operation:'delete', approval_id, requestingAdminOrbitId }.
+// Reuses Approval Write when that flow handles operation delete; set to a dedicated
+// flow URL if PA ships one separately. Empty ⇒ UI toasts "Delete not configured".
+const APPROVAL_PA_DELETE_URL = APPROVAL_PA_WRITE_URL;
 const APPROVAL_CACHE_TTL_MS = 30000;
 const APPROVAL_AUTO_MIN     = 15;   // minutes pending before the time gate auto-approves
 const APPROVAL_AUTO_LS_KEY = 'centific_twilight_approval_auto_v1';
@@ -39248,8 +39269,24 @@ function approvalEpoch(r) {
 // Status precedence · used ONLY to break ties when two rows for the same
 // approval_id carry the same (or unparseable/equal) timestamp. A decision
 // must never be masked by the original submitted row.
-const _APPR_STATUS_RANK = { Pending: 0, InReview: 1, Rejected: 2, AutoApproved: 3, Approved: 3 };
+const _APPR_STATUS_RANK = { Pending: 0, InReview: 1, Rejected: 2, AutoApproved: 3, Approved: 3, Cancelled: 4, Deleted: 5 };
 function _apprRank(s) { return _APPR_STATUS_RANK[s] != null ? _APPR_STATUS_RANK[s] : 0; }
+
+// Soft-deleted / cancelled approval rows must not unlock gates or show in Admin list.
+function isApprovalSoftDeleted(a) {
+  if (!a) return false;
+  const st = String(a.status || '').trim().toLowerCase();
+  const ev = String(a.event_type || '').trim().toLowerCase();
+  if (st === 'deleted' || st === 'cancelled' || st === 'canceled') return true;
+  if (ev === 'deleted' || ev === 'cancelled' || ev === 'canceled') return true;
+  return false;
+}
+function approvalDeleteEndpoint() {
+  if (typeof APPROVAL_PA_DELETE_URL !== 'undefined' && APPROVAL_PA_DELETE_URL) {
+    return String(APPROVAL_PA_DELETE_URL).trim();
+  }
+  return '';
+}
 
 // Collapse append-only rows → the current row per approval_id. Newest
 // timestamp wins. CRITICAL: the previous version keyed solely on a
@@ -39274,7 +39311,7 @@ function resolveApprovals(rows) {
       byId.set(id, { ...r, _epoch: epoch });
     }
   }
-  return [...byId.values()];
+  return [...byId.values()].filter(a => !isApprovalSoftDeleted(a));
 }
 async function writeApprovalEvent(row) {
   const assignmentId = _approvalAssignmentId(row && (row.assignment_id != null ? row.assignment_id : row.assignmentId));
@@ -39425,6 +39462,100 @@ async function writeApprovalAutoApprove(appr) {
   row.app_version = APP_VERSION;
   return writeApprovalEvent(row);
 }
+
+// Master Admin only · soft-delete / cancel an approval row via PA.
+// Contract: { operation:'delete', approval_id, requestingAdminOrbitId }.
+// When the row is gone (or status Deleted), pollMyApprovals clears mod gates.
+async function deleteApprovalRequest(approvalId) {
+  if (typeof isMasterAdminUser === 'function' && !isMasterAdminUser()) {
+    if (typeof showToast === 'function') showToast('Only Master Admin can delete approvals.', 'error', 3200);
+    return false;
+  }
+  const id = String(approvalId || '').trim();
+  if (!id) return false;
+  const url = approvalDeleteEndpoint();
+  if (!url) {
+    if (typeof showToast === 'function') showToast('Delete not configured', 'warn', 3500);
+    return false;
+  }
+  const payload = {
+    operation: 'delete',
+    approval_id: id,
+    requestingAdminOrbitId: (typeof requestingAdminOrbitId === 'function') ? requestingAdminOrbitId() : '',
+  };
+  try {
+    console.log('[Twilight] approval delete payload \u2192', JSON.stringify(payload));
+    await fetchWithRetry(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+    });
+    console.log('[Twilight] deleteApprovalRequest OK \u00b7 approval_id', id);
+    return true;
+  } catch (e) {
+    console.warn('[Twilight] deleteApprovalRequest failed:', e && e.message);
+    return false;
+  }
+}
+
+async function confirmAndDeleteApproval(approvalId) {
+  if (typeof isMasterAdminUser === 'function' && !isMasterAdminUser()) return;
+  const id = String(approvalId || '').trim();
+  if (!id) return;
+  if (!approvalDeleteEndpoint()) {
+    if (typeof showToast === 'function') showToast('Delete not configured', 'warn', 3500);
+    return;
+  }
+  const a = ((typeof adminState !== 'undefined' && adminState && adminState.approvals) || [])
+    .find(x => String(x.approval_id) === id);
+  const label = a
+    ? ((a.moderator_name || a.orbit_login_id || 'Request')
+      + (a.station ? (' \u00b7 ' + (typeof apprStationLabel === 'function' ? apprStationLabel(a.station) : a.station)) : ''))
+    : id;
+  const ok = (typeof appConfirm === 'function')
+    ? await appConfirm({
+        title: 'Delete approval?',
+        message: 'Remove ' + label + ' from the Approval list? The moderator gate clears if this request was their unlock.',
+        confirmLabel: 'Delete',
+        cancelLabel: 'Keep',
+        variant: 'danger',
+      })
+    : true;
+  if (!ok) return;
+
+  adminState._apprBusyIds = adminState._apprBusyIds || new Set();
+  if (adminState._apprBusyIds.has(id)) return;
+  adminState._apprBusyIds.add(id);
+  const wrote = await deleteApprovalRequest(id);
+  adminState._apprBusyIds.delete(id);
+  if (!wrote) {
+    if (typeof showToast === 'function') showToast('Could not delete \u00b7 try again.', 'error', 3500);
+    return;
+  }
+  if (adminState._apprOverrides) delete adminState._apprOverrides[id];
+  if (Array.isArray(adminState.approvals)) {
+    adminState.approvals = adminState.approvals.filter(x => String(x.approval_id) !== id);
+  }
+  if (Array.isArray(adminState.approvalRows)) {
+    adminState.approvalRows = adminState.approvalRows.filter(x => String(x.approval_id) !== id);
+  }
+  if (String(adminState._apprSelected || '') === id) {
+    adminState._apprSelected = '';
+    adminState._apprRejectOpen = false;
+  }
+  if (typeof showToast === 'function') showToast('Approval deleted', 'success', 2200);
+  if (typeof renderApprovalListInto === 'function') renderApprovalListInto();
+  if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
+  if (typeof refreshTopApprCount === 'function') refreshTopApprCount();
+  if (typeof ensureApprovalData === 'function') {
+    ensureApprovalData({ force: true }).then(() => {
+      if (adminState.tab === 'approval') {
+        if (typeof renderApprovalListInto === 'function') renderApprovalListInto();
+        if (typeof renderApprovalPanelInto === 'function') renderApprovalPanelInto();
+        if (typeof refreshTopApprCount === 'function') refreshTopApprCount();
+      }
+    }).catch(() => {});
+  }
+}
+
 
 // Coalesce window for cloud writes. Local saves are instant; cloud
 // syncs wait this long after the last triggering interaction to merge
