@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820w';
+const APP_VERSION = '1.3.091820x';
 const APP_UPDATED_AT = '09/20/2026 01:03';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -10285,6 +10285,9 @@ if (typeof window !== 'undefined') {
         console.warn('No teammate session state found. See diagnostic block above for why.');
         console.info('To verify your SessionState table is being read correctly, also try:');
         console.info('  const rows = await fetchSessionStateRows(); console.table(rows.slice(0, 10));');
+        if (typeof showToast === 'function') {
+          showToast('No teammate progress found for this booking', 'warn', 4500);
+        }
         return null;
       }
       console.info('Found teammate row · about to merge into local state.');
@@ -10298,13 +10301,22 @@ if (typeof window !== 'undefined') {
       console.info('Teammate stations populated:',
         Object.keys(result.syncableState.stations || {}));
       mergeTeammateState(result.syncableState);
-      state._lastSyncMergeAt = result.row.lastActive || new Date().toISOString();
+      state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
+        ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
+        : (result.row.lastActive || result.syncableState.progressAt || new Date().toISOString());
+      state._lastSyncMergeScore = (result.score != null)
+        ? result.score
+        : ((typeof sessionStateProgressScore === 'function')
+          ? sessionStateProgressScore(result.syncableState) : 0);
       saveState();
       console.info('Merge complete. saveState() called.');
       if (typeof renderApp === 'function') renderApp();
       if (typeof applyAssignmentToEntryFields === 'function') applyAssignmentToEntryFields();
       if (typeof showToast === 'function') {
-        showToast(`Teammate progress synced manually`, 'success', 4500);
+        const msg = (typeof formatTeamSyncCompleteToast === 'function')
+          ? formatTeamSyncCompleteToast(result, result.syncableState)
+          : 'Team sync complete';
+        showToast(msg, 'success', 4500);
       }
       return result;
     } catch (e) {
@@ -41913,7 +41925,12 @@ function sessionStateRowTeamId(r, asgnTeamMap) {
   const direct = String((r && (r.teamId || r.TeamId || r.team_id)) || '').trim();
   if (direct) return direct;
   const map = asgnTeamMap || buildAssignmentTeamMap();
-  const id = String((r && r.assignmentId) || '');
+  // Prefer SharePoint column, then stateJson / sessionStateId-derived id so
+  // Team sync still resolves team when assignmentId column is blank.
+  const id = (typeof sessionStateRowResolvedAssignmentId === 'function')
+    ? String(sessionStateRowResolvedAssignmentId(r) || '')
+    : String((r && r.assignmentId) || '');
+  if (!id) return '';
   return map.get(id) || map.get(id.trim().toLowerCase()) || '';
 }
 
@@ -42131,11 +42148,13 @@ function pickLatestTeamProgress(rows, opts) {
         ? sessionStateRowMatchesAssignment(r, assignmentId)
         : assignmentIdsMatch(r.assignmentId, assignmentId);
       if (!matches) continue;
-    }
-    if (teamId) {
+      // Same assignmentId is authoritative — do NOT drop on TeamLog/SS teamId
+      // divergence (820f unlock / day-bind). Team filter only applies when we
+      // are scanning without a concrete assignment scope.
+    } else if (teamId) {
       const rowTeam = sessionStateRowTeamId(r, asgnTeamMap);
       if (rowTeam && String(rowTeam) !== String(teamId)) continue;
-      if (!rowTeam && !assignmentId) continue;
+      if (!rowTeam) continue;
     }
     const computed = sessionStateProgressScore(parsed);
     const stored = Number(parsed.progressScore);
@@ -42144,8 +42163,9 @@ function pickLatestTeamProgress(rows, opts) {
       row: r,
       syncableState: parsed,
       score: score,
-      progressAtMs: parseLastActiveMs(parsed.progressAt || ''),
-      lastActiveMs: parseLastActiveMs(r.lastActive),
+      progressAtMs: parseLastActiveMs(parsed.progressAt || '')
+        || sessionStateRowFreshnessMs(r, parsed),
+      lastActiveMs: sessionStateRowFreshnessMs(r, parsed),
       progressBy: parsed.progressBy || r.orbitLoginId || '',
     });
   }
@@ -42209,10 +42229,40 @@ function parseLastActiveMs(v) {
   return 0;
 }
 
+// SS column lastActive is often null after PA heal / Excel upserts.
+// Prefer progressAt / sessionCompletedAt / Modified inside stateJson or row.
+function sessionStateRowFreshnessMs(row, syncableState) {
+  const parsed = syncableState || ((typeof parseSessionStateJson === 'function')
+    ? parseSessionStateJson(row)
+    : ((row && row.stateJson && typeof row.stateJson === 'object') ? row.stateJson : {}));
+  const candidates = [
+    row && row.lastActive,
+    parsed && parsed.progressAt,
+    parsed && parsed.sessionCompletedAt,
+    parsed && parsed.arrivedAt,
+    row && (row.Modified || row.modified || row.lastModified),
+  ];
+  let best = 0;
+  for (const c of candidates) {
+    const ms = parseLastActiveMs(c);
+    if (ms > best) best = ms;
+  }
+  return best;
+}
+
+function sessionStateRowFreshnessIso(row, syncableState) {
+  const ms = sessionStateRowFreshnessMs(row, syncableState);
+  if (!ms) return '';
+  try { return new Date(ms).toISOString(); } catch (_) { return ''; }
+}
+
 // Teammate SessionState rows with sessionDate = today stay live for the
 // full field day; the 6h window only drops prior-day leftovers.
 function isStaleSessionStateWrite(lastActive, syncableState) {
-  const atMs = parseLastActiveMs(lastActive);
+  let atMs = parseLastActiveMs(lastActive);
+  if (!atMs && syncableState) {
+    atMs = sessionStateRowFreshnessMs(null, syncableState);
+  }
   if (!atMs) return false;
   const cloudDay = String((syncableState && syncableState.sessionDate) || '').trim();
   const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
@@ -43011,6 +43061,71 @@ async function findTeammateSessionState(prefetchedRows) {
   return null;
 }
 
+
+// Build a short "Team sync complete" toast with teammate name + station hint.
+function formatTeamSyncCompleteToast(result, syncableState) {
+  const cloud = syncableState || (result && result.syncableState) || {};
+  const writerId = (result && (result.progressBy || (result.row && result.row.orbitLoginId)))
+    || cloud.progressBy || '';
+  let name = String(writerId || 'teammate');
+  try {
+    if (typeof adminState !== 'undefined' && Array.isArray(adminState.moderators)) {
+      const m = adminState.moderators.find(x =>
+        String(x.orbitLoginId || x.orbit_login_id || '').toLowerCase() === String(writerId).toLowerCase()
+      );
+      if (m) {
+        const fn = m.firstName || m.first_name || '';
+        const ln = m.lastName || m.last_name || '';
+        const combined = (fn + ' ' + ln).trim();
+        if (combined) name = combined;
+        else if (fn) name = fn;
+      }
+    }
+  } catch (_) {}
+  const shortName = String(name).split(/\s+/)[0] || name;
+  const stations = cloud.stations || {};
+  const done = [];
+  const order = ['station1', 'Station1', 'station2', 'Station2', 'station3', 'Station3', 'station4', 'Station4'];
+  const seen = new Set();
+  for (const k of order) {
+    const st = stations[k];
+    if (!st) continue;
+    const num = k.replace(/station/i, '');
+    if (seen.has(num)) continue;
+    const sc = st.scenarios || {};
+    let any = false;
+    for (const n of Object.keys(sc)) {
+      const row = sc[n];
+      if (!row) continue;
+      if (row.status && row.status !== 'Not Started') { any = true; break; }
+      if ((row.iterations || 0) > 0) { any = true; break; }
+    }
+    const cams = st.cameras || {};
+    if (!any) {
+      for (const c of Object.keys(cams)) if (cams[c]) { any = true; break; }
+    }
+    if (any) { done.push('Station ' + num); seen.add(num); }
+  }
+  const sca = cloud.stationCompletedAt || {};
+  for (const k of Object.keys(sca)) {
+    if (!sca[k]) continue;
+    const m = String(k).match(/(\d+)/);
+    if (!m) continue;
+    const label = 'Station ' + m[1];
+    if (!done.includes(label)) done.push(label);
+  }
+  done.sort((a, b) => Number(a.replace(/\D/g, '')) - Number(b.replace(/\D/g, '')));
+  let stationHint = '';
+  if (done.length >= 2) {
+    stationHint = `Pulled ${done[0]}–${done[done.length - 1].replace('Station ', '')} from ${shortName}`;
+  } else if (done.length === 1) {
+    stationHint = `Pulled ${done[0]} from ${shortName}`;
+  } else {
+    stationHint = `Pulled progress from ${shortName}`;
+  }
+  return `Team sync complete · ${stationHint}`;
+}
+
 // Apply teammate's state to local state. Merges the syncable subset
 // into the current state · preserves THIS user's identity (username,
 // modProfile, theme) and overlays teammate's work payload (participant
@@ -43163,7 +43278,9 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
   if (!rows) return null;
   const myIdLower = String(state.modProfile.orbitLoginId).toLowerCase();
   let winner = null;
+  let winnerScore = -1;
   let winnerMs = 0;
+  let winnerParsed = null;
   for (const r of rows) {
     if (!r || !r.orbitLoginId) continue;
     if (String(r.orbitLoginId).toLowerCase() !== myIdLower) continue;
@@ -43173,17 +43290,26 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
       ? sessionStateRowMatchesAssignment(r, asgn.id)
       : assignmentIdsMatch(r.assignmentId, asgn.id);
     if (!matches) continue;
-    const ms = parseLastActiveMs(r.lastActive);
-    if (!winner || ms >= winnerMs) {
+    let parsed = null;
+    try { parsed = JSON.parse(r.stateJson || '{}'); } catch (_) { parsed = {}; }
+    const computed = (typeof sessionStateProgressScore === 'function')
+      ? sessionStateProgressScore(parsed) : 0;
+    const stored = Number(parsed.progressScore);
+    const score = Number.isFinite(stored) ? Math.max(stored, computed) : computed;
+    const ms = (typeof sessionStateRowFreshnessMs === 'function')
+      ? sessionStateRowFreshnessMs(r, parsed)
+      : parseLastActiveMs(r.lastActive);
+    if (!winner
+        || score > winnerScore
+        || (score === winnerScore && ms >= winnerMs)) {
       winner = r;
+      winnerScore = score;
       winnerMs = ms;
+      winnerParsed = parsed;
     }
   }
   if (!winner) return null;
-  let parsed = null;
-  try { parsed = JSON.parse(winner.stateJson || '{}'); }
-  catch (_) { return null; }
-  return { row: winner, syncableState: parsed };
+  return { row: winner, syncableState: winnerParsed || {}, score: winnerScore };
 }
 
 // REPLACE local state wholesale with the adopted (other-browser) state.
@@ -52449,7 +52575,11 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
   // banner · the fallback team-based lookup doesn't filter by
   // sessionDate. 6 hours is generous enough to cover real-world
   // multi-hour sessions while excluding stale prior-day data.
-  const teammateAt = result.row.lastActive || '';
+  // Freshness: column lastActive is often null (PxM/MxS heal). Fall back to
+  // stateJson progressAt / sessionCompletedAt / row Modified.
+  const teammateAt = (typeof sessionStateRowFreshnessIso === 'function')
+    ? (sessionStateRowFreshnessIso(result.row, cloud) || result.row.lastActive || '')
+    : (result.row.lastActive || cloud.progressAt || cloud.sessionCompletedAt || '');
   if (typeof isStaleSessionStateWrite === 'function'
       && isStaleSessionStateWrite(teammateAt, cloud)) {
     if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
@@ -52457,149 +52587,62 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     return;
   }
 
-  // TEAMMATE COMPLETED THEIR SESSION: hide banner. Banner is for live
-  // awareness · done sessions aren't live anymore. We still fall
-  // through to the modal logic below in case the user wants to
-  // sync the final completed state.
-  if (cloud.sessionCompletedAt) {
-    if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
-    // Clear teammate-live marker since they're done. Polling drops
-    // back to idle.
-    if (typeof adminState !== 'undefined' && adminState) adminState._lastTeammateLiveAt = null;
-  } else {
-    // Stamp teammate-live marker so _hasActiveSessionWork() promotes
-    // the polling cadence to ACTIVE (15s) instead of IDLE (45s).
-    // Tracked in milliseconds so the staleness check inside
-    // _hasActiveSessionWork can decide whether the teammate's
-    // session is still fresh enough to warrant fast polling.
-    if (typeof adminState !== 'undefined' && adminState) {
+  // Soft-merge + banner (1.3.091820x):
+  //  - Soft-merge whenever teammate progressScore is ahead (even with local
+  //    partial work) via pickBetterScenario — 820f contract.
+  //  - Score gate (_lastSyncMergeScore), not wall-clock, so Decline / null
+  //    lastActive cannot permanently block a later richer teammate snapshot
+  //    (e.g. Sravya 108621 after Muhammad 100201).
+  {
+    if (cloud.sessionCompletedAt) {
+      if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
+      if (typeof adminState !== 'undefined' && adminState) adminState._lastTeammateLiveAt = null;
+    } else if (typeof adminState !== 'undefined' && adminState) {
       adminState._lastTeammateLiveAt = Date.now();
     }
 
-    // AUTO-SYNC for fresh-login users (1.2.052824):
-    //
-    // If user B has no local work of their own AND hasn't already
-    // dismissed/declined this teammate's state, automatically merge
-    // it. This is the key fix for "I don't see A's progress mirroring
-    // when I access the app" · without auto-sync, B sees an empty
-    // app + a banner, and has to click Sync to actually see A's
-    // work. The banner is a great awareness surface, but for the
-    // fresh-login case (B opens the app cold to find A is already
-    // in session), the right default is "show me what A is seeing"
-    // rather than "ask me whether to show me what A is seeing."
-    //
-    // Guards against unwanted overwrites:
-    //   - Only auto-syncs when B has NO local work (_hasActiveSessionWork
-    //     returns false for the operator's own state · meaning B
-    //     hasn't started, paste a URL, ack the cal guide, etc).
-    //   - Only auto-syncs when B hasn't already dismissed the
-    //     modal/banner for this teammate state (respects
-    //     _lastSyncMergeAt · once B has explicitly chosen, we
-    //     don't override that choice).
-    //   - One-shot per teammate-state: stamps _lastSyncMergeAt so
-    //     subsequent polls of the same teammate state don't re-sync.
-    const localAtForAutoSync = state._lastSyncMergeAt || '';
-    const localAtMs = parseLastActiveMs(localAtForAutoSync);
-    const teammateAtMs = parseLastActiveMs(teammateAt);
     const teammateScore = (result.score != null)
       ? result.score
       : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
     const myScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
       ? sessionStateProgressScore(extractSyncableState(state))
       : 0;
-    const alreadyAdopted = !!(localAtMs && teammateAtMs && teammateAtMs <= localAtMs);
-    const teammateNewer = teammateScore > myScore && !alreadyAdopted;
-    const bHasOwnWork = (() => {
-      // Inline check (can't reuse _hasActiveSessionWork because that
-      // now also returns true when a teammate is active · which is
-      // exactly the state we're in). Same fields, just teammate-
-      // marker excluded.
-      if (!state) return false;
-      if (state.participantId && String(state.participantId).trim()) return true;
-      if (state.equipment) {
-        for (const k of Object.keys(state.equipment)) {
-          if (state.equipment[k]) return true;
-        }
-      }
-      if (state.stations) {
-        for (const stKey of Object.keys(state.stations)) {
-          const st = state.stations[stKey] || {};
-          const cams = st.cameras || {};
-          for (const c of Object.keys(cams)) if (cams[c]) return true;
-          const sc = st.scenarios || {};
-          for (const num of Object.keys(sc)) {
-            const row = sc[num];
-            if (!row) continue;
-            if (row.status && row.status !== 'Not Started') return true;
-            if ((row.iterations || 0) > 0) return true;
-            if (row.notes && String(row.notes).trim().length > 0) return true;
-          }
-        }
-      }
-      return false;
-    })();
-    // Soft-merge whenever teammate is ahead. mergeTeammateState uses
-    // pickBetterScenario so local work is never downgraded — only gaps
-    // fill. Previously required !bHasOwnWork, so Narendra (partial) never
-    // received Pradeep's remaining stations without clicking Sync; also
-    // teammateAtMs was undefined (ReferenceError) and aborted the whole
-    // checkAndOfferTeammateSync path.
+    const lastMergeScore = Number(state._lastSyncMergeScore || 0);
+    const teammateNewer = teammateScore > myScore && teammateScore > lastMergeScore;
     if (teammateNewer) {
       try {
         mergeTeammateState(cloud);
         state._lastSyncMergeAt = teammateAt || new Date().toISOString();
+        state._lastSyncMergeScore = teammateScore;
         saveState();
         if (typeof renderApp === 'function') renderApp();
         if (typeof applyAssignmentToEntryFields === 'function') applyAssignmentToEntryFields();
-        if (typeof showToast === 'function' && !bHasOwnWork) {
-          showToast(`Synced your teammate's progress automatically`, 'info', 4000);
+        if (typeof showToast === 'function') {
+          const msg = (typeof formatTeamSyncCompleteToast === 'function')
+            ? formatTeamSyncCompleteToast(result, cloud)
+            : 'Team sync complete';
+          showToast(msg, 'success', 4500);
         }
       } catch (e) {
         console.warn('[Twilight] Auto-sync of teammate state failed:', e && e.message);
       }
     }
 
-    // Banner display gate (1.2.052824 fix):
-    //
-    // The banner is a CONTINUOUS awareness surface · it should show
-    // whenever a teammate is actively in session, regardless of
-    // whether the user dismissed the one-shot modal. Previously this
-    // was gated by `teammateAt > localAt` (where localAt =
-    // state._lastSyncMergeAt). That meant: as soon as the user
-    // clicked Accept or Decline on the modal, `_lastSyncMergeAt`
-    // was stamped to the teammate's `lastActive`, the next poll saw
-    // `teammateAt === localAt`, and the banner was HIDDEN. The
-    // banner only re-appeared if the teammate wrote a strictly
-    // newer state · meaning the user lost their continuous-awareness
-    // surface the moment they interacted with the modal.
-    //
-    // Fix: the banner now respects only its own dismiss state
-    // (`_lastBannerDismissAt`), handled inside
-    // showOrUpdateTeammateLiveBanner. The modal continues to respect
-    // `_lastSyncMergeAt` (its own "already prompted" marker).
-    if (typeof showOrUpdateTeammateLiveBanner === 'function') {
-      if (teammateNewer) showOrUpdateTeammateLiveBanner(result);
+    if (!cloud.sessionCompletedAt && typeof showOrUpdateTeammateLiveBanner === 'function') {
+      if (teammateScore > myScore) showOrUpdateTeammateLiveBanner(result);
       else if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
     }
   }
 
-  // Modal gate: respect _lastSyncMergeAt so we don't re-prompt on
-  // already-seen state. This is correct for the modal because a
-  // modal is a one-shot prompt · re-modalizing on every poll would
-  // be obnoxious.
-  const localAt = state._lastSyncMergeAt || '';
-  const localAtMs = parseLastActiveMs(localAt);
-  const teammateAtMs = parseLastActiveMs(teammateAt);
   const teammateScoreForModal = (result.score != null)
     ? result.score
     : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
   const myScoreForModal = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
     ? sessionStateProgressScore(extractSyncableState(state))
     : 0;
-  // Only prompt when the teammate is actually ahead on stations / scenarios.
+  const lastMergeScoreForModal = Number(state._lastSyncMergeScore || 0);
   if (teammateScoreForModal <= myScoreForModal) return;
-  const isOlderThanLocal = teammateAtMs && localAtMs && teammateAtMs <= localAtMs;
-  if (isOlderThanLocal) return;
+  if (teammateScoreForModal <= lastMergeScoreForModal) return;
 
   showTeammateSyncModal(result);
 }
@@ -52651,10 +52694,21 @@ function showOrUpdateTeammateLiveBanner(result) {
   // Respect dismiss timestamp: if user dismissed the banner and the
   // teammate hasn't written anything newer since, stay hidden.
   const dismissAt = state._lastBannerDismissAt || '';
-  const teammateAt = result.row.lastActive || '';
+  const cloudEarly = result.syncableState;
+  const teammateAt = (typeof sessionStateRowFreshnessIso === 'function')
+    ? (sessionStateRowFreshnessIso(result.row, cloudEarly) || result.row.lastActive || '')
+    : (result.row.lastActive || (cloudEarly && cloudEarly.progressAt) || '');
   const dismissMs = parseLastActiveMs(dismissAt);
-  const teammateMs = parseLastActiveMs(teammateAt);
-  if (dismissMs && teammateMs && teammateMs <= dismissMs) return;
+  const teammateMs = parseLastActiveMs(teammateAt)
+    || ((typeof sessionStateRowFreshnessMs === 'function')
+      ? sessionStateRowFreshnessMs(result.row, cloudEarly) : 0);
+  const bannerScore = (result.score != null)
+    ? result.score
+    : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloudEarly) : 0);
+  const myBannerScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+    ? sessionStateProgressScore(extractSyncableState(state))
+    : 0;
+  if (dismissMs && teammateMs && teammateMs <= dismissMs && !(bannerScore > myBannerScore)) return;
 
   const cloud = result.syncableState;
   const writerId = result.progressBy || (cloud && cloud.progressBy) || result.row.orbitLoginId || '';
@@ -52715,7 +52769,7 @@ function showOrUpdateTeammateLiveBanner(result) {
     <span class="teammate-live-banner-dot" aria-hidden="true"></span>
     <div class="teammate-live-banner-text">
       <div class="teammate-live-banner-title">${escapeHTML(teammateName)} is in session · ${escapeHTML(stationLabel)}</div>
-      <div class="teammate-live-banner-sub">Updated ${escapeHTML(agoLabel)}. Click Sync to view their progress in your app.</div>
+      <div class="teammate-live-banner-sub">Updated ${escapeHTML(agoLabel)}. Sync merges their station maps into yours (keeps your richer rows). Auto-merge also runs when they are ahead.</div>
     </div>
     <button type="button" class="teammate-live-banner-sync-btn" id="teammateLiveBannerSyncBtn">Sync now</button>
     <button type="button" class="teammate-live-banner-dismiss" id="teammateLiveBannerDismissBtn" aria-label="Dismiss">
@@ -52730,14 +52784,33 @@ function showOrUpdateTeammateLiveBanner(result) {
   const syncBtn = document.getElementById('teammateLiveBannerSyncBtn');
   const dismissBtn = document.getElementById('teammateLiveBannerDismissBtn');
   if (syncBtn) {
-    syncBtn.addEventListener('click', () => {
-      // Merge teammate state · same code path as the modal Accept
-      mergeTeammateState(result.syncableState);
-      state._lastSyncMergeAt = teammateAt || new Date().toISOString();
+    syncBtn.addEventListener('click', async () => {
+      // Re-fetch before merge so a stale banner closure cannot soft-merge
+      // an older snapshot (or an empty scrubbed copy) and look like Sync failed.
+      let payload = result;
+      try {
+        if (typeof findTeammateSessionState === 'function') {
+          const fresh = await findTeammateSessionState();
+          if (fresh && fresh.syncableState) payload = fresh;
+        }
+      } catch (_) { /* keep banner snapshot */ }
+      const cloudNow = payload.syncableState;
+      const atNow = (typeof sessionStateRowFreshnessIso === 'function')
+        ? (sessionStateRowFreshnessIso(payload.row, cloudNow) || teammateAt || new Date().toISOString())
+        : ((payload.row && payload.row.lastActive) || (cloudNow && cloudNow.progressAt) || teammateAt || new Date().toISOString());
+      mergeTeammateState(cloudNow);
+      state._lastSyncMergeAt = atNow;
+      state._lastSyncMergeScore = (payload.score != null)
+        ? payload.score
+        : ((typeof sessionStateProgressScore === 'function')
+          ? sessionStateProgressScore(cloudNow) : 0);
       saveState();
       hideTeammateLiveBanner();
       if (typeof showToast === 'function') {
-        showToast(`Synced ${teammateName}'s progress`, 'success', 3500);
+        const msg = (typeof formatTeamSyncCompleteToast === 'function')
+          ? formatTeamSyncCompleteToast(payload, cloudNow)
+          : (`Team sync complete · Pulled progress from ${teammateName}`);
+        showToast(msg, 'success', 4500);
       }
       if (typeof renderApp === 'function') renderApp();
       if (typeof applyAssignmentToEntryFields === 'function') applyAssignmentToEntryFields();
@@ -52771,7 +52844,9 @@ async function checkAndOfferSelfSync(prefetchedRows) {
     if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = null;
     return false;
   }
-  const winnerActive = result.row.lastActive || '';
+  const winnerActive = (typeof sessionStateRowFreshnessIso === 'function')
+    ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || '')
+    : (result.row.lastActive || (result.syncableState && result.syncableState.progressAt) || '');
   const baseline = _sessionStateSyncState.lastSyncedActive || '';
 
   // Timestamp guard: a self-row at-or-older than this browser's last
@@ -53069,8 +53144,20 @@ function showTeammateSyncModal(result) {
   // Wire the three explicit buttons
   document.getElementById('teammateSyncAcceptBtn').addEventListener('click', () => {
     mergeTeammateState(result.syncableState);
-    state._lastSyncMergeAt = result.row.lastActive || new Date().toISOString();
+    state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
+      ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
+      : (result.row.lastActive || (result.syncableState && result.syncableState.progressAt) || new Date().toISOString());
+    state._lastSyncMergeScore = (result.score != null)
+      ? result.score
+      : ((typeof sessionStateProgressScore === 'function')
+        ? sessionStateProgressScore(result.syncableState) : Number(state._lastSyncMergeScore || 0));
     saveState();
+    if (typeof showToast === 'function') {
+      const msg = (typeof formatTeamSyncCompleteToast === 'function')
+        ? formatTeamSyncCompleteToast(result, result.syncableState)
+        : 'Team sync complete';
+      showToast(msg, 'success', 4500);
+    }
     close();
     if (typeof showToast === 'function') {
       showToast(`Merged ${teammateName}'s progress`, 'success', 4000);
@@ -53083,7 +53170,13 @@ function showTeammateSyncModal(result) {
     // Mark this teammate snapshot as "seen and declined" so we don't
     // re-prompt on every poll. Stored in local state, NOT cloud · each
     // teammate makes their own decline decision independently.
-    state._lastSyncMergeAt = result.row.lastActive || new Date().toISOString();
+    state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
+      ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
+      : (result.row.lastActive || (result.syncableState && result.syncableState.progressAt) || new Date().toISOString());
+    state._lastSyncMergeScore = (result.score != null)
+      ? result.score
+      : ((typeof sessionStateProgressScore === 'function')
+        ? sessionStateProgressScore(result.syncableState) : Number(state._lastSyncMergeScore || 0));
     saveState();
     close();
     try { if (prevFocus) prevFocus.focus(); } catch (_) {}

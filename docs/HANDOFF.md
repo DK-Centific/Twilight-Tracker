@@ -1,6 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-20 · Grok · Admin station merge + Approval dedupe (1.3.091820w)
+**Last updated:** 2026-09-20 · Grok · Team sync audit + toast (1.3.091820x)
+
+## 2026-09-20 · Team sync full audit + fix + toast (1.3.091820x)
+
+**Ask:** Team sync does not work for co-mods. PA verified SS READ/WRITE healthy; flag reset David-tw only. Ship client past 820w.
+
+**Bugs / gaps fixed:**
+1. Soft-auto-merge when teammate `progressScore` ahead **even with local partial** (`pickBetterScenario`).
+2. Freshness from `progressAt` / `sessionCompletedAt` / `Modified` when SS column `lastActive` is null.
+3. Clearer banner copy (merge stations, not TeamLog; auto-merge when ahead).
+4. `_lastSyncMergeScore` — Decline / wall-clock must not permanently block a later richer teammate (Sravya 108621 > Muhammad 100201).
+5. PRIMARY pick: same `assignmentId` wins despite `teamId` diverge; `sessionStateRowTeamId` resolves via `sessionStateId`.
+6. **Toast:** `Team sync complete · Pulled Station N–M from Name` on auto-merge, banner Sync, welcome Sync, and modal Accept.
+
+**Ship:** **1.3.091820x**. Selftest `scripts/team-sync-assignment-teamid-selftest.js`. Contract `docs/team-sync-contract.md`.
+
+**Verify (David):** Hard refresh → **1.3.091820x**. Co-mod with lower score should auto-merge + toast; Decline then teammate advances score → sync again; null `lastActive` still works via `progressAt`.
+
+---
 
 ## 2026-09-20 · Admin station merge prefer-richer + Approval Approved>Pending (1.3.091820w)
 
