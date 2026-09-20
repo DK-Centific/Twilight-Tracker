@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * 1.3.091820i — session_done lands on assignment SS; flag treats
+ * 1.3.091820j — session_done lands on assignment SS; flag treats
  * session_done / station_4_done as complete; Admin scrub preserves
  * sessionCompletedAt on prior bookings.
  */
@@ -25,11 +25,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Session-done flag clear self-test (1.3.091820i)');
+console.log('Session-done flag clear self-test (1.3.091820j)');
 
-assert('APP_VERSION 1.3.091820i',
-  /const APP_VERSION = '1\.3\.091820i'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820i'));
+assert('APP_VERSION 1.3.091820j',
+  /const APP_VERSION = '1\.3\.091820j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820j'));
 
 assert('completion write pin + resolveCompletionWriteAssignment',
   /_completionWriteAsgnId/.test(src)
