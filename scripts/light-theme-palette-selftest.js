@@ -81,8 +81,8 @@ assert('moon orb uses PNG plus SVG fallback',
     && /ov-solar-orb\.is-moon[\s\S]{0,800}background-image:/.test(html));
 assert('moon fallback is not a coral disc',
   !/\.ov-solar-orb\.is-moon[\s\S]{0,400}#E07A2B/.test(html));
-assert('APP_VERSION is 1.3.091820j', /const APP_VERSION = '1\.3\.091820j'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820j'));
+assert('APP_VERSION is 1.3.091820k', /const APP_VERSION = '1\.3\.091820k'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820k'));
 assert('viz value uses Helios gold token',
   /\n\.ov-viz-value \{[^}]*color: var\(--ov-viz-gold\)/.test(html));
 assert('viz label uses soft gold, not text3',
