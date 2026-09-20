@@ -1,7 +1,41 @@
 # Agent handoff — Project Twilight
 
-**Last updated:** 2026-09-18 · Grok · PA cutover harden (1.3.091820b)
+**Last updated:** 2026-09-19 · Grok · Approval team unlock + Team A→B day bind (1.3.091820f)
 **Read this file first every session.** Update it before you sign off.
+
+---
+
+## 2026-09-19 · Approval team unlock + Team A→B day bind (1.3.091820f)
+
+**Symptoms (Yuan He / Narendra × Pradeepreddy):**
+1. Reviewer shows **Approved** but both mods stay locked at approval checkpoint; session incomplete.
+2. Pradeep submitted all stations; Narendra only 1/2/4 — teammate SessionState did not sync.
+3. Duplicate SS **444/445** (Narendra) could hide richer progress behind a newer empty heartbeat.
+
+**Additional policy (David):** Mod A on incomplete Team A yesterday, Team B today with Mod C — after 9 AM PT, Mod A must **never** still show Team A (name / address / stations / approval lock). Reset Session on Team A is insufficient; wrong open-session/team bind was the root.
+
+**Root causes:**
+1. `pollMyApprovals` matched only the submitting mod’s `orbit_login_id` — teammate Approved never unlocked the other primary.
+2. `teammateAtMs` was **undefined** (ReferenceError) → `checkAndOfferTeammateSync` aborted; station maps never merged.
+3. Auto-merge required `!bHasOwnWork` so a partial Narendra never received Pradeep’s remaining stations without Sync.
+4. `getAssignedOpenSession` / `getSessionDisplayTeam` could stick on yesterday Team A (`getOperatorTeam()` = teams[0], sticky carousel active).
+5. Teammate FALLBACK scanned all team memberships → Team A SS rehydrated onto today’s Team B booking.
+6. `newestSessionStatePerUser` preferred newest `lastActive` over richer progress (dup SS 444/445).
+
+**Fixes:**
+- `findApprovalRowForGate` — assignmentId+sessionDate scoped; any Approved/AutoApproved unlocks both primaries (prefer Approved over own Pending).
+- Define `teammateAtMs`; soft-merge whenever teammate score is ahead (`pickBetterScenario`).
+- `getAssignedOpenSession` preferToday after 9 AM; `getSessionDisplayTeam` never falls back to teams[0] when today asgn exists.
+- Teammate FALLBACK skipped when an active assignment is set.
+- Duplicate SS pick by progress score; stamp-vs-assignment scrub for same-day Team A overnight bleed.
+- Selftest: `scripts/approval-team-unlock-day-bind-selftest.js`. Version **1.3.091820f**.
+
+**PA data (coordinate with Watchdog):**
+- Approval rows for `od_e3dc4442…` / Yuan He day: confirm Station1 (and Station3 if used) status **Approved** with `assignment_id` + `session_date` + `team_id` set.
+- SessionState: prefer single live `ss_od_e3dc4442…_{narendra|pradeep}` row each; collapse/ignore orphan SS **444/445** dupes; do not clobber Team B rows with Team A progress.
+- If Mod A still shows Team A after hard refresh: confirm today’s Team B Assignment List row exists for Mod A and TeamLog membership includes Team B.
+
+**Verify (David):** Hard refresh → **1.3.091820f**. As Narendra-tw / Pradeepreddy-tw on Yuan He: after Reviewer Approve, **both** unlock without re-lock; station maps converge without manual Sync. As Mod A after 9 AM with Team B today: My session team label / address / stations are **Team B only** (not yesterday Team A), even if Team A was Reset.
 
 ---
 
@@ -136,7 +170,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820a`** (Moderator day-gate policy) (Live status flicker) on `main` |
+| **`main` version** | **`1.3.091820f`** (approval team unlock + Team A→B day bind) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
 | **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |

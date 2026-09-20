@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820e';
-const APP_UPDATED_AT = '09/18/2026 22:15';
+const APP_VERSION = '1.3.091820f';
+const APP_UPDATED_AT = '09/19/2026 20:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -5453,18 +5453,35 @@ function getAssignedOpenSession() {
     if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
     return !isSessionWrapUpDone(a);
   };
-  const active = (typeof getActiveOperatorAssignment === 'function')
-    ? getActiveOperatorAssignment() : null;
-  if (isOpen(active)) return active;
-  // Only the gated carousel list — never the raw full history. Falling back
-  // to getOperatorAssignments() resurrected incomplete bookings older than
-  // the 2-day My session queue window.
+  let carousel = [];
   try {
     if (typeof getOperatorCarouselAssignments === 'function') {
-      const hit = (getOperatorCarouselAssignments() || []).find(isOpen);
-      if (hit) return hit;
+      carousel = getOperatorCarouselAssignments() || [];
     }
-  } catch (_) {}
+  } catch (_) { carousel = []; }
+  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  const hasTodayOrLater = !!(today && carousel.some(a => a && String(a.date || '') >= today));
+  // After 9 AM PT with a today+ booking: NEVER bind My session / team label /
+  // approval / SessionState to an unfinished prior-day team (Team A yesterday
+  // while Mod is on Team B today). Carousel is already scoped, but defend
+  // here so sticky carousel idx / local progress cannot resurrect Team A.
+  const preferToday = !!(gateOpen && hasTodayOrLater);
+  const allow = (a) => {
+    if (!isOpen(a)) return false;
+    if (preferToday && today && String(a.date || '') < today) return false;
+    return true;
+  };
+  const active = (typeof getActiveOperatorAssignment === 'function')
+    ? getActiveOperatorAssignment() : null;
+  if (allow(active)) return active;
+  const todayHit = preferToday
+    ? carousel.find(a => allow(a) && String(a.date || '') === today)
+    : null;
+  if (todayHit) return todayHit;
+  const hit = carousel.find(allow);
+  if (hit) return hit;
   return null;
 }
 
@@ -5745,6 +5762,24 @@ function getSessionDisplayTeam() {
       return { id: asgn.teamId, name: asgn.teamName, primaryIds: [], backupIds: [] };
     }
   }
+  // After 9 AM with a today+ open assignment, NEVER fall back to
+  // getOperatorTeam() (= teams[0]). That resurrected yesterday Team A
+  // for a multi-team mod booked on Team B today even after Reset.
+  try {
+    const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+      && isPastModStrikeCheckpointHour();
+    if (gateOpen && today && asgn && String(asgn.date || '') >= today) {
+      if (asgn.teamId != null || asgn.teamName) {
+        return {
+          id: asgn.teamId,
+          name: asgn.teamName || ('Team ' + String(asgn.teamId || '')),
+          primaryIds: [], backupIds: [],
+        };
+      }
+      return null;
+    }
+  } catch (_) {}
   return (typeof getOperatorTeam === 'function') ? getOperatorTeam() : null;
 }
 
@@ -6760,15 +6795,23 @@ function approvalRowBelongsToActiveSession(row, asgnId, sessionYmd) {
   if (!asgnMatch) return false;
   const rowDay = approvalRowSessionYmd(row);
   const wantDay = String(sessionYmd || '').trim().slice(0, 10);
-  if (wantDay && rowDay && rowDay !== wantDay) return false;
-  // Legacy rows with no parseable day: after 9 AM PT day gate, refuse so
-  // overnight bleed cannot re-prompt.
-  if (wantDay && !rowDay) {
-    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
-      && isPastModStrikeCheckpointHour();
-    if (gateOpen) return false;
-  }
-  return true;
+  // Assignment id is the authoritative bind. Evening bookings (8 PM → 3 AM)
+  // often stamp submitted_at on wantDay+1 PT — must not fail-closed Approved
+  // unlock when OD assignmentId already matches (Yuan He Station3 lock).
+  if (!wantDay || !rowDay) return true;
+  if (rowDay === wantDay) return true;
+  try {
+    const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+      ? adminState.assignments : [];
+    const asgn = list.find(a => a && (typeof assignmentIdsMatch === 'function'
+      ? assignmentIdsMatch(a.id, wantAsgn) : String(a.id) === String(wantAsgn)));
+    if (asgn && typeof assignmentQueueEndCalendarYmd === 'function') {
+      const endYmd = String(assignmentQueueEndCalendarYmd(asgn) || '').trim();
+      if (endYmd && rowDay >= wantDay && rowDay <= endYmd) return true;
+    }
+  } catch (_) {}
+  if (typeof addDaysToYmd === 'function' && rowDay === addDaysToYmd(wantDay, 1)) return true;
+  return false;
 }
 
 function scrubApprovalGateToActiveAssignment(asgnId, sessionYmd) {
@@ -6784,7 +6827,12 @@ function scrubApprovalGateToActiveAssignment(asgnId, sessionYmd) {
     const keyAsgn = String(key).split('|')[0] || '';
     const rowDay = String(val.sessionDate || val.session_date || '').trim().slice(0, 10);
     if (want && keyAsgn && keyAsgn !== want) { dropped++; return; }
-    if (wantDay && rowDay && rowDay !== wantDay) { dropped++; return; }
+    if (wantDay && rowDay && rowDay !== wantDay) {
+      // Keep overnight wantDay+1 stamps for the active assignment.
+      let keepOvernight = false;
+      if (typeof addDaysToYmd === 'function' && rowDay === addDaysToYmd(wantDay, 1)) keepOvernight = true;
+      if (!keepOvernight) { dropped++; return; }
+    }
     if (want && keyAsgn === want) next[key] = val;
     else dropped++;
   });
@@ -6792,6 +6840,56 @@ function scrubApprovalGateToActiveAssignment(asgnId, sessionYmd) {
     state.approvalGate = next;
     try { if (typeof saveState === 'function') saveState(); } catch (_) {}
   }
+}
+
+// Prefer own approval row; else any Approved/AutoApproved for the same
+// assignmentId + sessionDate + station (team booking unlock). One primary's
+// reviewer Approve must unlock BOTH primaries without re-locking.
+function findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId, teamId) {
+  const list = resolved || [];
+  const g0 = (typeof getGate === 'function') ? getGate(k) : { status: 'none' };
+  const belongs = (a) => {
+    if (typeof approvalRowBelongsToActiveSession === 'function') {
+      return approvalRowBelongsToActiveSession(a, asgnId, sessionYmd);
+    }
+    return true;
+  };
+  const own = list.find(a => {
+    const sameMod = String(a.orbit_login_id || '').toLowerCase() === String(orbitId || '').toLowerCase();
+    const sameStation = String(a.station) === label;
+    if (!sameMod || !sameStation) return false;
+    if (!belongs(a)) return false;
+    if (g0.approvalId && String(a.approval_id) === String(g0.approvalId)) return true;
+    const rowAsgn = String(a.assignment_id || '').trim();
+    if (asgnId && rowAsgn === String(asgnId)) return true;
+    return false;
+  });
+  // Team unlock · any Approved/AutoApproved for this booking+station.
+  // Prefer this over own Pending so one primary's Approve unlocks both
+  // (Narendra still Pending locally while Pradeep is Approved).
+  const teamHit = list.find(a => {
+    const st = String(a.status || '');
+    if (st !== 'Approved' && st !== 'AutoApproved') return false;
+    if (String(a.station) !== label) return false;
+    if (!belongs(a)) return false;
+    if (teamId) {
+      const rowTeam = String(a.team_id || a.teamId || '').trim();
+      if (rowTeam && String(rowTeam) !== String(teamId)) return false;
+    }
+    return true;
+  });
+  if (teamHit) {
+    const ownIsApproved = own && (own.status === 'Approved' || own.status === 'AutoApproved');
+    if (ownIsApproved) return { row: own, fromTeammate: false };
+    const fromTeammate = !(own && String(own.approval_id) === String(teamHit.approval_id)
+      && String(own.orbit_login_id || '').toLowerCase() === String(orbitId || '').toLowerCase());
+    // If the Approved row is the mod's own, not fromTeammate.
+    const teamIsOwn = String(teamHit.orbit_login_id || '').toLowerCase()
+      === String(orbitId || '').toLowerCase();
+    return { row: teamHit, fromTeammate: !teamIsOwn };
+  }
+  if (own) return { row: own, fromTeammate: false };
+  return null;
 }
 
 async function pollMyApprovals() {
@@ -6808,25 +6906,31 @@ async function pollMyApprovals() {
   const sessionYmd = approvalSessionDateYmd();
   scrubApprovalGateToActiveAssignment(asgnId, sessionYmd);
   const orbitId = (state.modProfile && state.modProfile.orbitLoginId) || state.username || '';
+  let teamIdForGate = '';
+  try {
+    const asgnGate = (typeof _resolveGateAssignment === 'function') ? _resolveGateAssignment() : null;
+    if (asgnGate && (asgnGate.teamId != null && String(asgnGate.teamId).trim() !== '')) {
+      teamIdForGate = String(asgnGate.teamId);
+    } else if (asgnGate && typeof teamForAssignment === 'function') {
+      const t = teamForAssignment(asgnGate);
+      if (t && t.id != null) teamIdForGate = String(t.id);
+    }
+  } catch (_) { teamIdForGate = ''; }
   if (orbitId) {
     for (const k of GATE_ALL_KEYS) {
       const label = gateStationLabel(k);
-      const g0 = getGate(k);
-      const mine = resolved.find(a => {
-        const sameMod = String(a.orbit_login_id || '').toLowerCase() === String(orbitId).toLowerCase();
-        const sameStation = String(a.station) === label;
-        if (!sameMod || !sameStation) return false;
-        // Day-gate + assignment bind · prior incomplete / Admin Skip /
-        // overnight bleed must not re-trigger today's approval UX.
-        if (!approvalRowBelongsToActiveSession(a, asgnId, sessionYmd)) return false;
-        if (g0.approvalId && String(a.approval_id) === String(g0.approvalId)) return true;
-        const rowAsgn = String(a.assignment_id || '').trim();
-        if (asgnId && rowAsgn === String(asgnId)) return true;
-        return false;
-      });
+      const hit = (typeof findApprovalRowForGate === 'function')
+        ? findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId, teamIdForGate)
+        : null;
+      const mine = hit && hit.row ? hit.row : null;
+      const fromTeammate = !!(hit && hit.fromTeammate);
       const g = getGate(k);
       if (mine) {
         const cloudStatus = mine.status;
+        // Teammate rows only unlock on Approved — never mirror their Pending/Rejected.
+        if (fromTeammate && cloudStatus !== 'Approved' && cloudStatus !== 'AutoApproved') {
+          continue;
+        }
         if (cloudStatus === 'Approved' || cloudStatus === 'AutoApproved') {
           // Cloud confirms approval · stamp verifiedAt EVERY time so the TTL
           // stays fresh while the session is live. Popup decision uses the
@@ -39269,6 +39373,31 @@ function sessionStateStampOnOrAfterBooking(stamp, bookingYmd) {
   return day >= booked;
 }
 
+// Stamps before this booking's start wall clock (minus early-arrive grace)
+// are foreign — overnight Team A (12–3 AM) must not bind onto Team B's
+// same-calendar-day evening booking even after Reset.
+function sessionStateStampBelongsToAssignment(stamp, asgn) {
+  if (!asgn || !asgn.date) {
+    return sessionStateStampOnOrAfterBooking(stamp, asgn && asgn.date);
+  }
+  const ms = (typeof parseLastActiveMs === 'function') ? parseLastActiveMs(stamp) : Date.parse(stamp);
+  if (!ms || !Number.isFinite(ms)) return true;
+  let startMs = NaN;
+  try {
+    if (typeof pacificWallClockToMs === 'function') {
+      const s = (typeof assignmentCoerceClockMin === 'function')
+        ? assignmentCoerceClockMin(asgn.startMin, 0)
+        : Number(asgn.startMin) || 0;
+      startMs = pacificWallClockToMs(String(asgn.date), s);
+    }
+  } catch (_) { startMs = NaN; }
+  if (!Number.isFinite(startMs)) {
+    return sessionStateStampOnOrAfterBooking(stamp, asgn.date);
+  }
+  const GRACE_MS = 2 * 60 * 60 * 1000;
+  return ms >= (startMs - GRACE_MS);
+}
+
 // True when the payload's station / completion progress clearly belongs
 // to a prior calendar day than the assignment's booking date (classic
 // reschedule / same-odScheduleId reuse bleed).
@@ -39384,7 +39513,39 @@ function scrubSyncableStateForOpenBooking(syncable) {
   if (!booked || typeof scrubSessionStateProgressToBooking !== 'function') {
     return Object.assign({}, syncable);
   }
-  return scrubSessionStateProgressToBooking(Object.assign({}, syncable), booked);
+  let out = scrubSessionStateProgressToBooking(Object.assign({}, syncable), booked);
+  let asgn = null;
+  try {
+    asgn = (typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null;
+    if (!asgn && typeof getActiveOperatorAssignment === 'function') asgn = getActiveOperatorAssignment();
+  } catch (_) { asgn = null; }
+  if (asgn && typeof sessionStateStampBelongsToAssignment === 'function') {
+    const sca = out.stationCompletedAt;
+    let foreign = false;
+    if (sca && typeof sca === 'object') {
+      Object.keys(sca).forEach(k => {
+        if (sca[k] && !sessionStateStampBelongsToAssignment(sca[k], asgn)) foreign = true;
+      });
+    }
+    if (out.progressAt && !sessionStateStampBelongsToAssignment(out.progressAt, asgn)) foreign = true;
+    if (out.sessionCompletedAt && !sessionStateStampBelongsToAssignment(out.sessionCompletedAt, asgn)) foreign = true;
+    if (foreign) {
+      // Demote prior Team A mod-facing bind; keep Admin history in other SS rows.
+      out = Object.assign({}, out, {
+        stationCompletedAt: {},
+        stations: {},
+        sessionCompletedAt: null,
+        sessionStatus: out.arrivedAt ? 'arrived' : '',
+        participantName: '',
+        participantId: '',
+        calGuideAck: null,
+        progressScore: 0,
+        progressAt: '',
+        progressBy: '',
+      });
+    }
+  }
+  return out;
 }
 
 function resolveAssignmentBookingYmd(asgnId) {
@@ -39839,13 +40000,44 @@ function buildSessionStateCloudPayload(asgn, reason) {
   if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
     // Mirror full foreign progress into a local reset so we stop
     // re-writing yesterday's station_N_done onto today's SessionState row.
-    if (typeof sessionStateProgressForeignToBooking === 'function'
-        && sessionStateProgressForeignToBooking(syncable, bookingYmd)
-        && typeof clearOperatorProgressForNewBooking === 'function') {
+    let foreign = (typeof sessionStateProgressForeignToBooking === 'function')
+      && sessionStateProgressForeignToBooking(syncable, bookingYmd);
+    if (!foreign && asgn && typeof sessionStateStampBelongsToAssignment === 'function') {
+      const sca = syncable.stationCompletedAt || {};
+      for (const k of Object.keys(sca)) {
+        if (sca[k] && !sessionStateStampBelongsToAssignment(sca[k], asgn)) { foreign = true; break; }
+      }
+      if (!foreign && syncable.progressAt
+          && !sessionStateStampBelongsToAssignment(syncable.progressAt, asgn)) foreign = true;
+    }
+    if (foreign && typeof clearOperatorProgressForNewBooking === 'function') {
       clearOperatorProgressForNewBooking('cloud-write-scrub:' + bookingYmd);
       syncable = extractSyncableState(state);
     } else {
       syncable = scrubSessionStateProgressToBooking(syncable, bookingYmd);
+      if (asgn && typeof sessionStateStampBelongsToAssignment === 'function') {
+        const sca = syncable.stationCompletedAt;
+        let dropped = false;
+        if (sca && typeof sca === 'object') {
+          Object.keys(sca).forEach(k => {
+            if (sca[k] && !sessionStateStampBelongsToAssignment(sca[k], asgn)) dropped = true;
+          });
+        }
+        if (dropped) {
+          syncable = Object.assign({}, syncable, {
+            stationCompletedAt: {},
+            stations: {},
+            sessionStatus: syncable.arrivedAt ? 'arrived' : '',
+            participantName: '',
+            participantId: '',
+            calGuideAck: null,
+            progressScore: 0,
+            progressAt: '',
+            progressBy: '',
+            sessionCompletedAt: null,
+          });
+        }
+      }
     }
   }
   if (reason && syncable.lastGeo && typeof syncable.lastGeo === 'object') {
@@ -40385,7 +40577,23 @@ function newestSessionStatePerUser(rows) {
     const prev = newest.get(key);
     const prevMs = prev ? parseLastActiveMs(prev.lastActive) : 0;
     const nextMs = parseLastActiveMs(r.lastActive);
-    if (!prev || nextMs >= prevMs) {
+    let nextScore = 0;
+    let prevScore = 0;
+    try {
+      const parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : {};
+      nextScore = (typeof sessionStateProgressScore === 'function')
+        ? sessionStateProgressScore(parsed) : 0;
+      if (prev && typeof parseSessionStateJson === 'function'
+          && typeof sessionStateProgressScore === 'function') {
+        prevScore = sessionStateProgressScore(parseSessionStateJson(prev));
+      }
+    } catch (_) {}
+    // Duplicate SS rows (Narendra 444/445): prefer the richer station map,
+    // not merely the newest heartbeat — an empty newer append must not
+    // hide real progress for teammate merge / self-sync.
+    if (!prev
+        || nextScore > prevScore
+        || (nextScore === prevScore && nextMs >= prevMs)) {
       newest.set(key, r);
     }
   }
@@ -40460,9 +40668,16 @@ async function findTeammateSessionState(prefetchedRows) {
     }
   }
 
-  // FALLBACK: any live row on a team I belong to (missing assignment
-  // snapshot). Still scoped by the session's teamId, never by "writer
-  // shares some other team with me".
+  // FALLBACK: only when there is NO active assignment. With an active OD
+  // booking, never adopt unscoped / other-team progress — Team A incomplete
+  // (even after Reset) must not win over today's Team B assignmentId.
+  if (myAsgn && myAsgn.id) {
+    if (DIAG) {
+      console.info('FALLBACK skipped · active assignment set:', myAsgn.id);
+      console.groupEnd();
+    }
+    return null;
+  }
   let myTeamIds = new Set();
   if (teamId) myTeamIds.add(String(teamId));
   if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams)) {
@@ -46566,7 +46781,21 @@ function operatorProgressOnAssignment(a) {
   if (typeof getMyLatestStatusForAssignment === 'function') {
     const my = getMyLatestStatusForAssignment(a.id);
     if (my && my.status === 'session_done') return false;
-    if (my && my.status && my.status !== 'session_done') return true;
+    if (my && my.status && my.status !== 'session_done') {
+      // After 9 AM PT, prior-day SessionState must not pin My session when
+      // a today+ booking exists (Team A incomplete → Team B today).
+      try {
+        const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+        const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+          && isPastModStrikeCheckpointHour();
+        if (gateOpen && today && booked && booked < today) {
+          const car = (typeof getOperatorCarouselAssignments === 'function')
+            ? (getOperatorCarouselAssignments() || []) : [];
+          if (car.some(x => x && String(x.date || '') >= today)) return false;
+        }
+      } catch (_) {}
+      return true;
+    }
   }
   return false;
 }
@@ -49965,6 +50194,7 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     //     subsequent polls of the same teammate state don't re-sync.
     const localAtForAutoSync = state._lastSyncMergeAt || '';
     const localAtMs = parseLastActiveMs(localAtForAutoSync);
+    const teammateAtMs = parseLastActiveMs(teammateAt);
     const teammateScore = (result.score != null)
       ? result.score
       : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
@@ -50002,14 +50232,20 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
       }
       return false;
     })();
-    if (teammateNewer && !bHasOwnWork) {
+    // Soft-merge whenever teammate is ahead. mergeTeammateState uses
+    // pickBetterScenario so local work is never downgraded — only gaps
+    // fill. Previously required !bHasOwnWork, so Narendra (partial) never
+    // received Pradeep's remaining stations without clicking Sync; also
+    // teammateAtMs was undefined (ReferenceError) and aborted the whole
+    // checkAndOfferTeammateSync path.
+    if (teammateNewer) {
       try {
         mergeTeammateState(cloud);
         state._lastSyncMergeAt = teammateAt || new Date().toISOString();
         saveState();
         if (typeof renderApp === 'function') renderApp();
         if (typeof applyAssignmentToEntryFields === 'function') applyAssignmentToEntryFields();
-        if (typeof showToast === 'function') {
+        if (typeof showToast === 'function' && !bHasOwnWork) {
           showToast(`Synced your teammate's progress automatically`, 'info', 4000);
         }
       } catch (e) {
@@ -50047,6 +50283,7 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
   // be obnoxious.
   const localAt = state._lastSyncMergeAt || '';
   const localAtMs = parseLastActiveMs(localAt);
+  const teammateAtMs = parseLastActiveMs(teammateAt);
   const teammateScoreForModal = (result.score != null)
     ? result.score
     : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
