@@ -16,6 +16,8 @@
 
 **Version:** **1.3.091820o**.
 
+**PR:** [#148](https://github.com/DK-Centific/Twilight-Tracker/pull/148) · merged to `main`.
+
 ---
 
 ## 2026-09-19 · Gate Approval Delete until PA soft-delete is saved (1.3.091820n)
