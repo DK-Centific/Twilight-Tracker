@@ -1,5 +1,19 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-19 · Grok · approval assignment harden (1.3.091820i)
+
+## 2026-09-19 · Approval assignment harden (1.3.091820i)
+
+**Symptom:** A David-tw Approved row was written with `assignment_id: ""` and an `_unbound_` approval id; polling correctly dropped the orphan row, but the write path should never create it.
+
+**Fix:** Calibration submit/resubmit now fails closed with a clear **Booked session required** alert unless `ctx.asgn.id` is real. Client auto-approve skips the local transition without an active assignment, and all approval writers reject blank or legacy `unbound` assignment ids before PA receives a payload. Version/cache-busting is **1.3.091820i**.
+
+**Selftest:** `scripts/approval-submit-selftest.js` now covers submit, create, auto-approve, and generic approval-write guards; full `scripts/*selftest.js` suite passed.
+
+**PR:** [#142](https://github.com/DK-Centific/Twilight-Tracker/pull/142) · merged to `main`.
+
+---
+
 **Last updated:** 2026-09-19 · Grok · OD team name materialize harden (1.3.091820h)
 
 ## 2026-09-19 · OD team name / materialize harden (1.3.091820h)
@@ -185,10 +199,10 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820h`** (OD team name materialize harden) on `main` |
+| **`main` version** | **`1.3.091820i`** (approval assignment harden) on `main` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
-| **Last merged** | Booking Refresh sync status line + v1.3.091726e new-build banner |
-| **Local branch** | `cursor/activities-map-perf-today-6662` · **v1.3.091818a** (draft PR) |
+| **Last merged** | PR #142 · approval submit/auto-approve assignment binding harden |
+| **Local branch** | `main` · clean after PR #142 merge |
 
 ### This session (2026-09-18 PT)
 
