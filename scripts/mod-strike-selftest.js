@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091820v',
-  /const APP_VERSION = '1\.3\.091820v'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820v'));
+assert('version bump 091820w',
+  /const APP_VERSION = '1\.3\.091820w'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820w'));
 assert('strike scale v4 one-shot helpers',
   /function ensureModStrikeScaleV4/.test(src)
   && /function mergeModStrikeMods/.test(src)

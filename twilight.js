@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820v';
+const APP_VERSION = '1.3.091820w';
 const APP_UPDATED_AT = '09/20/2026 01:03';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -14662,26 +14662,29 @@ function renderPerfStationListHTML(a) {
     `;
   }
 
-  // Aggregate the latest state from all rows. Each row has stateJson
-  // containing { cameras, stations: {Station1: {cameras, scenarios}, ...},
-  // stationCompletedAt: {Station1: ISO}, etc }. We keep the FRESHEST
-  // value per field by walking rows in lastActive-descending order
-  // and only filling when not already set.
+  // Aggregate teammate SessionState rows. Prefer richer station progress
+  // (pickBetterScenario soft-merge) — a newer empty/partial heartbeat must
+  // not clobber a completed teammate map (MxS Station3 2/8 vs 8/8).
+  // Skip geo_presence / asgn_remote shells · ss_od_* is authoritative.
   rows.sort((x, y) => String(y.lastActive || '').localeCompare(String(x.lastActive || '')));
   const merged = { stations: {} };
   for (const r of rows) {
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
     const st = (typeof parseSessionStateJson === 'function')
       ? parseSessionStateJson(r)
       : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
     if (st.stations) {
-      for (const key of Object.keys(st.stations)) {
-        if (!merged.stations[key]) merged.stations[key] = st.stations[key];
-      }
+      merged.stations = (typeof mergeStationMapsPreferRicher === 'function')
+        ? mergeStationMapsPreferRicher(merged.stations, st.stations)
+        : Object.assign(merged.stations, st.stations);
     }
     if (st.stationCompletedAt && typeof st.stationCompletedAt === 'object') {
       merged.stationCompletedAt = merged.stationCompletedAt || {};
       for (const k of Object.keys(st.stationCompletedAt)) {
-        if (!merged.stationCompletedAt[k]) merged.stationCompletedAt[k] = st.stationCompletedAt[k];
+        if (st.stationCompletedAt[k] && !merged.stationCompletedAt[k]) {
+          merged.stationCompletedAt[k] = st.stationCompletedAt[k];
+        }
       }
     }
     if (st.sessionStartedAt && !merged.sessionStartedAt) merged.sessionStartedAt = st.sessionStartedAt;
@@ -41127,7 +41130,7 @@ function applyApprovalOverrides() {
   });
 }
 
-// --- one approval per team/session (1.3.091820o) -------------------
+// --- one approval per team/session (1.3.091820w) -------------------
 // Stable key: appr_{assignmentId}_{StationLabel} — no orbit, no timestamp.
 // orbit_login_id remains the submitter on WRITE. Either primary can
 // submit/resubmit the same id; Admin list dedupes by assignment|station.
@@ -41148,7 +41151,18 @@ function approvalTeamStationDedupeKey(a) {
   return asgn + '|' + st;
 }
 // Collapse Admin cards to one row per assignment_id|station (team session).
-// Newest epoch wins; status rank breaks ties so a decision beats Pending.
+// Approved/AutoApproved always beat open Pending/InReview (even if the
+// Pending submit is newer — PxM Manoj Pending after Pradeep Approved).
+// Rejected still yields to a later Pending resubmit. Otherwise newest
+// epoch wins; status rank breaks ties.
+function approvalStatusIsTerminalApprove(s) {
+  const st = String(s || '');
+  return st === 'Approved' || st === 'AutoApproved';
+}
+function approvalStatusIsOpen(s) {
+  const st = String(s || '');
+  return st === 'Pending' || st === 'InReview';
+}
 function dedupeApprovalsByTeamStation(list) {
   const byKey = new Map();
   const leftovers = [];
@@ -41157,6 +41171,10 @@ function dedupeApprovalsByTeamStation(list) {
     if (!key) { leftovers.push(a); continue; }
     const prev = byKey.get(key);
     if (!prev) { byKey.set(key, a); continue; }
+    const aTerm = approvalStatusIsTerminalApprove(a.status);
+    const pTerm = approvalStatusIsTerminalApprove(prev.status);
+    if (aTerm && approvalStatusIsOpen(prev.status)) { byKey.set(key, a); continue; }
+    if (pTerm && approvalStatusIsOpen(a.status)) continue;
     const ae = (a._epoch != null ? a._epoch : (typeof approvalEpoch === 'function' ? approvalEpoch(a) : 0)) || 0;
     const pe = (prev._epoch != null ? prev._epoch : (typeof approvalEpoch === 'function' ? approvalEpoch(prev) : 0)) || 0;
     const newer = ae > pe;
@@ -41984,6 +42002,57 @@ function pickBetterScenario(local, cloud) {
   if ((String(c.notes || '').trim().length) > (String(l.notes || '').trim().length)) out.notes = c.notes;
   if (c.rig1Completed && !out.rig1Completed) out.rig1Completed = true;
   if (c.rig2Completed && !out.rig2Completed) out.rig2Completed = true;
+  return out;
+}
+
+function stationMapProgressScore(stationData) {
+  if (!stationData || typeof stationData !== 'object') return 0;
+  const scenarios = stationData.scenarios || {};
+  const vals = Object.values(scenarios);
+  if (!vals.length) return 0;
+  const doneFn = (typeof isScenarioDoneForStation === 'function')
+    ? isScenarioDoneForStation
+    : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+  let score = 0;
+  for (const sc of vals) {
+    if (typeof scenarioProgressRank === 'function') score += scenarioProgressRank(sc);
+    else if (doneFn && doneFn(sc)) score += 40;
+    else if (sc && sc.status && sc.status !== 'Not Started') score += 10;
+  }
+  const cams = stationData.cameras || {};
+  score += Object.values(cams).filter(Boolean).length;
+  return score;
+}
+
+// Soft-merge station maps · never let a newer-but-emptier teammate row
+// (Muhammad 2/8 heartbeat) clobber a richer completed map (Sravya 8/8).
+function mergeStationMapsPreferRicher(dst, src) {
+  if (!src || typeof src !== 'object') return dst || {};
+  const out = dst && typeof dst === 'object' ? dst : {};
+  for (const key of Object.keys(src)) {
+    const cloudStation = src[key] || { cameras: {}, scenarios: {} };
+    const localStation = out[key] || { cameras: {}, scenarios: {} };
+    const mergedSc = {};
+    const scKeys = new Set([
+      ...Object.keys(localStation.scenarios || {}),
+      ...Object.keys(cloudStation.scenarios || {}),
+    ]);
+    scKeys.forEach(num => {
+      mergedSc[num] = (typeof pickBetterScenario === 'function')
+        ? pickBetterScenario((localStation.scenarios || {})[num], (cloudStation.scenarios || {})[num])
+        : Object.assign({}, (localStation.scenarios || {})[num] || {}, (cloudStation.scenarios || {})[num] || {});
+    });
+    const candidate = {
+      cameras: { ...(localStation.cameras || {}), ...(cloudStation.cameras || {}) },
+      scenarios: mergedSc,
+    };
+    // If one side is empty, keep the richer whole-station object.
+    const localScore = stationMapProgressScore(localStation);
+    const cloudScore = stationMapProgressScore(cloudStation);
+    const mergedScore = stationMapProgressScore(candidate);
+    if (!out[key] || mergedScore >= localScore) out[key] = candidate;
+    else if (cloudScore > localScore) out[key] = candidate;
+  }
   return out;
 }
 
