@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820x';
-const APP_UPDATED_AT = '09/20/2026 01:03';
+const APP_VERSION = '1.3.091820y';
+const APP_UPDATED_AT = '09/20/2026 16:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -2772,10 +2772,75 @@ const SCENARIO_FLOW_SMOOTH_MS = 520;
 const SCENARIO_FLOW_AUTO_UNLOCK_MS = 70;
 const SCENARIO_FLOW_ADVANCE_SETTLE_MS = 360;
 
+/** Phone-class layout (no UA sniff).
+ *  Portrait: CSS width ≤ 760 (existing Helios breakpoint).
+ *  Landscape: short side ≤ 500 and long side ≤ 1100 so Pixel 7/8
+ *  (~412×915 → 915×412), iPhone 13 (~390×844), Galaxy S20 (~360×800),
+ *  and Pixel 8 Pro (~448×998) keep Stations accordion + bottom bar.
+ *  Phone-class portrait widths are ~360–430 CSS px. */
+const PHONE_LAYOUT_MAX_PX = 760;
+const PHONE_SHORT_SIDE_MAX_PX = 500;
+const PHONE_LONG_SIDE_MAX_PX = 1100;
+const PHONE_CLASS_MIN_PX = 360;
+const PHONE_CLASS_MAX_PX = 430;
+
+function viewportCssSize() {
+  try {
+    const vv = (typeof window !== 'undefined' && window.visualViewport) ? window.visualViewport : null;
+    const w = (vv && vv.width) || (typeof window !== 'undefined' ? window.innerWidth : 0);
+    const h = (vv && vv.height) || (typeof window !== 'undefined' ? window.innerHeight : 0);
+    return { w: Math.round(w), h: Math.round(h) };
+  } catch (_) {
+    return { w: 0, h: 0 };
+  }
+}
+
+function isPhoneLayoutSize(w, h) {
+  w = Math.round(Number(w) || 0);
+  h = Math.round(Number(h) || 0);
+  if (!w || !h) return false;
+  if (w <= PHONE_LAYOUT_MAX_PX) return true;
+  const short = Math.min(w, h);
+  const tall = Math.max(w, h);
+  return short <= PHONE_SHORT_SIDE_MAX_PX && tall <= PHONE_LONG_SIDE_MAX_PX;
+}
+
+function isPhoneLayoutMq() {
+  try {
+    if (!(typeof window !== 'undefined' && window.matchMedia)) return false;
+    if (window.matchMedia('(max-width: 760px)').matches) return true;
+    return window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isPhoneLayout() {
+  if (isPhoneLayoutMq()) return true;
+  const size = viewportCssSize();
+  return isPhoneLayoutSize(size.w, size.h);
+}
+
+function isDesktopLayout() {
+  return !isPhoneLayout();
+}
+
+function syncPhoneLayoutClass() {
+  try {
+    const on = isPhoneLayout();
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.classList.toggle('is-phone-layout', !!on);
+    }
+    return !!on;
+  } catch (_) {
+    return false;
+  }
+}
+
 /** Narrow / phone layout used by Stations accordion + scenario flow. */
 function isScenarioFlowMobile() {
   try {
-    return !!(window.matchMedia && window.matchMedia('(max-width: 760px)').matches);
+    return isPhoneLayout();
   } catch (_) {
     return false;
   }
@@ -2966,10 +3031,11 @@ function scenarioFlowHTML(station, data) {
 
 function scenarioFlowHeliosReserve() {
   const bar = document.querySelector('.helios-bottombar');
+  const vh = viewportCssSize().h || Math.round(window.innerHeight);
   let reserve = 56;
   if (bar) {
     const r = bar.getBoundingClientRect();
-    if (r.height) reserve = Math.max(64, Math.round(window.innerHeight - r.top));
+    if (r.height) reserve = Math.max(64, Math.round(vh - r.top));
   }
   const actions = document.querySelector('#content .actions-bar');
   if (actions && getComputedStyle(actions).display !== 'none') {
@@ -3016,7 +3082,7 @@ function layoutScenarioFlowViewport(force) {
     tiles.length,
     Math.round(box.width),
     Math.round(box.height),
-    Math.round(window.innerHeight),
+    Math.round(viewportCssSize().h || window.innerHeight),
     _scenarioFlowXLockH
   ].join('|');
   if (!force && sig === _scenarioFlowLayoutSig && (vp.style.height || axis === 'x')) {
@@ -3074,7 +3140,8 @@ function layoutScenarioFlowViewport(force) {
   });
   const reserve = scenarioFlowHeliosReserve() + 8;
   const top = vp.getBoundingClientRect().top;
-  const avail = Math.max(240, Math.round(window.innerHeight - top - reserve));
+  const vh = viewportCssSize().h || Math.round(window.innerHeight);
+  const avail = Math.max(200, Math.round(vh - top - reserve));
   tiles.forEach(el => {
     if (el.offsetHeight > avail) {
       el.style.height = avail + 'px';
@@ -3098,17 +3165,22 @@ function bindScenarioFlowLayoutWatch() {
   if (_scenarioFlowLayoutBound) return;
   _scenarioFlowLayoutBound = true;
   let t = null;
-  window.addEventListener('resize', () => {
+  const onResize = () => {
     if (t) clearTimeout(t);
     t = setTimeout(() => {
       if (!document.getElementById('scenarioFlowViewport')) return;
       if (_scenarioFlowSnapping) return;
+      if (typeof syncPhoneLayoutClass === 'function') syncPhoneLayoutClass();
       _scenarioFlowLayoutSig = '';
       layoutScenarioFlowViewport(true);
       snapScenarioFlowToFocus('auto');
       paintScenarioFlow(true);
     }, 120);
-  });
+  };
+  window.addEventListener('resize', onResize);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onResize, { passive: true });
+  }
 }
 
 function syncNavScenarioAxes() {
@@ -4408,9 +4480,7 @@ let _accordionCollapsed = false;
 // TRUE when the viewport is in mobile-accordion territory (matches the
 // 760px breakpoint where the sidebar becomes an off-canvas drawer).
 function isStationAccordionMode() {
-  return typeof window !== 'undefined'
-    && window.matchMedia
-    && window.matchMedia('(max-width: 760px)').matches;
+  return typeof window !== 'undefined' && typeof isPhoneLayout === 'function' && isPhoneLayout();
 }
 
 // Body-level up/down station stepper. Must live on document.body — never
@@ -15251,7 +15321,7 @@ function setOverviewTileFoot(kind, text) {
 function syncOverviewHeliosFit() {
   const row = document.querySelector('#adminApp .ov-helios-row');
   if (!row) return;
-  if (window.matchMedia('(max-width: 760px)').matches) {
+  if (typeof isPhoneLayout === 'function' ? isPhoneLayout() : window.matchMedia('(max-width: 760px)').matches) {
     row.style.removeProperty('--ov-helios-measured-top');
     return;
   }
@@ -40534,7 +40604,7 @@ function startAdminAppAfterLogin() {
     }).catch(() => {});
   }
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
 }
 
 function bindAdminMenu() {
@@ -50715,7 +50785,7 @@ function logoutAndClearOperatorState() {
     setTimeout(() => loginInput.focus(), 100);
   }
   syncLoginPasswordFieldForUsername();
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
 }
 
 
@@ -52489,7 +52559,7 @@ function startAppAfterLogin() {
   // variant to show. Stored on window so it's reachable from the
   // setTimeout callback in doLogin without changing function signatures.
   window._orbitInitialAsgnRefresh = _initialAsgnRefresh;
-  if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+  if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
   if (typeof startFeedbackInboxRuntime === 'function') startFeedbackInboxRuntime();
 }
 
@@ -54670,7 +54740,8 @@ function setupNavRails() {
   if (typeof wireBookingPage === 'function') wireBookingPage();
 
   const apply = () => {
-    const desktop = window.innerWidth > 760;
+    if (typeof syncPhoneLayoutClass === 'function') syncPhoneLayoutClass();
+    const desktop = typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760;
     configs.forEach(cfg => {
       const rail = document.getElementById(cfg.rail);
       const bar  = document.getElementById(cfg.bottomBar);
@@ -54690,13 +54761,26 @@ function setupNavRails() {
   apply();
 
   let resizeT;
-  window.addEventListener('resize', () => {
+  const onViewportChange = () => {
     clearTimeout(resizeT);
     resizeT = setTimeout(apply, 150);
-  });
+  };
+  window.addEventListener('resize', onViewportChange);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', onViewportChange, { passive: true });
+  }
+  if (window.matchMedia) {
+    const landscapeMq = window.matchMedia('(orientation: landscape)');
+    if (typeof landscapeMq.addEventListener === 'function') {
+      landscapeMq.addEventListener('change', onViewportChange);
+    } else if (typeof landscapeMq.addListener === 'function') {
+      landscapeMq.addListener(onViewportChange);
+    }
+  }
 }
 
 function init() {
+  if (typeof syncPhoneLayoutClass === 'function') syncPhoneLayoutClass();
   if (typeof loadModTrackingCache === 'function') loadModTrackingCache();
   // Stamp the live APP_VERSION into the sidebar footer and the faint
   // build stamp. The login card no longer shows a version number.
@@ -54940,7 +55024,7 @@ function init() {
       clearLoginPasswordInputs();
       syncLoginPasswordFieldForUsername();
       document.getElementById('loginUsername').focus();
-      if (typeof dockPanicFab === 'function') dockPanicFab(window.innerWidth > 760);
+      if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
     }
   });
 

@@ -108,7 +108,14 @@
     modalBody.scrollTop = 0;
   }
   function isPanicMobile() {
-    return window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+    try {
+      if (document.documentElement && document.documentElement.classList.contains('is-phone-layout')) {
+        return true;
+      }
+    } catch (_) {}
+    if (!(window.matchMedia)) return false;
+    return window.matchMedia('(max-width: 760px)').matches
+      || window.matchMedia('(orientation: landscape) and (max-height: 500px)').matches;
   }
   function fillEscPop() {
     if (!escPopGrid || escPopGrid.childElementCount) return;
