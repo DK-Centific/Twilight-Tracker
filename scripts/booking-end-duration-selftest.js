@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 
 console.log('Booking end-from-start +8h self-test');
 
-assert('APP_VERSION is 1.3.091820g', /const APP_VERSION = '1\.3\.091820g'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820g'));
+assert('APP_VERSION is 1.3.091820h', /const APP_VERSION = '1\.3\.091820h'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820h'));
 assert('booking refresh sync status', /function setBookingRefreshStatus/.test(src)
   && html.includes('id="bookingRefreshStatus"'));
 assert('app build update banner wired', /function startAppBuildWatcher/.test(src)
