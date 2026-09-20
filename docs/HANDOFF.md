@@ -15,7 +15,7 @@
 
 **Selftest:** `scripts/approval-toast-chime-selftest.js`. Version **1.3.091820l**.
 
-**PR:** (pending merge)
+**PR:** [#145](https://github.com/DK-Centific/Twilight-Tracker/pull/145) · merged to `main`.
 
 ---
 
