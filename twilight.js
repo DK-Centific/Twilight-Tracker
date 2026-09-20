@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820h';
-const APP_UPDATED_AT = '09/19/2026 20:40';
+const APP_VERSION = '1.3.091820i';
+const APP_UPDATED_AT = '09/19/2026 23:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6258,6 +6258,24 @@ function isScenarioGateLocked(k, num) {
     && GATE_INDEPENDENT_NUMS.indexOf(String(num)) < 0;
 }
 
+// Resolve a real assignment id for approval writes. Empty and legacy
+// "unbound" values are never valid approval-row bindings.
+function _approvalAssignmentId(value) {
+  const id = value == null ? '' : String(value).trim();
+  return id && id.toLowerCase() !== 'unbound' ? id : '';
+}
+function _realApprovalAssignmentId(ctx) {
+  return _approvalAssignmentId(ctx && ctx.asgn && ctx.asgn.id);
+}
+async function showApprovalAssignmentRequired() {
+  const message = 'A booked session is required before submitting calibration for review. Select your active booking, then try again.';
+  if (typeof appAlert === 'function') {
+    return appAlert({ title: 'Booked session required', message, variant: 'warning' });
+  }
+  if (typeof showToast === 'function') showToast(message, 'error', 4500);
+  return null;
+}
+
 // Resolve the moderator's identity / team / lakitu for an approval row.
 function _gateModContext() {
   const asgn = _resolveGateAssignment();
@@ -6456,9 +6474,11 @@ function promptStation1LakituUrl() {
 }
 
 async function beginApprovalSubmit(stationKey, resubmit) {
-  // No session gate. Moderators can submit calibration for review even
-  // when My Session is empty (OD booking not linked, session not started).
   const ctx = _gateModContext();
+  if (!_realApprovalAssignmentId(ctx)) {
+    await showApprovalAssignmentRequired();
+    return null;
+  }
   let lakituUrl = '';
   if (stationKey === 'station1') {
     lakituUrl = await promptStation1LakituUrl();
@@ -6467,20 +6487,17 @@ async function beginApprovalSubmit(stationKey, resubmit) {
     saveState();
     if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
   }
-  if (!ctx.asgn || !ctx.asgn.id) {
-    if (typeof toast === 'function') {
-      toast('No booked session linked · still submitting for review.');
-    } else if (typeof showToast === 'function') {
-      showToast('No booked session linked · still submitting for review.', 'info', 3200);
-    }
-  }
   return submitApprovalFromStation(stationKey, resubmit, lakituUrl);
 }
 
 // Submit (or resubmit) the calibration for review for a station.
 async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride) {
   const ctx = _gateModContext();
-  const asgnId = (ctx.asgn && ctx.asgn.id) ? String(ctx.asgn.id) : 'unbound';
+  const asgnId = _realApprovalAssignmentId(ctx);
+  if (!asgnId) {
+    await showApprovalAssignmentRequired();
+    return null;
+  }
   const g = getGate(stationKey);
   const apprId = g.approvalId || ('appr_' + ctx.orbitId + '_' + asgnId + '_' + gateStationLabel(stationKey) + '_' + Date.now());
   const resubmitCount = (g.resubmitCount || 0) + (resubmit ? 1 : 0);
@@ -6502,7 +6519,7 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
   // (and the admin queue) · so await the result and tell the moderator if
   // it didn't reach the server.
   const writtenId = await createApprovalRequest({
-    approval_id: apprId, assignmentId: asgnId === 'unbound' ? '' : asgnId,
+    approval_id: apprId, assignmentId: asgnId,
     teamId: ctx.teamId, teamName: ctx.teamName,
     orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
     station: gateStationLabel(stationKey), scenario: 'calibration',
@@ -7008,11 +7025,14 @@ function runClientAutoApprove() {
     const g = getGate(k);
     if (g.status !== 'Pending' && g.status !== 'InReview') continue;
     if (!isApprovalAutoEligible({ status: g.status, submitted_at: g.submittedAt })) continue;
+    // Fail closed: never locally approve or emit a row without a real booking.
+    const ctx = _gateModContext();
+    const assignmentId = _realApprovalAssignmentId(ctx);
+    if (!assignmentId) continue;
     setGate(k, { status: 'AutoApproved', autoLocalAt: Date.now() });
     if (APPROVAL_PA_WRITE_URL) {
-      const ctx = _gateModContext();
       writeApprovalAutoApprove({
-        approval_id: g.approvalId, assignment_id: ctx.asgn ? ctx.asgn.id : '',
+        approval_id: g.approvalId, assignment_id: assignmentId,
         team_id: ctx.teamId, team_name: ctx.teamName,
         orbit_login_id: ctx.orbitId, moderator_name: ctx.modName,
         station: gateStationLabel(k), scenario: 'calibration', lakitu_url: ctx.lakitu,
@@ -39257,17 +39277,26 @@ function resolveApprovals(rows) {
   return [...byId.values()];
 }
 async function writeApprovalEvent(row) {
+  const assignmentId = _approvalAssignmentId(row && (row.assignment_id != null ? row.assignment_id : row.assignmentId));
+  // PA must never receive a submit/decision event bound to an empty or
+  // legacy "unbound" assignment. Fail closed for every approval write path.
+  if (!assignmentId) {
+    console.warn('[Twilight] approval write skipped · no real assignment_id');
+    return false;
+  }
+  const payload = { ...row, assignment_id: assignmentId };
+  delete payload.assignmentId;
   if (!APPROVAL_PA_WRITE_URL) { console.warn('[Twilight] APPROVAL_PA_WRITE_URL not configured · approval not written.'); return false; }
   try {
     // Log the exact JSON being sent · handy for the PA sample payload.
-    console.log('[Twilight] approval write payload \u2192', JSON.stringify(row));
+    console.log('[Twilight] approval write payload \u2192', JSON.stringify(payload));
     // fetchWithRetry resolves on 2xx (returning parsed JSON) and THROWS on
     // any failure. So "resolved without throwing" == success; we don't
     // inspect .ok (the return is the parsed body, not a Response).
     await fetchWithRetry(APPROVAL_PA_WRITE_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(row),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     });
-    console.log('[Twilight] writeApprovalEvent OK · approval_id', row.approval_id, '· status', row.status);
+    console.log('[Twilight] writeApprovalEvent OK · approval_id', payload.approval_id, '· status', payload.status);
     return true;
   } catch (e) { console.warn('[Twilight] writeApprovalEvent failed:', e && e.message); return false; }
 }
@@ -39315,7 +39344,8 @@ function applyApprovalOverrides() {
 async function createApprovalRequest(p) {
   p = p || {};
   const orbitId = p.orbitLoginId || '';
-  const asgn    = p.assignmentId || '';
+  const asgn    = _approvalAssignmentId(p.assignmentId);
+  if (!asgn) return null;
   const station = p.station || '';
   const id = p.approval_id || `appr_${orbitId}_${asgn}_${String(station).replace(/\s+/g, '')}_${Date.now()}`;
   const nowIso = new Date().toISOString();
@@ -39382,9 +39412,10 @@ async function adminDecideApproval(approvalId, decision, note, opts) {
 }
 // Time-gate auto-approve writer (client timer or, server-side, the sweep flow).
 async function writeApprovalAutoApprove(appr) {
-  if (!appr) return false;
+  const assignmentId = _approvalAssignmentId(appr && (appr.assignment_id != null ? appr.assignment_id : appr.assignmentId));
+  if (!assignmentId) return false;
   const nowIso = new Date().toISOString();
-  const row = { ...appr }; delete row._epoch;
+  const row = { ...appr, assignment_id: assignmentId }; delete row._epoch;
   row.event_type = 'autoapproved';
   row.status = 'AutoApproved';
   row.decided_at = nowIso;
