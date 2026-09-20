@@ -11088,6 +11088,22 @@ input#ent_lakitu.lakitu-invalid {
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
+/* Keep toolbar controls as units: the export action stays in the same
+   control flow instead of shrinking, detaching, or being pushed onto a
+   visually unrelated row when Grid/List and Flagged controls are present. */
+.perf-toolbar > .perf-toggle,
+.perf-toolbar > .perf-layout-toggle,
+.perf-toolbar > .perf-date-range,
+.perf-toolbar > .perf-export-btn,
+.fh-toolbar > .fh-filters,
+.fh-toolbar > .fh-sort,
+.fh-toolbar > .perf-export-btn {
+  flex: 0 0 auto;
+}
+.perf-toolbar > .perf-export-btn,
+.fh-toolbar > .perf-export-btn {
+  white-space: nowrap;
+}
 .perf-toggle {
   display: inline-flex;
   background: var(--bg2);
@@ -11154,6 +11170,850 @@ input#ent_lakitu.lakitu-invalid {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 14px;
 }
+.perf-tile-grid.is-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  grid-template-columns: 1fr;
+}
+.perf-tile-grid.is-list .perf-tile {
+  border-radius: 12px;
+}
+.perf-tile-grid.is-list .perf-tile-head {
+  padding: 10px 12px;
+}
+.perf-tile.is-perf-focus {
+  outline: 2px solid #C5A059;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(197, 160, 89, 0.18);
+}
+
+/* Performance · Flagged history ledger (Jimmy Soft Sage / Helios) */
+.perf-flagged-view {
+  background: var(--bg2, #F3F0E9);
+  border: 1px solid var(--border, #C5CEC1);
+  border-radius: 18px;
+  padding: 14px 16px 16px;
+  box-shadow: 0 8px 28px rgba(36, 36, 32, 0.06);
+}
+.fh-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.fh-back {
+  font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 8px;
+  border: 1px solid var(--border, #C5CEC1); background: var(--bg, #fff);
+  color: var(--text2, #5E6358); cursor: pointer; font-family: inherit;
+}
+.fh-back:hover { color: var(--text); border-color: var(--text3); }
+.fh-title { font-size: 16px; font-weight: 650; letter-spacing: -0.02em; flex: 1; color: var(--text); }
+.fh-meta { font-size: 11.5px; color: var(--text3, #8A9084); }
+.fh-toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px;
+}
+.fh-search {
+  flex: 1 1 160px; min-width: 140px; font-size: 13px; padding: 7px 10px; border-radius: 9px;
+  border: 1px solid var(--border, #C5CEC1); background: var(--bg, #fff); color: var(--text);
+  font-family: inherit;
+}
+.fh-filters { display: flex; flex-wrap: wrap; gap: 5px; }
+.fh-chip {
+  font-size: 11px; font-weight: 600; padding: 5px 9px; border-radius: 999px;
+  border: 1px solid var(--border, #C5CEC1); background: var(--bg3, #F7F4ED);
+  color: var(--text2, #5E6358); cursor: pointer; font-family: inherit;
+}
+.fh-chip.active {
+  background: rgba(197, 160, 89, 0.16); border-color: rgba(197, 160, 89, 0.4); color: var(--text);
+}
+.fh-sort {
+  margin-left: 0; font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid var(--border, #C5CEC1); background: var(--bg, #fff); color: var(--text2);
+  font-family: inherit;
+}
+.fh-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fh-row {
+  display: grid;
+  grid-template-columns: 88px 1.2fr 1fr auto auto;
+  gap: 10px; align-items: center;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--bg3, #F7F4ED); border: 1px solid rgba(197, 206, 193, 0.8);
+  transition: background 0.35s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fh-row:hover { background: var(--bg2, #F3F0E9); box-shadow: 0 4px 14px rgba(36, 36, 32, 0.05); }
+.fh-row.is-locked { border-color: rgba(196, 137, 137, 0.45); background: rgba(196, 137, 137, 0.08); }
+.fh-date {
+  font-size: 11.5px; font-weight: 600; color: var(--text3, #8A9084);
+  font-variant-numeric: tabular-nums; line-height: 1.25;
+}
+.fh-date small { display: block; font-weight: 500; opacity: 0.85; }
+.fh-team { font-size: 13.5px; font-weight: 650; letter-spacing: -0.015em; color: var(--text); }
+.fh-mods {
+  font-size: 11.5px; color: var(--text2, #5E6358); margin-top: 2px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.fh-others { margin: 0; }
+.fh-stars-n {
+  font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text);
+  white-space: nowrap;
+}
+.fh-stars-n .unit { font-weight: 500; color: var(--text3, #8A9084); font-size: 10.5px; margin-left: 2px; }
+.fh-pill {
+  font-size: 10.5px; font-weight: 650; padding: 4px 8px; border-radius: 999px; white-space: nowrap;
+}
+.fh-pill.warn { background: rgba(197, 160, 89, 0.16); color: #B08F4A; }
+.fh-pill.warn2 { background: rgba(176, 143, 74, 0.22); color: #8A6A2E; }
+.fh-pill.final { background: rgba(176, 143, 74, 0.22); color: #8A6A2E; }
+.fh-pill.locked { background: rgba(196, 137, 137, 0.22); color: #8F4E4E; }
+.fh-pill.deact { background: rgba(36, 36, 32, 0.08); color: var(--text3, #8A9084); }
+.fh-empty {
+  text-align: center; padding: 36px 16px; border-radius: 14px;
+  border: 1px dashed var(--border, #C5CEC1);
+  color: var(--text3, #8A9084); font-size: 13px; line-height: 1.45;
+  background: rgba(243, 240, 233, 0.5);
+}
+.fh-empty strong { display: block; color: var(--text2, #5E6358); font-size: 14px; margin-bottom: 4px; }
+@media (max-width: 700px) {
+  .fh-row { grid-template-columns: 72px 1fr; grid-template-rows: auto auto; }
+  .fh-pill, .fh-stars-n { justify-self: start; }
+}
+
+/* Flagged history · List | Split segmented toggle (A+C) */
+.fh-view-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  background: var(--bg3, #F7F4ED);
+  border: 1px solid var(--border, #C5CEC1);
+  border-radius: 999px;
+  padding: 3px;
+  box-shadow:
+    inset 2px 2px 5px rgba(36, 36, 32, 0.05),
+    inset -1px -1px 4px rgba(255, 255, 255, 0.7);
+  margin-left: auto;
+}
+.fh-view-thumb {
+  position: absolute;
+  top: 3px; bottom: 3px; left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: rgba(197, 160, 89, 0.22);
+  border: 1px solid rgba(197, 160, 89, 0.42);
+  box-shadow: 0 1px 6px rgba(197, 160, 89, 0.18);
+  transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+.fh-view-toggle[data-mode="split"] .fh-view-thumb {
+  transform: translateX(100%);
+}
+.fh-view-btn {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  min-width: 64px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text2, #5E6358);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: color 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fh-view-btn:hover { color: var(--text); }
+.fh-view-btn.active {
+  color: #8A6A2E;
+  font-weight: 700;
+}
+.fh-head .fh-view-toggle { margin-left: 0; }
+.fh-toolbar .fh-view-toggle { margin-left: 0; }
+
+/* Helios C · Split pane */
+.fh-split {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 10px;
+  min-height: 280px;
+}
+.fh-split-list {
+  border-radius: 16px;
+  padding: 6px;
+  background: var(--bg3, #F7F4ED);
+  border: 1px solid var(--border, #C5CEC1);
+  box-shadow:
+    inset 3px 3px 8px rgba(36, 36, 32, 0.06),
+    inset -2px -2px 6px rgba(255, 255, 255, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(420px, 58vh);
+  overflow: auto;
+}
+.fh-split-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.35s cubic-bezier(0.23, 1, 0.32, 1),
+              box-shadow 0.35s cubic-bezier(0.23, 1, 0.32, 1),
+              border-color 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.fh-split-item:hover { background: rgba(255, 255, 255, 0.55); }
+.fh-split-item.sel {
+  background: var(--bg2, #F3F0E9);
+  box-shadow:
+    6px 6px 14px rgba(36, 36, 32, 0.07),
+    -4px -4px 12px rgba(255, 255, 255, 0.75);
+  border-color: rgba(197, 160, 89, 0.35);
+}
+.fh-split-item .t { flex: 1; min-width: 0; }
+.fh-split-item .name {
+  font-size: 12.5px; font-weight: 650; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fh-split-item .when { font-size: 10.5px; color: var(--text3, #8A9084); margin-top: 1px; }
+.fh-split-item .fh-pill { font-size: 10px; padding: 3px 7px; flex-shrink: 0; }
+.fh-split-detail {
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: var(--bg2, #F3F0E9);
+  border: 1px solid var(--border, #C5CEC1);
+  box-shadow:
+    6px 6px 14px rgba(36, 36, 32, 0.07),
+    -4px -4px 12px rgba(255, 255, 255, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+}
+.fh-split-detail h3 {
+  margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -0.02em; color: var(--text);
+}
+.fh-star-hero {
+  font-size: 22px; letter-spacing: 0.06em; line-height: 1.2;
+}
+.fh-star-hero .mod-stars { font-size: 22px; letter-spacing: 0.06em; gap: 2px; }
+.fh-star-hero .mod-star { font-size: 22px; color: #C5A059; }
+.fh-star-hero .mod-star.is-empty { color: rgba(36, 36, 32, 0.16); }
+.fh-star-hero .on { color: #C5A059; }
+.fh-star-hero .off { color: rgba(36, 36, 32, 0.16); }
+.fh-kv {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 6px 8px;
+  font-size: 12px;
+  margin: 0;
+}
+.fh-kv dt { color: var(--text3, #8A9084); font-weight: 600; }
+.fh-kv dd { margin: 0; font-weight: 550; color: var(--text); }
+.fh-split-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text3, #8A9084);
+  font-size: 13px;
+  padding: 24px 12px;
+  border: 1px dashed var(--border, #C5CEC1);
+  border-radius: 12px;
+  background: rgba(247, 244, 237, 0.5);
+}
+@media (max-width: 720px) {
+  .fh-split { grid-template-columns: 1fr; }
+  .fh-split-list { max-height: 220px; }
+  .fh-view-toggle { width: 100%; }
+}
+
+
+/* ============================================================
+   Flagged history · Helios dark (Jimmy)
+   Tokens scoped to #perfFlaggedView / .fh-shell — charcoal + soft
+   gold, not flat #0a invert. Cream ink, gold wash/glow, rose lock.
+   ============================================================ */
+[data-theme="dark"] #perfFlaggedView,
+[data-theme="dark"] .fh-shell {
+  --fh-canvas: #12141A;
+  --fh-panel: #1A1C1E;
+  --fh-well: #151719;
+  --fh-elev: #22252A;
+  --fh-ink: #E8E6E0;
+  --fh-muted: rgba(232,230,224,.62);
+  --fh-dim: #70757A;
+  --fh-edge: rgba(255,255,255,.07);
+  --fh-edge-strong: rgba(255,255,255,.12);
+  --fh-gold: #C5A059;
+  --fh-gold-hover: #D4B06E;
+  --fh-gold-wash: rgba(197,160,89,.16);
+  --fh-gold-glow: rgba(197,160,89,.28);
+  --fh-rose: #C48989;
+  --fh-rose-wash: rgba(196,137,137,.18);
+  --fh-teal: #5BB8C9;
+  --helios: cubic-bezier(0.23, 1, 0.32, 1);
+  --fh-neo:
+    6px 6px 16px rgba(0,0,0,.45),
+    -3px -3px 10px rgba(37,40,43,.35);
+  --fh-neo-inset:
+    inset 3px 3px 8px rgba(0,0,0,.4),
+    inset -2px -2px 6px rgba(37,40,43,.25);
+}
+
+/* Panel · elevated neumorphic charcoal (not parchment / not pure black) */
+[data-theme="dark"] #perfFlaggedView.perf-flagged-view,
+[data-theme="dark"] .fh-shell.perf-flagged-view {
+  background: var(--fh-panel);
+  border: 1px solid var(--fh-edge);
+  border-radius: 20px;
+  padding: 14px 16px 18px;
+  box-shadow: var(--fh-neo);
+  color: var(--fh-ink);
+}
+
+[data-theme="dark"] #perfFlaggedView .fh-title,
+[data-theme="dark"] .fh-shell .fh-title {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-meta,
+[data-theme="dark"] .fh-shell .fh-meta {
+  color: var(--fh-dim);
+}
+[data-theme="dark"] #perfFlaggedView .fh-back,
+[data-theme="dark"] .fh-shell .fh-back {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  color: var(--fh-muted);
+  box-shadow: var(--fh-neo);
+  border-radius: 10px;
+}
+[data-theme="dark"] #perfFlaggedView .fh-back:hover,
+[data-theme="dark"] .fh-shell .fh-back:hover {
+  color: var(--fh-ink);
+  border-color: var(--fh-edge-strong);
+}
+
+[data-theme="dark"] #perfFlaggedView .fh-search,
+[data-theme="dark"] .fh-shell .fh-search,
+[data-theme="dark"] #perfFlaggedView .fh-sort,
+[data-theme="dark"] .fh-shell .fh-sort {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  color: var(--fh-ink);
+  box-shadow: var(--fh-neo-inset);
+  border-radius: 11px;
+}
+[data-theme="dark"] #perfFlaggedView .fh-search::placeholder,
+[data-theme="dark"] .fh-shell .fh-search::placeholder {
+  color: var(--fh-dim);
+}
+
+[data-theme="dark"] #perfFlaggedView .fh-chip,
+[data-theme="dark"] .fh-shell .fh-chip {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  color: var(--fh-muted);
+}
+[data-theme="dark"] #perfFlaggedView .fh-chip.active,
+[data-theme="dark"] .fh-shell .fh-chip.active {
+  background: var(--fh-gold-wash);
+  border-color: rgba(197,160,89,.4);
+  color: var(--fh-gold-hover);
+}
+
+/* List | Split toggle · gold wash thumb on dark well */
+[data-theme="dark"] #perfFlaggedView .fh-view-toggle,
+[data-theme="dark"] .fh-shell .fh-view-toggle {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  box-shadow: var(--fh-neo-inset);
+}
+[data-theme="dark"] #perfFlaggedView .fh-view-thumb,
+[data-theme="dark"] .fh-shell .fh-view-thumb {
+  background: var(--fh-gold-wash);
+  border: 1px solid rgba(197,160,89,.35);
+  box-shadow: 0 0 12px rgba(197,160,89,.15);
+  transition: transform .4s var(--helios);
+}
+[data-theme="dark"] #perfFlaggedView .fh-view-btn,
+[data-theme="dark"] .fh-shell .fh-view-btn {
+  color: var(--fh-dim);
+  transition: color .4s var(--helios);
+}
+[data-theme="dark"] #perfFlaggedView .fh-view-btn:hover,
+[data-theme="dark"] .fh-shell .fh-view-btn:hover {
+  color: var(--fh-muted);
+}
+[data-theme="dark"] #perfFlaggedView .fh-view-btn.active,
+[data-theme="dark"] .fh-shell .fh-view-btn.active {
+  color: var(--fh-gold-hover);
+  font-weight: 700;
+}
+
+/* Rows · inset wells (cream ink, soft-gold hover) */
+[data-theme="dark"] #perfFlaggedView .fh-row,
+[data-theme="dark"] .fh-shell .fh-row {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  box-shadow: var(--fh-neo-inset);
+  color: var(--fh-ink);
+  transition: border-color .35s var(--helios), box-shadow .35s var(--helios);
+}
+[data-theme="dark"] #perfFlaggedView .fh-row:hover,
+[data-theme="dark"] .fh-shell .fh-row:hover {
+  background: var(--fh-well);
+  border-color: rgba(197,160,89,.22);
+  box-shadow: 0 0 0 1px rgba(197,160,89,.08), var(--fh-neo-inset);
+}
+/* Locked · subtle rose wash (not loud red) */
+[data-theme="dark"] #perfFlaggedView .fh-row.is-locked,
+[data-theme="dark"] .fh-shell .fh-row.is-locked {
+  background: linear-gradient(90deg, rgba(196,137,137,.1), var(--fh-well) 40%);
+  border-color: rgba(196,137,137,.28);
+}
+[data-theme="dark"] #perfFlaggedView .fh-date,
+[data-theme="dark"] .fh-shell .fh-date {
+  color: var(--fh-dim);
+}
+[data-theme="dark"] #perfFlaggedView .fh-team,
+[data-theme="dark"] .fh-shell .fh-team {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-mods,
+[data-theme="dark"] .fh-shell .fh-mods {
+  color: var(--fh-muted);
+}
+[data-theme="dark"] #perfFlaggedView .fh-stars-n,
+[data-theme="dark"] .fh-shell .fh-stars-n {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-stars-n .unit,
+[data-theme="dark"] .fh-shell .fh-stars-n .unit {
+  color: var(--fh-dim);
+}
+
+/* Pills · soft-gold warn; rose lock; no cyan / harsh white */
+[data-theme="dark"] #perfFlaggedView .fh-pill.warn,
+[data-theme="dark"] .fh-shell .fh-pill.warn {
+  background: var(--fh-gold-wash);
+  color: var(--fh-gold-hover);
+  border: 1px solid rgba(197,160,89,.25);
+}
+[data-theme="dark"] #perfFlaggedView .fh-pill.warn2,
+[data-theme="dark"] .fh-shell .fh-pill.warn2,
+[data-theme="dark"] #perfFlaggedView .fh-pill.final,
+[data-theme="dark"] .fh-shell .fh-pill.final {
+  background: rgba(212,176,110,.14);
+  color: #E8C888;
+  border: 1px solid rgba(212,176,110,.28);
+}
+[data-theme="dark"] #perfFlaggedView .fh-pill.locked,
+[data-theme="dark"] .fh-shell .fh-pill.locked {
+  background: var(--fh-rose-wash);
+  color: #E0A0A0;
+  border: 1px solid rgba(196,137,137,.3);
+}
+[data-theme="dark"] #perfFlaggedView .fh-pill.deact,
+[data-theme="dark"] .fh-shell .fh-pill.deact {
+  background: rgba(255,255,255,.05);
+  color: var(--fh-dim);
+  border: 1px solid var(--fh-edge);
+}
+
+[data-theme="dark"] #perfFlaggedView .fh-empty,
+[data-theme="dark"] .fh-shell .fh-empty {
+  border: 1px dashed var(--fh-edge);
+  color: var(--fh-dim);
+  background: rgba(21,23,25,.55);
+}
+[data-theme="dark"] #perfFlaggedView .fh-empty strong,
+[data-theme="dark"] .fh-shell .fh-empty strong {
+  color: var(--fh-muted);
+}
+
+/* ★ filled gold + glow; empty cream ~14% */
+[data-theme="dark"] #perfFlaggedView .mod-star,
+[data-theme="dark"] .fh-shell .mod-star,
+[data-theme="dark"] #perfFlaggedView .fh-star-hero .mod-star,
+[data-theme="dark"] .fh-shell .fh-star-hero .mod-star,
+[data-theme="dark"] #perfFlaggedView .fh-star-hero .on,
+[data-theme="dark"] .fh-shell .fh-star-hero .on {
+  color: var(--fh-gold);
+  filter: drop-shadow(0 0 4px rgba(197,160,89,.35));
+  opacity: 1;
+}
+[data-theme="dark"] #perfFlaggedView .mod-star.is-empty,
+[data-theme="dark"] .fh-shell .mod-star.is-empty,
+[data-theme="dark"] #perfFlaggedView .fh-star-hero .mod-star.is-empty,
+[data-theme="dark"] .fh-shell .fh-star-hero .mod-star.is-empty,
+[data-theme="dark"] #perfFlaggedView .fh-star-hero .off,
+[data-theme="dark"] .fh-shell .fh-star-hero .off {
+  color: rgba(232,230,224,.14);
+  filter: none;
+  opacity: 1;
+}
+
+/* Split · inset list well + elev detail with gold radial */
+[data-theme="dark"] #perfFlaggedView .fh-split-list,
+[data-theme="dark"] .fh-shell .fh-split-list {
+  background: var(--fh-well);
+  border: 1px solid var(--fh-edge);
+  box-shadow: var(--fh-neo-inset);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-item:hover,
+[data-theme="dark"] .fh-shell .fh-split-item:hover {
+  background: rgba(255,255,255,.03);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-item.sel,
+[data-theme="dark"] .fh-shell .fh-split-item.sel {
+  background: var(--fh-elev);
+  border-color: rgba(197,160,89,.35);
+  box-shadow: 0 0 20px rgba(197,160,89,.08), var(--fh-neo);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-item .name,
+[data-theme="dark"] .fh-shell .fh-split-item .name {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-item .when,
+[data-theme="dark"] .fh-shell .fh-split-item .when {
+  color: var(--fh-dim);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-detail,
+[data-theme="dark"] .fh-shell .fh-split-detail {
+  background: var(--fh-elev);
+  background-image: radial-gradient(ellipse 80% 50% at 100% 0%, rgba(197,160,89,.1), transparent 55%);
+  border: 1px solid rgba(197,160,89,.22);
+  box-shadow: var(--fh-neo), inset 0 1px 0 rgba(255,255,255,.04);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-detail h3,
+[data-theme="dark"] .fh-shell .fh-split-detail h3 {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-kv dt,
+[data-theme="dark"] .fh-shell .fh-kv dt {
+  color: var(--fh-dim);
+}
+[data-theme="dark"] #perfFlaggedView .fh-kv dd,
+[data-theme="dark"] .fh-shell .fh-kv dd {
+  color: var(--fh-ink);
+}
+[data-theme="dark"] #perfFlaggedView .fh-split-empty,
+[data-theme="dark"] .fh-shell .fh-split-empty {
+  color: var(--fh-dim);
+  border: 1px dashed var(--fh-edge);
+  background: rgba(21,23,25,.4);
+}
+
+/* Export on flagged toolbar stays readable on dark wells */
+[data-theme="dark"] #perfFlaggedView .perf-export-btn,
+[data-theme="dark"] .fh-shell .perf-export-btn {
+  background: var(--fh-well);
+  border-color: var(--fh-edge);
+  color: var(--fh-muted);
+}
+[data-theme="dark"] #perfFlaggedView .perf-export-btn:hover,
+[data-theme="dark"] .fh-shell .perf-export-btn:hover {
+  border-color: rgba(197,160,89,.4);
+  color: var(--fh-gold-hover);
+  background: var(--fh-gold-wash);
+}
+
+/* Flagged status tile · gold gradient wash when active (toolbar) */
+[data-theme="dark"] .perf-status-tile.active.flagged {
+  background: linear-gradient(145deg, rgba(197,160,89,.14), rgba(197,160,89,.05));
+  border-color: rgba(197,160,89,.35);
+  box-shadow: 0 0 0 1px rgba(197,160,89,.12),
+    6px 6px 16px rgba(0,0,0,.35),
+    -3px -3px 10px rgba(37,40,43,.25);
+}
+[data-theme="dark"] .perf-status-tile.active.flagged .perf-status-tile-num {
+  color: #D4B06E;
+  text-shadow: 0 0 18px rgba(197,160,89,.28);
+}
+[data-theme="dark"] .perf-status-tile.flagged::before {
+  background: #C5A059;
+}
+
+
+/* ============================================================
+   Flagged history · Helios motion (Jimmy · calm, natural)
+   Tokens: --fh-ease / --fh-ms / --fh-ms-fast
+   No blur, bounce, continuous row pulse, or height anim on poll.
+   prefers-reduced-motion → opacity-only / instant.
+   ============================================================ */
+#perfFlaggedView.fh-shell,
+.fh-shell.perf-flagged-view {
+  --fh-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --fh-ms: 0.45s;
+  --fh-ms-fast: 0.32s;
+}
+
+.fh-body {
+  position: relative;
+  min-height: 48px;
+}
+
+@keyframes fhRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fhEnter {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fhCrossIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fhFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fhStarPop {
+  0%   { transform: scale(0.88); opacity: 0.55; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 1) Enter Flagged · head/toolbar fade+rise; rows stagger +40ms (max ~6) */
+.fh-shell.fh-enter > .fh-head,
+.fh-shell.fh-enter > .fh-toolbar {
+  animation: fhRise var(--fh-ms) var(--fh-ease) both;
+}
+.fh-shell.fh-enter > .fh-toolbar { animation-delay: 0.04s; }
+.fh-shell.fh-enter .fh-row,
+.fh-shell.fh-enter .fh-split-item,
+.fh-shell.fh-restagger .fh-row,
+.fh-shell.fh-restagger .fh-split-item {
+  animation: fhRise var(--fh-ms) var(--fh-ease) both;
+}
+.fh-shell.fh-enter .fh-row:nth-child(1),
+.fh-shell.fh-enter .fh-split-item:nth-child(1),
+.fh-shell.fh-restagger .fh-row:nth-child(1),
+.fh-shell.fh-restagger .fh-split-item:nth-child(1) { animation-delay: 0.00s; }
+.fh-shell.fh-enter .fh-row:nth-child(2),
+.fh-shell.fh-enter .fh-split-item:nth-child(2),
+.fh-shell.fh-restagger .fh-row:nth-child(2),
+.fh-shell.fh-restagger .fh-split-item:nth-child(2) { animation-delay: 0.04s; }
+.fh-shell.fh-enter .fh-row:nth-child(3),
+.fh-shell.fh-enter .fh-split-item:nth-child(3),
+.fh-shell.fh-restagger .fh-row:nth-child(3),
+.fh-shell.fh-restagger .fh-split-item:nth-child(3) { animation-delay: 0.08s; }
+.fh-shell.fh-enter .fh-row:nth-child(4),
+.fh-shell.fh-enter .fh-split-item:nth-child(4),
+.fh-shell.fh-restagger .fh-row:nth-child(4),
+.fh-shell.fh-restagger .fh-split-item:nth-child(4) { animation-delay: 0.12s; }
+.fh-shell.fh-enter .fh-row:nth-child(5),
+.fh-shell.fh-enter .fh-split-item:nth-child(5),
+.fh-shell.fh-restagger .fh-row:nth-child(5),
+.fh-shell.fh-restagger .fh-split-item:nth-child(5) { animation-delay: 0.16s; }
+.fh-shell.fh-enter .fh-row:nth-child(6),
+.fh-shell.fh-enter .fh-split-item:nth-child(6),
+.fh-shell.fh-restagger .fh-row:nth-child(6),
+.fh-shell.fh-restagger .fh-split-item:nth-child(6) { animation-delay: 0.20s; }
+.fh-shell.fh-enter .fh-row:nth-child(n+7),
+.fh-shell.fh-enter .fh-split-item:nth-child(n+7),
+.fh-shell.fh-restagger .fh-row:nth-child(n+7),
+.fh-shell.fh-restagger .fh-split-item:nth-child(n+7) { animation-delay: 0.20s; }
+
+/* 2) List↔Split · content crossfade + scale 0.98 (thumb keeps CSS transition) */
+.fh-body.fh-crossfade {
+  animation: fhCrossIn var(--fh-ms-fast) var(--fh-ease) both;
+}
+.fh-view-thumb {
+  transition: transform var(--fh-ms) var(--fh-ease, cubic-bezier(0.23, 1, 0.32, 1));
+}
+.fh-view-btn {
+  transition: color var(--fh-ms) var(--fh-ease, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+/* 3) Select · detail fhEnter; ★ soft pop (no row pulse loops) */
+.fh-split-detail.fh-detail-enter {
+  animation: fhEnter var(--fh-ms-fast) var(--fh-ease) both;
+}
+.fh-star-hero.fh-star-pop .mod-star:not(.is-empty),
+.fh-star-hero.fh-star-pop .on {
+  animation: fhStarPop var(--fh-ms-fast) var(--fh-ease) both;
+}
+.fh-star-hero.fh-star-pop .mod-star:not(.is-empty):nth-child(1),
+.fh-star-hero.fh-star-pop .on:nth-child(1) { animation-delay: 0.00s; }
+.fh-star-hero.fh-star-pop .mod-star:not(.is-empty):nth-child(2),
+.fh-star-hero.fh-star-pop .on:nth-child(2) { animation-delay: 0.04s; }
+.fh-star-hero.fh-star-pop .mod-star:not(.is-empty):nth-child(3),
+.fh-star-hero.fh-star-pop .on:nth-child(3) { animation-delay: 0.08s; }
+.fh-star-hero.fh-star-pop .mod-star:not(.is-empty):nth-child(4),
+.fh-star-hero.fh-star-pop .on:nth-child(4) { animation-delay: 0.12s; }
+
+/* 4) Empty · fade only */
+.fh-empty.fh-empty-in {
+  animation: fhFade var(--fh-ms-fast) var(--fh-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fh-shell.fh-enter > .fh-head,
+  .fh-shell.fh-enter > .fh-toolbar,
+  .fh-shell.fh-enter .fh-row,
+  .fh-shell.fh-enter .fh-split-item,
+  .fh-shell.fh-restagger .fh-row,
+  .fh-shell.fh-restagger .fh-split-item,
+  .fh-body.fh-crossfade,
+  .fh-split-detail.fh-detail-enter,
+  .fh-star-hero.fh-star-pop .mod-star:not(.is-empty),
+  .fh-star-hero.fh-star-pop .on,
+  .fh-empty.fh-empty-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .fh-view-thumb,
+  .fh-view-btn {
+    transition: none !important;
+  }
+}
+
+
+/* ============================================================
+   Performance tab · Helios motion (extend Flagged → all Perf UI)
+   Tokens: --perf-ease / --perf-ms / --perf-ms-fast (= fh tokens)
+   No blur, bounce, continuous pulse, or re-stagger on poll.
+   prefers-reduced-motion → opacity-only / instant.
+   ============================================================ */
+#subtabBody.perf-shell,
+.perf-shell {
+  --perf-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --perf-ms: 0.45s;
+  --perf-ms-fast: 0.32s;
+  --fh-ease: var(--perf-ease);
+  --fh-ms: var(--perf-ms);
+  --fh-ms-fast: var(--perf-ms-fast);
+}
+
+/* Soft transitions on toolbar / pills / toggles */
+.perf-shell .perf-status-tile,
+.perf-shell .perf-date-range-btn,
+.perf-shell .perf-toggle-btn,
+.perf-shell .mod-layout-btn,
+.perf-shell .perf-export-btn,
+.perf-shell .subtab-btn {
+  transition:
+    color var(--perf-ms-fast) var(--perf-ease),
+    background var(--perf-ms-fast) var(--perf-ease),
+    border-color var(--perf-ms-fast) var(--perf-ease),
+    box-shadow var(--perf-ms-fast) var(--perf-ease),
+    transform var(--perf-ms-fast) var(--perf-ease),
+    opacity var(--perf-ms-fast) var(--perf-ease);
+}
+
+/* 1) Enter Performance · status tiles + toolbar + grid/list stagger */
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile,
+.perf-shell.perf-enter > .perf-toolbar,
+.perf-shell.perf-enter > .perf-custom-range,
+.perf-shell.perf-enter > .perf-strike-banner,
+.perf-shell.perf-enter > .mod-strike-check-banner,
+.perf-shell.perf-enter > .mod-strike-checkpoint-banner,
+.perf-shell.perf-enter > [class*="strike-checkpoint"],
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile,
+.perf-shell.perf-enter > #perfFlaggedView {
+  animation: fhRise var(--perf-ms) var(--perf-ease) both;
+}
+.perf-shell.perf-enter > .perf-toolbar { animation-delay: 0.04s; }
+.perf-shell.perf-enter > .perf-custom-range { animation-delay: 0.06s; }
+
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(1) { animation-delay: 0.00s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(2) { animation-delay: 0.04s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(3) { animation-delay: 0.08s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(4) { animation-delay: 0.12s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(5) { animation-delay: 0.16s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(6) { animation-delay: 0.20s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(7) { animation-delay: 0.24s; }
+.perf-shell.perf-enter > .perf-status-tiles .perf-status-tile:nth-child(n+8) { animation-delay: 0.24s; }
+
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(1) { animation-delay: 0.06s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(2) { animation-delay: 0.10s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(3) { animation-delay: 0.14s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(4) { animation-delay: 0.18s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(5) { animation-delay: 0.22s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(6) { animation-delay: 0.26s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(7) { animation-delay: 0.30s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(8) { animation-delay: 0.34s; }
+.perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(n+9) { animation-delay: 0.34s; }
+
+/* Grid-only restagger (filter / search remount of tiles, not poll) */
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile {
+  animation: fhRise var(--perf-ms) var(--perf-ease) both;
+}
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(1) { animation-delay: 0.00s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(2) { animation-delay: 0.04s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(3) { animation-delay: 0.08s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(4) { animation-delay: 0.12s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(5) { animation-delay: 0.16s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(6) { animation-delay: 0.20s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(7) { animation-delay: 0.24s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(8) { animation-delay: 0.28s; }
+.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(n+9) { animation-delay: 0.28s; }
+
+/* 2) Section / Grid|List · content crossfade (same as Flagged List|Split) */
+.perf-shell.perf-crossfade > #perfTileGrid,
+.perf-shell.perf-crossfade > #perfFlaggedView,
+.perf-shell.perf-crossfade > .perf-status-tiles,
+.perf-shell.perf-crossfade > .perf-toolbar,
+#perfTileGrid.perf-crossfade {
+  animation: fhCrossIn var(--perf-ms-fast) var(--perf-ease) both;
+}
+
+/* 3) Detail expand / tile open · soft rise, no bounce/blur */
+.perf-tile-body.perf-detail-enter,
+.incident-tile-body.perf-detail-enter {
+  animation: fhEnter var(--perf-ms-fast) var(--perf-ease) both;
+}
+.perf-tile {
+  transition:
+    border-color var(--perf-ms-fast, 0.32s) var(--perf-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+    box-shadow var(--perf-ms-fast, 0.32s) var(--perf-ease, cubic-bezier(0.23, 1, 0.32, 1));
+}
+.perf-tile-chevron {
+  transition: transform var(--perf-ms-fast, 0.32s) var(--perf-ease, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .perf-shell.perf-enter > .perf-status-tiles .perf-status-tile,
+  .perf-shell.perf-enter > .perf-toolbar,
+  .perf-shell.perf-enter > .perf-custom-range,
+  .perf-shell.perf-enter > .perf-strike-banner,
+  .perf-shell.perf-enter > .mod-strike-check-banner,
+  .perf-shell.perf-enter > [class*="strike-checkpoint"],
+  .perf-shell.perf-enter > #perfTileGrid > .perf-tile,
+  .perf-shell.perf-enter > #perfFlaggedView,
+  .perf-shell.perf-restagger > #perfTileGrid > .perf-tile,
+  .perf-shell.perf-crossfade > #perfTileGrid,
+  .perf-shell.perf-crossfade > #perfFlaggedView,
+  .perf-shell.perf-crossfade > .perf-status-tiles,
+  .perf-shell.perf-crossfade > .perf-toolbar,
+  #perfTileGrid.perf-crossfade,
+  .perf-tile-body.perf-detail-enter,
+  .incident-tile-body.perf-detail-enter {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .perf-shell .perf-status-tile,
+  .perf-shell .perf-date-range-btn,
+  .perf-shell .perf-toggle-btn,
+  .perf-shell .mod-layout-btn,
+  .perf-shell .perf-export-btn,
+  .perf-shell .subtab-btn,
+  .perf-tile,
+  .perf-tile-chevron {
+    transition: none !important;
+  }
+}
+
+
+.perf-layout-toggle { margin-left: 4px; }
+
 /* Tiles are <details> elements so expand/collapse is built-in. The
    tile-head is a <summary> wearing the visual chrome. */
 .perf-tile {
@@ -11349,9 +12209,13 @@ button.perf-stat-chip.scheduled.active {
   border: 0.5px solid var(--border);
   border-radius: 9px;
   padding: 3px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .perf-date-range-btn {
+  flex: 0 0 auto;
   font-family: inherit; font-size: 13px; font-weight: 500;
   letter-spacing: -0.005em;
   padding: 7px 12px;
@@ -11386,6 +12250,7 @@ button.perf-stat-chip.scheduled.active {
    look so it reads as an action, not a filter state. */
 .perf-export-btn {
   margin-left: auto;
+  flex: 0 0 auto;
   display: inline-flex; align-items: center; gap: 7px;
   font-family: inherit; font-size: 13px; font-weight: 500;
   letter-spacing: -0.005em;
@@ -11560,6 +12425,25 @@ button.perf-stat-chip.scheduled.active {
 .perf-status-tile.completed::before  { background: rgb(168, 85, 247); }
 .perf-status-tile.inprogress::before { background: rgb(20, 184, 166); }
 .perf-status-tile.scheduled::before  { background: rgb(59, 130, 246); }
+.perf-status-tile.flagged::before    { background: #C5A059; }
+.perf-status-tile.active.flagged {
+  background: rgba(197, 160, 89, 0.16);
+  border-color: rgba(197, 160, 89, 0.45);
+  box-shadow: inset 0 0 0 1.5px rgba(197, 160, 89, 0.55), 0 0 0 3px rgba(197, 160, 89, 0.12);
+}
+.perf-status-tile.active.flagged .perf-status-tile-num { color: #B08F4A; }
+.perf-status-tile.flagged.has-attention .perf-status-tile-num {
+  animation: fhAttnGlow 1.5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+@keyframes fhAttnGlow {
+  0%, 100% { opacity: 0.55; text-shadow: 0 0 0 transparent; }
+  50% { opacity: 1; text-shadow: 0 0 12px rgba(197, 160, 89, 0.55); }
+}
+[data-theme="light"] .perf-status-tile.active.flagged {
+  background: rgba(197, 160, 89, 0.12);
+  border-color: rgba(197, 160, 89, 0.45);
+}
+
 
 /* Active selection state. Soft tint of the matching status
    color + a 1.5px inset ring so the tile reads as a persistent
@@ -12155,8 +13039,12 @@ button.perf-stat-chip.scheduled.active {
 .perf-station-timestamp.done { color: rgb(192, 132, 252); }
 
 /* Responsive · tiles wrap, search expands full-width */
+@media (max-width: 1000px) {
+  .perf-toolbar > .perf-export-btn,
+  .fh-toolbar > .perf-export-btn { margin-left: 0; }
+}
 @media (max-width: 560px) {
-  .perf-toolbar { gap: 8px; }
+  .perf-toolbar, .fh-toolbar { gap: 8px; }
   .perf-search { max-width: none; flex-basis: 100%; order: 99; }
   .perf-booking-row {
     grid-template-columns: 10px 1fr;
@@ -17806,6 +18694,31 @@ button.perf-stat-chip.scheduled.active {
 }
 [data-theme="dark"] .at-btn{ background:var(--bg); }
 [data-theme="dark"] .at-kicker{ color:#C5A059; }
+
+/* Overview flagged row · gold attention pulse (Soft Sage / inbox-glow sibling) */
+.ov-ls-row.is-flagged-attn {
+  background: rgba(197, 160, 89, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(197, 160, 89, 0.32);
+  animation: flaggedAttnWash 1.5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+}
+.ov-ls-row.is-flagged-attn .ov-ls-dot {
+  background: #C5A059;
+  color: #C5A059;
+  animation: inbox-glow 1.5s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(197, 160, 89, 0.35);
+}
+.ov-ls-row.is-flagged-attn .ov-ls-rail { background: #C5A059; }
+.ov-ls-row.is-flagged-attn .ov-ls-status { color: #B08F4A; font-weight: 600; }
+@keyframes flaggedAttnWash {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(197, 160, 89, 0.28), 0 0 0 0 rgba(197, 160, 89, 0); }
+  50% { box-shadow: inset 0 0 0 1.5px rgba(197, 160, 89, 0.55), 0 0 14px 2px rgba(197, 160, 89, 0.28); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-ls-row.is-flagged-attn { animation: none; }
+  .ov-ls-row.is-flagged-attn .ov-ls-dot { animation: none; }
+  .perf-status-tile.flagged.has-attention .perf-status-tile-num { animation: none; }
+}
+
 .ov-ls-row.is-fresh{
   background:rgba(197,160,89,.16);
   box-shadow:inset 0 0 0 1px rgba(197,160,89,.28);
@@ -18459,7 +19372,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091820o" defer></script>
+<script src="twilight.js?v=twilight-1.3.091820v" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Master-Admin-only Approval soft-append Delete (1.3.091820o). */
+/* Self-test: Master-Admin-only Approval soft-append Delete (1.3.091820v). */
 'use strict';
 
 const fs = require('fs');
@@ -21,11 +21,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Approval Master-Admin soft-append delete self-test (1.3.091820o)');
+console.log('Approval Master-Admin soft-append delete self-test (1.3.091820v)');
 
-assert('APP_VERSION 1.3.091820o',
-  /const APP_VERSION = '1\.3\.091820o'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820o'));
+assert('APP_VERSION 1.3.091820v',
+  /const APP_VERSION = '1\.3\.091820v'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091820v'));
 
 assert('APPROVAL_PA_DELETE_URL aliases WRITE',
   /const APPROVAL_PA_DELETE_URL\s*=\s*APPROVAL_PA_WRITE_URL/.test(src));
