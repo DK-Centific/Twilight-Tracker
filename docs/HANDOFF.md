@@ -18,7 +18,7 @@
 
 **Version:** **1.3.091820y**. Selftest: `scripts/phone-layout-selftest.js`.
 
-**PR:** draft to `main` — do **not** merge until David types **push**.
+**PR:** [#152](https://github.com/DK-Centific/Twilight-Tracker/pull/152) draft to `main` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091820y**. On a Pixel 7 (or Chrome DevTools 412×915): Stations tiles, actions bar, header, My session, Confirm Arrival all fit. Rotate to landscape: same mobile Stations flow (not desktop rail), nothing clipped.
 
