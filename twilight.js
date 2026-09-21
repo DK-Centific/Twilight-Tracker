@@ -23370,8 +23370,8 @@ function modCardHTML(m, i, role) {
         <div class="mod-name-block">
           <div class="mod-name">
             ${escapeHTML(fullName)}${role === 'backup' ? ' <span class="mod-role-badge">BU</span>' : ''}${(typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? ' <span class="mod-status-pill is-deactivated">Deactivated</span>' : ''}${hasResolvedName ? '' : ' <span class="mod-incomplete-badge" title="No first/last name found in Excel for this moderator · showing orbit login ID instead. Add the name columns to the row to fix.">Incomplete</span>'}
-            ${showStrikeActions && (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, orbitId) : ''}
           </div>
+          ${showStrikeActions && (typeof renderModStarsHTML === 'function') ? `<div class="mod-card-stars">${renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, orbitId)}</div>` : ''}
           <div class="mod-id">${escapeHTML(orbitId || '·')}</div>
         </div>
         <span class="mod-card-chevron">

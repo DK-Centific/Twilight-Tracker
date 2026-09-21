@@ -26,6 +26,10 @@ console.log('Moderator strike self-test');
 assert('version bump 091821e',
   /const APP_VERSION = '1\.3\.091821e'/.test(src)
   && html.includes('twilight.js?v=twilight-1.3.091821e'));
+assert('grid card stars wrap under the name',
+  /class="mod-card-stars"/.test(src)
+  && html.includes('.mod-card-stars')
+  && /mod-card-stars[\s\S]{0,280}flex-wrap:\s*wrap/.test(html));
 assert('per-orbit strike freshness + write barrier',
   /function modStrikeRecordFreshnessMs/.test(src)
   && /function modStrikeShouldKeepLocal/.test(src)

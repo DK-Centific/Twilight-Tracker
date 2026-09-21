@@ -14,6 +14,7 @@
 - While that save is still sending, and for a short time after reset, a poll cannot lower stars or deactivate that person.
 - Blob `version` + `lastWriter` are stamped and compared. An older version loses. The strikes save has no etag, so this check is on the client.
 - Version **1.3.091821e**. Selftest: `scripts/mod-strike-selftest.js`.
+- Moderator Hub **Grid**: star badges sit on their own line under the name (flex-wrap) so a long name no longer clips them. List view unchanged.
 
 **PR:** [#157](https://github.com/DK-Centific/Twilight-Tracker/pull/157) on `cursor/mod-strike-freshness-merge-08cf` — Watchdog merges (David authorized push). Do not merge from this agent.
 

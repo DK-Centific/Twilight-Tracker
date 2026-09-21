@@ -8026,6 +8026,24 @@ input#ent_lakitu.lakitu-invalid {
   color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* Grid cards: stars sit on their own line under the name so a long
+   name cannot clip them. The title row above stays one line. */
+.mod-card-stars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 4px;
+  max-width: 100%;
+  overflow: visible;
+}
+.mod-card-stars .mod-stars {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-left: 0;
+  max-width: 100%;
+  row-gap: 2px;
+}
 .mod-id {
   font-family: var(--font-num);
   font-size: 12px; font-weight: 500;
