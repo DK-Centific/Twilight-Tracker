@@ -11481,6 +11481,8 @@ function classifyBookingForPerf(a) {
       return Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now < endMs;
     })();
   // Completed · admin marked it Completed OR the mod confirmed wrap-up.
+  // Assignment/odStatus may stay Booked, Scheduled, or Rescheduled after a
+  // PA heal — SessionState session_done still counts as Done for Past/history.
   if (a.status === 'Completed' || (live && live.status === 'session_done')) return 'completed';
   // After booked end: all stations submitted (no session_done stamp yet)
   // still counts Completed for Performance + strike parity.
@@ -12884,6 +12886,7 @@ function perfUsesHistoryBookings() {
 function perfHistoryAssignments() {
   const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
     ? adminState.assignments : [];
+  // Booked / Rescheduled / Scheduled stay in. odStatus is not a hide rule.
   return list.filter(a => a && a.id
     && a.status !== 'Cancelled' && a.status !== 'Unassigned');
 }

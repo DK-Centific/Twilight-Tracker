@@ -35,7 +35,8 @@ const pxm = {
   date: '2026-09-19',
   startMin: 14 * 60,
   endMin: 22 * 60,
-  status: 'Booked',
+  status: 'Rescheduled',
+  odStatus: 'Rescheduled',
   participantData: { firstName: 'Rohit' },
   modSnapshots: [{ orbitLoginId: 'Pradeepreddy-tw' }, { orbitLoginId: 'Manoj-tw' }],
 };
@@ -47,7 +48,8 @@ const mxs = {
   date: '2026-09-19',
   startMin: 14 * 60,
   endMin: 22 * 60,
-  status: 'Rescheduled',
+  status: 'Booked',
+  odStatus: 'Scheduled',
   participantData: { firstName: 'lisa' },
   modSnapshots: [{ orbitLoginId: 'Muhammad-tw' }, { orbitLoginId: 'Sravya-tw' }],
 };
@@ -232,10 +234,13 @@ assert('APP_VERSION 1.3.091821a', /const APP_VERSION = '1\.3\.091821a'/.test(src
 assert('cache-bust matches version', /twilight\.js\?v=twilight-1\.3\.091821a/.test(
   fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
 
-assert('PxM classifies completed from session_done (Assignment still Booked)',
+assert('PxM Rescheduled + session_done classifies Done (SS wins over Assignment/odStatus)',
   ctx.classifyBookingForPerf(pxm) === 'completed');
-assert('MxS classifies completed from session_done (Assignment Rescheduled)',
+assert('MxS Booked/Scheduled + session_done classifies Done',
   ctx.classifyBookingForPerf(mxs) === 'completed');
+assert('history source keeps Rescheduled (not Cancelled/Unassigned)',
+  ctx.perfHistoryAssignments().some(a => a.id === pxm.id)
+  && ctx.perfHistoryAssignments().some(a => a.id === mxs.id));
 
 assert('healed session_done is wrap-up done',
   ctx.isSessionWrapUpDone(pxm) && ctx.isSessionWrapUpDone(mxs));

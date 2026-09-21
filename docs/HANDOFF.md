@@ -16,6 +16,8 @@
 
 **PR:** [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) draft on `cursor/perf-past-history-review-9f44` — do **not** merge until David types **push**.
 
+**PA follow-up (2026-09-21):** Assignment List present — PxM `od_27c50635` status/odStatus **Rescheduled**; MxS `od_d9286d02` Booked/Scheduled. Confirmed no gap: Past/history keeps Rescheduled; `classifyBookingForPerf` marks **Done** from SS `session_done`. Selftest fixtures match those live rows.
+
 **Verify (David):** Hard refresh → **1.3.091821a**. Admin → Performance → **Today** still Live-focused. Click **Past** (or **All time**). Open **Pradeepreddy × Manoj** and **Muhammad × Sravya**. They should show Completed. Flagged must **not** light them up again.
 
 ---
