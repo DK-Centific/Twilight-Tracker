@@ -1,6 +1,25 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-21 · Cursor · Admin Performance Past / history review (1.3.091821a)
+**Last updated:** 2026-09-21 · Cursor · Team happypath Flag / strike (1.3.091821b)
+
+## 2026-09-21 · Team = Session Flag / 9 AM (1.3.091821b)
+
+**Ask:** **Rohith × Venkata** showed Completed under Performance → Done (all stations) but still appeared on Flagged / 9 AM auto-strike. After PA healed SS 477/479 to `session_done` + Skip/resolved by assignmentId, the client must not re-queue. Flag list + red glow must auto-show only when flagged teams exist. Flagged history stars are **per moderator**, not Team (4/4).
+
+**Cause:** Flagged required a `session_done` stamp on one row (`isAssignmentCompleteForFlagged`) while Done treated `station_4_done` after session end as complete. Teammate wrap-up could lose to the other mod’s thinner station stamps. After Past/history defaulted the date pill to **Today**, the 9 AM banner hid yesterday’s queue. History presented one star count that read as a team 4/4.
+
+**Fix:**
+- `isAssignmentTeamHappypathComplete` — either co-mod `session_done` / wrap-up / `station_4_done` / all-stations maps completes the assignment (soft-merge richer → thinner).
+- Flagged + 9 AM strike share that helper. Skip/resolved by **assignmentId** still works when List `teamId` is null.
+- Checkpoint banner always rebuilds; Today still shows the 9 AM Flag list; Flagged tile gets the red glow only when count > 0.
+- History rows are **one moderator’s stars** (Warning 1/2, Locked, Final Chance, Deactivated). Completeness is team-level; stars are not shared.
+- Version **1.3.091821b**. Selftest: `scripts/team-happypath-flag-selftest.js`. Fixture report: `docs/ROHITH-VENKATA-FLAG-FIX-REPORT.md`.
+
+**PR:** [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) draft on `cursor/team-happypath-flag-946c` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091821b**. Admin → Performance. **Rohith × Venkata** (Danica, Sep 20) is Completed under Done / Past. Flagged and the 9 AM list must **not** show them. If another team is still incomplete, the Flagged tile glows red and the list appears. Open Flagged history: each name has **that person’s** stars (someone with 3★ can sit next to someone with 4★).
+
+---
 
 ## 2026-09-21 · Admin Performance Past / history (1.3.091821a)
 
@@ -347,8 +366,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820y`** (Pixel 7 phone-class layout) |
-| **This branch** | **`1.3.091821a`** · Admin Performance Past / history · `cursor/perf-past-history-review-9f44` |
+| **`main` version** | **`1.3.091821a`** (Admin Performance Past / history) |
+| **This branch** | **`1.3.091821b`** · Team happypath Flag / strike · `cursor/team-happypath-flag-946c` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #151 · team sync audit pack |
 
@@ -379,7 +398,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Draft · newest |
+| [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft · newest |
+| [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Merged to main |
 | [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
 | [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
 | [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft |

@@ -44,6 +44,7 @@ assert('wrap-up pins assignment before flush',
 
 assert('flag gate: session_done OR station_4_done',
   /function isAssignmentCompleteForStrike/.test(src)
+  && /function isAssignmentTeamHappypathComplete/.test(src)
   && /liveStatus === 'session_done'/.test(src)
   && /liveStatus === 'station_4_done'/.test(src)
   && /function assignmentLiveStatusForStrike/.test(src));
