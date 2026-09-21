@@ -129,6 +129,7 @@ vm.runInContext(sliceBetween('function addDaysToYmd', 'function teamBookingOnDat
 vm.runInContext(sliceBetween('function pacificWallClockToMs', 'function modStrikeCheckpointSkippedTeamIds'), ctx);
 vm.runInContext(sliceBetween('function perfBookingOverlapsPacificDay', 'function perfDateRangeOptions'), ctx);
 vm.runInContext(extractFn('assignmentPerfSessionStarted'), ctx);
+vm.runInContext(extractFn('assignmentInPerfLiveWindow'), ctx);
 vm.runInContext(extractFn('classifyBookingForPerf'), ctx);
 vm.runInContext(sliceBetween('function assignmentQueueNormalizedEndMin', 'function operatorProgressOnAssignment'), ctx);
 vm.runInContext(extractFn('assignmentSessionStartedNotDone'), ctx);
