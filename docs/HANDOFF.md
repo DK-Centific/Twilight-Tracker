@@ -15,7 +15,7 @@
 - History rows are **one moderator’s stars** (Warning 1/2, Locked, Final Chance, Deactivated). Completeness is team-level; stars are not shared.
 - Version **1.3.091821b**. Selftest: `scripts/team-happypath-flag-selftest.js`. Fixture report: `docs/ROHITH-VENKATA-FLAG-FIX-REPORT.md`.
 
-**PR:** draft on `cursor/team-happypath-flag-946c` — do **not** merge until David types **push**.
+**PR:** [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) draft on `cursor/team-happypath-flag-946c` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091821b**. Admin → Performance. **Rohith × Venkata** (Danica, Sep 20) is Completed under Done / Past. Flagged and the 9 AM list must **not** show them. If another team is still incomplete, the Flagged tile glows red and the list appears. Open Flagged history: each name has **that person’s** stars (someone with 3★ can sit next to someone with 4★).
 
@@ -398,7 +398,7 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| (this run) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft · newest |
+| [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft · newest |
 | [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Merged to main |
 | [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
 | [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
