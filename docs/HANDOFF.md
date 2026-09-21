@@ -15,7 +15,7 @@
 - Blob `version` + `lastWriter` are stamped and compared. An older version loses. The strikes save has no etag, so this check is on the client.
 - Version **1.3.091821e**. Selftest: `scripts/mod-strike-selftest.js`.
 
-**PR:** draft on `cursor/mod-strike-freshness-merge-08cf` — Watchdog merges (David authorized push). Do not merge from this agent.
+**PR:** [#157](https://github.com/DK-Centific/Twilight-Tracker/pull/157) on `cursor/mod-strike-freshness-merge-08cf` — Watchdog merges (David authorized push). Do not merge from this agent.
 
 **Verify (David):** Hard refresh → **1.3.091821e**. Admin → Moderators. Open the person who was deactivated, set them Active, and confirm stars show **4**. Leave the page open for a minute (a second Admin tab can stay open too). Stars must stay **4** and the status must stay **Active**.
 
