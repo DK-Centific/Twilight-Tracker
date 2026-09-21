@@ -14,7 +14,7 @@
 - Flagged still excludes complete + Skip/resolved. Strike checkpoint UX unchanged.
 - Version **1.3.091821a**. Selftest: `scripts/perf-past-history-selftest.js`.
 
-**PR:** draft on `cursor/perf-past-history-review-9f44` — do **not** merge until David types **push**.
+**PR:** [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) draft on `cursor/perf-past-history-review-9f44` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091821a**. Admin → Performance → **Today** still Live-focused. Click **Past** (or **All time**). Open **Pradeepreddy × Manoj** and **Muhammad × Sravya**. They should show Completed. Flagged must **not** light them up again.
 
@@ -377,7 +377,7 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| (this session) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Draft · newest |
+| [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Draft · newest |
 | [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
 | [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
 | [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft |
