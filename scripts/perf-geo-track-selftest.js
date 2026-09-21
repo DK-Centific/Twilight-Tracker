@@ -132,8 +132,8 @@ ctx.adminState.perfSessionStateRows = [{
     lastGeo: { lat: 47.6446, lng: -122.1370, at: Date.now() - 30 * 60 * 1000 },
   }),
 }];
-assert('recent geo on today booking classifies Live', ctx.classifyBookingForPerf(todayAsgn) === 'inprogress');
-assert('recent geo shows Live tracking label', ctx.perfLiveStatusDisplay(todayAsgn).label.indexOf('Live') >= 0);
+assert('recent geo without app check-in is Next, not Live', ctx.classifyBookingForPerf(todayAsgn) === 'scheduled');
+assert('recent geo still shows tracking label on the row pill', ctx.perfLiveStatusDisplay(todayAsgn).label.indexOf('Live') >= 0);
 
 const staleAsgn = Object.assign({}, todayAsgn, { id: 'asgn_stale' });
 ctx.adminState.perfSessionStateRows[0].assignmentId = 'asgn_stale';

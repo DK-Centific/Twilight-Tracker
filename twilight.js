@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821b';
-const APP_UPDATED_AT = '09/21/2026 08:30';
+const APP_VERSION = '1.3.091821d';
+const APP_UPDATED_AT = '09/21/2026 09:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -11457,29 +11457,74 @@ function assignmentPerfSessionStarted(a) {
   return false;
 }
 
+// Live window for Performance / Overview tiles (1.3.091821d).
+// A booking is in the relevant live window when:
+//   1. It overlaps today's Pacific day (overnight 8 PM → 3 AM counts)
+//   2. The booked end has not passed
+//   3. Now is inside the booked clock window, or up to 2 hours before
+//      start (early app check-in). Same-day evening bookings stay Next
+//      until that window — they are upcoming, not Live.
+// Future-day and stale past-day rows are never Live, even if
+// SessionState still says arrived.
+const PERF_LIVE_EARLY_CHECKIN_MS = 2 * 60 * 60 * 1000;
+function assignmentInPerfLiveWindow(a) {
+  if (!a) return false;
+  if (typeof isPastAssignmentSessionEnd === 'function' && isPastAssignmentSessionEnd(a)) {
+    return false;
+  }
+  if (typeof perfBookingOverlapsPacificDay === 'function'
+      && !perfBookingOverlapsPacificDay(a)) {
+    return false;
+  }
+  if (typeof assignmentBookingSessionStartMs !== 'function'
+      || typeof assignmentBookingSessionEndMs !== 'function') {
+    return typeof perfBookingOverlapsPacificDay === 'function'
+      && perfBookingOverlapsPacificDay(a);
+  }
+  const startMs = assignmentBookingSessionStartMs(a);
+  const endMs = assignmentBookingSessionEndMs(a);
+  const now = Date.now();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return typeof perfBookingOverlapsPacificDay === 'function'
+      && perfBookingOverlapsPacificDay(a);
+  }
+  const grace = (typeof PERF_LIVE_EARLY_CHECKIN_MS === 'number')
+    ? PERF_LIVE_EARLY_CHECKIN_MS : (2 * 60 * 60 * 1000);
+  return now >= (startMs - grace) && now < endMs;
+}
+
 function classifyBookingForPerf(a) {
   if (!a) return null;
   if (a.status === 'Cancelled' || a.status === 'Unassigned') return null;
-  // LIVE-STATUS MAPPING (1.3.061526):
+  // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
+  // -----------------------------------------
   // Prefer the moderator's live session progress over the static
   // assignment status. getLatestStatusForAssignment() derives the
   // furthest-progressed worklog status (arrived → station_N_done →
-  // session_done) from the SessionState rows the mod app syncs · the
-  // admin app has no Worklog read flow, but SessionState IS fetched on
-  // this tab (perfSessionStateRows). The lookup is memoized per
-  // assignment, so calling it for every row during render is cheap.
+  // session_done) from SessionState (perfSessionStateRows).
+  //
+  // Done  · Assignment Completed, SS session_done, or (after booked
+  //         end) station_4_done / office_checkout / team happypath.
+  //         Past-day and overnight-finished rows belong here — a
+  //         yesterday-evening session that wrapped this morning is
+  //         Done, not Live.
+  // Live  · Checked in from the app (arrived or later, not wrap-up)
+  //         AND currently in the relevant live window (Pacific today
+  //         overlap, including still-open overnight). Notified-only
+  //         and geo pings alone are not Live. A leftover arrived
+  //         flag on a session that is not today / already past end
+  //         is never Live.
+  // Next  · Upcoming / not yet checked in, including today's booked
+  //         sessions that have not arrived. Future-day arrived
+  //         leftovers also land here (not Live).
   const live = (typeof getLatestStatusForAssignment === 'function')
     ? getLatestStatusForAssignment(a.id)
     : null;
   const pastEnd = (typeof isPastAssignmentSessionEnd === 'function')
     && isPastAssignmentSessionEnd(a);
-  const inWindow = !pastEnd && (typeof assignmentBookingSessionStartMs === 'function')
-    && (() => {
-      const startMs = assignmentBookingSessionStartMs(a);
-      const endMs = assignmentBookingSessionEndMs(a);
-      const now = Date.now();
-      return Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now < endMs;
-    })();
+  const inLiveWindow = (typeof assignmentInPerfLiveWindow === 'function')
+    ? assignmentInPerfLiveWindow(a)
+    : false;
   // Completed · admin marked it Completed OR the mod confirmed wrap-up.
   // Assignment/odStatus may stay Booked, Scheduled, or Rescheduled after a
   // PA heal — SessionState session_done still counts as Done for Past/history.
@@ -11495,18 +11540,11 @@ function classifyBookingForPerf(a) {
       && isAssignmentTeamHappypathComplete(a)) {
     return 'completed';
   }
-  // Live while inside the booked window and the mod has arrived (or later).
-  if (inWindow && assignmentPerfSessionStarted(a)) return 'inprogress';
-  // In progress · arrived through wrap-up (but not Live after booked end).
-  if (!pastEnd && assignmentPerfSessionStarted(a)) return 'inprogress';
-  if (!pastEnd && a.status === 'Notified') return 'inprogress';
-  // Today's booking with a location ping in the last 2 hours (SessionState
-  // or local geo cache) counts as Live even before arrival is confirmed.
-  if (!pastEnd && typeof perfAssignmentHasRecentGeoActivity === 'function'
-      && perfAssignmentHasRecentGeoActivity(a)) {
-    return 'inprogress';
-  }
-  return 'scheduled'; // 'Booked' (or anything else not Cancelled/Completed)
+  // Live · checked in from the app and still in today's live window.
+  // Do not treat arrived-without-a-today-window as Live (future-day
+  // stale check-in, or overnight that already ended).
+  if (inLiveWindow && assignmentPerfSessionStarted(a)) return 'inprogress';
+  return 'scheduled'; // Booked / Notified / not-started / stale arrived
 }
 
 // Resolves the status PILL display (CSS key + visible label) for a
@@ -13009,17 +13047,15 @@ function perfTeamBookingCandidates(teamId) {
 function perfAssignmentVisibleInAdminQueue(a) {
   if (!a || !a.id) return false;
   if (a.teamId == null || a.teamId === '') return true;
-  // Checked-in / in-progress on *today's* booking (or overnight that still
-  // overlaps today) stays visible even if a prior-day unfinished row briefly
-  // pins the admin queue between polls. Do NOT bypass for future queued
-  // bookings — overnight incomplete must still hide next-day until the
-  // 9 AM gate / wrap-up rules allow it.
+  // Checked-in on a booking that is still in the relevant live window
+  // (Pacific today, or overnight that has not yet ended) stays visible
+  // even if a prior-day unfinished row briefly pins the admin queue
+  // between polls. After booked end, do not keep a stale arrived row
+  // pinned as Live. Future queued bookings still follow the 9 AM gate.
   try {
-    if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)) {
-      const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-      if (today && String(a.date || '') === today) return true;
-      if (today && typeof perfBookingOverlapsPacificDay === 'function'
-          && perfBookingOverlapsPacificDay(a, today)) return true;
+    if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)
+        && typeof assignmentInPerfLiveWindow === 'function' && assignmentInPerfLiveWindow(a)) {
+      return true;
     }
   } catch (_) {}
   const visible = perfTeamBookingCandidates(a.teamId);
@@ -13044,6 +13080,9 @@ function perfAssignmentVisibleInAdminQueue(a) {
 // Date predicate: perfDateInRange (today = Pacific overlap; past =
 //   not today; week/custom on a.date).
 // Status predicate: classifyBookingForPerf (Done/Live/Next).
+//   Live = checked-in + assignmentInPerfLiveWindow (today / open overnight).
+//   Next = not yet checked in, including today upcoming.
+//   Done = wrap-up / happypath, including past-day + overnight finished.
 // Flagged / 9 AM auto-strike predicate (1.3.091821b):
 //   isAssignmentFlaggedForPerf / isAssignmentCompleteForStrike
 //   past session end AND not team happypath AND not Skip/resolved.
