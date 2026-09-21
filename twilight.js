@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091820y';
-const APP_UPDATED_AT = '09/20/2026 16:10';
+const APP_VERSION = '1.3.091821a';
+const APP_UPDATED_AT = '09/21/2026 00:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8411,10 +8411,13 @@ const adminState = {
   // perfSort: per-tile sort spec keyed by tile ID, e.g.
   //   { 'team-3': { key: 'date',   dir: 'desc' },
   //     'mod-jane': { key: 'status', dir: 'asc' } }
-  // perfDateRange: 'all' | 'today' | 'week' | 'month' · toolbar-level
-  //   filter applied to BOTH tile counts and tile body lists. Default
-  //   'all' preserves prior behavior. Uses parseYMD on a.date so the
-  //   bucket boundaries are local-time (matches mod calendar semantics).
+  // perfDateRange: 'today' | 'past' | 'week' | 'all' | 'custom'
+  //   · toolbar-level filter applied to BOTH tile counts and tile body
+  //   lists. Default 'today' keeps Admin Performance ops-focused
+  //   (Live queue + 9 AM gate). Past / This week / All time / Custom
+  //   use the history source so completed + skipped sessions stay
+  //   reviewable. Uses parseYMD on a.date (week/custom) or Pacific
+  //   overlap (today/past).
   // perfStatusFilter: { [tileId]: 'completed' | 'inprogress' | 'scheduled' }
   //   · per-tile drill filter set by clicking a stat chip in the tile
   //   header. Stacks on top of perfDateRange + perfSearch but only
@@ -8437,7 +8440,7 @@ const adminState = {
   perfSearch: '',
   perfExpanded: new Set(),
   perfSort: {},
-  perfDateRange: 'all',
+  perfDateRange: 'today',
   perfStatusFilter: {},
   perfStatusScope: 'all',
   perfSessionStateRows: null,
@@ -11478,6 +11481,8 @@ function classifyBookingForPerf(a) {
       return Number.isFinite(startMs) && Number.isFinite(endMs) && now >= startMs && now < endMs;
     })();
   // Completed · admin marked it Completed OR the mod confirmed wrap-up.
+  // Assignment/odStatus may stay Booked, Scheduled, or Rescheduled after a
+  // PA heal — SessionState session_done still counts as Done for Past/history.
   if (a.status === 'Completed' || (live && live.status === 'session_done')) return 'completed';
   // After booked end: all stations submitted (no session_done stamp yet)
   // still counts Completed for Performance + strike parity.
@@ -11742,19 +11747,20 @@ function renderPerfGeoTrackHTML(a, variant) {
 // Date-range filter helpers for the Performance tab.
 //
 // Returns true when the booking falls inside the active perfDateRange.
-// 'all' (the default) is the no-op identity case · every booking passes.
-// Other ranges are anchored to "now" recomputed each call so the filter
-// stays correct across midnight rollovers (admin leaves the tab open
-// overnight, comes back, "Today" still means today).
+// 'today' is the ops default. 'all' is the no-op identity case · every
+// booking passes. Other ranges are anchored to "now" recomputed each
+// call so the filter stays correct across midnight rollovers.
 //
 // Comparison is done in local TZ via parseYMD so dates like "2026-05-28"
 // are NOT shifted by UTC offset (parseYMD's YMD fast-path constructs the
 // Date with explicit local components · see parseYMD's comment).
 //
-// 'week' = current Monday–Sunday calendar week, matching how startOfWeek
-//          is used everywhere else in the admin app (week view, schedule
-//          grid, etc.). NOT a 7-day rolling window.
-// 'month' = current calendar month (1st of month → last of month).
+// 'today'  = Pacific-day overlap (overnight Sep17→Sep18 counts as Today)
+// 'past'   = not overlapping today (prior completed/skipped review)
+// 'week'   = current Monday–Sunday calendar week (NOT a 7-day rolling window)
+// 'month'  = current calendar month (legacy · remapped to 'all')
+// 'custom' = inclusive [start, end] on a.date; open bounds allowed
+// 'all'    = every dated booking (history source, not the live queue)
 function perfBookingOverlapsPacificDay(a, ymd) {
   const day = String(ymd || ((typeof getPSTDateString === 'function') ? getPSTDateString() : ''));
   if (!day) return false;
@@ -11777,11 +11783,41 @@ function perfBookingOverlapsPacificDay(a, ymd) {
   return String((mat && mat.date) || '').split('T')[0] === day;
 }
 
+function perfActiveDateRange() {
+  const raw = (typeof adminState !== 'undefined' && adminState)
+    ? String(adminState.perfDateRange || '')
+    : '';
+  if (raw === 'month') {
+    if (typeof adminState !== 'undefined' && adminState) adminState.perfDateRange = 'all';
+    return 'all';
+  }
+  if (raw === 'today' || raw === 'past' || raw === 'week' || raw === 'all' || raw === 'custom') {
+    return raw;
+  }
+  return 'today';
+}
+
 function perfDateInRange(a, range) {
   if (!range || range === 'all') return true;
 
   if (range === 'today') {
     return perfBookingOverlapsPacificDay(a);
+  }
+
+  if (range === 'past') {
+    // Prior Pacific days only. Overnight that still overlaps today
+    // stays on Today so Live ops and Past review do not double-count.
+    if (typeof perfBookingOverlapsPacificDay === 'function' && perfBookingOverlapsPacificDay(a)) {
+      return false;
+    }
+    const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+    const startYmd = String((a && a.date) || '').split('T')[0];
+    const endYmd = (typeof assignmentSessionEndYmdPt === 'function')
+      ? String(assignmentSessionEndYmdPt(a) || '')
+      : startYmd;
+    if (today && startYmd && startYmd < today) return true;
+    if (today && endYmd && endYmd < today) return true;
+    return false;
   }
 
   const d = parseYMD(a && a.date);
@@ -11842,6 +11878,7 @@ function perfDateRangeOptions() {
   if (adminState.perfDateRange === 'month') adminState.perfDateRange = 'all';
   return [
     { key: 'today',  label: 'Today',     sub: now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) },
+    { key: 'past',   label: 'Past',      sub: 'before today' },
     { key: 'week',   label: 'This week', sub: `from ${wkStartLabel}` },
     { key: 'all',    label: 'All time',  sub: '' },
     { key: 'custom', label: 'Custom',    sub: customSub },
@@ -11936,7 +11973,7 @@ function isAssignmentFlaggedForPerf(a) {
 
 function perfFlaggedAssignmentsInDateRange() {
   const dateRange = (typeof adminState !== 'undefined' && adminState)
-    ? (adminState.perfDateRange || 'all') : 'all';
+    ? ((typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today')) : 'today';
   const seen = new Set();
   const out = [];
   const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
@@ -12625,43 +12662,63 @@ function wireFlaggedHistoryView(root) {
 // not for showing search hits). Returns { all, completed, inprogress,
 // scheduled } using the same classifier as the tile chips.
 //
-// The "all" count is the sum of the three classified buckets · this
-// matches what perfDateInRange would surface anyway, but it's
-// computed off the same source array so the strip's "All" number
-// always equals "Done + Live + Next" exactly. No rounding gaps, no
-// hidden status (cancelled/unassigned are already filtered out by
-// classifyBookingForPerf returning null).
+// Today (ops): Live/Next come from the live admin queue; Done comes
+// from history so today's completed sessions stay clickable. The All
+// tile matches the default grid (Live + Next) and does not dump
+// completed into the ops view.
+// Past / week / all / custom: all three buckets come from history,
+// and All = Done + Live + Next.
 function perfStatusToolbarCounts() {
   const view = adminState.perfView || 'teams';
-  const dateRange = adminState.perfDateRange || 'all';
-  const seen = new Set();
-  let completed = 0, inprogress = 0, scheduled = 0;
-  const countAssignment = (a) => {
-    if (!a || !a.id || seen.has(a.id)) return;
+  const dateRange = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : (adminState.perfDateRange || 'today');
+  const liveSource = dateRange === 'today' ? 'queue' : 'history';
+  const seenDone = new Set();
+  const seenLive = new Set();
+  const seenNext = new Set();
+  const countAssignment = (a, allowed) => {
+    if (!a || !a.id) return;
     if (!perfDateInRange(a, dateRange)) return;
     const bucket = classifyBookingForPerf(a);
-    if (!bucket) return;
+    if (!bucket || !allowed[bucket]) return;
+    const seen = bucket === 'completed' ? seenDone
+      : (bucket === 'inprogress' ? seenLive : seenNext);
+    if (seen.has(a.id)) return;
     seen.add(a.id);
-    if (bucket === 'completed') completed++;
-    else if (bucket === 'inprogress') inprogress++;
-    else if (bucket === 'scheduled') scheduled++;
   };
-  if (view === 'mods') {
-    for (const m of (adminState.moderators || [])) {
-      if (!m) continue;
-      const orbitId = perfModId(m);
-      if (!orbitId) continue;
-      for (const a of perfModBookings(orbitId)) countAssignment(a);
+  const walk = (source, allowed) => {
+    if (view === 'mods') {
+      for (const m of (adminState.moderators || [])) {
+        if (!m) continue;
+        const orbitId = perfModId(m);
+        if (!orbitId) continue;
+        const list = (typeof perfModAssignmentsForSource === 'function')
+          ? perfModAssignmentsForSource(orbitId, source)
+          : perfModBookings(orbitId);
+        for (const a of list) countAssignment(a, allowed);
+      }
+    } else {
+      for (const t of (adminState.teams || [])) {
+        if (!t) continue;
+        const list = (typeof perfTeamAssignmentsForSource === 'function')
+          ? perfTeamAssignmentsForSource(t.id, source)
+          : perfTeamBookings(t.id);
+        for (const a of list) countAssignment(a, allowed);
+      }
     }
-  } else {
-    for (const t of (adminState.teams || [])) {
-      if (!t) continue;
-      for (const a of perfTeamBookings(t.id)) countAssignment(a);
-    }
-  }
+  };
+  walk('history', { completed: true });
+  walk(liveSource, { inprogress: true, scheduled: true });
+  const completed = seenDone.size;
+  const inprogress = seenLive.size;
+  const scheduled = seenNext.size;
   const flagged = (typeof perfFlaggedAssignmentsInDateRange === 'function')
     ? perfFlaggedAssignmentsInDateRange().length : 0;
-  return { all: completed + inprogress + scheduled, completed, inprogress, scheduled, flagged };
+  const all = dateRange === 'today'
+    ? (inprogress + scheduled)
+    : (completed + inprogress + scheduled);
+  return { all, completed, inprogress, scheduled, flagged };
 }
 
 function refreshPerfStatusTilesInPlace() {
@@ -12794,18 +12851,60 @@ function perfAssignmentVisibleInAdminQueue(a) {
   return visible.some(x => String(x.id) === String(a.id));
 }
 
-// All bookings for a team · used in team-tile expansion.
-function perfTeamBookings(teamId) {
-  return perfTeamBookingCandidates(teamId).filter(a => classifyBookingForPerf(a));
+// =====================================================================
+// Performance booking source (1.3.091821a)
+//
+// Live queue (ops · Today + All/Live/Next):
+//   perfTeamBookingCandidates → applyAdminBookingQueueGate
+//   + perfAssignmentVisibleInAdminQueue
+//   Drops: Cancelled/Unassigned, Completed, session_done / wrap-up,
+//   older than the 2-day floor, and (after 9 AM PT) prior-day rows
+//   when a today+ booking exists.
+//
+// History (review · Past / This week / All time / Custom, or Done):
+//   Assignment List rows for the team/mod, including session_done,
+//   Assignment Completed, Admin Skip, and resolved checkpoints.
+//   Does NOT re-flag and does NOT clear Skip.
+//
+// Date predicate: perfDateInRange (today = Pacific overlap; past =
+//   not today; week/custom on a.date).
+// Status predicate: classifyBookingForPerf (Done/Live/Next).
+// Flagged predicate: isAssignmentFlaggedForPerf — past session end
+//   AND not complete AND not Skip/resolved. Unchanged.
+// =====================================================================
+function perfUsesHistoryBookings() {
+  const range = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((typeof adminState !== 'undefined' && adminState && adminState.perfDateRange) || 'today');
+  const scope = (typeof adminState !== 'undefined' && adminState)
+    ? (adminState.perfStatusScope || 'all')
+    : 'all';
+  if (scope === 'completed') return true;
+  return range !== 'today';
 }
 
-// All bookings a mod was on (primary or backup at time of booking).
-// We check modSnapshots (the captured team-at-booking-time) so a mod
-// removed from the team after-the-fact still shows their historical
-// session.
-function perfModBookings(modOrbitId) {
+function perfHistoryAssignments() {
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  // Booked / Rescheduled / Scheduled stay in. odStatus is not a hide rule.
+  return list.filter(a => a && a.id
+    && a.status !== 'Cancelled' && a.status !== 'Unassigned');
+}
+
+function perfTeamHistoryBookings(teamId) {
+  return perfHistoryAssignments().filter(a => String(a.teamId) === String(teamId));
+}
+
+function perfTeamAssignmentsForSource(teamId, source) {
+  const list = source === 'history'
+    ? perfTeamHistoryBookings(teamId)
+    : perfTeamBookingCandidates(teamId);
+  return list.filter(a => classifyBookingForPerf(a));
+}
+
+function perfModMatchedAssignments(modOrbitId) {
   const lc = String(modOrbitId || '').toLowerCase();
-  const matched = (adminState.assignments || []).filter(a => {
+  return (adminState.assignments || []).filter(a => {
     if (!a) return false;
     // A booking counts for a mod if EITHER:
     //   (1) they were captured on it at booking time (modSnapshots) · keeps
@@ -12823,13 +12922,28 @@ function perfModBookings(modOrbitId) {
         String(s.orbitLoginId || s.orbitId || '').toLowerCase() === lc)) {
       return true;
     }
-    // Current team roster (primary + backup).
     const team = (adminState.teams || []).find(t => String(t.id) === String(a.teamId));
     if (!team) return false;
     const ids = [...(team.primaryIds || []), ...(team.backupIds || [])];
     return ids.some(id => String(id || '').toLowerCase() === lc);
   });
-  return matched.filter(a => perfAssignmentVisibleInAdminQueue(a) && classifyBookingForPerf(a));
+}
+
+function perfModAssignmentsForSource(modOrbitId, source) {
+  return perfModMatchedAssignments(modOrbitId).filter(a => {
+    if (!classifyBookingForPerf(a)) return false;
+    if (source === 'history') return true;
+    return perfAssignmentVisibleInAdminQueue(a);
+  });
+}
+
+// All bookings for a team · used in team-tile expansion.
+function perfTeamBookings(teamId) {
+  return perfTeamAssignmentsForSource(teamId, perfUsesHistoryBookings() ? 'history' : 'queue');
+}
+
+function perfModBookings(modOrbitId) {
+  return perfModAssignmentsForSource(modOrbitId, perfUsesHistoryBookings() ? 'history' : 'queue');
 }
 
 // Sort comparator factory. spec: { key: 'date'|'status', dir: 'asc'|'desc' }
@@ -12936,7 +13050,9 @@ function perfLiveContentSig() {
     const scope = (adminState && adminState.perfStatusScope) || 'all';
     const view = (adminState && adminState.perfView) || 'teams';
     const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
-    const range = (adminState && adminState.perfDateRange) || 'all';
+    const range = (typeof perfActiveDateRange === 'function')
+      ? perfActiveDateRange()
+      : ((adminState && adminState.perfDateRange) || 'today');
     const layout = (adminState && adminState.perfListLayout) || 'grid';
     const counts = (typeof perfStatusToolbarCounts === 'function') ? perfStatusToolbarCounts() : {};
     const countSig = ['all', 'completed', 'inprogress', 'scheduled', 'flagged']
@@ -13155,7 +13271,7 @@ function renderIncidentReport(body) {
   if (typeof startPerfLivePoll === 'function') startPerfLivePoll();
 
   const search = adminState.perfSearch || '';
-  const dateRange = adminState.perfDateRange || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const dateOptions = perfDateRangeOptions();
   const scope = adminState.incidentScope || 'all';
   const counts = incidentStatusCounts();
@@ -13471,7 +13587,7 @@ function renderPerformance(body) {
 
   const view = adminState.perfView || 'teams';
   const search = (adminState.perfSearch || '').trim().toLowerCase();
-  const dateRange = adminState.perfDateRange || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const dateOptions = perfDateRangeOptions();
   const statusScope = adminState.perfStatusScope || 'all';
   const statusCounts = perfStatusToolbarCounts();
@@ -13745,7 +13861,7 @@ function renderPerfTilesHTML(view, search) {
 function exportPerformanceXLSX() {
   if (typeof XLSX === 'undefined') { toast('Excel library not loaded · try refreshing'); return; }
   const view        = adminState.perfView || 'teams';
-  const dateRange   = adminState.perfDateRange || 'all';
+  const dateRange   = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const statusScope = adminState.perfStatusScope || 'all';
   const search      = (adminState.perfSearch || '').trim().toLowerCase();
   const inScope = a => perfDateInRange(a, dateRange) &&
@@ -13800,6 +13916,7 @@ function exportPerformanceXLSX() {
 
   const rangeLabel = (() => {
     if (dateRange === 'today') return 'Today';
+    if (dateRange === 'past')  return 'Past';
     if (dateRange === 'week')  return 'This week';
     if (dateRange === 'month') return 'This month';
     if (dateRange === 'custom') return `Custom ${adminState.perfCustomStart || '(any)'} to ${adminState.perfCustomEnd || '(any)'}`;
@@ -13861,9 +13978,14 @@ function exportPerformanceXLSX() {
   toast(`Exported ${fname}`);
 }
 
+function perfEmptyWidenHint(dateRange) {
+  if (dateRange === 'today') return ' Click Past or All time to review completed sessions.';
+  return ' Try widening the filters.';
+}
+
 function renderPerfTeamTilesHTML(search) {
   const teams = adminState.teams || [];
-  const dateRange = adminState.perfDateRange || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const statusScope = adminState.perfStatusScope || 'all';
   // Composable scope filter · applied alongside the date filter
   // wherever a team's bookings are listed. Pulled into a closure so
@@ -13920,9 +14042,9 @@ function renderPerfTeamTilesHTML(search) {
     return `<div class="perf-empty" style="grid-column: 1 / -1;">${
       search
         ? `No teams match "${escapeHTML(search)}"${dateNote}${statusNote}.`
-        : (statusScope !== 'all' || dateRange !== 'all'
-            ? `No teams have sessions${statusNote}${dateNote}. Try clearing filters.`
-            : 'No teams yet. Create one in Moderator Hub to start tracking performance.')
+        : (teams.length === 0
+            ? 'No teams yet. Create one in Moderator Hub to start tracking performance.'
+            : `No teams have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}`)
     }</div>`;
   }
 
@@ -13991,14 +14113,14 @@ function renderPerfTeamTilesHTML(search) {
   if (filteredTilesHTML.trim() === '') {
     const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
-    return `<div class="perf-empty" style="grid-column: 1 / -1;">No teams have sessions${statusNote}${dateNote}. Try widening the filters.</div>`;
+    return `<div class="perf-empty" style="grid-column: 1 / -1;">No teams have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}</div>`;
   }
   return filteredTilesHTML;
 }
 
 function renderPerfModTilesHTML(search) {
   const mods = adminState.moderators || [];
-  const dateRange = adminState.perfDateRange || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const statusScope = adminState.perfStatusScope || 'all';
   // Composed filter (date + global status scope). Mirror of the team
   // renderer's helper so both views agree on what's in scope.
@@ -14034,9 +14156,9 @@ function renderPerfModTilesHTML(search) {
     return `<div class="perf-empty" style="grid-column: 1 / -1;">${
       search
         ? `No moderators match "${escapeHTML(search)}"${dateNote}${statusNote}.`
-        : (statusScope !== 'all' || dateRange !== 'all'
-            ? `No moderators have sessions${statusNote}${dateNote}. Try clearing filters.`
-            : 'No moderators loaded yet.')
+        : ((adminState.moderators || []).length === 0
+            ? 'No moderators loaded yet.'
+            : `No moderators have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}`)
     }</div>`;
   }
 
@@ -14107,7 +14229,7 @@ function renderPerfModTilesHTML(search) {
   if (filteredTilesHTML.trim() === '') {
     const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
-    return `<div class="perf-empty" style="grid-column: 1 / -1;">No moderators have sessions${statusNote}${dateNote}. Try widening the filters.</div>`;
+    return `<div class="perf-empty" style="grid-column: 1 / -1;">No moderators have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}</div>`;
   }
   return filteredTilesHTML;
 }
@@ -14426,7 +14548,7 @@ function wirePerfTileGrid(grid) {
 // the date filter identically. Returns null when the tile ID doesn't
 // map to anything (stale ID after data refresh, etc).
 function perfBookingsForTile(tileId) {
-  const dateRange = adminState.perfDateRange || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
   const statusScope = adminState.perfStatusScope || 'all';
   // Composed filter applied across both branches. Mirrors the closure
   // in the tile renderers so toggle/sort/drill paths see identical
@@ -25841,7 +25963,9 @@ function incidentDateInRange(row, range) {
 function filteredPanicIncidents() {
   const rows = (adminState && adminState.panicLogRows) || [];
   const scope = (adminState && adminState.incidentScope) || 'all';
-  const dateRange = (adminState && adminState.perfDateRange) || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((adminState && adminState.perfDateRange) || 'today');
   const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
   return rows.filter((row) => {
     if (scope !== 'all' && row.reportType !== scope) return false;
@@ -25857,7 +25981,9 @@ function filteredPanicIncidents() {
 }
 
 function incidentStatusCounts() {
-  const dateRange = (adminState && adminState.perfDateRange) || 'all';
+  const dateRange = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((adminState && adminState.perfDateRange) || 'today');
   const rows = ((adminState && adminState.panicLogRows) || []).filter((row) => incidentDateInRange(row, dateRange));
   const counts = { all: rows.length, contact_police: 0, data_loss: 0, nda_consent: 0, misconduct: 0 };
   rows.forEach((row) => {
@@ -28735,9 +28861,11 @@ function resolveModStrikeCheckpointTeam(teamId) {
 }
 
 function modStrikeCheckpointRowMatchesPerfDateFilter(row, rep) {
-  const range = (typeof adminState !== 'undefined' && adminState && adminState.perfDateRange)
-    ? adminState.perfDateRange
-    : 'all';
+  const range = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((typeof adminState !== 'undefined' && adminState && adminState.perfDateRange)
+      ? adminState.perfDateRange
+      : 'today');
   if (!range || range === 'all') return true;
   const asgn = (row && row.assignmentId != null)
     ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
