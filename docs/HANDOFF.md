@@ -1,6 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-20 · Cursor · Pixel 7 phone-class layout (1.3.091820y)
+**Last updated:** 2026-09-21 · Cursor · Admin Performance Past / history review (1.3.091821a)
+
+## 2026-09-21 · Admin Performance Past / history (1.3.091821a)
+
+**Ask:** Yesterday’s completed teams **Pradeepreddy × Manoj** (PxM, SS 468/470, `od_27c50635`) and **Muhammad × Sravya** (MxS, SS 454/455, `od_d9286d02`) vanished from Admin Performance after PA healed them to `session_done` + Approved + Skip/resolved. David wants past sessions reviewable.
+
+**Cause (client filter, not a SessionState gap):** PA confirmed SS rows present and healthy. Performance tiles always read the **live admin queue** (`perfTeamBookingCandidates` + `perfAssignmentVisibleInAdminQueue`), which drops Completed / `session_done` wrap-up, applies the 2-day floor, and after 9 AM PT scopes to today+. Date pills (All time / This week / Custom) ran *after* that cut, so they never saw healed rows. Skip/resolved does **not** hide tiles; it only keeps them out of **Flagged** (correct — do not re-flag).
+
+**Fix:**
+- Default date range is **Today** (ops Live queue unchanged).
+- New **Past** pill + This week / All time / Custom / **Done** use a **history** source that includes completed + skipped.
+- Flagged still excludes complete + Skip/resolved. Strike checkpoint UX unchanged.
+- Version **1.3.091821a**. Selftest: `scripts/perf-past-history-selftest.js`.
+
+**PR:** draft on `cursor/perf-past-history-review-9f44` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091821a**. Admin → Performance → **Today** still Live-focused. Click **Past** (or **All time**). Open **Pradeepreddy × Manoj** and **Muhammad × Sravya**. They should show Completed. Flagged must **not** light them up again.
+
+---
 
 ## 2026-09-20 · Pixel 7 + phone-class mobile layout (1.3.091820y)
 
@@ -327,8 +345,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091820x`** (team sync audit + toast) |
-| **This branch** | **`1.3.091820y`** · Pixel 7 phone-class layout · `cursor/pixel7-phone-layout-40e7` |
+| **`main` version** | **`1.3.091820y`** (Pixel 7 phone-class layout) |
+| **This branch** | **`1.3.091821a`** · Admin Performance Past / history · `cursor/perf-past-history-review-9f44` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #151 · team sync audit pack |
 
@@ -359,7 +377,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft · newest |
+| (this session) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Draft · newest |
+| [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
 | [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
 | [#108](https://github.com/DK-Centific/Twilight-Tracker/pull/108) | `cursor/booking-manual-name-address-81f9` | Booking: type Participant name + Address (editable even after roster pick) | Draft |
 | [#74](https://github.com/DK-Centific/Twilight-Tracker/pull/74) | `cursor/assignment-od-excel-roundtrip-8e44` | Round-trip OneData keys on Assignment Excel save | Draft |
