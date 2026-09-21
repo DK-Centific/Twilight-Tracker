@@ -19,7 +19,7 @@
 
 **Version:** **1.3.091821c**. Selftest: `scripts/perf-foreign-orbit-scope-selftest.js`. Contract: `docs/team-scope-contract.md`. Report: `od-sync/ROHITH-VENKATA-NARENDRA-ATTRIBUTION-REPORT.md`.
 
-**PR:** draft on `cursor/perf-foreign-orbit-scope-18f9` — do **not** merge until David types **push**.
+**PR:** [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) draft on `cursor/perf-foreign-orbit-scope-18f9` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091821c**. Admin → Performance → **Done** (or Past). Open **Rohith × Venkata**. Arrival and Latest update must be Rohith or Venkata (or empty) — never Narendra, never “not on team”.
 
@@ -421,7 +421,7 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| this PR | `cursor/perf-foreign-orbit-scope-18f9` | Hide foreign orbit on Done Arrival/LATEST · write membership gate · **1.3.091821c** | Draft · newest |
+| [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) | `cursor/perf-foreign-orbit-scope-18f9` | Hide foreign orbit on Done Arrival/LATEST · write membership gate · **1.3.091821c** | Draft · newest |
 | [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft |
 | [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Merged to main |
 | [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
