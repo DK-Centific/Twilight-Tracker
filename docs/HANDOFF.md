@@ -16,7 +16,7 @@
 - Overview Live + queue bypass use the same window helper. Notified-only and geo-only are not Live.
 - Version **1.3.091821d** (past main `821b` and open #155 `821c`). Selftest: `scripts/perf-live-next-done-selftest.js`.
 
-**PR:** draft on `cursor/perf-live-next-done-window-eff0` — do **not** merge until David types **push**. Started from **main** (did not rebase #155 foreign-orbit).
+**PR:** [#156](https://github.com/DK-Centific/Twilight-Tracker/pull/156) draft on `cursor/perf-live-next-done-window-eff0` — do **not** merge until David types **push**. Started from **main** (did not rebase #155 foreign-orbit).
 
 **Verify (David):** Hard refresh → **1.3.091821d**. Admin → Performance → **Today**. Live should only list teams who checked in and whose session is happening now (or last night’s overnight still running before end). Tonight’s not-started teams are **Next**. Yesterday evening finished teams are **Done** (click **Past** or **Done** if they are not on Today).
 
@@ -418,7 +418,7 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| this branch | `cursor/perf-live-next-done-window-eff0` | Live/Next/Done = checked-in + today/overnight window | Draft · newest |
+| [#156](https://github.com/DK-Centific/Twilight-Tracker/pull/156) | `cursor/perf-live-next-done-window-eff0` | Live/Next/Done = checked-in + today/overnight window | Draft · newest |
 | [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) | `cursor/perf-foreign-orbit-scope-18f9` | Hide foreign orbits on Done Arrival / LATEST UPDATE | Draft · `1.3.091821c` · not included |
 | [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | **Merged** to main |
 | [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Merged to main |
