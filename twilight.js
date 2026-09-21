@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821a';
-const APP_UPDATED_AT = '09/21/2026 00:30';
+const APP_VERSION = '1.3.091821b';
+const APP_UPDATED_AT = '09/21/2026 08:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -11489,6 +11489,12 @@ function classifyBookingForPerf(a) {
   if (pastEnd && live && (live.status === 'station_4_done' || live.status === 'office_checkout')) {
     return 'completed';
   }
+  // Team = Session · either co-mod's happypath (session_done / wrap-up /
+  // all stations) is Done for the whole assignment after session end.
+  if (pastEnd && typeof isAssignmentTeamHappypathComplete === 'function'
+      && isAssignmentTeamHappypathComplete(a)) {
+    return 'completed';
+  }
   // Live while inside the booked window and the mod has arrived (or later).
   if (inWindow && assignmentPerfSessionStarted(a)) return 'inprogress';
   // In progress · arrived through wrap-up (but not Live after booked end).
@@ -11887,15 +11893,24 @@ function perfDateRangeOptions() {
 
 
 // =====================================================================
-// Flagged tile · PA contract (1.3.091820p-preview)
-// flagged = pastSessionEnd && !isComplete && !isSkipOrResolved
-// isComplete = Assignment.status==='Completed' OR SS session_done /
-//              sessionCompletedAt for that assignmentId
+// Flagged tile · filter contract (1.3.091821b)
+// flagged = pastSessionEnd && !teamHappypathComplete && !isSkipOrResolved
+//
+// Team = Session. Either co-mod's checklist happypath completes the
+// whole assignment (both primaries pass):
+//   isComplete = Assignment.status==='Completed'
+//             OR SS session_done / office_checkout / sessionCompletedAt
+//             OR station_4_done / all-stations maps
+//             OR classifyBookingForPerf === 'completed'
+//   on ANY teammate SessionState row for this assignmentId
+//     (sessionStateRowsForAssignment · not one-mod-only)
+//
 // isSkipOrResolved = checkpoints[day].skippedTeams/resolvedTeams
 //   prefer assignmentId keys; day = session end calendar PT
 //   (also check today's checkpoint for legacy Skip/Strike stamps)
 // Count = distinct assignmentIds in Performance date filter window.
 // History ledger = strikes store stars remaining + ladder (no event table).
+// 9 AM auto-strike uses the same isAssignmentTeamHappypathComplete.
 // =====================================================================
 function assignmentSessionEndYmdPt(a) {
   const endMs = (typeof assignmentBookingSessionEndMs === 'function')
@@ -11914,6 +11929,74 @@ function assignmentSessionEndYmdPt(a) {
   }
 }
 
+function sessionStateStatusHint(parsed, row) {
+  const fromParsed = parsed && parsed.sessionStatus != null ? String(parsed.sessionStatus).trim() : '';
+  if (fromParsed) return fromParsed;
+  if (!row) return '';
+  return String(row.sessionStatus || row.SessionStatus || row.status || row.Status || '').trim();
+}
+
+function sessionStateCompletionStamp(parsed, row) {
+  if (parsed && parsed.sessionCompletedAt) return parsed.sessionCompletedAt;
+  if (row && (row.sessionCompletedAt || row.SessionCompletedAt)) {
+    return row.sessionCompletedAt || row.SessionCompletedAt;
+  }
+  return null;
+}
+
+function sessionStateHasStation4Stamp(parsed) {
+  const sca = parsed && parsed.stationCompletedAt;
+  if (!sca || typeof sca !== 'object') return false;
+  return !!(sca.Station4 || sca.station4);
+}
+
+function sessionStateAllStationsHappypath(parsed) {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const stations = parsed.stations || {};
+  const list = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS) && STATIONS.length)
+    ? STATIONS
+    : ['station1', 'station2', 'station3', 'station4'].map(key => ({ key }));
+  const doneFn = (typeof isScenarioDoneForStation === 'function')
+    ? isScenarioDoneForStation
+    : ((typeof isScenarioComplete === 'function') ? isScenarioComplete : null);
+  if (!doneFn) return false;
+  let seen = 0;
+  for (const stn of list) {
+    const data = stations[stn.key];
+    const vals = data && data.scenarios ? Object.values(data.scenarios) : [];
+    if (!vals.length) return false;
+    if (!vals.every(s => doneFn(s))) return false;
+    seen++;
+  }
+  return seen > 0;
+}
+
+function sessionStateParsedIsHappypathComplete(parsed, row) {
+  if (sessionStateCompletionStamp(parsed, row)) return true;
+  const st = String(sessionStateStatusHint(parsed, row) || '').toLowerCase();
+  if (st === 'session_done' || st === 'office_checkout' || st === 'station_4_done') return true;
+  if (sessionStateHasStation4Stamp(parsed)) return true;
+  if (sessionStateAllStationsHappypath(parsed)) return true;
+  return false;
+}
+
+function assignmentSessionStateRowsForHappypath(a) {
+  if (!a || a.id == null) return [];
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(a.id, rows)
+    : rows.filter(r => r && (typeof assignmentIdsMatch === 'function'
+      ? assignmentIdsMatch(r.assignmentId, a.id)
+      : String(r.assignmentId || '') === String(a.id)));
+  return matching.filter(r => {
+    if (!r) return false;
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
+    return true;
+  });
+}
+
 function assignmentHasSessionDoneStamp(a) {
   if (!a || a.id == null) return false;
   const live = (typeof getLatestStatusForAssignment === 'function')
@@ -11922,24 +12005,83 @@ function assignmentHasSessionDoneStamp(a) {
     if (live.status === 'session_done' || live.status === 'office_checkout') return true;
     if (live.sessionCompletedAt) return true;
   }
-  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
-    ? adminState.perfSessionStateRows : [];
-  const aid = String(a.id);
-  for (const r of rows) {
-    if (!r) continue;
-    const rid = String(r.assignmentId || r.AssignmentId || r.id || '');
-    if (rid !== aid) continue;
-    if (r.sessionCompletedAt || r.SessionCompletedAt) return true;
-    const st = String(r.sessionStatus || r.status || r.Status || '').toLowerCase();
+  const bookingYmd = (typeof resolveAssignmentBookingYmd === 'function')
+    ? resolveAssignmentBookingYmd(a.id)
+    : String((a && a.date) || '');
+  for (const r of assignmentSessionStateRowsForHappypath(a)) {
+    let parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : {};
+    if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
+      parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
+        preserveSessionCompletion: true,
+      });
+    }
+    if (sessionStateCompletionStamp(parsed, r)) return true;
+    const st = String(sessionStateStatusHint(parsed, r) || '').toLowerCase();
     if (st === 'session_done' || st === 'office_checkout') return true;
   }
   return false;
 }
 
-function isAssignmentCompleteForFlagged(a) {
+// Team = Session. Either co-mod's checklist happypath (session_done /
+// wrap-up / station_4_done / all stations) completes the assignment
+// for Performance Done, Flagged, and the 9 AM auto-strike queue.
+function isAssignmentTeamHappypathComplete(a) {
   if (!a) return false;
   if (a.status === 'Completed') return true;
-  return assignmentHasSessionDoneStamp(a);
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id) : null;
+  if (live) {
+    const liveStatus = String(live.status || '').toLowerCase();
+    if (liveStatus === 'session_done' || liveStatus === 'office_checkout') return true;
+    if (liveStatus === 'station_4_done') return true;
+    if (live.sessionCompletedAt) return true;
+  }
+  const bookingYmd = (typeof resolveAssignmentBookingYmd === 'function')
+    ? resolveAssignmentBookingYmd(a.id)
+    : String((a && a.date) || '');
+  const teammateRows = assignmentSessionStateRowsForHappypath(a);
+  // Soft-merge richer → thinner so one empty heartbeat cannot hide the
+  // co-mod's session_done / station_4_done / full station maps.
+  const merged = {};
+  for (const r of teammateRows) {
+    let parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : {};
+    if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
+      parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
+        preserveSessionCompletion: true,
+      });
+    }
+    if (sessionStateParsedIsHappypathComplete(parsed, r)) return true;
+    const stamp = sessionStateCompletionStamp(parsed, r);
+    if (stamp && !merged.sessionCompletedAt) merged.sessionCompletedAt = stamp;
+    const hint = sessionStateStatusHint(parsed, r);
+    if (hint) {
+      const curIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(merged.sessionStatus) : -1;
+      const nextIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(hint) : -1;
+      if (nextIdx > curIdx) merged.sessionStatus = hint;
+    }
+    if (parsed.stationCompletedAt && typeof parsed.stationCompletedAt === 'object') {
+      merged.stationCompletedAt = Object.assign({}, merged.stationCompletedAt || {}, parsed.stationCompletedAt);
+    }
+    if (parsed.stations && typeof mergeStationMapsPreferRicher === 'function') {
+      merged.stations = mergeStationMapsPreferRicher(merged.stations || {}, parsed.stations);
+    } else if (parsed.stations) {
+      merged.stations = Object.assign({}, parsed.stations, merged.stations || {});
+    }
+  }
+  if (teammateRows.length && sessionStateParsedIsHappypathComplete(merged, null)) return true;
+  return false;
+}
+
+function isAssignmentCompleteForFlagged(a) {
+  if (!a) return false;
+  if (typeof isAssignmentTeamHappypathComplete === 'function'
+      && isAssignmentTeamHappypathComplete(a)) return true;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'completed';
 }
 
 function isAssignmentSkipOrResolvedForFlagged(a) {
@@ -11986,6 +12128,21 @@ function perfFlaggedAssignmentsInDateRange() {
     if (!isAssignmentFlaggedForPerf(a)) continue;
     seen.add(key);
     out.push(a);
+  }
+  // Today ops: also surface 9 AM yesterday checkpoint subjects so the
+  // Flagged tile count + glow match Overview attention.
+  if (dateRange === 'today' && typeof buildModStrikeCheckpointReport === 'function') {
+    const rep = buildModStrikeCheckpointReport();
+    for (const row of (rep.teams || [])) {
+      if (!row || !row.flagIncomplete || row.skipped || row.resolved) continue;
+      if (row.assignmentId == null || row.assignmentId === '') continue;
+      const key = String(row.assignmentId);
+      if (seen.has(key)) continue;
+      const hit = list.find(x => x && String(x.id) === key);
+      if (!hit) continue;
+      seen.add(key);
+      out.push(hit);
+    }
   }
   return out;
 }
@@ -12090,7 +12247,8 @@ function buildFlaggedHistoryRows() {
       if (rows.some(r => String(r.orbitId).toLowerCase() === key
           && String(r.teamId) === String(a.teamId))) continue;
       const pill = perfFlaggedStatusPillForOrbit(key);
-      // Keep incomplete-session rows even at 4★ — show as pending warning context
+      // Keep incomplete-session rows even at 4★ — stars stay this
+      // moderator's own count (do not invent a team 4/4 warning).
       const endMs = (typeof assignmentBookingSessionEndMs === 'function')
         ? assignmentBookingSessionEndMs(a) : NaN;
       rows.push({
@@ -12101,7 +12259,7 @@ function buildFlaggedHistoryRows() {
         dateMs: Number.isFinite(endMs) ? endMs : (Date.parse(String(a.date) + 'T12:00:00') || 0),
         stars: pill.stars,
         pill: pill.filter === 'ok'
-          ? { key: 'warn', label: 'Warning received', filter: 'warn', stars: pill.stars }
+          ? { key: 'ok', label: 'Pending review', filter: 'all', stars: pill.stars }
           : pill,
         otherMods: primaries.map(String).filter(id => id.toLowerCase() !== key).slice(0, 3),
         reason: 'Incomplete past session end',
@@ -12175,19 +12333,22 @@ function renderFlaggedHistoryListHTML(rows, max) {
     const othersHtml = (r.otherMods || []).map(id => {
       const n = escapeHTML(perfModDisplayNameByOrbit(id));
       const s = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : max;
+      const op = (typeof perfFlaggedStatusPillForOrbit === 'function')
+        ? perfFlaggedStatusPillForOrbit(id)
+        : { label: s + '/' + max, stars: s };
       const sh = (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(s, max, id) : '';
-      return `<span class="fh-other-mod">${n} ${sh}</span>`;
+      return `<span class="fh-other-mod">${n} ${sh} <span class="fh-mod-stars-n">${s}/${max}</span> <span class="fh-other-pill">${escapeHTML(op.label)}</span></span>`;
     }).join(' ');
     const pillCls = r.pill.key === 'warn2' ? 'warn warn2' : r.pill.key;
     const lockedCls = (r.pill.filter === 'locked') ? ' is-locked' : '';
     return `<li class="fh-row${lockedCls}" data-orbit="${escapeHTML(String(r.orbitId))}" data-team-id="${escapeHTML(String(r.teamId || ''))}" data-fh-key="${escapeHTML(fhRowKey(r))}">
       <div class="fh-date">${escapeHTML(dt.day)}${dt.time ? `<small>${escapeHTML(dt.time)}</small>` : ''}</div>
       <div>
-        <div class="fh-team">${escapeHTML(r.teamName || 'Team')}</div>
-        <div class="fh-mods">${primaryName} · ${starsHtml}</div>
+        <div class="fh-team">${primaryName}</div>
+        <div class="fh-mods">${escapeHTML(r.teamName || 'Team')} · ${starsHtml}</div>
       </div>
       <div class="fh-mods fh-others">${othersHtml}</div>
-      <div class="fh-stars-n">${r.stars}<span class="unit">/${max} left</span></div>
+      <div class="fh-stars-n" title="${primaryName} stars (individual, not team)">${r.stars}<span class="unit">/${max} · ${primaryName}</span></div>
       <span class="fh-pill ${pillCls}">${escapeHTML(r.pill.label)}</span>
     </li>`;
   }).join('') + `</ul>`;
@@ -12195,27 +12356,40 @@ function renderFlaggedHistoryListHTML(rows, max) {
 
 function renderFlaggedHistorySplitDetailHTML(r, max) {
   if (!r) {
-    return `<div class="fh-split-empty">Select a flagged team</div>`;
+    return `<div class="fh-split-empty">Select a flagged moderator</div>`;
   }
   const dt = formatFlaggedHistoryDate(r.dateMs || r.dateIso);
   const when = [dt.day, dt.time].filter(Boolean).join(', ') + (dt.time ? ' PT' : '');
   const primaryName = escapeHTML(perfModDisplayNameByOrbit(r.orbitId));
-  const others = (r.otherMods || []).map(id => escapeHTML(perfModDisplayNameByOrbit(id))).filter(Boolean);
-  const modsLine = [primaryName].concat(others).join(' · ') || '—';
   const pillCls = r.pill.key === 'warn2' ? 'warn warn2' : r.pill.key;
   const hero = renderFlaggedHistoryStarsGlyph(r.stars, max);
   const starsHtml = (typeof renderModStarsHTML === 'function')
     ? `<div class="fh-star-hero">${renderModStarsHTML(r.stars, max, r.orbitId)}</div>`
-    : `<div class="fh-star-hero" aria-label="${r.stars} of ${max} stars remaining">${hero}</div>`;
+    : `<div class="fh-star-hero" aria-label="${primaryName} · ${r.stars} of ${max} stars remaining">${hero}</div>`;
+  const teammateIds = [r.orbitId].concat(r.otherMods || []);
+  const seen = new Set();
+  const teammateLines = teammateIds.map(id => {
+    const key = String(id || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return '';
+    seen.add(key);
+    const name = escapeHTML(perfModDisplayNameByOrbit(id));
+    const s = (typeof getModStrikeStars === 'function') ? getModStrikeStars(id) : max;
+    const p = (typeof perfFlaggedStatusPillForOrbit === 'function')
+      ? perfFlaggedStatusPillForOrbit(id)
+      : { label: s + '/' + max, stars: s };
+    const sh = (typeof renderModStarsHTML === 'function') ? renderModStarsHTML(s, max, id) : '';
+    return `<div class="fh-mod-line">${name} ${sh} <span class="fh-mod-stars-n">${s}/${max}</span> <span class="fh-pill ${p.key === 'warn2' ? 'warn warn2' : p.key}">${escapeHTML(p.label)}</span></div>`;
+  }).filter(Boolean).join('');
   return `
-    <h3>${escapeHTML(r.teamName || 'Team')}</h3>
+    <h3>${primaryName}</h3>
     ${starsHtml}
     <span class="fh-pill ${pillCls}" style="align-self:flex-start">${escapeHTML(r.pill.label)}</span>
     <dl class="fh-kv">
-      <dt>Stars left</dt><dd>${r.stars} / ${max}</dd>
-      <dt>Moderators</dt><dd>${modsLine}</dd>
+      <dt>${primaryName} stars</dt><dd>${r.stars} / ${max} · individual</dd>
+      <dt>Team</dt><dd>${escapeHTML(r.teamName || '—')}</dd>
+      <dt>Each moderator</dt><dd>${teammateLines || '—'}</dd>
       <dt>Last event</dt><dd>${escapeHTML(when || '—')}</dd>
-      <dt>Source</dt><dd>Strike checkpoint</dd>
+      <dt>Source</dt><dd>Strike checkpoint · stars are per moderator, not team</dd>
     </dl>`;
 }
 
@@ -12237,6 +12411,7 @@ function renderFlaggedHistorySplitHTML(rows, max) {
       : (r.pill.filter === 'locked') ? 'Locked'
       : (r.pill.filter === 'deact') ? 'Off'
       : (r.pill.key === 'warn2') ? 'Warn 2'
+      : (r.pill.key === 'ok' || r.pending) ? 'Pending'
       : 'Warn';
     const sel = fhRowKey(r) === selKey ? ' sel' : '';
     return `<div class="fh-split-item${sel}" role="button" tabindex="0"
@@ -12244,8 +12419,8 @@ function renderFlaggedHistorySplitHTML(rows, max) {
       data-orbit="${escapeHTML(String(r.orbitId))}"
       data-team-id="${escapeHTML(String(r.teamId || ''))}">
       <div class="t">
-        <div class="name">${escapeHTML(r.teamName || 'Team')}</div>
-        <div class="when">${escapeHTML(when)}</div>
+        <div class="name">${escapeHTML(perfModDisplayNameByOrbit(r.orbitId))}</div>
+        <div class="when">${escapeHTML(r.teamName || 'Team')} · ${escapeHTML(when)}</div>
       </div>
       <span class="fh-pill ${pillCls}">${escapeHTML(shortLabel)}</span>
     </div>`;
@@ -12744,7 +12919,7 @@ function refreshPerfStatusTilesInPlace() {
     if (next == null) return;
     numEl.textContent = String(next);
     const isActive = (adminState.perfStatusScope || 'all') === key;
-    const isDisabled = key !== 'all' && next === 0 && !isActive;
+    const isDisabled = key !== 'all' && key !== 'flagged' && next === 0 && !isActive;
     btn.classList.toggle('disabled', isDisabled);
     btn.disabled = isDisabled;
     if (key === 'flagged') {
@@ -12869,8 +13044,11 @@ function perfAssignmentVisibleInAdminQueue(a) {
 // Date predicate: perfDateInRange (today = Pacific overlap; past =
 //   not today; week/custom on a.date).
 // Status predicate: classifyBookingForPerf (Done/Live/Next).
-// Flagged predicate: isAssignmentFlaggedForPerf — past session end
-//   AND not complete AND not Skip/resolved. Unchanged.
+// Flagged / 9 AM auto-strike predicate (1.3.091821b):
+//   isAssignmentFlaggedForPerf / isAssignmentCompleteForStrike
+//   past session end AND not team happypath AND not Skip/resolved.
+//   Team = Session: either co-mod session_done / wrap-up / all stations
+//   completes the assignment. Same helper: isAssignmentTeamHappypathComplete.
 // =====================================================================
 function perfUsesHistoryBookings() {
   const range = (typeof perfActiveDateRange === 'function')
@@ -15648,9 +15826,11 @@ function renderOverview(body) {
           scrollTo: 'modviewBody',
         });
       } else if (kind === 'livestatus') {
+        const attn = (typeof modStrikeCheckpointAttentionActive === 'function')
+          && modStrikeCheckpointAttentionActive();
         selectAdminTab('performance', {
           perfSection: 'sessions',
-          perfStatusScope: 'inprogress',
+          perfStatusScope: attn ? 'flagged' : 'inprogress',
           perfDateRange: 'today',
           scrollTo: 'modStrikeCheckpointBanner',
         });
@@ -28608,7 +28788,8 @@ function assignmentLiveStatusForStrike(a) {
 
 function isAssignmentCompleteForStrike(a) {
   if (!a) return false;
-  if (a.status === 'Completed') return true;
+  if (typeof isAssignmentTeamHappypathComplete === 'function'
+      && isAssignmentTeamHappypathComplete(a)) return true;
   const liveStatus = assignmentLiveStatusForStrike(a);
   // Wrap-up / PA stamp · Admin incomplete+flag must clear.
   if (liveStatus === 'session_done' || liveStatus === 'office_checkout') return true;
@@ -28867,6 +29048,10 @@ function modStrikeCheckpointRowMatchesPerfDateFilter(row, rep) {
       ? adminState.perfDateRange
       : 'today');
   if (!range || range === 'all') return true;
+  // Today ops: the 9 AM auto-strike queue is yesterday's incompletes.
+  // After Past/history defaulted the date pill to Today, hide-by-date
+  // made the Flag list + glow vanish even when teams needed attention.
+  if (range === 'today') return true;
   const asgn = (row && row.assignmentId != null)
     ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
         .find(a => a && String(a.id) === String(row.assignmentId))
@@ -28998,9 +29183,16 @@ async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
 }
 
 function renderPerfStrikeCheckpointBannerHTML() {
-  const rep = (typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
-    ? adminState._modStrikeCheckpointReport
-    : buildModStrikeCheckpointReport();
+  // Always rebuild · a cached report from before SessionState loaded
+  // must not keep a happypath-complete team in the 9 AM queue.
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport()
+    : ((typeof adminState !== 'undefined' && adminState && adminState._modStrikeCheckpointReport)
+      ? adminState._modStrikeCheckpointReport
+      : null);
+  if (typeof adminState !== 'undefined' && adminState && rep) {
+    adminState._modStrikeCheckpointReport = rep;
+  }
   if (!rep || !rep.teams || !rep.teams.length) return '';
   const pending = (rep.teams || []).filter(t => t.flagIncomplete && !t.skipped && !t.resolved);
   // After admin confirms Skip/Strike for every incomplete, hide by default.
@@ -43941,7 +44133,11 @@ function deriveLatestStatusFromSessionState(asgnId) {
         preserveSessionCompletion: true,
       });
     }
-    const stHint = parsed.sessionStatus ? String(parsed.sessionStatus).trim() : '';
+    // Row-level PA columns count even when stateJson omitted them.
+    const rowStatus = String((r.sessionStatus != null ? r.sessionStatus : '')
+      || r.SessionStatus || '').trim();
+    const rowCompletedAt = r.sessionCompletedAt || r.SessionCompletedAt || null;
+    const stHint = String(parsed.sessionStatus || rowStatus || '').trim();
     if (stHint && typeof statusOrderIdx === 'function') {
       const idx = statusOrderIdx(stHint);
       if (idx > bestSessionStatusIdx) {
@@ -43949,8 +44145,8 @@ function deriveLatestStatusFromSessionState(asgnId) {
         bestSessionStatus = stHint;
       }
     }
-    if (parsed.sessionCompletedAt && !sessionCompletedAt) {
-      sessionCompletedAt = parsed.sessionCompletedAt;
+    if ((parsed.sessionCompletedAt || rowCompletedAt) && !sessionCompletedAt) {
+      sessionCompletedAt = parsed.sessionCompletedAt || rowCompletedAt;
       if (!attributionRow) attributionRow = r;
     }
     if (parsed.officeCheckedOutAt && !officeCheckedOutAt) {
@@ -44013,6 +44209,13 @@ function deriveLatestStatusFromSessionState(asgnId) {
     ? getModeratorDisplayName(moderatorId)
     : (moderatorId || '');
   const lastActive = (latestRow && latestRow.lastActive) || '';
+  // Team = Session · either co-mod wrap-up / session_done wins over the
+  // other mod's lower station stamps (Rohith session_done + Venkata St 2).
+  if (!sessionCompletedAt && (bestSessionStatus === 'session_done'
+      || bestSessionStatus === 'office_checkout')) {
+    sessionCompletedAt = (attributionRow && attributionRow.lastActive)
+      || lastActive || new Date().toISOString();
+  }
   let moderatorMatch = true;
   if (moderatorId) {
     const booking = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
@@ -44053,6 +44256,7 @@ function deriveLatestStatusFromSessionState(asgnId) {
         moderatorId:    moderatorId,
         moderatorName:  moderatorName,
         moderatorMatch: moderatorMatch,
+        sessionCompletedAt: sessionCompletedAt || null,
         // Mark derived rows so future debugging can distinguish
         // "this came from SS inference" from "this came from a
         // local worklog write." Doesn't affect existing call sites
@@ -44073,6 +44277,7 @@ function deriveLatestStatusFromSessionState(asgnId) {
       moderatorId: moderatorId,
       moderatorName: moderatorName,
       moderatorMatch: moderatorMatch,
+      sessionCompletedAt: sessionCompletedAt || null,
       _derived: true,
     };
     _derivedStatusCache.byAsgnId[asgnId] = result;

@@ -230,8 +230,8 @@ function scopedModBookings(orbitId) {
 
 console.log('Performance Past / history self-test (1.3.091821a)');
 
-assert('APP_VERSION 1.3.091821a', /const APP_VERSION = '1\.3\.091821a'/.test(src));
-assert('cache-bust matches version', /twilight\.js\?v=twilight-1\.3\.091821a/.test(
+assert('APP_VERSION 1.3.091821b', /const APP_VERSION = '1\.3\.091821[ab]'/.test(src));
+assert('cache-bust matches version', /twilight\.js\?v=twilight-1\.3\.091821[ab]/.test(
   fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8')));
 
 assert('PxM Rescheduled + session_done classifies Done (SS wins over Assignment/odStatus)',
