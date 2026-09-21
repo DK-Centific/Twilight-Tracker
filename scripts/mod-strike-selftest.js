@@ -23,9 +23,23 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091820w',
-  /const APP_VERSION = '1\.3\.091820w'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091820w'));
+assert('version bump 091821f',
+  /const APP_VERSION = '1\.3\.091821f'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091821f'));
+assert('grid card stars replace the orbit id line',
+  /class="mod-card-stars"/.test(src)
+  && !/class="mod-id"/.test(src)
+  && html.includes('.mod-card-stars')
+  && /mod-card-stars[\s\S]{0,320}flex-wrap:\s*nowrap/.test(html)
+  && /mod-card-stars[\s\S]{0,400}min-height:\s*16px/.test(html));
+assert('per-orbit strike freshness + write barrier',
+  /function modStrikeRecordFreshnessMs/.test(src)
+  && /function modStrikeShouldKeepLocal/.test(src)
+  && /function modStrikeLoweringBlocked/.test(src)
+  && /heal-stale-strike-stomp/.test(src)
+  && /refuse-older-version/.test(src)
+  && /updatedAt: touchedAt/.test(src)
+  && /deactivated: false/.test(src));
 assert('strike scale v4 one-shot helpers',
   /function ensureModStrikeScaleV4/.test(src)
   && /function mergeModStrikeMods/.test(src)
@@ -48,9 +62,9 @@ assert('perf poll signature skip (no Flagged re-stagger)',
 assert('SS persist refuses empty mods + flush on strike writes',
   /refuse-empty-mods/.test(src)
   && /backfill-local-to-cloud/.test(src)
-  && /flushPersistModeratorStrikesSetting\(\{ reason: 'set-stars' \}\)/.test(src)
-  && /flushPersistModeratorStrikesSetting\(\{ reason: 'final-chance' \}\)/.test(src)
-  && /flushPersistModeratorStrikesSetting\(\{ reason: 'reset-stars' \}\)/.test(src));
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'set-stars'/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'final-chance'/.test(src)
+  && /flushPersistModeratorStrikesSetting\(\{ reason: 'reset-stars'/.test(src));
 assert('skip/strike checkpoint merge on SessionState ingest',
   /function mergeModStrikeCheckpoints/.test(src)
   && /function mergeModStrikeBoolMap/.test(src)
@@ -222,6 +236,7 @@ function perfDateInRange(a, range) {
 function overviewDateRange() { return [null, null]; }
 function perfBookingOverlapsPacificDay() { return true; }
 `;
+ctx.console = console;
 ctx.document = { querySelector() { return null; }, querySelectorAll() { return []; }, getElementById() { return null; } };
 vm.createContext(ctx);
 vm.runInContext(patched, ctx);
@@ -265,7 +280,12 @@ assert('report finds yesterday booking', rep.yesterday === '2026-09-16' && rep.t
 assert('incomplete booking flagged', rep.teams[0] && rep.teams[0].completed === false);
 
 // Skip must survive a stale SessionState ingest that lacks skippedTeams.
-ctx.persistModeratorStrikesSetting = async function() { return { ok: true }; };
+const realPersistStrikes = ctx.persistModeratorStrikesSetting;
+ctx._persistReasons = [];
+ctx.persistModeratorStrikesSetting = async function(opts) {
+  ctx._persistReasons.push((opts && opts.reason) || '');
+  return { ok: true };
+};
 ctx.SESSIONSTATE_PA_WRITE_URL = 'https://example.test/write';
 ctx.fetchWithRetry = async () => ({ ok: true });
 ctx.fetch = async () => ({ ok: true });
@@ -366,6 +386,191 @@ ctx.adminState.perfDateRange = 'all';
 ctx.adminState._modStrikeCheckpointReport = null;
 banner = ctx.renderPerfStrikeCheckpointBannerHTML();
 assert('banner returns when pending matches filter', /mod-strike-check-banner/.test(banner));
+
+function strikeRow(mods, extra) {
+  return {
+    sessionStateId: 'ss_app_setting_moderator_strikes',
+    lastActive: (extra && extra.lastActive) || '2026-09-21T22:30:00.000Z',
+    stateJson: JSON.stringify(Object.assign({
+      type: 'appSetting',
+      key: 'moderatorStrikes',
+      mods: mods,
+      checkpoints: {},
+      starScale: 4,
+    }, extra || {})),
+  };
+}
+
+ctx._deactCalls = [];
+ctx.setUserDeactivatedInCache = (id, on) => { ctx._deactCalls.push([String(id), !!on]); };
+ctx.persistDeactivatedUsersSetting = async () => ({ ok: true });
+
+// PA heal already live: david-tw Active, 4★, deactivated false, blob version 1.
+// A local 0★ / deactivated cache must take that heal and must not write 0★ back.
+ctx._persistReasons = [];
+ctx.saveModStrikeStore({
+  mods: {
+    'david-tw': {
+      stars: 0,
+      starScale: 4,
+      strikeDeactivated: true,
+      log: [{ at: '2026-09-21T18:00:00.000Z', kind: 'auto', reason: 'old strike' }],
+    },
+  },
+  checkpoints: {},
+  version: 0,
+  lastWriter: '',
+});
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 4,
+    starScale: 4,
+    deactivated: false,
+    updatedAt: '2026-09-21T22:00:00.000Z',
+    updatedBy: 'PA',
+    log: [{ at: '2026-09-21T22:00:00.000Z', kind: 'reset', reason: 'PA heal', by: 'PA' }],
+  },
+}, { version: 1, lastWriter: 'PA', lastActive: '2026-09-21T22:05:00.000Z' })]);
+let healed = ctx.loadModStrikeStore();
+assert('PA heal ingest restores david-tw to 4★',
+  healed.mods['david-tw'] && healed.mods['david-tw'].stars === 4 && healed.version === 1,
+  JSON.stringify(healed.mods['david-tw'] || {}));
+assert('PA heal clears strikeDeactivated', !(healed.mods['david-tw'] && healed.mods['david-tw'].strikeDeactivated));
+assert('PA heal does not re-deactivate', !ctx._deactCalls.some(c => c[1] === true), JSON.stringify(ctx._deactCalls));
+assert('PA heal marks the user active', ctx._deactCalls.some(c => c[0] === 'david-tw' && c[1] === false));
+assert('PA heal does not flush a stale lower blob', !ctx._persistReasons.includes('heal-stale-strike-stomp'));
+
+// Stale poll (older stars, older updatedAt, older blob version) must not undo the heal.
+ctx._deactCalls = [];
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 1,
+    starScale: 4,
+    strikeDeactivated: true,
+    deactivated: true,
+    updatedAt: '2026-09-21T19:00:00.000Z',
+    updatedBy: 'Brian-tw',
+    log: [{ at: '2026-09-21T19:00:00.000Z', kind: 'manual', reason: 'stale' }],
+  },
+}, { version: 0, lastWriter: 'Brian-tw', lastActive: '2026-09-21T22:06:00.000Z' })]);
+healed = ctx.loadModStrikeStore();
+assert('stale poll does not regress PA heal', healed.mods['david-tw'] && healed.mods['david-tw'].stars === 4);
+assert('stale poll does not re-deactivate after heal', !ctx._deactCalls.some(c => c[1] === true));
+
+// Fresher Admin reset beats an older remote with fewer stars.
+const mergedReset = ctx.mergeModStrikeMods(
+  {
+    'david-tw': {
+      stars: 4, starScale: 4, deactivated: false,
+      updatedAt: '2026-09-21T22:20:00.000Z', updatedBy: 'Admin-Twilight',
+      log: [{ at: '2026-09-21T22:20:00.000Z', kind: 'reset', reason: 'Stars reset', by: 'Admin-Twilight' }],
+    },
+  },
+  {
+    'david-tw': {
+      stars: 0, starScale: 4, strikeDeactivated: true,
+      updatedAt: '2026-09-21T21:00:00.000Z', updatedBy: 'Brian-tw',
+      log: [{ at: '2026-09-21T21:00:00.000Z', kind: 'auto', reason: 'old' }],
+    },
+  }
+);
+assert('fresher reset wins over older lower stars',
+  mergedReset['david-tw'] && mergedReset['david-tw'].stars === 4 && !mergedReset['david-tw'].strikeDeactivated);
+
+// No updatedAt → fall back to log[0].at. Newer log wins.
+const mergedLog = ctx.mergeModStrikeMods(
+  { 'solo-mod': { stars: 4, starScale: 4, log: [{ at: '2026-09-21T22:00:00.000Z', kind: 'reset' }] } },
+  { 'solo-mod': { stars: 1, starScale: 4, log: [{ at: '2026-09-21T20:00:00.000Z', kind: 'manual' }] } }
+);
+assert('log[0].at fallback keeps newer reset', mergedLog['solo-mod'] && mergedLog['solo-mod'].stars === 4);
+
+// updatedAt is the primary stamp even when log[0].at is older.
+const mergedUpdated = ctx.mergeModStrikeMods(
+  { 'solo-mod': { stars: 4, starScale: 4, updatedAt: '2026-09-21T18:00:00.000Z', log: [{ at: '2026-09-21T23:00:00.000Z', kind: 'reset' }] } },
+  { 'solo-mod': { stars: 2, starScale: 4, updatedAt: '2026-09-21T22:00:00.000Z', log: [{ at: '2026-09-21T22:00:00.000Z', kind: 'manual' }] } }
+);
+assert('newer updatedAt wins over an older updatedAt', mergedUpdated['solo-mod'] && mergedUpdated['solo-mod'].stars === 2);
+
+// Older blob version loses even if a per-mod stamp looks newer.
+const mergedBlob = ctx.mergeModStrikeMods(
+  { 'david-tw': { stars: 4, starScale: 4, updatedAt: '2026-09-21T22:00:00.000Z', log: [{ at: '2026-09-21T22:00:00.000Z', kind: 'reset' }] } },
+  { 'david-tw': { stars: 0, starScale: 4, updatedAt: '2026-09-21T23:00:00.000Z', strikeDeactivated: true, log: [{ at: '2026-09-21T23:00:00.000Z', kind: 'manual' }] } },
+  { remoteBlobOlder: true }
+);
+assert('older blob version loses merge', mergedBlob['david-tw'] && mergedBlob['david-tw'].stars === 4);
+
+// A real newer strike (no write barrier) still applies.
+ctx._deactCalls = [];
+ctx.saveModStrikeStore({
+  mods: {
+    'other-mod': {
+      stars: 4, starScale: 4, deactivated: false,
+      updatedAt: '2026-09-21T22:00:00.000Z', updatedBy: 'Admin-Twilight',
+      log: [{ at: '2026-09-21T22:00:00.000Z', kind: 'reset', by: 'Admin-Twilight' }],
+    },
+  },
+  checkpoints: {},
+  version: 1,
+  lastWriter: 'Admin-Twilight',
+});
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'other-mod': {
+    stars: 3, starScale: 4,
+    updatedAt: '2026-09-21T22:40:00.000Z', updatedBy: 'Brian-tw',
+    log: [{ at: '2026-09-21T22:40:00.000Z', kind: 'manual', reason: 'Admin strike', by: 'Brian-tw' }],
+  },
+}, { version: 2, lastWriter: 'Brian-tw' })]);
+assert('newer remote strike still applies', ctx.getModStrikeStars('other-mod') === 3);
+assert('newer non-zero strike does not deactivate', !ctx._deactCalls.some(c => c[1] === true));
+
+// Post-reset window: a poll that would lower stars must not re-deactivate.
+ctx._deactCalls = [];
+ctx._persistReasons = [];
+ctx.resetModStrikeStars('david-tw');
+const resetRec = ctx.loadModStrikeStore().mods['david-tw'];
+assert('reset stamps updatedAt and updatedBy',
+  !!(resetRec && resetRec.updatedAt && resetRec.updatedBy && resetRec.log[0] && resetRec.log[0].kind === 'reset'
+    && resetRec.log[0].at === resetRec.updatedAt && resetRec.deactivated === false));
+assert('reset bumps blob version', ctx.loadModStrikeStore().version >= 2);
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 0, starScale: 4, strikeDeactivated: true, deactivated: true,
+    updatedAt: '2026-09-21T22:50:00.000Z', updatedBy: 'Brian-tw',
+    log: [{ at: '2026-09-21T22:50:00.000Z', kind: 'manual', reason: 'late stale', by: 'Brian-tw' }],
+  },
+}, { version: 9, lastWriter: 'Brian-tw', lastActive: '2026-09-21T22:51:00.000Z' })]);
+assert('post-reset poll cannot lower stars', ctx.getModStrikeStars('david-tw') === 4);
+assert('post-reset poll does not re-deactivate', !ctx._deactCalls.some(c => c[1] === true), JSON.stringify(ctx._deactCalls));
+
+// In-flight persist blocks a lowering poll for that orbit.
+ctx.console = console;
+ctx.SESSIONSTATE_PA_WRITE_URL = 'https://example.test/write';
+ctx.fetch = async () => ({ ok: true });
+ctx.fetchWithRetry = () => new Promise(() => {});
+ctx.persistModeratorStrikesSetting = realPersistStrikes;
+ctx.saveModStrikeStore({
+  mods: {
+    'inflight-mod': {
+      stars: 4, starScale: 4, deactivated: false,
+      updatedAt: '2026-09-21T22:10:00.000Z', updatedBy: 'Admin-Twilight',
+      log: [{ at: '2026-09-21T22:10:00.000Z', kind: 'reset', by: 'Admin-Twilight' }],
+    },
+  },
+  checkpoints: {},
+  version: 9,
+  lastWriter: 'Admin-Twilight',
+});
+ctx._deactCalls = [];
+ctx.persistModeratorStrikesSetting({ reason: 'reset-stars', orbitId: 'inflight-mod' });
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'inflight-mod': {
+    stars: 0, starScale: 4, strikeDeactivated: true, deactivated: true,
+    updatedAt: '2026-09-21T22:12:00.000Z', updatedBy: 'Brian-tw',
+    log: [{ at: '2026-09-21T22:12:00.000Z', kind: 'manual', by: 'Brian-tw' }],
+  },
+}, { version: 8, lastWriter: 'Brian-tw' })]);
+assert('in-flight persist blocks lowering ingest', ctx.getModStrikeStars('inflight-mod') === 4);
+assert('in-flight persist does not re-deactivate', !ctx._deactCalls.some(c => c[1] === true), JSON.stringify(ctx._deactCalls));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

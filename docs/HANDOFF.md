@@ -1,6 +1,26 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-21 · Cursor · Performance Live / Next / Done window (1.3.091821d)
+**Last updated:** 2026-09-21 · Cursor · Grid stars replace Orbit ID (1.3.091821f)
+
+## 2026-09-21 · Strike reset stays after a stale poll (1.3.091821e)
+
+**Ask:** Admin reactivates a moderator and resets stars (david-tw, about 3★ / deactivated → 4★). Within about a minute the stars flip back to deactivated. PA confirmed the shared SessionState row and healed it: david-tw Active, 4★, deactivated false, blob version 1.
+
+**Cause:** The strikes row is one blob (`ss_app_setting_moderator_strikes`) saved with overwrite. A late poll, or a second Admin tab, could lay an older copy on top of a fresher reset. That re-ran deactivate.
+
+**Fix:**
+- Each moderator record stores `updatedAt` and `updatedBy` on set / reset / manual / auto.
+- Merge keeps the newer `updatedAt` (if that is missing, `log[0].at`). An older remote copy cannot lower stars over a fresher reset.
+- While that save is still sending, and for a short time after reset, a poll cannot lower stars or deactivate that person.
+- Blob `version` + `lastWriter` are stamped and compared. An older version loses. The strikes save has no etag, so this check is on the client.
+- Version **1.3.091821f** (was **1.3.091821e** on this same PR). Selftest: `scripts/mod-strike-selftest.js`.
+- Moderator Hub **Grid**: the Orbit ID line under the name is gone. Stars sit in that spot, on one reserved line, so a long name does not clip or wrap them. List view still shows Twilight Login ID. Opening a card still lists Twilight Login ID in the details.
+
+**PR:** [#157](https://github.com/DK-Centific/Twilight-Tracker/pull/157) on `cursor/mod-strike-freshness-merge-08cf` — Watchdog merges (David authorized push). Do not merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091821f**. Admin → Moderators. Open the person who was deactivated, set them Active, and confirm stars show **4**. Leave the page open for a minute (a second Admin tab can stay open too). Stars must stay **4** and the status must stay **Active**. On the card view, the line under the name is the stars, not the login id.
+
+---
 
 ## 2026-09-21 · Performance Live / Next / Done window (1.3.091821d)
 
@@ -386,8 +406,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091821b`** (Team happypath Flag / strike · #154 merged) |
-| **This branch** | **`1.3.091821d`** · Performance Live / Next / Done window · `cursor/perf-live-next-done-window-eff0` |
+| **`main` version** | **`1.3.091821d`** (Performance Live / Next / Done · #156 merged) |
+| **This branch** | **`1.3.091821f`** · Strike reset freshness merge + grid stars · `cursor/mod-strike-freshness-merge-08cf` · [#157](https://github.com/DK-Centific/Twilight-Tracker/pull/157) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 
