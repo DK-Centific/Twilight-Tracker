@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821d';
-const APP_UPDATED_AT = '09/21/2026 09:40';
+const APP_VERSION = '1.3.091821e';
+const APP_UPDATED_AT = '09/21/2026 15:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -27645,23 +27645,119 @@ const MOD_STRIKE_LOCK_AT_LOST = 3;
 const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
 const MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes';
 let _modStrikeIngestInFlight = false;
+let _modStrikeIngestApplying = false;
 let _modStrikePersistTimer = null;
+let _modStrikePersistInFlight = 0;
+let _modStrikeLastSeenRemoteVersion = 0;
+const _modStrikePersistOrbits = Object.create(null);
+const _modStrikeOrbitBarrierUntil = Object.create(null);
+/** Covers one poll cycle after reset/strike so a stale SessionState read cannot flip stars back. */
+const MOD_STRIKE_WRITE_BARRIER_MS = 90000;
 
 function modStrikeOrbitKey(orbitId) {
   return String(orbitId || '').trim().toLowerCase();
 }
 
+function modStrikeActorName() {
+  if (typeof state !== 'undefined' && state && state.username) return String(state.username);
+  return 'Admin';
+}
+
+function modStrikeBlobVersion(n) {
+  const v = Number(n);
+  return (Number.isFinite(v) && v > 0) ? Math.round(v) : 0;
+}
+
+function modStrikeBumpBlobVersion(store) {
+  if (!store || typeof store !== 'object') return 0;
+  store.version = modStrikeBlobVersion(store.version) + 1;
+  store.lastWriter = modStrikeActorName();
+  return store.version;
+}
+
+/** Per-mod freshness: newer updatedAt wins; log[0].at is only the fallback when updatedAt is absent. */
+function modStrikeRecordFreshnessMs(rec) {
+  if (!rec || typeof rec !== 'object') return 0;
+  if (rec.updatedAt != null && String(rec.updatedAt).trim()) {
+    const updated = Date.parse(String(rec.updatedAt));
+    if (Number.isFinite(updated)) return updated;
+  }
+  const head = Array.isArray(rec.log) ? rec.log[0] : null;
+  if (head && head.at != null && String(head.at).trim()) {
+    const t = Date.parse(String(head.at));
+    if (Number.isFinite(t)) return t;
+  }
+  return 0;
+}
+
+function modStrikeHeadKind(rec) {
+  const head = rec && Array.isArray(rec.log) ? rec.log[0] : null;
+  if (!head || head.kind == null) return '';
+  return String(head.kind).trim().toLowerCase();
+}
+
+function modStrikeArmWriteBarrier(orbitId) {
+  const k = modStrikeOrbitKey(orbitId);
+  if (!k) return;
+  const until = Date.now() + MOD_STRIKE_WRITE_BARRIER_MS;
+  if (!_modStrikeOrbitBarrierUntil[k] || _modStrikeOrbitBarrierUntil[k] < until) {
+    _modStrikeOrbitBarrierUntil[k] = until;
+  }
+}
+
+function modStrikeBarrierActive(orbitId) {
+  const k = modStrikeOrbitKey(orbitId);
+  if (!k) return false;
+  return (_modStrikeOrbitBarrierUntil[k] || 0) > Date.now();
+}
+
+/** True while this orbit's stars must not be lowered by a poll (in-flight persist or post-reset window). */
+function modStrikeLoweringBlocked(orbitId) {
+  const k = modStrikeOrbitKey(orbitId);
+  if (!k) return false;
+  if ((_modStrikePersistOrbits[k] || 0) > 0) return true;
+  return modStrikeBarrierActive(k);
+}
+
+function modStrikeNotePersistOrbits(mods, delta) {
+  const src = (mods && typeof mods === 'object') ? mods : {};
+  Object.keys(src).forEach(k => {
+    const key = modStrikeOrbitKey(k);
+    if (!key) return;
+    const next = (_modStrikePersistOrbits[key] || 0) + delta;
+    if (next > 0) _modStrikePersistOrbits[key] = next;
+    else delete _modStrikePersistOrbits[key];
+  });
+}
+
+/** Orbit keys are case-insensitive. Collapse David-tw / david-tw onto one record. */
+function modStrikeNormalizeModMap(mods) {
+  const out = {};
+  const src = (mods && typeof mods === 'object') ? mods : {};
+  Object.keys(src).forEach(k => {
+    const key = modStrikeOrbitKey(k);
+    if (!key) return;
+    const rec = src[k];
+    if (!rec || typeof rec !== 'object') return;
+    const prev = out[key];
+    if (!prev || modStrikeRecordFreshnessMs(rec) >= modStrikeRecordFreshnessMs(prev)) out[key] = rec;
+  });
+  return out;
+}
+
 function loadModStrikeStore() {
   try {
     const raw = localStorage.getItem(MOD_STRIKE_LS_KEY);
-    if (!raw) return { mods: {}, checkpoints: {} };
+    if (!raw) return { mods: {}, checkpoints: {}, version: 0, lastWriter: '' };
     const p = JSON.parse(raw);
     return {
       mods: (p && p.mods && typeof p.mods === 'object') ? p.mods : {},
       checkpoints: (p && p.checkpoints && typeof p.checkpoints === 'object') ? p.checkpoints : {},
+      version: (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(p && p.version) : (Number(p && p.version) || 0),
+      lastWriter: (p && p.lastWriter) ? String(p.lastWriter) : '',
     };
   } catch (_) {
-    return { mods: {}, checkpoints: {} };
+    return { mods: {}, checkpoints: {}, version: 0, lastWriter: '' };
   }
 }
 
@@ -27779,13 +27875,26 @@ function ingestModeratorStrikesFromSessionRows(rows) {
   }
   // PA contract: SessionState is SoT; local is cache. Cloud wins over empty
   // local; empty/default remote must not wipe healthy local after a version bump.
+  // Per orbit, newer mods[orbitKey].updatedAt wins (fallback log[0].at).
+  // An older blob version loses. A poll must not lower stars during a local
+  // reset/strike write (in flight or the short post-write window).
+  const remoteModsIn = (typeof modStrikeNormalizeModMap === 'function')
+    ? modStrikeNormalizeModMap(mods || {})
+    : ((mods && typeof mods === 'object') ? mods : {});
+  const localModsIn = (typeof modStrikeNormalizeModMap === 'function')
+    ? modStrikeNormalizeModMap(cur.mods)
+    : ((cur.mods && typeof cur.mods === 'object') ? cur.mods : {});
+  const remoteVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(parsed.version) : 0;
+  const localVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(cur.version) : 0;
+  const remoteBlobOlder = localVersion > 0 && remoteVersion < localVersion;
+  if (remoteVersion > _modStrikeLastSeenRemoteVersion) _modStrikeLastSeenRemoteVersion = remoteVersion;
   const nextMods = (typeof mergeModStrikeMods === 'function')
-    ? mergeModStrikeMods(cur.mods, mods || {})
-    : (mods || cur.mods);
+    ? mergeModStrikeMods(localModsIn, remoteModsIn, { remoteBlobOlder: remoteBlobOlder })
+    : (remoteModsIn || localModsIn);
   // If Admin restored stars remotely, clear local warn acks so lock/warn can reappear on later strikes.
   if (nextMods && typeof nextMods === 'object' && typeof clearModStrikeWarnAcksForOrbit === 'function') {
     Object.keys(nextMods).forEach(k => {
-      const prevRec = cur.mods && cur.mods[k];
+      const prevRec = localModsIn && localModsIn[k];
       const nextRec = nextMods[k];
       const prevN = prevRec && prevRec.stars != null ? Number(prevRec.stars) : MOD_STRIKE_MAX_STARS;
       const nextN = nextRec && nextRec.stars != null ? Number(nextRec.stars) : MOD_STRIKE_MAX_STARS;
@@ -27806,16 +27915,27 @@ function ingestModeratorStrikesFromSessionRows(rows) {
   const healCloudFromLocal = (typeof modStrikeModsAreEmpty === 'function')
     && modStrikeModsAreEmpty(mods)
     && !modStrikeModsAreEmpty(nextMods);
+  const healStaleLower = (typeof modStrikeMergeKeptStaleLower === 'function')
+    && modStrikeMergeKeptStaleLower(localModsIn, remoteModsIn, nextMods);
 
+  let nextVersion = localVersion;
+  let nextWriter = cur.lastWriter || '';
+  if (!remoteBlobOlder && remoteVersion >= nextVersion && remoteVersion > 0) {
+    nextVersion = remoteVersion;
+    if (parsed.lastWriter) nextWriter = String(parsed.lastWriter);
+  }
   const nextStore = {
     mods: nextMods,
     checkpoints: mergedCheckpoints,
+    version: nextVersion,
+    lastWriter: nextWriter,
   };
   const beforeSig = (typeof modStrikeStoreSig === 'function') ? modStrikeStoreSig(cur) : '';
   const afterSig = (typeof modStrikeStoreSig === 'function') ? modStrikeStoreSig(nextStore) : 'x';
   const changed = beforeSig !== afterSig;
+  const versionChanged = nextVersion !== localVersion || String(nextWriter || '') !== String(cur.lastWriter || '');
 
-  if (changed) {
+  if (changed || versionChanged) {
     _modStrikeIngestInFlight = true;
     saveModStrikeStore(nextStore);
     _modStrikeIngestInFlight = false;
@@ -27833,29 +27953,63 @@ function ingestModeratorStrikesFromSessionRows(rows) {
       flushPersistModeratorStrikesSetting({ reason: 'backfill-local-to-cloud' });
     }
   }
+  // Stale remote lost the per-orbit merge. Write the fresher local stars back
+  // so the cloud copy stops re-deactivating on the next poll. Skip when a
+  // persist is already in flight — that write is the heal.
+  if (healStaleLower && _modStrikePersistInFlight <= 0 && typeof flushPersistModeratorStrikesSetting === 'function') {
+    let recently = false;
+    const holder = (typeof window !== 'undefined' && window) ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+    const nowMs = Date.now();
+    if (holder) {
+      const prevAt = Number(holder._modStrikeStaleHealAt) || 0;
+      recently = prevAt > 0 && (nowMs - prevAt) < 15000;
+      if (!recently) holder._modStrikeStaleHealAt = nowMs;
+    }
+    if (!recently) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[Twilight] Moderator-strikes kept fresher local reset over stale remote · healing cloud');
+      }
+      flushPersistModeratorStrikesSetting({ reason: 'heal-stale-strike-stomp' });
+    }
+  }
   if (changed && nextMods && typeof nextMods === 'object' && typeof applyModStrikeDeactivateSideEffect === 'function') {
-    Object.keys(nextMods).forEach(k => {
-      const prevRec = cur.mods && cur.mods[k];
-      const nextRec = nextMods[k];
-      const readStars = (rec) => {
-        if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
-        const raw = Number(rec.stars);
-        if (!Number.isFinite(raw)) return MOD_STRIKE_MAX_STARS;
-        if (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(rec)) {
-          return clampModStrikeStars(raw);
-        }
-        if (typeof ensureModStrikeScaleV4 === 'function') {
-          const stamped = ensureModStrikeScaleV4(rec);
-          return clampModStrikeStars(Number(stamped && stamped.stars));
-        }
-        return (typeof migrateModStrikeStarsFromPrevMax === 'function')
-          ? migrateModStrikeStarsFromPrevMax(raw)
-          : raw;
-      };
-      const prevN = readStars(prevRec);
-      const nextN = readStars(nextRec);
-      if (prevN !== nextN) applyModStrikeDeactivateSideEffect(k, nextN, prevN);
-    });
+    _modStrikeIngestApplying = true;
+    _modStrikeIngestInFlight = true;
+    try {
+      Object.keys(nextMods).forEach(k => {
+        const prevRec = localModsIn && localModsIn[k];
+        const nextRec = nextMods[k];
+        const readStars = (rec) => {
+          if (!rec || rec.stars == null) return MOD_STRIKE_MAX_STARS;
+          const raw = Number(rec.stars);
+          if (!Number.isFinite(raw)) return MOD_STRIKE_MAX_STARS;
+          if (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(rec)) {
+            return clampModStrikeStars(raw);
+          }
+          if (typeof ensureModStrikeScaleV4 === 'function') {
+            const stamped = ensureModStrikeScaleV4(rec);
+            return clampModStrikeStars(Number(stamped && stamped.stars));
+          }
+          return (typeof migrateModStrikeStarsFromPrevMax === 'function')
+            ? migrateModStrikeStarsFromPrevMax(raw)
+            : raw;
+        };
+        const prevN = readStars(prevRec);
+        const nextN = readStars(nextRec);
+        if (prevN === nextN) return;
+        // Never re-deactivate from a stale poll or during a local reset/strike write.
+        if (nextN < prevN && typeof modStrikeLoweringBlocked === 'function' && modStrikeLoweringBlocked(k)) return;
+        const remoteRec = remoteModsIn[k];
+        const localMs = (typeof modStrikeRecordFreshnessMs === 'function') ? modStrikeRecordFreshnessMs(prevRec) : 0;
+        const remoteMs = (typeof modStrikeRecordFreshnessMs === 'function') ? modStrikeRecordFreshnessMs(remoteRec) : 0;
+        if (nextN < prevN && localMs > remoteMs) return;
+        if (nextN < prevN && modStrikeHeadKind(prevRec) === 'reset' && localMs >= remoteMs) return;
+        applyModStrikeDeactivateSideEffect(k, nextN, prevN);
+      });
+    } finally {
+      _modStrikeIngestApplying = false;
+      _modStrikeIngestInFlight = false;
+    }
   }
   // Skip full Admin remount when strike store signature is unchanged (poll thrash fix).
   if (changed) {
@@ -27879,6 +28033,16 @@ async function persistModeratorStrikesSetting(opts) {
     console.warn('[Twilight] Moderator-strikes persist skipped · refuse empty mods (would wipe SS SoT)');
     return { ok: false, reason: 'refuse-empty-mods' };
   }
+  // PA SessionState Write has no etag / If-Match (confirmed: no etag before the
+  // strike heal). Refuse to send a blob older than the version we already saw
+  // so a stale tab cannot overwrite the healed row. version + lastWriter travel
+  // inside stateJson and are compared again on ingest.
+  const writeVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(store.version) : 0;
+  if (_modStrikeLastSeenRemoteVersion > 0 && writeVersion < _modStrikeLastSeenRemoteVersion) {
+    console.warn('[Twilight] Moderator-strikes persist skipped · refuse older blob version', writeVersion, '<', _modStrikeLastSeenRemoteVersion);
+    return { ok: false, reason: 'refuse-older-version' };
+  }
+  const writer = store.lastWriter || ((typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin');
   const payload = {
     sessionStateId: MODERATOR_STRIKES_SETTING_ID,
     assignmentId: 'app_setting_moderator_strikes',
@@ -27892,14 +28056,19 @@ async function persistModeratorStrikesSetting(opts) {
       mods: store.mods,
       checkpoints: store.checkpoints,
       starScale: MOD_STRIKE_MAX_STARS,
+      version: writeVersion,
+      lastWriter: writer,
       updatedAt: new Date().toISOString(),
-      updatedBy: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+      updatedBy: writer,
       reason: opts.reason || 'persist',
     }),
     lastActive: new Date().toISOString(),
     appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
     overwrite: true,
   };
+  if (opts.orbitId && typeof modStrikeArmWriteBarrier === 'function') modStrikeArmWriteBarrier(opts.orbitId);
+  _modStrikePersistInFlight++;
+  if (typeof modStrikeNotePersistOrbits === 'function') modStrikeNotePersistOrbits(store.mods, 1);
   try {
     if (typeof fetchWithRetry === 'function') {
       await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
@@ -27924,6 +28093,9 @@ async function persistModeratorStrikesSetting(opts) {
   } catch (e) {
     console.warn('[Twilight] Moderator-strikes setting write failed:', e && e.message);
     return { ok: false, reason: 'error' };
+  } finally {
+    _modStrikePersistInFlight = Math.max(0, _modStrikePersistInFlight - 1);
+    if (typeof modStrikeNotePersistOrbits === 'function') modStrikeNotePersistOrbits(store.mods, -1);
   }
 }
 
@@ -28036,25 +28208,87 @@ function modStrikeModsAreEmpty(mods) {
 }
 
 /**
+ * True when this orbit should keep the local record instead of the remote one.
+ * Freshness is per-mod updatedAt, then log[0].at. Older remote must not lower
+ * a fresher Admin reset. An older blob version loses. While a local write for
+ * this orbit is in flight or inside the post-reset window, a lowering poll loses.
+ */
+function modStrikeShouldKeepLocal(localRec, remoteRec, orbitKey, mergeOpts) {
+  mergeOpts = mergeOpts || {};
+  const localHas = !!(localRec && typeof localRec === 'object' && localRec.stars != null);
+  const remoteHas = !!(remoteRec && typeof remoteRec === 'object' && remoteRec.stars != null);
+  if (!remoteHas) return localHas;
+  if (!localHas) return false;
+  const ls = Number(localRec.stars);
+  const rs = Number(remoteRec.stars);
+  const remoteLowers = Number.isFinite(ls) && Number.isFinite(rs) && rs < ls;
+  if (remoteLowers && typeof modStrikeLoweringBlocked === 'function' && modStrikeLoweringBlocked(orbitKey)) {
+    return true;
+  }
+  const localMs = modStrikeRecordFreshnessMs(localRec);
+  const remoteMs = modStrikeRecordFreshnessMs(remoteRec);
+  // Blob version is the concurrency token. An older remote blob loses even
+  // when one of its per-mod stamps looks newer.
+  if (mergeOpts.remoteBlobOlder) return true;
+  if (localMs > remoteMs) return true;
+  if (remoteMs > localMs) return false;
+  // Same freshness: do not let an older-or-tied remote drop stars over a reset.
+  if (remoteLowers && modStrikeHeadKind(localRec) === 'reset') return true;
+  return false;
+}
+
+/** Local won with higher stars than an older (or tied) remote — cloud should be rewritten. */
+function modStrikeMergeKeptStaleLower(localMods, remoteMods, mergedMods) {
+  const local = (localMods && typeof localMods === 'object') ? localMods : {};
+  const remote = (remoteMods && typeof remoteMods === 'object') ? remoteMods : {};
+  const merged = (mergedMods && typeof mergedMods === 'object') ? mergedMods : {};
+  const keys = Object.keys(remote);
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const L = local[k];
+    const R = remote[k];
+    const M = merged[k];
+    if (!L || !R || L.stars == null || R.stars == null || !M || M.stars == null) continue;
+    const ls = Number(L.stars);
+    const rs = Number(R.stars);
+    const ms = Number(M.stars);
+    if (!Number.isFinite(ls) || !Number.isFinite(rs) || !Number.isFinite(ms)) continue;
+    if (!(rs < ls && ms >= ls)) continue;
+    const localMs = modStrikeRecordFreshnessMs(L);
+    const remoteMs = modStrikeRecordFreshnessMs(R);
+    if (remoteMs > localMs) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
  * Merge cloud SessionState mods with local cache.
  * PA contract: SS is SoT; local is cache. Cloud wins over empty local.
  * Empty/default remote must NEVER wipe healthy local (version bump / cold hydrate race).
+ * When both sides have a record, newer per-mod updatedAt wins (fallback log[0].at).
+ * A stale remote with older/lower stars must not overwrite a fresher Admin reset.
  */
-function mergeModStrikeMods(localMods, remoteMods) {
-  const local = (localMods && typeof localMods === 'object') ? localMods : {};
-  const remote = (remoteMods && typeof remoteMods === 'object') ? remoteMods : {};
+function mergeModStrikeMods(localMods, remoteMods, mergeOpts) {
+  const local = (typeof modStrikeNormalizeModMap === 'function')
+    ? modStrikeNormalizeModMap(localMods)
+    : ((localMods && typeof localMods === 'object') ? localMods : {});
+  const remote = (typeof modStrikeNormalizeModMap === 'function')
+    ? modStrikeNormalizeModMap(remoteMods)
+    : ((remoteMods && typeof remoteMods === 'object') ? remoteMods : {});
+  mergeOpts = mergeOpts || {};
   const localEmpty = modStrikeModsAreEmpty(local);
   const remoteEmpty = modStrikeModsAreEmpty(remote);
   if (remoteEmpty && !localEmpty) {
     return ensureModStrikeScaleV4OnMods(Object.assign({}, local));
   }
   if (localEmpty && !remoteEmpty) {
+    if (mergeOpts.remoteBlobOlder) return {};
     return ensureModStrikeScaleV4OnMods(Object.assign({}, remote));
   }
   if (localEmpty && remoteEmpty) {
     return {};
   }
-  // Both have data: start from local cache, overlay remote (cloud SoT) per key.
   const out = Object.assign({}, local);
   Object.keys(remote).forEach(k => {
     const R = remote[k];
@@ -28064,6 +28298,11 @@ function mergeModStrikeMods(localMods, remoteMods) {
       out[k] = Object.assign({}, L);
       return;
     }
+    if (typeof modStrikeShouldKeepLocal === 'function' && modStrikeShouldKeepLocal(L, R, k, mergeOpts)) {
+      out[k] = Object.assign({}, L);
+      return;
+    }
+    if (mergeOpts.remoteBlobOlder && !(L && L.stars != null)) return;
     out[k] = Object.assign({}, L || {}, R);
   });
   return ensureModStrikeScaleV4OnMods(out);
@@ -28149,22 +28388,28 @@ function grantModStrikeFinalChance(orbitId) {
       ? migrateModStrikeStarsFromPrevMax(starsRaw)
       : starsRaw);
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
+  const at = new Date().toISOString();
+  const by = modStrikeActorName();
   log.unshift({
-    at: new Date().toISOString(),
+    at: at,
     kind: 'final-chance',
     reason: 'Admin granted Final Chance',
-    by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+    by: by,
   });
   const rec = Object.assign({}, prev, {
     stars: Number.isFinite(stars) ? clampModStrikeStars(stars) : MOD_STRIKE_MAX_STARS,
     starScale: MOD_STRIKE_MAX_STARS,
     finalChance: true,
+    updatedAt: at,
+    updatedBy: by,
     log: log.slice(0, 20),
   });
+  if (typeof modStrikeBumpBlobVersion === 'function') modStrikeBumpBlobVersion(store);
+  if (typeof modStrikeArmWriteBarrier === 'function') modStrikeArmWriteBarrier(key);
   store.mods[key] = rec;
   saveModStrikeStore(store);
   if (typeof flushPersistModeratorStrikesSetting === 'function') {
-    flushPersistModeratorStrikesSetting({ reason: 'final-chance' });
+    flushPersistModeratorStrikesSetting({ reason: 'final-chance', orbitId: key });
   }
   if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
   else if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
@@ -28380,8 +28625,12 @@ function applyModStrikeDeactivateSideEffect(orbitId, stars, prevStars) {
   if (!orbitId) return;
   const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
   const prev = Number.isFinite(prevStars) ? prevStars : MOD_STRIKE_MAX_STARS;
-  // 4th strike (0★) → deactivate (cannot log in)
+  // 4th strike (0★) → deactivate (cannot log in).
+  // Poll ingest must not re-deactivate during a reset/strike flush or from a stale stomp.
   if (n <= 0 && prev > 0) {
+    if (_modStrikeIngestApplying && typeof modStrikeLoweringBlocked === 'function' && modStrikeLoweringBlocked(orbitId)) {
+      return;
+    }
     if (typeof setUserDeactivatedInCache === 'function') setUserDeactivatedInCache(orbitId, true);
     const store = loadModStrikeStore();
     const key = modStrikeOrbitKey(orbitId);
@@ -28394,14 +28643,23 @@ function applyModStrikeDeactivateSideEffect(orbitId, stars, prevStars) {
     }
     return;
   }
-  // Leaving 0★ (Admin reset / restore) → clear strike-caused deactivate only
+  // Leaving 0★ (Admin reset / restore / PA heal) → clear strike-caused deactivate only
   if (n > 0 && prev <= 0) {
     const store = loadModStrikeStore();
     const key = modStrikeOrbitKey(orbitId);
     const rec = key && store.mods[key];
+    let changedRec = false;
     if (rec && rec.strikeDeactivated) {
       delete rec.strikeDeactivated;
-      saveModStrikeStore(store);
+      changedRec = true;
+    }
+    if (rec && rec.deactivated === true) {
+      rec.deactivated = false;
+      changedRec = true;
+    }
+    const explicitActive = !!(rec && rec.deactivated === false);
+    if (changedRec) saveModStrikeStore(store);
+    if (changedRec || explicitActive) {
       if (typeof setUserDeactivatedInCache === 'function') setUserDeactivatedInCache(orbitId, false);
       if (typeof persistDeactivatedUsersSetting === 'function') {
         persistDeactivatedUsersSetting().catch(() => {});
@@ -28425,7 +28683,16 @@ function setModStrikeStars(orbitId, stars, entry) {
       : prevStarsRaw);
   const log = Array.isArray(prev.log) ? prev.log.slice() : [];
   if (entry) log.unshift(entry);
-  const rec = { stars: n, starScale: MOD_STRIKE_MAX_STARS, log: log.slice(0, 20) };
+  const touchedAt = (entry && entry.at) ? String(entry.at) : new Date().toISOString();
+  const touchedBy = (entry && entry.by) ? String(entry.by) : modStrikeActorName();
+  const rec = {
+    stars: n,
+    starScale: MOD_STRIKE_MAX_STARS,
+    log: log.slice(0, 20),
+    updatedAt: touchedAt,
+    updatedBy: touchedBy,
+  };
+  if (n > 0) rec.deactivated = false;
   if (prev.strikeDeactivated && n > 0) {
     /* cleared in side effect */
   } else if (prev.strikeDeactivated) {
@@ -28438,6 +28705,8 @@ function setModStrikeStars(orbitId, stars, entry) {
     rec.finalChance = true;
   }
   if (n <= 1 && !(n === 1 && rec.finalChance)) rec.lockedAt = new Date().toISOString();
+  if (typeof modStrikeBumpBlobVersion === 'function') modStrikeBumpBlobVersion(store);
+  if (typeof modStrikeArmWriteBarrier === 'function') modStrikeArmWriteBarrier(key);
   store.mods[key] = rec;
   saveModStrikeStore(store);
   // Stars increased (Admin reset / restore) → clear warn acks so Warning 1/2 can show again later.
@@ -28447,7 +28716,7 @@ function setModStrikeStars(orbitId, stars, entry) {
   applyModStrikeDeactivateSideEffect(orbitId, n, prevStars);
   // Strike / star changes must land on SS SoT immediately (not local-only).
   if (typeof flushPersistModeratorStrikesSetting === 'function') {
-    flushPersistModeratorStrikesSetting({ reason: 'set-stars' });
+    flushPersistModeratorStrikesSetting({ reason: 'set-stars', orbitId: key });
   }
 }
 
@@ -28471,14 +28740,26 @@ function resetModStrikeStars(orbitId) {
     const store = loadModStrikeStore();
     const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
     const log = Array.isArray(prev.log) ? prev.log.slice() : [];
+    const at = new Date().toISOString();
+    const by = modStrikeActorName();
     log.unshift({
-      at: new Date().toISOString(),
+      at: at,
       kind: 'reset',
       reason: 'Stars reset',
-      by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+      by: by,
     });
-    // Clear finalChance + strikeDeactivated; stars back to 4
-    store.mods[key] = { stars: MOD_STRIKE_MAX_STARS, starScale: MOD_STRIKE_MAX_STARS, log: log.slice(0, 20) };
+    // Clear finalChance + strikeDeactivated; stars back to 4.
+    // deactivated:false matches the PA heal shape so the next poll stays Active.
+    if (typeof modStrikeBumpBlobVersion === 'function') modStrikeBumpBlobVersion(store);
+    if (typeof modStrikeArmWriteBarrier === 'function') modStrikeArmWriteBarrier(key);
+    store.mods[key] = {
+      stars: MOD_STRIKE_MAX_STARS,
+      starScale: MOD_STRIKE_MAX_STARS,
+      log: log.slice(0, 20),
+      updatedAt: at,
+      updatedBy: by,
+      deactivated: false,
+    };
     saveModStrikeStore(store);
     const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
     const prevStars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
@@ -28489,7 +28770,7 @@ function resetModStrikeStars(orbitId) {
     if (typeof clearModStrikeWarnAcksForOrbit === 'function') clearModStrikeWarnAcksForOrbit(orbitId);
     applyModStrikeDeactivateSideEffect(orbitId, MOD_STRIKE_MAX_STARS, prevStars);
     if (typeof flushPersistModeratorStrikesSetting === 'function') {
-      flushPersistModeratorStrikesSetting({ reason: 'reset-stars' });
+      flushPersistModeratorStrikesSetting({ reason: 'reset-stars', orbitId: key });
     }
   } else {
     setModStrikeStars(orbitId, MOD_STRIKE_MAX_STARS, {
