@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821b';
-const APP_UPDATED_AT = '09/21/2026 08:30';
+const APP_VERSION = '1.3.091821c';
+const APP_UPDATED_AT = '09/21/2026 09:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6549,6 +6549,11 @@ async function beginApprovalSubmit(stationKey, resubmit) {
     await showApprovalAssignmentRequired();
     return null;
   }
+  if (typeof operatorMayWriteAssignmentSession === 'function' && ctx.asgn
+      && ctx.orbitId && !operatorMayWriteAssignmentSession(ctx.asgn, ctx.orbitId)) {
+    await showApprovalAssignmentRequired();
+    return null;
+  }
   let lakituUrl = '';
   if (stationKey === 'station1') {
     lakituUrl = await promptStation1LakituUrl();
@@ -6565,6 +6570,11 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
   const ctx = _gateModContext();
   const asgnId = _realApprovalAssignmentId(ctx);
   if (!asgnId) {
+    await showApprovalAssignmentRequired();
+    return null;
+  }
+  if (typeof operatorMayWriteAssignmentSession === 'function' && ctx.asgn
+      && ctx.orbitId && !operatorMayWriteAssignmentSession(ctx.asgn, ctx.orbitId)) {
     await showApprovalAssignmentRequired();
     return null;
   }
@@ -11563,6 +11573,9 @@ function perfLiveStatusDisplay(a) {
 const PERF_GEO_LIVE_MS = 2 * 60 * 60 * 1000;
 
 function perfAssignmentOrbitLoginIds(a) {
+  if (typeof assignmentBookedOrbitLoginIds === 'function') {
+    return assignmentBookedOrbitLoginIds(a);
+  }
   const ids = new Set();
   if (!a) return ids;
   (a.modSnapshots || []).forEach(s => {
@@ -11637,8 +11650,16 @@ function perfGeoTrackDisplay(a) {
   const arrivedIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('arrived') : -1;
   const liveIdx = live ? statusOrderIdx(live.status) : -1;
   if (live && (live.status === 'arrived' || (liveIdx > arrivedIdx && live.status !== 'office_checkin'))) {
-    const who = live.moderatorName || live.moderatorId || 'Team';
-    const when = live.timestamp || live.lastActive || '';
+    // WD-ARRIVAL-ATTRIBUTION · actor = booked owner of arrivedAt / lastGeo,
+    // never the LATEST UPDATE lastActive winner (foreign or booked).
+    const arrival = (typeof resolveAssignmentArrivalAttribution === 'function')
+      ? resolveAssignmentArrivalAttribution(a)
+      : null;
+    const who = (arrival && (arrival.name || arrival.orbitId))
+      || live.arrivalName || live.arrivalOrbitId
+      || live.moderatorName || live.moderatorId || 'Team';
+    const when = (arrival && (arrival.at || arrival.atMs))
+      || live.arrivedAt || live.timestamp || live.lastActive || '';
     const d = when ? new Date(when) : null;
     const whenLabel = (d && !isNaN(d.getTime()))
       ? d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -11993,6 +12014,9 @@ function assignmentSessionStateRowsForHappypath(a) {
     if (!r) return false;
     if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
         && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
+    // WD-SOFTMERGE-NO-FOREIGN / WD-TEAM-SS-FILTER
+    if (typeof sessionStateRowIsAuthoritativeForAssignment === 'function'
+        && !sessionStateRowIsAuthoritativeForAssignment(r, a.id)) return false;
     return true;
   });
 }
@@ -14543,9 +14567,8 @@ function renderPerfBookingRowHTML(a, team, search) {
       : '';
     const modName = liveAttr.moderatorName || liveAttr.moderatorId || '';
     pillTitle = [statusLabel, modName ? `by ${modName}` : '', whenLabel].filter(Boolean).join(' · ');
-    if (liveAttr.moderatorMatch === false) {
-      mismatchHTML = `<span class="perf-row-mismatch" title="Latest progress synced by ${escapeHTML(modName || liveAttr.moderatorId)}, who isn't on this booking's team. Progress is still shown.">⚠</span>`;
-    }
+    // Foreign orbits are dropped before attribution (1.3.091821c). Do not
+    // show a "not on team" badge on Done / in-progress rows.
   }
   const pd = a.participantData || {};
   const participant = (typeof perfSessionTitle === 'function')
@@ -15160,9 +15183,8 @@ function renderPerfStationListHTML(a) {
     return (rank[x.status] || 9) - (rank[y.status] || 9);
   });
 
-  // LATEST UPDATE line (1.3.061526): the newest SessionState row's table
-  // timestamp + the moderator it belongs to (orbitLoginId → name), with
-  // a "not on team" note when that moderator isn't on the booking.
+  // LATEST UPDATE (1.3.091821c): newest booked SessionState row only.
+  // Foreign orbitLoginId on this aid is hidden (not a "not on team" badge).
   const liveAttr = (typeof getLatestStatusForAssignment === 'function')
     ? getLatestStatusForAssignment(a.id)
     : null;
@@ -15175,13 +15197,11 @@ function renderPerfStationListHTML(a) {
       : (d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
          + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }));
     const modName = liveAttr.moderatorName || liveAttr.moderatorId || '';
-    const mismatch = liveAttr.moderatorMatch === false;
     latestUpdateHTML = `
       <div class="perf-panel-section-title">Latest update</div>
       <div style="font-size: 12.5px; color: var(--text2); margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px;">
         ${whenLabel ? `<span>${escapeHTML(whenLabel)}</span>` : ''}
         ${modName ? `<span style="color: var(--text3);">·</span><span>${escapeHTML(modName)}</span>` : ''}
-        ${mismatch ? `<span class="perf-mod-mismatch" title="The moderator who synced this progress (${escapeHTML(modName || liveAttr.moderatorId)}) isn't listed on this booking's team. The progress is still shown.">⚠ not on team</span>` : ''}
       </div>
     `;
   }
@@ -41473,6 +41493,20 @@ async function writeApprovalEvent(row) {
     console.warn('[Twilight] approval write skipped · no real assignment_id');
     return false;
   }
+  const writerOrbit = (row && (row.orbit_login_id || row.orbitLoginId)) || '';
+  const evt = String((row && row.event_type) || '').toLowerCase();
+  const isModSubmit = evt === 'submitted' || evt === 'resubmitted';
+  if (isModSubmit && writerOrbit && typeof operatorMayWriteAssignmentSession === 'function') {
+    const booking = (typeof lookupAssignmentForScope === 'function')
+      ? lookupAssignmentForScope(assignmentId)
+      : null;
+    if (booking && typeof isAssignmentScopedSessionWrite === 'function'
+        && isAssignmentScopedSessionWrite(booking)
+        && !operatorMayWriteAssignmentSession(booking, writerOrbit)) {
+      console.warn('[Twilight] approval write skipped · orbit not booked on assignment');
+      return false;
+    }
+  }
   const payload = { ...row, assignment_id: assignmentId };
   delete payload.assignmentId;
   if (!APPROVAL_PA_WRITE_URL) { console.warn('[Twilight] APPROVAL_PA_WRITE_URL not configured · approval not written.'); return false; }
@@ -41595,6 +41629,17 @@ async function createApprovalRequest(p) {
   const orbitId = p.orbitLoginId || '';
   const asgn    = _approvalAssignmentId(p.assignmentId);
   if (!asgn) return null;
+  if (orbitId && typeof operatorMayWriteAssignmentSession === 'function') {
+    const booking = (typeof lookupAssignmentForScope === 'function')
+      ? lookupAssignmentForScope(asgn)
+      : null;
+    if (booking && typeof isAssignmentScopedSessionWrite === 'function'
+        && isAssignmentScopedSessionWrite(booking)
+        && !operatorMayWriteAssignmentSession(booking, orbitId)) {
+      console.warn('[Twilight] approval create skipped · orbit not booked on assignment');
+      return null;
+    }
+  }
   const station = p.station || '';
   // Prefer stable team/session id; ignore legacy orbit+timestamp ids.
   const id = buildTeamSessionApprovalId(asgn, station) || p.approval_id || '';
@@ -42261,10 +42306,193 @@ function sessionStateRowMatchesAssignment(r, asgnId) {
   return false;
 }
 
-function sessionStateRowsForAssignment(asgnId, rows) {
+function sessionStateRowsForAssignment(asgnId, rows, opts) {
   const list = Array.isArray(rows) ? rows : [];
   if (!asgnId) return [];
-  return list.filter(r => sessionStateRowMatchesAssignment(r, asgnId));
+  let matching = list.filter(r => sessionStateRowMatchesAssignment(r, asgnId));
+  // WD-TEAM-SS-FILTER · default booked co-mods only when roster is known.
+  // Orphan SS (foreign orbitLoginId on the same aid) is non-authoritative
+  // for Arrival / LATEST UPDATE / happypath / station merge / strike.
+  // Pass { bookedOnly: false } only for explicit Admin audit dumps.
+  const bookedOnly = !(opts && opts.bookedOnly === false);
+  if (bookedOnly && typeof sessionStateRowIsAuthoritativeForAssignment === 'function') {
+    matching = matching.filter(r => sessionStateRowIsAuthoritativeForAssignment(r, asgnId));
+  }
+  return matching;
+}
+
+// ---------- Team-scope contracts (1.3.091821c) ----------
+// WD-TEAM-SS-FILTER · Arrival / LATEST / merge / strike use booked
+//   Assignment List orbitLoginIds only (modSnapshots + team members).
+// WD-SS-WRITE-MEMBERSHIP · reject SessionState WRITE if orbit is not
+//   booked on that aid. Master Admin excepted. Blocks ss_…_narendratw.
+// WD-SOFTMERGE-NO-FOREIGN · soft-merge ignores non-booked SS rows.
+// WD-ARRIVAL-ATTRIBUTION · Arrival actor = booked owner of arrivedAt /
+//   lastGeo, never a foreign lastActive winner.
+// WD-FLAG-TEAM-COMPLETE · kept from 1.3.091821b (either co-mod happypath).
+function assignmentOrbitKey(raw) {
+  if (typeof normalizeOrbitKey === 'function') return normalizeOrbitKey(raw);
+  return String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function lookupAssignmentForScope(asgnOrId) {
+  if (asgnOrId && typeof asgnOrId === 'object') return asgnOrId;
+  const id = asgnOrId != null && asgnOrId !== '' ? String(asgnOrId) : '';
+  if (!id) return null;
+  try {
+    if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments)) {
+      const hit = adminState.assignments.find(a => {
+        if (!a) return false;
+        return (typeof assignmentIdsMatch === 'function')
+          ? assignmentIdsMatch(a.id, id)
+          : String(a.id) === id;
+      });
+      if (hit) return hit;
+    }
+  } catch (_) {}
+  return { id: id };
+}
+
+function assignmentBookedOrbitLoginIds(asgnOrId) {
+  const ids = new Set();
+  const a = (typeof lookupAssignmentForScope === 'function')
+    ? lookupAssignmentForScope(asgnOrId)
+    : (asgnOrId && typeof asgnOrId === 'object' ? asgnOrId : null);
+  if (!a) return ids;
+  const add = (raw) => {
+    const id = assignmentOrbitKey(raw);
+    if (!id || id === '_app_setting') return;
+    ids.add(id);
+  };
+  (a.modSnapshots || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
+  add(a.orbitLoginId || a.orbitId);
+  if (a.teamId != null && a.teamId !== ''
+      && typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams)) {
+    const t = adminState.teams.find(x => String(x.id) === String(a.teamId));
+    if (t) {
+      const backups = (typeof getTeamBackupIds === 'function') ? getTeamBackupIds(t) : (t.backupIds || []);
+      (t.primaryIds || []).concat(backups || []).forEach(add);
+    }
+  }
+  return ids;
+}
+
+function sessionStateRowOrbitId(r) {
+  return assignmentOrbitKey(r && (r.orbitLoginId || r.orbitId));
+}
+
+function sessionStateRowIsAuthoritativeForAssignment(r, asgnOrId) {
+  if (!r) return false;
+  if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+      && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
+  const booked = (typeof assignmentBookedOrbitLoginIds === 'function')
+    ? assignmentBookedOrbitLoginIds(asgnOrId)
+    : new Set();
+  // Unknown roster: cannot identify foreign — keep the row.
+  if (!booked.size) return true;
+  const orbit = sessionStateRowOrbitId(r);
+  if (!orbit) return false;
+  return booked.has(orbit);
+}
+
+function isAssignmentScopedSessionWrite(asgn) {
+  if (!asgn || asgn.id == null || asgn.id === '') return false;
+  if (asgn._geoPresenceOnly) return false;
+  const id = String(asgn.id);
+  if (id.indexOf('geo_presence_') === 0 || id.indexOf('asgn_remote_') === 0) return false;
+  return true;
+}
+
+function operatorMayWriteAssignmentSession(asgn, orbitId) {
+  if (!isAssignmentScopedSessionWrite(asgn)) return true;
+  // WD-SS-WRITE-MEMBERSHIP · Master Admin excepted (admin tools / heal).
+  try {
+    if (typeof isMasterAdminUser === 'function'
+        && (isMasterAdminUser(orbitId) || isMasterAdminUser())) {
+      return true;
+    }
+  } catch (_) {}
+  const orbit = assignmentOrbitKey(orbitId);
+  if (!orbit) return false;
+  const booked = assignmentBookedOrbitLoginIds(asgn);
+  if (booked.size) return booked.has(orbit);
+  // Unknown roster: allow only if this operator belongs (snapshot / team).
+  if (typeof assignmentBelongsToOperator === 'function') {
+    try {
+      const identity = (typeof getOperatorIdentity === 'function')
+        ? getOperatorIdentity()
+        : { ids: new Set([orbit]), emails: new Set() };
+      const emailToOrbit = (typeof buildEmailToOrbitLoginMap === 'function')
+        ? buildEmailToOrbitLoginMap()
+        : new Map();
+      const myTeamIds = (typeof getOperatorTeams === 'function')
+        ? new Set((getOperatorTeams() || []).map(t => String(t.id)))
+        : new Set();
+      return assignmentBelongsToOperator(asgn, identity, emailToOrbit, myTeamIds);
+    } catch (_) {}
+  }
+  return false;
+}
+
+// WD-ARRIVAL-ATTRIBUTION · booked owner of arrivedAt or lastGeo.at.
+// Never attribute Arrival to a foreign lastActive winner (orphan SS 439
+// lastActive 5:00 PM PT was shown as Arrival actor over Venkata lastGeo).
+function resolveAssignmentArrivalAttribution(asgnOrId, rows) {
+  const asgn = (typeof lookupAssignmentForScope === 'function')
+    ? lookupAssignmentForScope(asgnOrId)
+    : (asgnOrId && typeof asgnOrId === 'object' ? asgnOrId : { id: asgnOrId });
+  const asgnId = asgn && asgn.id;
+  if (!asgnId) return null;
+  const list = Array.isArray(rows)
+    ? rows
+    : ((typeof sessionStateRowsForAssignment === 'function')
+      ? sessionStateRowsForAssignment(asgnId,
+          (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+            ? adminState.perfSessionStateRows : [])
+      : []);
+  let best = null;
+  for (const r of list) {
+    if (!r) continue;
+    if (typeof sessionStateRowIsAuthoritativeForAssignment === 'function'
+        && !sessionStateRowIsAuthoritativeForAssignment(r, asgnId)) continue;
+    let parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    if (!parsed || typeof parsed !== 'object') parsed = {};
+    const arrivedRaw = parsed.arrivedAt || r.arrivedAt || '';
+    let arrivedMs = 0;
+    if (arrivedRaw) {
+      arrivedMs = (typeof parseLastActiveMs === 'function')
+        ? parseLastActiveMs(arrivedRaw)
+        : (Date.parse(arrivedRaw) || 0);
+    }
+    const geo = parsed.lastGeo || null;
+    let geoMs = 0;
+    if (geo && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lng))) {
+      geoMs = (typeof lastGeoPingAtMs === 'function')
+        ? lastGeoPingAtMs(geo)
+        : (Number(geo.at) || Date.parse(geo.at) || 0);
+    }
+    // Prefer arrivedAt owner (kind 2) over lastGeo-only (kind 1).
+    // Never score lastActive alone — that is LATEST UPDATE, not Arrival.
+    const kind = arrivedMs ? 2 : (geoMs ? 1 : 0);
+    const atMs = arrivedMs || geoMs || 0;
+    if (!kind || !atMs) continue;
+    if (!best || kind > best.kind || (kind === best.kind && atMs > best.atMs)) {
+      best = { row: r, kind, atMs, arrivedAt: arrivedRaw || null };
+    }
+  }
+  if (!best) return null;
+  const orbitId = String((best.row && (best.row.orbitLoginId || best.row.orbitId)) || '');
+  const name = (typeof getModeratorDisplayName === 'function' && orbitId)
+    ? getModeratorDisplayName(orbitId)
+    : orbitId;
+  return {
+    orbitId,
+    name: name || orbitId,
+    at: best.arrivedAt || (best.atMs ? new Date(best.atMs).toISOString() : ''),
+    atMs: best.atMs,
+  };
 }
 
 function pickLakituUrlFromSessionStateParsed(parsed) {
@@ -42538,6 +42766,11 @@ function pickLatestTeamProgress(rows, opts) {
         ? sessionStateRowMatchesAssignment(r, assignmentId)
         : assignmentIdsMatch(r.assignmentId, assignmentId);
       if (!matches) continue;
+      // Same assignmentId is authoritative for teamId drift — but a foreign
+      // orbitLoginId on this aid is still an orphan (Narendra SS 439).
+      // WD-SOFTMERGE-NO-FOREIGN · ignore non-booked SS on this aid.
+      if (typeof sessionStateRowIsAuthoritativeForAssignment === 'function'
+          && !sessionStateRowIsAuthoritativeForAssignment(r, assignmentId)) continue;
       // Same assignmentId is authoritative — do NOT drop on TeamLog/SS teamId
       // divergence (820f unlock / day-bind). Team filter only applies when we
       // are scanning without a concrete assignment scope.
@@ -42870,9 +43103,26 @@ function getSessionStateWriteContext(opts) {
     const base = writeAsgn && String(writeAsgn.id) === String(target.id)
       ? writeAsgn
       : lookupAssignmentByIdForSessionWrite(target.id);
-    return Object.assign({}, base || { id: target.id }, {
+    const scoped = Object.assign({}, base || { id: target.id }, {
       teamId: target.teamId || resolveMappedTeamId(base || writeAsgn || null),
     });
+    if (typeof operatorMayWriteAssignmentSession === 'function'
+        && !operatorMayWriteAssignmentSession(scoped, orbitId)) {
+      // Fail closed: do not stamp this orbit onto another team's assignmentId.
+      // Location-only presence remains allowed.
+      if (state.lastGeo && Number.isFinite(Number(state.lastGeo.lat))) {
+        const day = (typeof getPSTDateString === 'function')
+          ? getPSTDateString()
+          : new Date().toISOString().slice(0, 10);
+        return {
+          id: 'geo_presence_' + orbitId + '_' + day,
+          teamId: '',
+          _geoPresenceOnly: true,
+        };
+      }
+      return null;
+    }
+    return scoped;
   }
   return {
     id: target.id,
@@ -43034,6 +43284,11 @@ async function flushSessionStateSync(opts) {
     const payload = buildSessionStateCloudPayload(asgn, opts.geoSyncReason || '');
     payload.overwrite = true;
     payload.writeMode = 'upsert';
+    if (typeof operatorMayWriteAssignmentSession === 'function'
+        && !operatorMayWriteAssignmentSession(asgn, payload.orbitLoginId)) {
+      outcome = { ok: false, reason: 'foreign_assignment' };
+      return outcome;
+    }
     if (!payload.sessionStateId) {
       outcome = { ok: false, reason: 'error', error: 'missing sessionStateId' };
       if (opts.force || opts.geoSyncReason) notifyGeoSaveResult(outcome);
@@ -44026,10 +44281,19 @@ function getLatestStatusForAssignment(asgnId) {
   // devices this is usually empty; on moderator devices it contains
   // the operator's own writes and agrees with SS.
   const cache = loadWorklogCache();
+  const booked = (typeof assignmentBookedOrbitLoginIds === 'function')
+    ? assignmentBookedOrbitLoginIds(asgnId)
+    : null;
   let best = null;
   let bestIdx = -1;
   cache.forEach(row => {
     if (row.assignmentId !== asgnId) return;
+    if (booked && booked.size) {
+      const oid = (typeof assignmentOrbitKey === 'function')
+        ? assignmentOrbitKey(row.orbitLoginId)
+        : String(row.orbitLoginId || '').toLowerCase();
+      if (!oid || !booked.has(oid)) return;
+    }
     const idx = statusOrderIdx(row.status);
     if (idx > bestIdx) { bestIdx = idx; best = row; }
   });
@@ -44098,9 +44362,13 @@ function deriveLatestStatusFromSessionState(asgnId) {
   // Lakitu URL lookup (1.2.052819) · exact string match first, then
   // trim+lowercase fallback to absorb any whitespace/case drift
   // introduced by Excel-cell editing or PA serialization.
-  const matching = (typeof sessionStateRowsForAssignment === 'function')
+  let matching = (typeof sessionStateRowsForAssignment === 'function')
     ? sessionStateRowsForAssignment(asgnId, rows)
     : rows.filter(r => sessionStateRowMatchesAssignment(r, asgnId));
+  // Belt: stubs / older extractors may skip bookedOnly. Drop foreign orbits.
+  if (typeof sessionStateRowIsAuthoritativeForAssignment === 'function') {
+    matching = matching.filter(r => sessionStateRowIsAuthoritativeForAssignment(r, asgnId));
+  }
   if (matching.length === 0) {
     _derivedStatusCache.byAsgnId[asgnId] = null;
     return null;
@@ -44194,21 +44462,18 @@ function deriveLatestStatusFromSessionState(asgnId) {
   }
   if (!attributionRow) attributionRow = matching[0];
 
-  // LATEST-UPDATE ATTRIBUTION (1.3.061526):
-  // The "latest timestamp from the SessionState table" is the newest
-  // matching row's lastActive (matching is sorted newest-first above).
-  // Map that row's orbitLoginId → moderator name, and cross-check it
-  // against the booking's assigned mods (modSnapshots). Admin's call:
-  // still USE the progress on a mismatch, but flag it (moderatorMatch
-  // = false) so the UI can show a "not on team" note. moderatorMatch
-  // defaults true when we can't determine the roster (no modSnapshots),
-  // so we never show a false alarm.
+  // LATEST UPDATE (WD-TEAM-SS-FILTER) = newest booked lastActive.
+  // Arrival actor is resolved separately (WD-ARRIVAL-ATTRIBUTION).
   const latestRow = matching[0];
   const moderatorId = String((latestRow && latestRow.orbitLoginId) || '');
   const moderatorName = (typeof getModeratorDisplayName === 'function' && moderatorId)
     ? getModeratorDisplayName(moderatorId)
     : (moderatorId || '');
   const lastActive = (latestRow && latestRow.lastActive) || '';
+  const arrivalAttr = (typeof resolveAssignmentArrivalAttribution === 'function')
+    ? resolveAssignmentArrivalAttribution(asgnId, matching)
+    : null;
+  if (!arrivedAt && arrivalAttr && arrivalAttr.at) arrivedAt = arrivalAttr.at;
   // Team = Session · either co-mod wrap-up / session_done wins over the
   // other mod's lower station stamps (Rohith session_done + Venkata St 2).
   if (!sessionCompletedAt && (bestSessionStatus === 'session_done'
@@ -44256,6 +44521,9 @@ function deriveLatestStatusFromSessionState(asgnId) {
         moderatorId:    moderatorId,
         moderatorName:  moderatorName,
         moderatorMatch: moderatorMatch,
+        arrivedAt:      arrivedAt || (arrivalAttr && arrivalAttr.at) || null,
+        arrivalOrbitId: (arrivalAttr && arrivalAttr.orbitId) || '',
+        arrivalName:    (arrivalAttr && arrivalAttr.name) || '',
         sessionCompletedAt: sessionCompletedAt || null,
         // Mark derived rows so future debugging can distinguish
         // "this came from SS inference" from "this came from a
@@ -44277,6 +44545,9 @@ function deriveLatestStatusFromSessionState(asgnId) {
       moderatorId: moderatorId,
       moderatorName: moderatorName,
       moderatorMatch: moderatorMatch,
+      arrivedAt: arrivedAt || (arrivalAttr && arrivalAttr.at) || null,
+      arrivalOrbitId: (arrivalAttr && arrivalAttr.orbitId) || '',
+      arrivalName: (arrivalAttr && arrivalAttr.name) || '',
       sessionCompletedAt: sessionCompletedAt || null,
       _derived: true,
     };
@@ -44350,6 +44621,10 @@ function pushWorklogStatus(asgn, status, opts) {
   opts = opts || {};
   if (!state.modProfile || !state.modProfile.orbitLoginId) return null;
   if (!asgn) return null;
+  if (typeof operatorMayWriteAssignmentSession === 'function'
+      && !operatorMayWriteAssignmentSession(asgn, state.modProfile.orbitLoginId)) {
+    return null;
+  }
 
   // One Excel row per session. Later station completions overwrite
   // that same worklogId instead of adding a new row.

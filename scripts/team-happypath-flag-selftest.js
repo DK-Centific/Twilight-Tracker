@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Team = Session happypath for Flagged / 9 AM auto-strike (1.3.091821b).
+ * Team = Session happypath for Flagged / 9 AM auto-strike (1.3.091821c).
  *
  * Fixture: Rohith × Venkata · od_d6b16c91-fe8a-4a5f-8ffe-cbaa153c8e27
  * SS 477 Rohith session_done (merged stations) · SS 479 Venkata session_done
@@ -34,11 +34,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Team happypath Flag / strike self-test (1.3.091821b)');
+console.log('Team happypath Flag / strike self-test (1.3.091821c)');
 
-assert('APP_VERSION 1.3.091821b',
-  /const APP_VERSION = '1\.3\.091821b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091821b'));
+assert('APP_VERSION 1.3.091821c',
+  /const APP_VERSION = '1\.3\.091821c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091821c'));
 
 assert('team happypath helper present',
   /function isAssignmentTeamHappypathComplete/.test(src)
@@ -186,7 +186,31 @@ const ctx = {
   },
   assignmentIdsMatch: (a, b) => String(a || '') === String(b || ''),
   sessionStateRowMatchesAssignment: (r, id) => String((r && r.assignmentId) || '') === String(id),
-  sessionStateRowsForAssignment: (id, rows) => (rows || []).filter(r => String(r.assignmentId || '') === String(id)),
+  sessionStateRowsForAssignment: (id, rows) => {
+    const matching = (rows || []).filter(r => String(r.assignmentId || '') === String(id));
+    if (typeof ctx.sessionStateRowIsAuthoritativeForAssignment === 'function') {
+      return matching.filter(r => ctx.sessionStateRowIsAuthoritativeForAssignment(r, id));
+    }
+    return matching;
+  },
+  assignmentOrbitKey: (raw) => String(raw || '').trim().toLowerCase().replace(/\s+/g, ''),
+  assignmentBookedOrbitLoginIds: (asgnOrId) => {
+    const a = asgnOrId && typeof asgnOrId === 'object'
+      ? asgnOrId
+      : (ctx.adminState.assignments || []).find(x => String(x.id) === String(asgnOrId));
+    const ids = new Set();
+    (a && a.modSnapshots || []).forEach(s => {
+      const id = String((s && s.orbitLoginId) || '').trim().toLowerCase();
+      if (id) ids.add(id);
+    });
+    return ids;
+  },
+  sessionStateRowIsAuthoritativeForAssignment: (r, asgnOrId) => {
+    const booked = ctx.assignmentBookedOrbitLoginIds(asgnOrId);
+    if (!booked.size) return true;
+    const orbit = String((r && r.orbitLoginId) || '').trim().toLowerCase();
+    return !!(orbit && booked.has(orbit));
+  },
   parseSessionStateJson: (r) => {
     try {
       return typeof r.stateJson === 'string' ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
@@ -374,6 +398,28 @@ if (typeof ctx.isAssignmentTeamHappypathComplete === 'function') {
   ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
   assert('after PA clear, happypath true so 9 AM will not write teamAutoStrike',
     ctx.isAssignmentCompleteForStrike(asgn) === true);
+
+  // WD-TEAM-SS-FILTER / WD-SOFTMERGE-NO-FOREIGN · orphan SS 439 must not
+  // dilute happypath or win LATEST UPDATE (PA-quarantined Narendra row).
+  const ss439 = {
+    id: 439,
+    orbitLoginId: 'Narendra-tw',
+    assignmentId: AID,
+    lastActive: '2026-09-21T00:00:00.000Z',
+    sessionStatus: 'arrived',
+    stateJson: JSON.stringify({
+      sessionStatus: 'arrived',
+      arrivedAt: '2026-09-20T18:00:00.000Z',
+    }),
+  };
+  ctx.adminState.perfSessionStateRows = [ss439, ss477, ss479];
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  const derivedOrphan = ctx.deriveLatestStatusFromSessionState(AID) || {};
+  assert('WD-TEAM-SS-FILTER · orphan Narendra is not LATEST UPDATE',
+    String(derivedOrphan.moderatorId || '').toLowerCase() !== 'narendra-tw'
+    && derivedOrphan.status === 'session_done');
+  assert('WD-SOFTMERGE-NO-FOREIGN · orphan does not break happypath',
+    ctx.isAssignmentTeamHappypathComplete(asgn) === true);
 
   const rohithPill = ctx.perfFlaggedStatusPillForOrbit('Rohith-tw');
   const venkataPill = ctx.perfFlaggedStatusPillForOrbit('Venkata-tw');

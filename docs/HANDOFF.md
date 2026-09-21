@@ -1,6 +1,29 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-21 · Cursor · Team happypath Flag / strike (1.3.091821b)
+**Last updated:** 2026-09-21 · Cursor · Foreign-orbit team-scope (1.3.091821c)
+
+## 2026-09-21 · Foreign-orbit Arrival / LATEST UPDATE (1.3.091821c)
+
+**Ask:** Admin Performance **Done** for **Rohith × Venkata** (`od_d6b16c91…`) showed Arrival + LATEST UPDATE as **Narendra Palanati** + “not on team”. Impossible from Booking — List is Rohith-tw / Venkata-tw only.
+
+**PA evidence:** Orphan **SS 439** Narendra-tw on the same aid · `lastActive=2026-09-21T00:00:00Z` (Sep 20 5:00 PM PT). Arrival timestamp was **Venkata** `lastGeo.at` / `sessionCompletedAt` (~Sep 21 2:48 AM PT), mislabeled. PA quarantined SS 439. No TeamLog. Approvals: Venkata only.
+
+**Client cause:** `sessionStateRowsForAssignment` matched every SS row by aid. Newest `lastActive` (orphan) won LATEST UPDATE; Arrival reused that actor.
+
+**Contracts (do not merge until David types push):**
+1. **WD-TEAM-SS-FILTER** — Arrival / LATEST / merge / strike = booked List orbits only
+2. **WD-SS-WRITE-MEMBERSHIP** — reject SS WRITE if orbit not booked (Master Admin excepted)
+3. **WD-SOFTMERGE-NO-FOREIGN** — soft-merge ignores non-booked SS
+4. **WD-ARRIVAL-ATTRIBUTION** — Arrival actor = booked owner of arrivedAt/lastGeo
+5. **WD-FLAG-TEAM-COMPLETE** — kept from 1.3.091821b
+
+**Version:** **1.3.091821c**. Selftest: `scripts/perf-foreign-orbit-scope-selftest.js`. Contract: `docs/team-scope-contract.md`. Report: `od-sync/ROHITH-VENKATA-NARENDRA-ATTRIBUTION-REPORT.md`.
+
+**PR:** [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) draft on `cursor/perf-foreign-orbit-scope-18f9` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091821c**. Admin → Performance → **Done** (or Past). Open **Rohith × Venkata**. Arrival and Latest update must be Rohith or Venkata (or empty) — never Narendra, never “not on team”.
+
+---
 
 ## 2026-09-21 · Team = Session Flag / 9 AM (1.3.091821b)
 
@@ -366,8 +389,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091821a`** (Admin Performance Past / history) |
-| **This branch** | **`1.3.091821b`** · Team happypath Flag / strike · `cursor/team-happypath-flag-946c` |
+| **`main` version** | **`1.3.091821b`** (Team happypath Flag / strike) |
+| **This branch** | **`1.3.091821c`** · Foreign-orbit team-scope · `cursor/perf-foreign-orbit-scope-18f9` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #151 · team sync audit pack |
 
@@ -398,7 +421,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft · newest |
+| [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) | `cursor/perf-foreign-orbit-scope-18f9` | Hide foreign orbit on Done Arrival/LATEST · write membership gate · **1.3.091821c** | Draft · newest |
+| [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | Draft |
 | [#153](https://github.com/DK-Centific/Twilight-Tracker/pull/153) | `cursor/perf-past-history-review-9f44` | Admin Performance Past / history so completed+skipped stay reviewable | Merged to main |
 | [#112](https://github.com/DK-Centific/Twilight-Tracker/pull/112) | `cursor/activities-map-perf-today-6662` | Activities Map Today = Performance overnight overlap + 9 AM queue gate | Draft |
 | [#110](https://github.com/DK-Centific/Twilight-Tracker/pull/110) | `cursor/perf-overnight-live-9am-gate-ff76` | Admin Performance/Overview: overnight Live + 9 AM next-session gate | Draft |
