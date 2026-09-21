@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821e';
-const APP_UPDATED_AT = '09/21/2026 15:20';
+const APP_VERSION = '1.3.091821f';
+const APP_UPDATED_AT = '09/21/2026 15:35';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -23372,7 +23372,6 @@ function modCardHTML(m, i, role) {
             ${escapeHTML(fullName)}${role === 'backup' ? ' <span class="mod-role-badge">BU</span>' : ''}${(typeof isUserDeactivated === 'function' && isUserDeactivated(orbitId, m)) ? ' <span class="mod-status-pill is-deactivated">Deactivated</span>' : ''}${hasResolvedName ? '' : ' <span class="mod-incomplete-badge" title="No first/last name found in Excel for this moderator · showing orbit login ID instead. Add the name columns to the row to fix.">Incomplete</span>'}
           </div>
           ${showStrikeActions && (typeof renderModStarsHTML === 'function') ? `<div class="mod-card-stars">${renderModStarsHTML(strikeStars, MOD_STRIKE_MAX_STARS, orbitId)}</div>` : ''}
-          <div class="mod-id">${escapeHTML(orbitId || '·')}</div>
         </div>
         <span class="mod-card-chevron">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none">

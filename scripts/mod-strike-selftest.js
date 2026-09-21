@@ -23,13 +23,15 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091821e',
-  /const APP_VERSION = '1\.3\.091821e'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091821e'));
-assert('grid card stars wrap under the name',
+assert('version bump 091821f',
+  /const APP_VERSION = '1\.3\.091821f'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091821f'));
+assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
+  && !/class="mod-id"/.test(src)
   && html.includes('.mod-card-stars')
-  && /mod-card-stars[\s\S]{0,280}flex-wrap:\s*wrap/.test(html));
+  && /mod-card-stars[\s\S]{0,320}flex-wrap:\s*nowrap/.test(html)
+  && /mod-card-stars[\s\S]{0,400}min-height:\s*16px/.test(html));
 assert('per-orbit strike freshness + write barrier',
   /function modStrikeRecordFreshnessMs/.test(src)
   && /function modStrikeShouldKeepLocal/.test(src)

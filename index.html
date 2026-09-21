@@ -8026,23 +8026,25 @@ input#ent_lakitu.lakitu-invalid {
   color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* Grid cards: stars sit on their own line under the name so a long
-   name cannot clip them. The title row above stays one line. */
+/* Grid cards: stars replace the old Orbit ID line under the name.
+   One reserved row, no wrap, so a long name cannot clip or break them. */
 .mod-card-stars {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  margin-top: 4px;
+  margin-top: 3px;
+  min-height: 16px;
+  min-width: 4.6em;
   max-width: 100%;
   overflow: visible;
 }
 .mod-card-stars .mod-stars {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
   align-items: center;
   margin-left: 0;
-  max-width: 100%;
-  row-gap: 2px;
+  gap: 3px;
 }
 .mod-id {
   font-family: var(--font-num);
@@ -19480,7 +19482,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091821e" defer></script>
+<script src="twilight.js?v=twilight-1.3.091821f" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
