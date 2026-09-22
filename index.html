@@ -3025,7 +3025,7 @@ html.is-phone-layout .sc-flow { display: flex; flex-direction: column; }
 }
 /* Week + Assign-a-Team · lock page scroll so the booking shell height
    is the dash grid. Month / assign-collapsed keep normal page scroll.
-   Inner .bk-team-list still scrolls. */
+   Inner .bk-team-list and week .bk-session-list still scroll. */
 body.booking-week-assign-open {
   overflow: hidden;
 }
@@ -3037,10 +3037,46 @@ body.booking-week-assign-open {
 #bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .booking-page-body {
   overflow: hidden;
   overscroll-behavior: none;
+  display: flex;
+  flex-direction: column;
 }
+/* The locked body used to clip Sessions this day: the list's own
+   max-height (52vh) was taller than the space under the week hero,
+   so the 4th card was cut off with no scrollbar. Fill the shell and
+   let that list shrink and scroll. Month / collapsed week still scroll
+   the page. */
 #bookingPage.is-week-assign-open .bk-dash,
 #bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-dash {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   padding-bottom: 0;
+}
+#bookingPage.is-week-assign-open .bk-dash-grid.is-week,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-dash-grid.is-week {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+@media (min-width: 900px) {
+  #bookingPage.is-week-assign-open .bk-dash-grid.is-week,
+  #bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-dash-grid.is-week {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+}
+#bookingPage.is-week-assign-open .bk-sessions,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-sessions {
+  align-self: stretch;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#bookingPage.is-week-assign-open .bk-sessions .bk-section,
+#bookingPage:has(.bk-dash-grid.is-week.is-assign-open) .bk-sessions .bk-section {
+  flex-shrink: 0;
 }
 
 /* Booking dashboard · Helios surfaces on the Booking Mobile layout */
@@ -3285,6 +3321,36 @@ body.booking-week-assign-open {
   max-height: min(52vh, 540px);
   overflow-y: auto;
   padding-right: 2px;
+}
+/* Week · about three session cards. A taller list was clipped by the
+   locked booking page (overflow:hidden) before this box could scroll.
+   Month keeps the 52vh cap above. Scrollbar stays visible. */
+.bk-dash-grid.is-week .bk-session-list {
+  --bk-session-row: 112px;
+  --bk-session-gap: 10px;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc((3 * var(--bk-session-row)) + (2 * var(--bk-session-gap)));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bk-text3) transparent;
+}
+.bk-dash-grid.is-week .bk-session-list > .bk-session-card {
+  flex-shrink: 0;
+}
+.bk-dash-grid.is-week .bk-session-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.bk-dash-grid.is-week .bk-session-list::-webkit-scrollbar-thumb {
+  background: var(--bk-text3);
+  border-radius: 99px;
+}
+.bk-dash-grid.is-week .bk-session-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 .bk-session-card {
   display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 14px;
@@ -19460,7 +19526,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091822a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091822b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
