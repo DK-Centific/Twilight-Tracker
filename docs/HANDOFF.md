@@ -14,7 +14,7 @@
 - Flagged filters, sort, and search do the same short fade. List/Split does too.
 - Version **1.3.091822a**. Selftest: `scripts/perf-motion-soft-selftest.js`.
 
-**PR:** draft on `cursor/perf-calm-motion-3ffe` — do **not** merge until David types **push**.
+**PR:** [#159](https://github.com/DK-Centific/Twilight-Tracker/pull/159) draft on `cursor/perf-calm-motion-3ffe` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091822a**. Admin → Performance. The first open can still ease in. Click **Live**, **Next**, **Done**, **Flagged**, **Today**, **Past**, **Teams**, and **Moderators**. The list should fade briefly. The tiles you clicked should not blink or slide in again.
 
@@ -446,7 +446,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 | Item | Value |
 | --- | --- |
 | **`main` version** | **`1.3.091821g`** (team complete OR · #158 merged) |
-| **This branch** | **`1.3.091822a`** · Performance tile/filter clicks use a 160ms fade · `cursor/perf-calm-motion-3ffe` |
+| **This branch** | **`1.3.091822a`** · Performance tile/filter clicks use a 160ms fade · `cursor/perf-calm-motion-3ffe` · [#159](https://github.com/DK-Centific/Twilight-Tracker/pull/159) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 
@@ -477,7 +477,8 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
-| [#158](https://github.com/DK-Centific/Twilight-Tracker/pull/158) | `cursor/team-complete-or-flagged-f537` | Team complete = best primary for Flagged / Done / 9 AM | Draft · **1.3.091821g** · do not merge |
+| [#159](https://github.com/DK-Centific/Twilight-Tracker/pull/159) | `cursor/perf-calm-motion-3ffe` | Performance tile/filter clicks fade 160ms instead of re-staggering | Draft · **1.3.091822a** · do not merge |
+| [#158](https://github.com/DK-Centific/Twilight-Tracker/pull/158) | `cursor/team-complete-or-flagged-f537` | Team complete = best primary for Flagged / Done / 9 AM | Merged to main · **1.3.091821g** |
 | [#156](https://github.com/DK-Centific/Twilight-Tracker/pull/156) | `cursor/perf-live-next-done-window-eff0` | Live/Next/Done = checked-in + today/overnight window | Draft · newest |
 | [#155](https://github.com/DK-Centific/Twilight-Tracker/pull/155) | `cursor/perf-foreign-orbit-scope-18f9` | Hide foreign orbits on Done Arrival / LATEST UPDATE | Draft · `1.3.091821c` · not included |
 | [#154](https://github.com/DK-Centific/Twilight-Tracker/pull/154) | `cursor/team-happypath-flag-946c` | Team=Session happypath for Flagged/9AM · per-mod stars · Flag glow | **Merged** to main |
