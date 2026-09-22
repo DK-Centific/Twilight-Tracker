@@ -43,7 +43,15 @@ assert('APP_VERSION 1.3.091821+',
 assert('team happypath helper present',
   /function isAssignmentTeamHappypathComplete/.test(src)
   && /function sessionStateParsedIsHappypathComplete/.test(src)
-  && /function sessionStateAllStationsHappypath/.test(src));
+  && /function sessionStateAllStationsHappypath/.test(src)
+  && /function assignmentHappypathMemberOrbitIds/.test(src)
+  && /function sessionStateCountsAsTeamComplete/.test(src));
+
+assert('station_4_done kept when Admin scoring and no stamp',
+  /st === 'station_4_done' && \(!hadStamps \|\| keptStamps\)/.test(src));
+
+assert('explicit sessionStatus beats arrivedAt',
+  /bestSessionStatusIdx > chosenIdx/.test(src));
 
 assert('Flagged + strike share happypath',
   /function isAssignmentCompleteForFlagged/.test(src)
@@ -253,6 +261,10 @@ const fns = [
   'sessionStateHasStation4Stamp',
   'sessionStateAllStationsHappypath',
   'sessionStateParsedIsHappypathComplete',
+  'assignmentHappypathMemberOrbitIds',
+  'sessionStateBestTeamStatus',
+  'sessionStateStampsAllBeforeBooking',
+  'sessionStateCountsAsTeamComplete',
   'assignmentSessionStateRowsForHappypath',
   'assignmentHasSessionDoneStamp',
   'isAssignmentTeamHappypathComplete',
@@ -381,6 +393,160 @@ if (typeof ctx.isAssignmentTeamHappypathComplete === 'function') {
     rohithPill.stars === 3 && rohithPill.filter === 'warn'
     && venkataPill.stars === 4 && venkataPill.filter === 'ok',
     JSON.stringify({ rohithPill, venkataPill }));
+
+  // Venkata × Jashit · Seth Schnurman. One primary at station_4_done
+  // with no session_done / Station4 stamp. The other primary's
+  // SessionState is empty and newer. Scrub would demote the status
+  // to arrived; the team still counts as complete.
+  const VJ = 'od_2e9f20e3-seth';
+  const vj = {
+    id: VJ,
+    teamId: 100088,
+    date: SESSION_DAY,
+    status: 'Booked',
+    startMin: 9 * 60,
+    endMin: 17 * 60,
+    teamName: 'Venkata × Jashit',
+    participantData: { firstName: 'Seth', lastName: 'Schnurman' },
+    modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
+  };
+  ctx.adminState.teams.push({
+    id: 100088,
+    name: 'Venkata × Jashit',
+    primaryIds: ['Venkata-tw', 'Jashit-tw'],
+    backupIds: ['Backup-tw'],
+  });
+  ctx.adminState.assignments.push(vj);
+  const venkataSt4 = {
+    id: 501,
+    orbitLoginId: 'Venkata-tw',
+    assignmentId: VJ,
+    sessionStatus: 'station_4_done',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T02:00:00.000Z',
+    stateJson: JSON.stringify({
+      sessionStatus: 'station_4_done',
+      sessionDate: SESSION_DAY,
+      arrivedAt: '2026-09-21T01:00:00.000Z',
+      stations: { station4: stationMap(2) },
+    }),
+  };
+  const jashitEmpty = {
+    id: 502,
+    orbitLoginId: 'Jashit-tw',
+    assignmentId: VJ,
+    sessionStatus: '',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T05:00:00.000Z',
+    stateJson: JSON.stringify({ sessionDate: SESSION_DAY }),
+  };
+  const identityScrub = ctx.scrubSessionStateProgressToBooking;
+  ctx.scrubSessionStateProgressToBooking = (parsed) => {
+    const out = Object.assign({}, parsed || {});
+    const stamps = out.stationCompletedAt && Object.keys(out.stationCompletedAt).length;
+    if (out.sessionStatus === 'station_4_done' && !out.sessionCompletedAt && !stamps) {
+      out.sessionStatus = out.arrivedAt ? 'arrived' : '';
+    }
+    return out;
+  };
+  ctx.adminState.perfSessionStateRows = [venkataSt4, jashitEmpty];
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  ctx._strikeStore.checkpoints[TODAY] = {
+    applied: false, skippedTeams: {}, resolvedTeams: {}, teamAutoStrike: {},
+  };
+  assert('Venkata station_4_done + Jashit empty → team complete',
+    ctx.isAssignmentTeamHappypathComplete(vj) === true
+    && ctx.isAssignmentCompleteForFlagged(vj) === true
+    && ctx.isAssignmentCompleteForStrike(vj) === true
+    && ctx.isAssignmentFlaggedForPerf(vj) === false);
+  assert('Venkata station_4_done classifies Done',
+    ctx.classifyBookingForPerf(vj) === 'completed');
+  ctx.scrubSessionStateProgressToBooking = identityScrub;
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  assert('derived status is station_4_done (not arrived)',
+    (ctx.deriveLatestStatusFromSessionState(VJ) || {}).status === 'station_4_done');
+
+  const jashitShort = {
+    id: 503,
+    orbitLoginId: 'Jashit-tw',
+    assignmentId: VJ,
+    sessionStatus: 'station_3_done',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T04:00:00.000Z',
+    stateJson: JSON.stringify({
+      sessionStatus: 'station_3_done',
+      sessionDate: SESSION_DAY,
+      stations: { station1: stationMap(1) },
+    }),
+  };
+  const venkataFull = {
+    id: 504,
+    orbitLoginId: 'Venkata-tw',
+    assignmentId: VJ,
+    sessionStatus: '',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T03:00:00.000Z',
+    stateJson: JSON.stringify({
+      sessionDate: SESSION_DAY,
+      stations: {
+        station1: stationMap(2),
+        station2: stationMap(2),
+        station3: stationMap(2),
+        station4: stationMap(2),
+      },
+    }),
+  };
+  ctx.adminState.perfSessionStateRows = [venkataFull, jashitShort];
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  assert('full scenarios on one primary covers a short co-mod',
+    ctx.isAssignmentTeamHappypathComplete(vj) === true
+    && ctx.isAssignmentFlaggedForPerf(vj) === false);
+
+  const priorDay = {
+    id: 505,
+    orbitLoginId: 'Venkata-tw',
+    assignmentId: VJ,
+    sessionStatus: 'station_4_done',
+    sessionDate: '2026-09-19',
+    lastActive: '2026-09-19T20:00:00.000Z',
+    stateJson: JSON.stringify({
+      sessionStatus: 'station_4_done',
+      sessionDate: '2026-09-19',
+    }),
+  };
+  ctx.adminState.perfSessionStateRows = [priorDay, jashitEmpty];
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  assert('prior-day station_4_done does not complete this booking',
+    ctx.isAssignmentTeamHappypathComplete(vj) === false
+    && ctx.isAssignmentFlaggedForPerf(vj) === true);
+
+  const backupDone = {
+    id: 506,
+    orbitLoginId: 'Backup-tw',
+    assignmentId: VJ,
+    sessionStatus: 'station_4_done',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T06:00:00.000Z',
+    stateJson: JSON.stringify({
+      sessionStatus: 'station_4_done',
+      sessionDate: SESSION_DAY,
+      stationCompletedAt: { Station4: '2026-09-21T05:40:00.000Z' },
+    }),
+  };
+  const bothShort = {
+    id: 507,
+    orbitLoginId: 'Venkata-tw',
+    assignmentId: VJ,
+    sessionStatus: 'station_2_done',
+    sessionDate: SESSION_DAY,
+    lastActive: '2026-09-21T02:00:00.000Z',
+    stateJson: JSON.stringify({ sessionStatus: 'station_2_done', sessionDate: SESSION_DAY }),
+  };
+  ctx.adminState.perfSessionStateRows = [backupDone, bothShort, jashitShort];
+  ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
+  assert('backup station_4_done does not complete the primaries',
+    ctx.isAssignmentTeamHappypathComplete(vj) === false
+    && ctx.isAssignmentFlaggedForPerf(vj) === true);
 }
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');

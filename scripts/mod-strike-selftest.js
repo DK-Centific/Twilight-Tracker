@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091821f',
-  /const APP_VERSION = '1\.3\.091821f'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091821f'));
+assert('version bump 091821g',
+  /const APP_VERSION = '1\.3\.091821g'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091821g'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
