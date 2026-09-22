@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821g';
-const APP_UPDATED_AT = '09/22/2026 11:05';
+const APP_VERSION = '1.3.091822a';
+const APP_UPDATED_AT = '09/22/2026 12:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12692,7 +12692,7 @@ function fhClearMotionClasses(root) {
   if (!root) return;
   root.classList.remove('fh-enter', 'fh-restagger');
   const body = root.querySelector('#fhBody');
-  if (body) body.classList.remove('fh-crossfade');
+  if (body) body.classList.remove('fh-crossfade', 'fh-soft');
   const detail = root.querySelector('#fhSplitDetail');
   if (detail) detail.classList.remove('fh-detail-enter');
   root.querySelectorAll('.fh-star-hero.fh-star-pop').forEach(el => el.classList.remove('fh-star-pop'));
@@ -12700,25 +12700,28 @@ function fhClearMotionClasses(root) {
 
 function fhPlayMotion(root, kind) {
   if (!root) return;
+  const body = root.querySelector('#fhBody');
+  // Typing / rapid filter clicks: don't restart a fade that's already running.
+  if ((kind === 'soft' || kind === 'crossfade') && body && (body.classList.contains('fh-soft') || body.classList.contains('fh-crossfade'))) {
+    return;
+  }
   fhClearMotionClasses(root);
   if (fhPrefersReducedMotion()) return;
-  const body = root.querySelector('#fhBody');
   if (kind === 'enter') {
     root.classList.add('fh-enter');
     const ms = 520;
     clearTimeout(root._fhEnterTimer);
     root._fhEnterTimer = setTimeout(() => root.classList.remove('fh-enter'), ms);
-  } else if (kind === 'restagger') {
-    root.classList.add('fh-restagger');
-    const ms = 480;
-    clearTimeout(root._fhRestaggerTimer);
-    root._fhRestaggerTimer = setTimeout(() => root.classList.remove('fh-restagger'), ms);
+  } else if (kind === 'soft' && body) {
+    void body.offsetWidth;
+    body.classList.add('fh-soft');
+    clearTimeout(root._fhSoftTimer);
+    root._fhSoftTimer = setTimeout(() => body.classList.remove('fh-soft'), 220);
   } else if (kind === 'crossfade' && body) {
-    // force restart
     void body.offsetWidth;
     body.classList.add('fh-crossfade');
     clearTimeout(root._fhCrossTimer);
-    root._fhCrossTimer = setTimeout(() => body.classList.remove('fh-crossfade'), 380);
+    root._fhCrossTimer = setTimeout(() => body.classList.remove('fh-crossfade'), 220);
   }
 }
 
@@ -12746,7 +12749,7 @@ function perfMotionShell(body) {
 
 function perfClearMotionClasses(shell) {
   if (!shell) return;
-  shell.classList.remove('perf-enter', 'perf-restagger', 'perf-crossfade');
+  shell.classList.remove('perf-enter', 'perf-restagger', 'perf-crossfade', 'perf-soft');
   const grid = shell.querySelector('#perfTileGrid');
   if (grid) grid.classList.remove('perf-crossfade');
 }
@@ -12755,26 +12758,28 @@ function perfPlayMotion(body, kind) {
   const shell = perfMotionShell(body);
   if (!shell) return;
   shell.classList.add('perf-shell');
+  const k = kind || 'none';
+  // Filter / search already fading: let the short opacity finish instead of blinking again.
+  if ((k === 'soft' || k === 'crossfade' || k === 'restagger')
+      && (shell.classList.contains('perf-soft') || shell.classList.contains('perf-crossfade') || shell.classList.contains('perf-restagger'))) {
+    return;
+  }
   perfClearMotionClasses(shell);
   if (perfPrefersReducedMotion()) return;
-  const k = kind || 'none';
   if (k === 'none' || !k) return;
   if (k === 'enter') {
-    // force restart
+    // First paint only · rise + stagger. Filter clicks must not queue this.
     void shell.offsetWidth;
     shell.classList.add('perf-enter');
     clearTimeout(shell._perfEnterTimer);
     shell._perfEnterTimer = setTimeout(() => shell.classList.remove('perf-enter'), 560);
-  } else if (k === 'restagger') {
+  } else if (k === 'soft' || k === 'restagger' || k === 'crossfade') {
+    // Results-only opacity (≤200ms). Status tiles and toolbar stay put.
     void shell.offsetWidth;
-    shell.classList.add('perf-restagger');
-    clearTimeout(shell._perfRestaggerTimer);
-    shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
-  } else if (k === 'crossfade') {
-    void shell.offsetWidth;
-    shell.classList.add('perf-crossfade');
-    clearTimeout(shell._perfCrossTimer);
-    shell._perfCrossTimer = setTimeout(() => shell.classList.remove('perf-crossfade'), 380);
+    const cls = (k === 'crossfade') ? 'perf-crossfade' : (k === 'restagger' ? 'perf-restagger' : 'perf-soft');
+    shell.classList.add(cls);
+    clearTimeout(shell._perfSoftTimer);
+    shell._perfSoftTimer = setTimeout(() => shell.classList.remove(cls), 220);
   }
 }
 
@@ -12901,6 +12906,7 @@ function wireFlaggedHistoryView(root) {
       adminState.perfFlaggedFilter = 'all';
       adminState.perfFocusTeamId = null;
       adminState.perfFlaggedSelectedKey = null;
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       perfRepaintFromFlagged();
     });
   }
@@ -12936,7 +12942,7 @@ function wireFlaggedHistoryView(root) {
       adminState.perfFlaggedFilter = btn.getAttribute('data-fh-filter') || 'all';
       adminState.perfFlaggedSelectedKey = null;
       fhUpdateFilterChips(root);
-      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+      fhRefreshBody(root, { motion: 'soft', clearSelected: true });
     });
   });
 
@@ -12946,7 +12952,7 @@ function wireFlaggedHistoryView(root) {
     sortEl.addEventListener('change', () => {
       adminState.perfFlaggedSort = sortEl.value || 'date-desc';
       adminState.perfFlaggedSelectedKey = null;
-      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+      fhRefreshBody(root, { motion: 'soft', clearSelected: true });
     });
   }
 
@@ -12962,7 +12968,7 @@ function wireFlaggedHistoryView(root) {
     searchEl.addEventListener('input', () => {
       adminState.perfFlaggedSearch = searchEl.value || '';
       adminState.perfFlaggedSelectedKey = null;
-      fhRefreshBody(root, { motion: 'restagger', clearSelected: true });
+      fhRefreshBody(root, { motion: 'soft', clearSelected: true });
       // Keep caret at end without remounting the input
       try {
         const focus = root.querySelector('#fhSearch');
@@ -13681,7 +13687,7 @@ function renderIncidentReport(body) {
       const next = btn.dataset.perfStatusScope;
       if (next === adminState.incidentScope) return;
       adminState.incidentScope = next;
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderIncidentReport(body);
     });
   });
@@ -13690,7 +13696,7 @@ function renderIncidentReport(body) {
       const next = btn.dataset.perfRange;
       if (next === adminState.perfDateRange) return;
       adminState.perfDateRange = next;
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderIncidentReport(body);
     });
   });
@@ -13702,16 +13708,8 @@ function renderIncidentReport(body) {
       if (grid) {
         grid.innerHTML = renderIncidentTilesHTML();
         wireIncidentTileGrid(grid);
-        // Search: restagger tiles only (chrome stays; not a poll).
-        const shell = (typeof perfMotionShell === 'function') ? perfMotionShell(body) : null;
-        if (shell && typeof perfPlayMotion === 'function') {
-          perfClearMotionClasses(shell);
-          if (!perfPrefersReducedMotion()) {
-            shell.classList.add('perf-restagger');
-            clearTimeout(shell._perfRestaggerTimer);
-            shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
-          }
-        }
+        // Search: short results fade. Do not replay the first-paint stagger.
+        if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
       }
     });
   }
@@ -13720,14 +13718,14 @@ function renderIncidentReport(body) {
   if (cStart) {
     cStart.addEventListener('change', (e) => {
       adminState.perfCustomStart = e.target.value || '';
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderIncidentReport(body);
     });
   }
   if (cEnd) {
     cEnd.addEventListener('change', (e) => {
       adminState.perfCustomEnd = e.target.value || '';
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderIncidentReport(body);
     });
   }
@@ -14038,7 +14036,7 @@ function renderPerformance(body) {
       // of "I just changed the filter" is consistent either way).
       adminState.perfStatusFilter = {};
       if (next !== 'inprogress' && next !== 'flagged') adminState.perfFocusTeamId = null;
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderPerformance(body);
     });
   });
@@ -14082,7 +14080,7 @@ function renderPerformance(body) {
   body.querySelectorAll('[data-perf-view]').forEach(btn => {
     btn.addEventListener('click', () => {
       adminState.perfView = btn.dataset.perfView;
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       // Clear search on view switch · keeping "John" filtering for
       // teams when admin flips to moderators would be confusing.
       // Same for the open-expansion set: tile IDs are namespaced by
@@ -14108,7 +14106,7 @@ function renderPerformance(body) {
       // "3 completed" was clicked, then admin switches to "Today" where
       // that team has 0 completed · drill would render an empty body).
       adminState.perfStatusFilter = {};
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderPerformance(body);
     });
   });
@@ -14122,15 +14120,7 @@ function renderPerformance(body) {
       if (grid) {
         grid.innerHTML = renderPerfTilesHTML(adminState.perfView, e.target.value.trim().toLowerCase());
         wirePerfTileGrid(grid);
-        const shell = (typeof perfMotionShell === 'function') ? perfMotionShell(body) : null;
-        if (shell && typeof perfClearMotionClasses === 'function') {
-          perfClearMotionClasses(shell);
-          if (typeof perfPrefersReducedMotion === 'function' && !perfPrefersReducedMotion()) {
-            shell.classList.add('perf-restagger');
-            clearTimeout(shell._perfRestaggerTimer);
-            shell._perfRestaggerTimer = setTimeout(() => shell.classList.remove('perf-restagger'), 480);
-          }
-        }
+        if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
       }
     });
   }
@@ -14144,7 +14134,7 @@ function renderPerformance(body) {
     cStart.addEventListener('change', e => {
       adminState.perfCustomStart = e.target.value || '';
       adminState.perfStatusFilter = {};  // same rationale as a pill switch
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderPerformance(body);
     });
   }
@@ -14152,7 +14142,7 @@ function renderPerformance(body) {
     cEnd.addEventListener('change', e => {
       adminState.perfCustomEnd = e.target.value || '';
       adminState.perfStatusFilter = {};
-      if (typeof perfQueueMotion === 'function') perfQueueMotion('enter');
+      if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
       renderPerformance(body);
     });
   }
@@ -14169,12 +14159,14 @@ function renderPerformance(body) {
       _grid.dataset.tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
     } catch (_) {}
   }
-  // Helios enter / crossfade (queued by section·layout·scope callers; default enter).
+  // First open of Performance uses Helios enter (default). Tile, filter, date,
+  // and Teams/Mods clicks queue soft — a short results fade, not a full re-stagger.
   // Poll path never remounts here — refreshPerfLiveDataInPlace uses motion none.
   if (typeof perfPlayMotion === 'function') {
     let kind = (typeof perfConsumeMotionKind === 'function') ? perfConsumeMotionKind() : 'enter';
-    // Flagged owns its own fh enter stagger — skip outer shell enter to avoid double rise.
-    if ((adminState.perfStatusScope || 'all') === 'flagged' && kind === 'enter') kind = 'none';
+    // Flagged history owns its first-paint stagger. Skip the outer fade so
+    // opening Flagged does not blink twice.
+    if ((adminState.perfStatusScope || 'all') === 'flagged' && (kind === 'enter' || kind === 'soft' || kind === 'crossfade')) kind = 'none';
     perfPlayMotion(body, kind === 'none' ? 'none' : kind);
   }
 }

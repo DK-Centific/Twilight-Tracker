@@ -11870,43 +11870,28 @@ input#ent_lakitu.lakitu-invalid {
 }
 .fh-shell.fh-enter > .fh-toolbar { animation-delay: 0.04s; }
 .fh-shell.fh-enter .fh-row,
-.fh-shell.fh-enter .fh-split-item,
-.fh-shell.fh-restagger .fh-row,
-.fh-shell.fh-restagger .fh-split-item {
+.fh-shell.fh-enter .fh-split-item {
   animation: fhRise var(--fh-ms) var(--fh-ease) both;
 }
 .fh-shell.fh-enter .fh-row:nth-child(1),
-.fh-shell.fh-enter .fh-split-item:nth-child(1),
-.fh-shell.fh-restagger .fh-row:nth-child(1),
-.fh-shell.fh-restagger .fh-split-item:nth-child(1) { animation-delay: 0.00s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(1) { animation-delay: 0.00s; }
 .fh-shell.fh-enter .fh-row:nth-child(2),
-.fh-shell.fh-enter .fh-split-item:nth-child(2),
-.fh-shell.fh-restagger .fh-row:nth-child(2),
-.fh-shell.fh-restagger .fh-split-item:nth-child(2) { animation-delay: 0.04s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(2) { animation-delay: 0.04s; }
 .fh-shell.fh-enter .fh-row:nth-child(3),
-.fh-shell.fh-enter .fh-split-item:nth-child(3),
-.fh-shell.fh-restagger .fh-row:nth-child(3),
-.fh-shell.fh-restagger .fh-split-item:nth-child(3) { animation-delay: 0.08s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(3) { animation-delay: 0.08s; }
 .fh-shell.fh-enter .fh-row:nth-child(4),
-.fh-shell.fh-enter .fh-split-item:nth-child(4),
-.fh-shell.fh-restagger .fh-row:nth-child(4),
-.fh-shell.fh-restagger .fh-split-item:nth-child(4) { animation-delay: 0.12s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(4) { animation-delay: 0.12s; }
 .fh-shell.fh-enter .fh-row:nth-child(5),
-.fh-shell.fh-enter .fh-split-item:nth-child(5),
-.fh-shell.fh-restagger .fh-row:nth-child(5),
-.fh-shell.fh-restagger .fh-split-item:nth-child(5) { animation-delay: 0.16s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(5) { animation-delay: 0.16s; }
 .fh-shell.fh-enter .fh-row:nth-child(6),
-.fh-shell.fh-enter .fh-split-item:nth-child(6),
-.fh-shell.fh-restagger .fh-row:nth-child(6),
-.fh-shell.fh-restagger .fh-split-item:nth-child(6) { animation-delay: 0.20s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(6) { animation-delay: 0.20s; }
 .fh-shell.fh-enter .fh-row:nth-child(n+7),
-.fh-shell.fh-enter .fh-split-item:nth-child(n+7),
-.fh-shell.fh-restagger .fh-row:nth-child(n+7),
-.fh-shell.fh-restagger .fh-split-item:nth-child(n+7) { animation-delay: 0.20s; }
+.fh-shell.fh-enter .fh-split-item:nth-child(n+7) { animation-delay: 0.20s; }
 
-/* 2) List↔Split · content crossfade + scale 0.98 (thumb keeps CSS transition) */
-.fh-body.fh-crossfade {
-  animation: fhCrossIn var(--fh-ms-fast) var(--fh-ease) both;
+/* 2) List↔Split and filter/search · short opacity, no rise or row stagger */
+.fh-body.fh-crossfade,
+.fh-body.fh-soft {
+  animation: fhFade 0.16s var(--fh-ease) both;
 }
 .fh-view-thumb {
   transition: transform var(--fh-ms) var(--fh-ease, cubic-bezier(0.23, 1, 0.32, 1));
@@ -11942,9 +11927,8 @@ input#ent_lakitu.lakitu-invalid {
   .fh-shell.fh-enter > .fh-toolbar,
   .fh-shell.fh-enter .fh-row,
   .fh-shell.fh-enter .fh-split-item,
-  .fh-shell.fh-restagger .fh-row,
-  .fh-shell.fh-restagger .fh-split-item,
   .fh-body.fh-crossfade,
+  .fh-body.fh-soft,
   .fh-split-detail.fh-detail-enter,
   .fh-star-hero.fh-star-pop .mod-star:not(.is-empty),
   .fh-star-hero.fh-star-pop .on,
@@ -11964,6 +11948,7 @@ input#ent_lakitu.lakitu-invalid {
    Performance tab · Helios motion (extend Flagged → all Perf UI)
    Tokens: --perf-ease / --perf-ms / --perf-ms-fast (= fh tokens)
    No blur, bounce, continuous pulse, or re-stagger on poll.
+   Filter / tile / search: results fade 160ms (perf-soft). First paint still staggers.
    prefers-reduced-motion → opacity-only / instant.
    ============================================================ */
 #subtabBody.perf-shell,
@@ -12026,27 +12011,20 @@ input#ent_lakitu.lakitu-invalid {
 .perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(8) { animation-delay: 0.34s; }
 .perf-shell.perf-enter > #perfTileGrid > .perf-tile:nth-child(n+9) { animation-delay: 0.34s; }
 
-/* Grid-only restagger (filter / search remount of tiles, not poll) */
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile {
-  animation: fhRise var(--perf-ms) var(--perf-ease) both;
+@keyframes perfSoftIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(1) { animation-delay: 0.00s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(2) { animation-delay: 0.04s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(3) { animation-delay: 0.08s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(4) { animation-delay: 0.12s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(5) { animation-delay: 0.16s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(6) { animation-delay: 0.20s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(7) { animation-delay: 0.24s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(8) { animation-delay: 0.28s; }
-.perf-shell.perf-restagger > #perfTileGrid > .perf-tile:nth-child(n+9) { animation-delay: 0.28s; }
 
-/* 2) Section / Grid|List · content crossfade (same as Flagged List|Split) */
+/* Filter, tile, search, Grid|List, section · results only, 160ms opacity.
+   Status tiles and the toolbar do not re-enter. */
+.perf-shell.perf-soft > #perfTileGrid,
+.perf-shell.perf-soft > #perfFlaggedView,
 .perf-shell.perf-crossfade > #perfTileGrid,
 .perf-shell.perf-crossfade > #perfFlaggedView,
-.perf-shell.perf-crossfade > .perf-status-tiles,
-.perf-shell.perf-crossfade > .perf-toolbar,
+.perf-shell.perf-restagger > #perfTileGrid,
 #perfTileGrid.perf-crossfade {
-  animation: fhCrossIn var(--perf-ms-fast) var(--perf-ease) both;
+  animation: perfSoftIn 0.16s var(--perf-ease) both;
 }
 
 /* 3) Detail expand / tile open · soft rise, no bounce/blur */
@@ -12072,11 +12050,11 @@ input#ent_lakitu.lakitu-invalid {
   .perf-shell.perf-enter > [class*="strike-checkpoint"],
   .perf-shell.perf-enter > #perfTileGrid > .perf-tile,
   .perf-shell.perf-enter > #perfFlaggedView,
-  .perf-shell.perf-restagger > #perfTileGrid > .perf-tile,
+  .perf-shell.perf-soft > #perfTileGrid,
+  .perf-shell.perf-soft > #perfFlaggedView,
   .perf-shell.perf-crossfade > #perfTileGrid,
   .perf-shell.perf-crossfade > #perfFlaggedView,
-  .perf-shell.perf-crossfade > .perf-status-tiles,
-  .perf-shell.perf-crossfade > .perf-toolbar,
+  .perf-shell.perf-restagger > #perfTileGrid,
   #perfTileGrid.perf-crossfade,
   .perf-tile-body.perf-detail-enter,
   .incident-tile-body.perf-detail-enter {
@@ -19482,7 +19460,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091821g" defer></script>
+<script src="twilight.js?v=twilight-1.3.091822a" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
