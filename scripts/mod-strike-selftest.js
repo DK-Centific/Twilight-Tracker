@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091822b',
-  /const APP_VERSION = '1\.3\.091822b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091822b'));
+assert('version bump 091822c',
+  /const APP_VERSION = '1\.3\.091822c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091822c'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -582,7 +582,7 @@ assert('in-flight persist does not re-deactivate', !ctx._deactCalls.some(c => c[
 if (releaseInflight) releaseInflight({ ok: true });
 try { vm.runInContext('_modStrikePersistInFlight = 0;', ctx); } catch (_) {}
 
-// --- Reload-after-push holes (1.3.091822b) ---
+// --- Reload-after-push holes (1.3.091822c) ---
 ctx.persistModeratorStrikesSetting = async function(opts) {
   const store = ctx.loadModStrikeStore();
   ctx._persistReasons.push((opts && opts.reason) || '');
