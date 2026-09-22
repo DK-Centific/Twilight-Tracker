@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091821f';
-const APP_UPDATED_AT = '09/21/2026 15:35';
+const APP_VERSION = '1.3.091821g';
+const APP_UPDATED_AT = '09/22/2026 11:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -11525,20 +11525,19 @@ function classifyBookingForPerf(a) {
   const inLiveWindow = (typeof assignmentInPerfLiveWindow === 'function')
     ? assignmentInPerfLiveWindow(a)
     : false;
-  // Completed · admin marked it Completed OR the mod confirmed wrap-up.
-  // Assignment/odStatus may stay Booked, Scheduled, or Rescheduled after a
-  // PA heal — SessionState session_done still counts as Done for Past/history.
-  if (a.status === 'Completed' || (live && live.status === 'session_done')) return 'completed';
-  // After booked end: all stations submitted (no session_done stamp yet)
-  // still counts Completed for Performance + strike parity.
-  if (pastEnd && live && (live.status === 'station_4_done' || live.status === 'office_checkout')) {
-    return 'completed';
-  }
-  // Team = Session · either co-mod's happypath (session_done / wrap-up /
-  // all stations) is Done for the whole assignment after session end.
-  if (pastEnd && typeof isAssignmentTeamHappypathComplete === 'function'
-      && isAssignmentTeamHappypathComplete(a)) {
-    return 'completed';
+  // Completed · admin marked it Completed, or a primary co-mod's
+  // happypath (session_done / station_4_done / full scenarios).
+  // station_4_done counts after booked end. session_done counts as
+  // soon as that primary reaches it. A backup or a prior-day row does
+  // not finish the team.
+  if (a.status === 'Completed') return 'completed';
+  const teamDone = (typeof isAssignmentTeamHappypathComplete === 'function')
+    && isAssignmentTeamHappypathComplete(a);
+  if (teamDone) {
+    const liveStatus = live ? String(live.status || '').toLowerCase() : '';
+    if (liveStatus === 'session_done' || liveStatus === 'office_checkout' || pastEnd) {
+      return 'completed';
+    }
   }
   // Live · checked in from the app and still in today's live window.
   // Do not treat arrived-without-a-today-window as Live (future-day
@@ -11576,6 +11575,15 @@ function perfLiveStatusDisplay(a) {
   if (live && live.status === 'station_4_done'
       && typeof isPastAssignmentSessionEnd === 'function'
       && isPastAssignmentSessionEnd(a)) {
+    return { key: 'completed', label: 'Completed' };
+  }
+  // One primary at station_4_done / full scenarios completes the team
+  // after booked end, even when the live pill would otherwise follow
+  // the other co-mod's thinner row.
+  if (typeof isPastAssignmentSessionEnd === 'function'
+      && isPastAssignmentSessionEnd(a)
+      && typeof isAssignmentTeamHappypathComplete === 'function'
+      && isAssignmentTeamHappypathComplete(a)) {
     return { key: 'completed', label: 'Completed' };
   }
   if (live && (typeof statusOrderIdx === 'function') && statusOrderIdx(live.status) >= 0) {
@@ -11938,10 +11946,10 @@ function perfDateRangeOptions() {
 // whole assignment (both primaries pass):
 //   isComplete = Assignment.status==='Completed'
 //             OR SS session_done / office_checkout / sessionCompletedAt
-//             OR station_4_done / all-stations maps
+//             OR station_4_done / all-stations maps / full scenario set
 //             OR classifyBookingForPerf === 'completed'
-//   on ANY teammate SessionState row for this assignmentId
-//     (sessionStateRowsForAssignment · not one-mod-only)
+//   max/OR across primary member SessionState rows for this assignmentId
+//     (not one co-mod, not a backup, not an empty teammate heartbeat)
 //
 // isSkipOrResolved = checkpoints[day].skippedTeams/resolvedTeams
 //   prefer assignmentId keys; day = session end calendar PT
@@ -12018,6 +12026,92 @@ function sessionStateParsedIsHappypathComplete(parsed, row) {
   return false;
 }
 
+// Primary orbits on this assignment. Backups and other logins do not
+// complete the team. No roster → no filter (teamId null still uses
+// the booking's mod snapshots).
+function assignmentHappypathMemberOrbitIds(a) {
+  const ids = new Set();
+  if (!a) return ids;
+  let team = null;
+  try {
+    const teams = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams))
+      ? adminState.teams : [];
+    if (a.teamId != null && String(a.teamId) !== '') {
+      team = teams.find(t => t && String(t.id) === String(a.teamId)) || null;
+    }
+  } catch (_) { team = null; }
+  const backups = new Set();
+  const rememberBackup = (raw) => {
+    const id = String(raw || '').trim().toLowerCase();
+    if (id) backups.add(id);
+  };
+  if (team) {
+    const list = (typeof getTeamBackupIds === 'function')
+      ? getTeamBackupIds(team)
+      : (team.backupIds || []);
+    (list || []).forEach(rememberBackup);
+  }
+  const remember = (raw) => {
+    const id = String(raw || '').trim().toLowerCase();
+    if (id && !backups.has(id)) ids.add(id);
+  };
+  if (team && Array.isArray(team.primaryIds) && team.primaryIds.length) {
+    team.primaryIds.forEach(remember);
+  } else if (Array.isArray(a.modSnapshots)) {
+    a.modSnapshots.forEach(s => remember(s && (s.orbitLoginId || s.orbitId)));
+  }
+  return ids;
+}
+
+function sessionStateBestTeamStatus(parsed, row) {
+  const fromParsed = parsed && parsed.sessionStatus != null
+    ? String(parsed.sessionStatus).trim() : '';
+  const fromRow = row
+    ? String(row.sessionStatus || row.SessionStatus || '').trim() : '';
+  const ia = (typeof statusOrderIdx === 'function') ? statusOrderIdx(fromParsed) : -1;
+  const ib = (typeof statusOrderIdx === 'function') ? statusOrderIdx(fromRow) : -1;
+  if (ib > ia) return fromRow;
+  return fromParsed || fromRow;
+}
+
+// True when every progress stamp on the payload is before the booking
+// day. Arrival today must not revive yesterday's station_4_done.
+function sessionStateStampsAllBeforeBooking(parsed, bookingYmd) {
+  const booked = String(bookingYmd || '').trim();
+  if (!booked || !parsed || typeof sessionStateStampOnOrAfterBooking !== 'function') return false;
+  const stamps = [];
+  const sca = parsed.stationCompletedAt;
+  if (sca && typeof sca === 'object') {
+    Object.keys(sca).forEach(k => { if (sca[k]) stamps.push(sca[k]); });
+  }
+  if (parsed.sessionCompletedAt) stamps.push(parsed.sessionCompletedAt);
+  if (parsed.progressAt) stamps.push(parsed.progressAt);
+  if (!stamps.length) return false;
+  return !stamps.some(s => sessionStateStampOnOrAfterBooking(s, booked));
+}
+
+// Raw row, before booking scrub. station_4_done / full scenario maps
+// count even when sessionCompletedAt never landed. A prior booking day
+// or foreign stamp set does not.
+function sessionStateCountsAsTeamComplete(parsed, row, bookingYmd) {
+  const booked = String(bookingYmd || '').trim();
+  const sd = String(
+    (parsed && parsed.sessionDate)
+    || (row && (row.sessionDate || row.SessionDate))
+    || ''
+  ).trim();
+  if (booked && sd && sd < booked) return false;
+  if (sessionStateStampsAllBeforeBooking(parsed, booked)) return false;
+  if (booked && typeof sessionStateProgressForeignToBooking === 'function'
+      && sessionStateProgressForeignToBooking(parsed, booked)) {
+    return false;
+  }
+  const best = sessionStateBestTeamStatus(parsed, row);
+  const probe = Object.assign({}, parsed || {});
+  if (best) probe.sessionStatus = best;
+  return sessionStateParsedIsHappypathComplete(probe, row);
+}
+
 function assignmentSessionStateRowsForHappypath(a) {
   if (!a || a.id == null) return [];
   const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
@@ -12027,10 +12121,15 @@ function assignmentSessionStateRowsForHappypath(a) {
     : rows.filter(r => r && (typeof assignmentIdsMatch === 'function'
       ? assignmentIdsMatch(r.assignmentId, a.id)
       : String(r.assignmentId || '') === String(a.id)));
+  const members = assignmentHappypathMemberOrbitIds(a);
   return matching.filter(r => {
     if (!r) return false;
     if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
         && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
+    if (members.size) {
+      const oid = String(r.orbitLoginId || r.OrbitLoginId || '').trim().toLowerCase();
+      if (!oid || !members.has(oid)) return false;
+    }
     return true;
   });
 }
@@ -12062,24 +12161,34 @@ function assignmentHasSessionDoneStamp(a) {
   return false;
 }
 
-// Team = Session. Either co-mod's checklist happypath (session_done /
-// wrap-up / station_4_done / all stations) completes the assignment
-// for Performance Done, Flagged, and the 9 AM auto-strike queue.
+// Team = Session. The best primary on this assignment completes the
+// whole team for Performance Done, Flagged, and the 9 AM auto-strike
+// queue: session_done, wrap-up, station_4_done, or a full scenario set.
+// The other co-mod can be short or have an empty SessionState.
 function isAssignmentTeamHappypathComplete(a) {
   if (!a) return false;
   if (a.status === 'Completed') return true;
-  const live = (typeof getLatestStatusForAssignment === 'function')
-    ? getLatestStatusForAssignment(a.id) : null;
-  if (live) {
-    const liveStatus = String(live.status || '').toLowerCase();
-    if (liveStatus === 'session_done' || liveStatus === 'office_checkout') return true;
-    if (liveStatus === 'station_4_done') return true;
-    if (live.sessionCompletedAt) return true;
-  }
   const bookingYmd = (typeof resolveAssignmentBookingYmd === 'function')
     ? resolveAssignmentBookingYmd(a.id)
     : String((a && a.date) || '');
   const teammateRows = assignmentSessionStateRowsForHappypath(a);
+  // No primary SessionState on this assignment · trust the merged live
+  // status (worklog fallback / tests). A backup-only row must not count.
+  if (!teammateRows.length) {
+    const live = (typeof getLatestStatusForAssignment === 'function')
+      ? getLatestStatusForAssignment(a.id) : null;
+    if (live) {
+      const liveStatus = String(live.status || '').toLowerCase();
+      const liveDone = liveStatus === 'session_done' || liveStatus === 'office_checkout'
+        || liveStatus === 'station_4_done' || !!live.sessionCompletedAt;
+      if (liveDone) {
+        const members = assignmentHappypathMemberOrbitIds(a);
+        const who = String(live.orbitLoginId || live.moderatorId || '').trim().toLowerCase();
+        if (!members.size || !who || members.has(who)) return true;
+      }
+    }
+    return false;
+  }
   // Soft-merge richer → thinner so one empty heartbeat cannot hide the
   // co-mod's session_done / station_4_done / full station maps.
   const merged = {};
@@ -12087,6 +12196,13 @@ function isAssignmentTeamHappypathComplete(a) {
     let parsed = (typeof parseSessionStateJson === 'function')
       ? parseSessionStateJson(r)
       : {};
+    const rowDay = String(
+      (parsed && parsed.sessionDate)
+      || (r && (r.sessionDate || r.SessionDate))
+      || ''
+    ).trim();
+    if (bookingYmd && rowDay && rowDay < bookingYmd) continue;
+    if (sessionStateCountsAsTeamComplete(parsed, r, bookingYmd)) return true;
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
       parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
         preserveSessionCompletion: true,
@@ -12116,10 +12232,8 @@ function isAssignmentTeamHappypathComplete(a) {
 
 function isAssignmentCompleteForFlagged(a) {
   if (!a) return false;
-  if (typeof isAssignmentTeamHappypathComplete === 'function'
-      && isAssignmentTeamHappypathComplete(a)) return true;
-  return (typeof classifyBookingForPerf === 'function')
-    && classifyBookingForPerf(a) === 'completed';
+  return (typeof isAssignmentTeamHappypathComplete === 'function')
+    && isAssignmentTeamHappypathComplete(a);
 }
 
 function isAssignmentSkipOrResolvedForFlagged(a) {
@@ -13083,11 +13197,13 @@ function perfAssignmentVisibleInAdminQueue(a) {
 //   Live = checked-in + assignmentInPerfLiveWindow (today / open overnight).
 //   Next = not yet checked in, including today upcoming.
 //   Done = wrap-up / happypath, including past-day + overnight finished.
-// Flagged / 9 AM auto-strike predicate (1.3.091821b):
+// Flagged / 9 AM auto-strike predicate (1.3.091821g):
 //   isAssignmentFlaggedForPerf / isAssignmentCompleteForStrike
 //   past session end AND not team happypath AND not Skip/resolved.
-//   Team = Session: either co-mod session_done / wrap-up / all stations
-//   completes the assignment. Same helper: isAssignmentTeamHappypathComplete.
+//   Team = Session: max/OR across primary members on this assignmentId.
+//   One co-mod at session_done / station_4_done / full scenarios completes
+//   the team. The other co-mod may be short or have an empty SessionState.
+//   Same helper: isAssignmentTeamHappypathComplete.
 // =====================================================================
 function perfUsesHistoryBookings() {
   const range = (typeof perfActiveDateRange === 'function')
@@ -29107,17 +29223,11 @@ function assignmentLiveStatusForStrike(a) {
 
 function isAssignmentCompleteForStrike(a) {
   if (!a) return false;
-  if (typeof isAssignmentTeamHappypathComplete === 'function'
-      && isAssignmentTeamHappypathComplete(a)) return true;
-  const liveStatus = assignmentLiveStatusForStrike(a);
-  // Wrap-up / PA stamp · Admin incomplete+flag must clear.
-  if (liveStatus === 'session_done' || liveStatus === 'office_checkout') return true;
-  // All stations submitted (station_4_done) counts as completed progress for
-  // the 9 AM gate even when sessionCompletedAt never landed on the assignment
-  // SessionState row (geo_presence mis-route / policy wipe).
-  if (liveStatus === 'station_4_done') return true;
-  return (typeof classifyBookingForPerf === 'function')
-    && classifyBookingForPerf(a) === 'completed';
+  // Same primary-member OR as Flagged. station_4_done / full scenarios
+  // on one co-mod clears the 9 AM gate; a backup or empty teammate row
+  // does not.
+  return (typeof isAssignmentTeamHappypathComplete === 'function')
+    && isAssignmentTeamHappypathComplete(a);
 }
 
 function modStrikeCheckpointMap(todayPst, field) {
@@ -42346,7 +42456,18 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
     if ((st.indexOf('station_') === 0 || st === 'session_done')
         && (!out.stationCompletedAt || !Object.keys(out.stationCompletedAt).length)
         && !out.sessionCompletedAt) {
-      if (!(preserveDone && st === 'session_done')) {
+      // Keep station_4_done for Admin scoring when this booking's row
+      // never received a Station4 / sessionCompletedAt stamp. If stamps
+      // existed and all fell before the booking day, demote — do not
+      // revive a rescheduled assignment's old station_4_done.
+      const hadStamps = !!(parsed.stationCompletedAt
+        && Object.keys(parsed.stationCompletedAt).some(k => parsed.stationCompletedAt[k]));
+      const keptStamps = !!(out.stationCompletedAt && Object.keys(out.stationCompletedAt).length);
+      const keepWrap = preserveDone && (
+        st === 'session_done'
+        || (st === 'station_4_done' && (!hadStamps || keptStamps))
+      );
+      if (!keepWrap) {
         out.sessionStatus = out.arrivedAt ? 'arrived' : '';
       }
     }
@@ -44546,7 +44667,9 @@ function deriveLatestStatusFromSessionState(asgnId) {
     }
   }
 
-  // Priority walk. First match wins.
+  // Priority walk. First stamp match wins, then an explicit sessionStatus
+  // that is further along (station_4_done with no Station4 stamp must
+  // beat arrivedAt — otherwise Flagged stays incomplete).
   const stamp = (keys) => firstStationCompletedStamp(stationCompletedAt, keys);
   const checks = [
     { has: officeCheckedOutAt,                        status: 'office_checkout', at: officeCheckedOutAt },
@@ -44561,49 +44684,44 @@ function deriveLatestStatusFromSessionState(asgnId) {
     { has: arrivedAt,                                 status: 'arrived',         at: arrivedAt },
     { has: officeCheckedInAt,                         status: 'office_checkin',  at: officeCheckedInAt },
   ];
+  let chosen = null;
   for (const c of checks) {
-    if (c.has) {
-      const result = {
-        assignmentId:  String(asgnId),
-        status:        c.status,
-        timestamp:     c.at || attributionRow.lastActive || new Date().toISOString(),
-        orbitLoginId:  attributionRow.orbitLoginId || '',
-        // Latest-update attribution (see block above): the newest SS
-        // row's table timestamp + the moderator it belongs to, with a
-        // cross-check against the booking's assigned mods.
-        lastActive:     lastActive,
-        moderatorId:    moderatorId,
-        moderatorName:  moderatorName,
-        moderatorMatch: moderatorMatch,
-        sessionCompletedAt: sessionCompletedAt || null,
-        // Mark derived rows so future debugging can distinguish
-        // "this came from SS inference" from "this came from a
-        // local worklog write." Doesn't affect existing call sites
-        // (none of them branch on _derived).
-        _derived: true,
+    if (c.has) { chosen = c; break; }
+  }
+  if (bestSessionStatus && bestSessionStatusIdx >= 0 && typeof statusOrderIdx === 'function') {
+    const chosenIdx = chosen ? statusOrderIdx(chosen.status) : -1;
+    if (bestSessionStatusIdx > chosenIdx) {
+      chosen = {
+        status: bestSessionStatus,
+        at: lastActive || (attributionRow && attributionRow.lastActive) || new Date().toISOString(),
       };
-      _derivedStatusCache.byAsgnId[asgnId] = result;
-      return result;
     }
   }
-  if (bestSessionStatus && bestSessionStatusIdx >= 0) {
-    const result = {
-      assignmentId: String(asgnId),
-      status: bestSessionStatus,
-      timestamp: lastActive || new Date().toISOString(),
-      orbitLoginId: (attributionRow && attributionRow.orbitLoginId) || moderatorId,
-      lastActive: lastActive,
-      moderatorId: moderatorId,
-      moderatorName: moderatorName,
-      moderatorMatch: moderatorMatch,
-      sessionCompletedAt: sessionCompletedAt || null,
-      _derived: true,
-    };
-    _derivedStatusCache.byAsgnId[asgnId] = result;
-    return result;
+  if (!chosen) {
+    _derivedStatusCache.byAsgnId[asgnId] = null;
+    return null;
   }
-  _derivedStatusCache.byAsgnId[asgnId] = null;
-  return null;
+  const result = {
+    assignmentId:  String(asgnId),
+    status:        chosen.status,
+    timestamp:     chosen.at || (attributionRow && attributionRow.lastActive) || new Date().toISOString(),
+    orbitLoginId:  (attributionRow && attributionRow.orbitLoginId) || '',
+    // Latest-update attribution (see block above): the newest SS
+    // row's table timestamp + the moderator it belongs to, with a
+    // cross-check against the booking's assigned mods.
+    lastActive:     lastActive,
+    moderatorId:    moderatorId,
+    moderatorName:  moderatorName,
+    moderatorMatch: moderatorMatch,
+    sessionCompletedAt: sessionCompletedAt || null,
+    // Mark derived rows so future debugging can distinguish
+    // "this came from SS inference" from "this came from a
+    // local worklog write." Doesn't affect existing call sites
+    // (none of them branch on _derived).
+    _derived: true,
+  };
+  _derivedStatusCache.byAsgnId[asgnId] = result;
+  return result;
 }
 
 // Returns the latest status pushed by THIS operator for a given assignment.

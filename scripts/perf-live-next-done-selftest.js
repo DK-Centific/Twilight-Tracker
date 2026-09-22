@@ -211,11 +211,11 @@ function cls(a) {
   return ctx.classifyBookingForPerf(a);
 }
 
-console.log('Performance Live / Next / Done window self-test (1.3.091821f)');
+console.log('Performance Live / Next / Done window self-test (1.3.091821g)');
 
-assert('APP_VERSION 1.3.091821f',
-  /const APP_VERSION = '1\.3\.091821f'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091821f'));
+assert('APP_VERSION 1.3.091821g',
+  /const APP_VERSION = '1\.3\.091821g'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091821g'));
 assert('live-window helper present',
   /function assignmentInPerfLiveWindow/.test(src)
   && /LIVE \/ NEXT \/ DONE CONTRACT/.test(src));

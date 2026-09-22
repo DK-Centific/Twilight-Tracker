@@ -1,6 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-21 · Cursor · Grid stars replace Orbit ID (1.3.091821f)
+**Last updated:** 2026-09-22 · Cursor · Team complete OR for Flagged (1.3.091821g)
+
+## 2026-09-22 · Team complete is the best primary (1.3.091821g)
+
+**Ask:** If any co-mod on the assignment finishes (all stations / `station_4_done` / `session_done` / full scenarios), the whole team is complete for Flagged, Done, and the 9 AM strike — even when the other co-mod is short or their SessionState never synced. Same idea as team happypath.
+
+**Case:** Venkata × Jashit / Seth Schnurman (`od_2e9f20e3…`). Venkata at `station_4_done` with scenarios Uploaded and no `session_done`. Jashit SessionState empty. Flagged still showed incomplete because a missing Station4 stamp was treated as “still checked in,” and the empty co-mod row could hide the finished one.
+
+**Fix:**
+- Team completeness is the best **primary** on that assignment (backups do not finish the team).
+- `station_4_done` counts without `session_done` / `sessionCompletedAt`.
+- A full scenario set on one primary covers a short co-mod.
+- A prior-day status on a reused booking does not finish today’s session.
+- Version **1.3.091821g**. Selftest: `scripts/team-happypath-flag-selftest.js`.
+
+**PR:** draft on `cursor/team-complete-or-flagged-f537` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091821g**. Admin → Performance → Flagged. Venkata × Jashit (Seth Schnurman) should **not** be listed when Venkata is at station 4 done, even if Jashit has no progress. The same session should show under Done (or Past, if it is not today).
+
+---
+
+
 
 ## 2026-09-21 · Strike reset stays after a stale poll (1.3.091821e)
 
@@ -406,8 +427,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091821d`** (Performance Live / Next / Done · #156 merged) |
-| **This branch** | **`1.3.091821f`** · Strike reset freshness merge + grid stars · `cursor/mod-strike-freshness-merge-08cf` · [#157](https://github.com/DK-Centific/Twilight-Tracker/pull/157) |
+| **`main` version** | **`1.3.091821f`** (strike reset freshness · #157 merged) |
+| **This branch** | **`1.3.091821g`** · Team complete OR for Flagged / Done · `cursor/team-complete-or-flagged-f537` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 
