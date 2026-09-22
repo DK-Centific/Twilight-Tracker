@@ -15,7 +15,7 @@
 - After Reset, a refresh within about a minute still blocks an older lower copy.
 - Version **1.3.091822b**. Selftest: `scripts/mod-strike-selftest.js`.
 
-**PR:** draft on `cursor/strike-cloud-ingest-guard-e1e7` — do **not** merge until David types **push**.
+**PR:** [#161](https://github.com/DK-Centific/Twilight-Tracker/pull/161) draft on `cursor/strike-cloud-ingest-guard-e1e7` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091822b**. Admin → Moderators. A person who had 3★ should still show 3★. Reset someone to 4★, refresh, and they should stay at 4★.
 
@@ -485,7 +485,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 | Item | Value |
 | --- | --- |
 | **`main` version** | **`1.3.091821g`** (team complete OR · #158 merged) |
-| **This branch** | **`1.3.091822b`** · Stars survive an empty/stale SessionState 450 ingest after refresh · `cursor/strike-cloud-ingest-guard-e1e7` |
+| **This branch** | **`1.3.091822b`** · Stars survive an empty/stale SessionState 450 ingest after refresh · `cursor/strike-cloud-ingest-guard-e1e7` · [#161](https://github.com/DK-Centific/Twilight-Tracker/pull/161) |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 
@@ -516,6 +516,7 @@ These exist but are **not merged**. David reviews on localhost; merge only when 
 
 | PR | Branch | Summary | Status |
 | --- | --- | --- | --- |
+| [#161](https://github.com/DK-Centific/Twilight-Tracker/pull/161) | `cursor/strike-cloud-ingest-guard-e1e7` | Stars survive an empty or stale SessionState 450 ingest after refresh | Draft · **1.3.091822b** · do not merge |
 | [#159](https://github.com/DK-Centific/Twilight-Tracker/pull/159) | `cursor/perf-calm-motion-3ffe` | Performance tile/filter clicks fade 160ms instead of re-staggering | Draft · **1.3.091822a** · do not merge |
 | [#158](https://github.com/DK-Centific/Twilight-Tracker/pull/158) | `cursor/team-complete-or-flagged-f537` | Team complete = best primary for Flagged / Done / 9 AM | Merged to main · **1.3.091821g** |
 | [#156](https://github.com/DK-Centific/Twilight-Tracker/pull/156) | `cursor/perf-live-next-done-window-eff0` | Live/Next/Done = checked-in + today/overnight window | Draft · newest |
