@@ -1,6 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-22 · Cursor · Booking week Sessions this day scrolls (1.3.091822b)
+**Last updated:** 2026-09-22 · Grok · Stars stay put after a refresh (1.3.091822b)
+
+## 2026-09-22 · Stars no longer reset on refresh (1.3.091822b)
+
+**Ask:** After a new build and a hard refresh, some moderators lost stars. david-tw showed 3★, then SessionState row 450 put a bad or empty cloud copy on top.
+
+**Cause:** The earlier protect (1.3.091821f) was not enough on a cold load. The app picked the strikes row with the newest time, even when that row was empty, and ignored an older row that still had the stars. A refresh could also turn a real 3★ into 4★ when the cloud copy was already on the 4★ scale but one person’s stamp was missing. Opening the page could save that wrong count back to the cloud before the good copy was read.
+
+**Fix:**
+- An empty newer strikes row cannot hide an older row that still has stars.
+- A real 3★ that is already on the 4★ scale stays 3★. A build number change does not redo that conversion.
+- The page does not write stars to the cloud until it has read the strikes row. Reading the page does not schedule that write.
+- After Reset, a refresh within about a minute still blocks an older lower copy.
+- Version **1.3.091822b**. Selftest: `scripts/mod-strike-selftest.js`.
+
+**PR:** draft on `cursor/strike-cloud-ingest-guard-e1e7` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091822b**. Admin → Moderators. A person who had 3★ should still show 3★. Reset someone to 4★, refresh, and they should stay at 4★.
+
+**PA:** If row 450’s blob is actually empty (`mods: {}`) and there is no older strikes row with the real stars, the app cannot invent the old counts. Keep one row, id `ss_app_setting_moderator_strikes`, with `key`, `mods`, `checkpoints`, and `starScale`. Do not append a second empty row with a newer time.
+
+---
 
 ## 2026-09-22 · Booking week Sessions this day scrolls (1.3.091822b)
 
@@ -14,7 +35,7 @@
 - Month view still uses the taller list. Week grid, day headers, and Assign a team are unchanged.
 - Version **1.3.091822b**. Selftest: `scripts/booking-week-sessions-scroll-selftest.js`.
 
-**PR:** [#160](https://github.com/DK-Centific/Twilight-Tracker/pull/160) draft on `cursor/booking-week-sessions-scroll-e23b` — do **not** merge until the coordinator merges.
+**PR:** [#160](https://github.com/DK-Centific/Twilight-Tracker/pull/160) merged to main.
 
 **Verify (David):** Hard refresh → **1.3.091822b**. Admin → Booking → Week. Pick a day with four or more sessions. Sessions this day shows about three, and you can scroll inside that list to see the rest. The day buttons and the rest of the week screen stay put.
 
@@ -464,7 +485,7 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 | Item | Value |
 | --- | --- |
 | **`main` version** | **`1.3.091821g`** (team complete OR · #158 merged) |
-| **This branch** | **`1.3.091822a`** · Performance tile/filter clicks use a 160ms fade · `cursor/perf-calm-motion-3ffe` · [#159](https://github.com/DK-Centific/Twilight-Tracker/pull/159) |
+| **This branch** | **`1.3.091822b`** · Stars survive an empty/stale SessionState 450 ingest after refresh · `cursor/strike-cloud-ingest-guard-e1e7` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 

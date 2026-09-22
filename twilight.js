@@ -27756,10 +27756,14 @@ let _modStrikeIngestApplying = false;
 let _modStrikePersistTimer = null;
 let _modStrikePersistInFlight = 0;
 let _modStrikeLastSeenRemoteVersion = 0;
+let _modStrikeHydrateSettled = false;
+let _modStrikePersistDeferred = false;
 const _modStrikePersistOrbits = Object.create(null);
 const _modStrikeOrbitBarrierUntil = Object.create(null);
 /** Covers one poll cycle after reset/strike so a stale SessionState read cannot flip stars back. */
 const MOD_STRIKE_WRITE_BARRIER_MS = 90000;
+/** Survives a hard refresh so a deploy reload cannot drop the post-reset barrier. */
+const MOD_STRIKE_BARRIER_LS_KEY = 'centific_mod_strike_barrier_v1';
 
 function modStrikeOrbitKey(orbitId) {
   return String(orbitId || '').trim().toLowerCase();
@@ -27803,6 +27807,21 @@ function modStrikeHeadKind(rec) {
   return String(head.kind).trim().toLowerCase();
 }
 
+function modStrikeReadBarrierMap() {
+  try {
+    const raw = localStorage.getItem(MOD_STRIKE_BARRIER_LS_KEY);
+    if (!raw) return {};
+    const p = JSON.parse(raw);
+    return (p && typeof p === 'object') ? p : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function modStrikeWriteBarrierMap(map) {
+  try { localStorage.setItem(MOD_STRIKE_BARRIER_LS_KEY, JSON.stringify(map || {})); } catch (_) {}
+}
+
 function modStrikeArmWriteBarrier(orbitId) {
   const k = modStrikeOrbitKey(orbitId);
   if (!k) return;
@@ -27810,12 +27829,22 @@ function modStrikeArmWriteBarrier(orbitId) {
   if (!_modStrikeOrbitBarrierUntil[k] || _modStrikeOrbitBarrierUntil[k] < until) {
     _modStrikeOrbitBarrierUntil[k] = until;
   }
+  const map = modStrikeReadBarrierMap();
+  const now = Date.now();
+  Object.keys(map).forEach(id => {
+    if (!(Number(map[id]) > now)) delete map[id];
+  });
+  map[k] = _modStrikeOrbitBarrierUntil[k];
+  modStrikeWriteBarrierMap(map);
 }
 
 function modStrikeBarrierActive(orbitId) {
   const k = modStrikeOrbitKey(orbitId);
   if (!k) return false;
-  return (_modStrikeOrbitBarrierUntil[k] || 0) > Date.now();
+  const mem = _modStrikeOrbitBarrierUntil[k] || 0;
+  const stored = Number(modStrikeReadBarrierMap()[k]) || 0;
+  if (stored > mem) _modStrikeOrbitBarrierUntil[k] = stored;
+  return Math.max(mem, stored) > Date.now();
 }
 
 /** True while this orbit's stars must not be lowered by a poll (in-flight persist or post-reset window). */
@@ -27868,9 +27897,29 @@ function loadModStrikeStore() {
   }
 }
 
-function saveModStrikeStore(store) {
+function saveModStrikeStore(store, opts) {
+  opts = opts || {};
   try { localStorage.setItem(MOD_STRIKE_LS_KEY, JSON.stringify(store)); } catch (_) {}
-  if (!_modStrikeIngestInFlight && typeof schedulePersistModeratorStrikesSetting === 'function') {
+  // Read-path stamps must not schedule a SessionState write. A hard refresh
+  // used to persist a remapped/empty cache over SS 450 before cloud ingest.
+  if (opts.localOnly) return;
+  if (_modStrikeIngestInFlight) return;
+  if (!_modStrikeHydrateSettled) {
+    _modStrikePersistDeferred = true;
+    return;
+  }
+  if (typeof schedulePersistModeratorStrikesSetting === 'function') {
+    schedulePersistModeratorStrikesSetting();
+  }
+}
+
+/** First SessionState pass finished. Flush a local write that waited for hydrate. */
+function modStrikeSettleHydrate() {
+  if (_modStrikeHydrateSettled) return;
+  _modStrikeHydrateSettled = true;
+  if (!_modStrikePersistDeferred) return;
+  _modStrikePersistDeferred = false;
+  if (typeof schedulePersistModeratorStrikesSetting === 'function') {
     schedulePersistModeratorStrikesSetting();
   }
 }
@@ -27956,25 +28005,110 @@ function modStrikeCheckpointsHaveLocalExtras(localCk, remoteCk, mergedCk) {
   return false;
 }
 
+function modStrikeRowIsSetting(row) {
+  if (!row) return false;
+  const ids = [row.sessionStateId, row.assignmentId];
+  for (let i = 0; i < ids.length; i++) {
+    const id = String(ids[i] || '').trim();
+    if (id === MODERATOR_STRIKES_SETTING_ID || id === 'app_setting_moderator_strikes') return true;
+  }
+  return false;
+}
+
+function modStrikeRowTimeMs(v) {
+  if (v == null || v === '') return 0;
+  const t = Date.parse(String(v));
+  if (Number.isFinite(t)) return t;
+  const n = Number(v);
+  if (Number.isFinite(n) && n > 20000 && n < 90000) return Math.round((n - 25569) * 86400 * 1000);
+  return 0;
+}
+
+function parseModeratorStrikesBlob(row) {
+  if (!modStrikeRowIsSetting(row)) return null;
+  let parsed = row.stateJson;
+  for (let i = 0; i < 2 && typeof parsed === 'string'; i++) {
+    const s = parsed.trim();
+    if (!s) return null;
+    try { parsed = JSON.parse(s); } catch (_) { return null; }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  if (parsed.key !== 'moderatorStrikes') return null;
+  const mods = (parsed.mods && typeof parsed.mods === 'object' && !Array.isArray(parsed.mods)) ? parsed.mods : {};
+  const checkpoints = (parsed.checkpoints && typeof parsed.checkpoints === 'object' && !Array.isArray(parsed.checkpoints))
+    ? parsed.checkpoints
+    : {};
+  const atMs = Math.max(
+    modStrikeRowTimeMs(row.lastActive),
+    modStrikeRowTimeMs(parsed.updatedAt),
+    modStrikeRowTimeMs(row.Modified || row.modified)
+  );
+  const scale = Number(parsed.starScale);
+  return {
+    mods: mods,
+    checkpoints: checkpoints,
+    version: (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(parsed.version) : (Number(parsed.version) || 0),
+    lastWriter: parsed.lastWriter ? String(parsed.lastWriter) : '',
+    starScale: (Number.isFinite(scale) && scale > 0) ? scale : 0,
+    atMs: atMs,
+    empty: (typeof modStrikeModsAreEmpty === 'function') ? modStrikeModsAreEmpty(mods) : !Object.keys(mods).length,
+  };
+}
+
+/**
+ * Fold every strikes blob. A newer lastActive row with mods:{} must not hide
+ * an older healthy blob (duplicate SS rows / empty shell after a bad write).
+ * Version is taken from non-empty blobs so an empty shell cannot block backfill.
+ */
+function foldModeratorStrikesBlobs(blobs) {
+  const list = (Array.isArray(blobs) ? blobs : []).slice().sort((a, b) => (a.atMs || 0) - (b.atMs || 0));
+  const blobScaleCurrent = list.some(b => (b && b.starScale >= MOD_STRIKE_MAX_STARS)
+    || (typeof modStrikeModsLookLikeV4 === 'function' && modStrikeModsLookLikeV4(b && b.mods)));
+  let mods = {};
+  let checkpoints = {};
+  let version = 0;
+  let lastWriter = '';
+  let newest = null;
+  list.forEach(b => {
+    if (!b) return;
+    const remoteOlder = version > 0 && b.version > 0 && b.version < version;
+    mods = (typeof mergeModStrikeMods === 'function')
+      ? mergeModStrikeMods(mods, b.mods, { remoteBlobOlder: remoteOlder, blobScaleCurrent: blobScaleCurrent })
+      : Object.assign({}, mods, b.mods || {});
+    checkpoints = (typeof mergeModStrikeCheckpoints === 'function')
+      ? mergeModStrikeCheckpoints(checkpoints, b.checkpoints)
+      : Object.assign({}, checkpoints, b.checkpoints || {});
+    if (!b.empty && b.version >= version) {
+      version = b.version || version;
+      if (b.lastWriter) lastWriter = b.lastWriter;
+    }
+    if (!newest || (b.atMs || 0) >= (newest.atMs || 0)) newest = b;
+  });
+  return {
+    sawAny: list.length > 0,
+    mods: mods,
+    checkpoints: checkpoints,
+    version: version,
+    lastWriter: lastWriter,
+    blobScaleCurrent: blobScaleCurrent,
+    newestEmpty: !!(newest && newest.empty),
+  };
+}
+
 function ingestModeratorStrikesFromSessionRows(rows) {
   if (!Array.isArray(rows)) return;
-  let best = null;
-  for (const r of rows) {
-    if (!r) continue;
-    const id = String(r.sessionStateId || r.assignmentId || '');
-    if (id !== MODERATOR_STRIKES_SETTING_ID && id !== 'app_setting_moderator_strikes') continue;
-    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  const blobs = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!modStrikeRowIsSetting(r)) continue;
+    const blob = parseModeratorStrikesBlob(r);
+    if (!blob) continue;
+    blobs.push(blob);
   }
-  if (!best) return;
-  let parsed = best.stateJson;
-  if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
-  }
-  if (!parsed || typeof parsed !== 'object') return;
-  if (parsed.key !== 'moderatorStrikes') return;
-  const mods = (parsed.mods && typeof parsed.mods === 'object') ? parsed.mods : null;
-  const checkpoints = (parsed.checkpoints && typeof parsed.checkpoints === 'object') ? parsed.checkpoints : null;
-  if (!mods && !checkpoints) return;
+  // No readable strikes blob in this read (missing row, truncation, or a
+  // blob we could not parse). Do not push local stars over SS 450 unseen.
+  if (!blobs.length) return;
+  const folded = foldModeratorStrikesBlobs(blobs);
   const cur = loadModStrikeStore();
   if (_modStrikePersistTimer) {
     clearTimeout(_modStrikePersistTimer);
@@ -27985,18 +28119,23 @@ function ingestModeratorStrikesFromSessionRows(rows) {
   // Per orbit, newer mods[orbitKey].updatedAt wins (fallback log[0].at).
   // An older blob version loses. A poll must not lower stars during a local
   // reset/strike write (in flight or the short post-write window).
+  // Duplicate rows are folded first so a newer-lastActive empty shell cannot
+  // hide a healthy older blob on a cold localStorage hydrate.
   const remoteModsIn = (typeof modStrikeNormalizeModMap === 'function')
-    ? modStrikeNormalizeModMap(mods || {})
-    : ((mods && typeof mods === 'object') ? mods : {});
+    ? modStrikeNormalizeModMap(folded.mods || {})
+    : ((folded.mods && typeof folded.mods === 'object') ? folded.mods : {});
   const localModsIn = (typeof modStrikeNormalizeModMap === 'function')
     ? modStrikeNormalizeModMap(cur.mods)
     : ((cur.mods && typeof cur.mods === 'object') ? cur.mods : {});
-  const remoteVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(parsed.version) : 0;
+  const remoteVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(folded.version) : 0;
   const localVersion = (typeof modStrikeBlobVersion === 'function') ? modStrikeBlobVersion(cur.version) : 0;
   const remoteBlobOlder = localVersion > 0 && remoteVersion < localVersion;
-  if (remoteVersion > _modStrikeLastSeenRemoteVersion) _modStrikeLastSeenRemoteVersion = remoteVersion;
+  if (!modStrikeModsAreEmpty(folded.mods) && remoteVersion > _modStrikeLastSeenRemoteVersion) {
+    _modStrikeLastSeenRemoteVersion = remoteVersion;
+  }
+  const mergeOpts = { remoteBlobOlder: remoteBlobOlder, blobScaleCurrent: !!folded.blobScaleCurrent };
   const nextMods = (typeof mergeModStrikeMods === 'function')
-    ? mergeModStrikeMods(localModsIn, remoteModsIn, { remoteBlobOlder: remoteBlobOlder })
+    ? mergeModStrikeMods(localModsIn, remoteModsIn, mergeOpts)
     : (remoteModsIn || localModsIn);
   // If Admin restored stars remotely, clear local warn acks so lock/warn can reappear on later strikes.
   if (nextMods && typeof nextMods === 'object' && typeof clearModStrikeWarnAcksForOrbit === 'function') {
@@ -28012,15 +28151,17 @@ function ingestModeratorStrikesFromSessionRows(rows) {
   }
   // Scale stamp is handled inside mergeModStrikeMods / ensureModStrikeScaleV4
   // (one-shot 3→4 only — never remigrate healthy remaining stars to max).
+  const foldedCk = folded.checkpoints || {};
   const mergedCheckpoints = (typeof mergeModStrikeCheckpoints === 'function')
-    ? mergeModStrikeCheckpoints(cur.checkpoints, checkpoints || {})
-    : (checkpoints || cur.checkpoints);
+    ? mergeModStrikeCheckpoints(cur.checkpoints, foldedCk)
+    : (foldedCk || cur.checkpoints);
   const needRepersist = (typeof modStrikeCheckpointsHaveLocalExtras === 'function')
-    && modStrikeCheckpointsHaveLocalExtras(cur.checkpoints, checkpoints || {}, mergedCheckpoints);
+    && modStrikeCheckpointsHaveLocalExtras(cur.checkpoints, foldedCk, mergedCheckpoints);
   // Heal empty cloud from healthy local cache (live SS row had mods:{}).
-  // Backfill local→cloud once instead of wiping local.
+  // Also heal when the newest duplicate row is an empty shell but an older
+  // row or local cache still has stars — that shell must not stay SoT.
   const healCloudFromLocal = (typeof modStrikeModsAreEmpty === 'function')
-    && modStrikeModsAreEmpty(mods)
+    && (folded.newestEmpty || modStrikeModsAreEmpty(folded.mods))
     && !modStrikeModsAreEmpty(nextMods);
   const healStaleLower = (typeof modStrikeMergeKeptStaleLower === 'function')
     && modStrikeMergeKeptStaleLower(localModsIn, remoteModsIn, nextMods);
@@ -28029,7 +28170,7 @@ function ingestModeratorStrikesFromSessionRows(rows) {
   let nextWriter = cur.lastWriter || '';
   if (!remoteBlobOlder && remoteVersion >= nextVersion && remoteVersion > 0) {
     nextVersion = remoteVersion;
-    if (parsed.lastWriter) nextWriter = String(parsed.lastWriter);
+    if (folded.lastWriter) nextWriter = String(folded.lastWriter);
   }
   const nextStore = {
     mods: nextMods,
@@ -28123,6 +28264,7 @@ function ingestModeratorStrikesFromSessionRows(rows) {
     if (typeof modStrikeRefreshUi === 'function') modStrikeRefreshUi();
     if (typeof syncModStrikeModeratorChrome === 'function') syncModStrikeModeratorChrome();
   }
+  if (typeof modStrikeSettleHydrate === 'function') modStrikeSettleHydrate();
 }
 
 async function persistModeratorStrikesSetting(opts) {
@@ -28269,35 +28411,41 @@ function markModStrikeScaleV4StoreMigrated() {
   try { localStorage.setItem(MOD_STRIKE_SCALE_V4_FLAG_KEY, '1'); } catch (_) {}
 }
 
-/** Stamp starScale once. Remap 3→4 only on first-ever unstamped store; never remigrate healthy 4★ values to max. */
-function ensureModStrikeScaleV4(rec) {
+/** Stamp starScale once. Remap 3→4 only on a pre-v4 blob; never remigrate a record that is already on the 4★ scale. */
+function ensureModStrikeScaleV4(rec, opts) {
   if (!rec || typeof rec !== 'object' || rec.stars == null) return rec;
   const raw = Number(rec.stars);
   if (!Number.isFinite(raw)) return rec;
+  opts = opts || {};
   if (modStrikeRecordIsOnCurrentScale(rec)) {
     return Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
   }
-  // Store already on v4 (flag or any stamped peer) — trust raw remaining stars, stamp only.
-  if (isModStrikeScaleV4StoreMigrated()) {
+  // Blob-level starScale, the one-shot flag, or any stamped peer means this
+  // 3 is remaining stars — not the old "full" count. A version bump must not
+  // turn it into 4.
+  if (opts.blobScaleCurrent || isModStrikeScaleV4StoreMigrated()) {
     return Object.assign({}, rec, { stars: clampModStrikeStars(raw), starScale: MOD_STRIKE_MAX_STARS });
   }
-  // First-ever migration for this browser/store.
   return Object.assign({}, rec, {
     stars: migrateModStrikeStarsFromPrevMax(raw),
     starScale: MOD_STRIKE_MAX_STARS,
   });
 }
 
-function ensureModStrikeScaleV4OnMods(mods) {
+function ensureModStrikeScaleV4OnMods(mods, opts) {
   const out = {};
   const src = (mods && typeof mods === 'object') ? mods : {};
   const keys = Object.keys(src);
-  // If any peer is stamped or already holds a 4★ value, treat the whole map as
-  // post-migration BEFORE remapping (prevents remapping healthy 3/2/1 remaining → max).
-  if (modStrikeModsLookLikeV4(src)) markModStrikeScaleV4StoreMigrated();
+  opts = opts || {};
+  // If any peer is stamped, already holds a 4★ value, or the blob says
+  // starScale 4, treat the whole map as post-migration BEFORE remapping.
+  if (opts.blobScaleCurrent || modStrikeModsLookLikeV4(src)) {
+    opts = Object.assign({}, opts, { blobScaleCurrent: true });
+    markModStrikeScaleV4StoreMigrated();
+  }
   keys.forEach(k => {
     const rec = src[k];
-    out[k] = (rec && typeof rec === 'object') ? ensureModStrikeScaleV4(rec) : rec;
+    out[k] = (rec && typeof rec === 'object') ? ensureModStrikeScaleV4(rec, opts) : rec;
   });
   if (keys.length) markModStrikeScaleV4StoreMigrated();
   return out;
@@ -28339,9 +28487,9 @@ function modStrikeShouldKeepLocal(localRec, remoteRec, orbitKey, mergeOpts) {
   if (mergeOpts.remoteBlobOlder) return true;
   if (localMs > remoteMs) return true;
   if (remoteMs > localMs) return false;
-  // Same freshness: do not let an older-or-tied remote drop stars over a reset.
-  if (remoteLowers && modStrikeHeadKind(localRec) === 'reset') return true;
-  return false;
+  // Same freshness: local/pending stands. A tied cloud copy must not move
+  // stars (empty rewrite, scale touch, or a hard refresh replaying SS 450).
+  return true;
 }
 
 /** Local won with higher stars than an older (or tied) remote — cloud should be rewritten. */
@@ -28360,10 +28508,13 @@ function modStrikeMergeKeptStaleLower(localMods, remoteMods, mergedMods) {
     const rs = Number(R.stars);
     const ms = Number(M.stars);
     if (!Number.isFinite(ls) || !Number.isFinite(rs) || !Number.isFinite(ms)) continue;
-    if (!(rs < ls && ms >= ls)) continue;
+    if (!(ms === ls && ms !== rs)) continue;
     const localMs = modStrikeRecordFreshnessMs(L);
     const remoteMs = modStrikeRecordFreshnessMs(R);
-    if (remoteMs > localMs) continue;
+    if (remoteMs > localMs) {
+      const blocked = typeof modStrikeLoweringBlocked === 'function' && modStrikeLoweringBlocked(k);
+      if (!blocked) continue;
+    }
     return true;
   }
   return false;
@@ -28384,14 +28535,15 @@ function mergeModStrikeMods(localMods, remoteMods, mergeOpts) {
     ? modStrikeNormalizeModMap(remoteMods)
     : ((remoteMods && typeof remoteMods === 'object') ? remoteMods : {});
   mergeOpts = mergeOpts || {};
+  const scaleOpts = { blobScaleCurrent: !!mergeOpts.blobScaleCurrent };
   const localEmpty = modStrikeModsAreEmpty(local);
   const remoteEmpty = modStrikeModsAreEmpty(remote);
   if (remoteEmpty && !localEmpty) {
-    return ensureModStrikeScaleV4OnMods(Object.assign({}, local));
+    return ensureModStrikeScaleV4OnMods(Object.assign({}, local), scaleOpts);
   }
   if (localEmpty && !remoteEmpty) {
     if (mergeOpts.remoteBlobOlder) return {};
-    return ensureModStrikeScaleV4OnMods(Object.assign({}, remote));
+    return ensureModStrikeScaleV4OnMods(Object.assign({}, remote), scaleOpts);
   }
   if (localEmpty && remoteEmpty) {
     return {};
@@ -28412,7 +28564,7 @@ function mergeModStrikeMods(localMods, remoteMods, mergeOpts) {
     if (mergeOpts.remoteBlobOlder && !(L && L.stars != null)) return;
     out[k] = Object.assign({}, L || {}, R);
   });
-  return ensureModStrikeScaleV4OnMods(out);
+  return ensureModStrikeScaleV4OnMods(out, scaleOpts);
 }
 
 function modStrikeStoreSig(store) {
@@ -28446,13 +28598,15 @@ function getModStrikeStars(orbitId) {
   if (!Number.isFinite(n)) return MOD_STRIKE_MAX_STARS;
   // Already on 4★ scale — trust stored remaining stars (do not re-run 3→4 remap).
   if (modStrikeRecordIsOnCurrentScale(rec)) return clampModStrikeStars(n);
-  const next = ensureModStrikeScaleV4(rec);
-  const migrated = (next && next.stars != null) ? clampModStrikeStars(Number(next.stars)) : clampModStrikeStars(n);
-  // Persist stamp once so later loads never remigrate healthy remaining stars to max.
-  store.mods[key] = next;
-  saveModStrikeStore(store);
-  markModStrikeScaleV4StoreMigrated();
-  return migrated;
+  // Store already migrated: stamp locally only. Never schedule a cloud write
+  // from a read, and never remap a remaining 3 into 4 on hard refresh.
+  if (typeof isModStrikeScaleV4StoreMigrated === 'function' && isModStrikeScaleV4StoreMigrated()) {
+    const next = Object.assign({}, rec, { stars: clampModStrikeStars(n), starScale: MOD_STRIKE_MAX_STARS });
+    store.mods[key] = next;
+    saveModStrikeStore(store, { localOnly: true });
+    return clampModStrikeStars(n);
+  }
+  return clampModStrikeStars(n);
 }
 
 function modStrikeLockRemainingStars() {
@@ -28489,7 +28643,9 @@ function grantModStrikeFinalChance(orbitId) {
   const store = loadModStrikeStore();
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
   const starsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-  const stars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+  const starsOnScale = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+    || (typeof isModStrikeScaleV4StoreMigrated === 'function' && isModStrikeScaleV4StoreMigrated());
+  const stars = starsOnScale
     ? clampModStrikeStars(starsRaw)
     : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
       ? migrateModStrikeStarsFromPrevMax(starsRaw)
@@ -28783,7 +28939,9 @@ function setModStrikeStars(orbitId, stars, entry) {
   const n = Math.max(0, Math.min(MOD_STRIKE_MAX_STARS, Math.round(stars)));
   const prev = store.mods[key] || { stars: MOD_STRIKE_MAX_STARS, log: [] };
   const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-  const prevStars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+  const prevOnScale = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+    || (typeof isModStrikeScaleV4StoreMigrated === 'function' && isModStrikeScaleV4StoreMigrated());
+  const prevStars = prevOnScale
     ? clampModStrikeStars(prevStarsRaw)
     : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
       ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)
@@ -28869,7 +29027,9 @@ function resetModStrikeStars(orbitId) {
     };
     saveModStrikeStore(store);
     const prevStarsRaw = (prev.stars == null) ? MOD_STRIKE_MAX_STARS : Number(prev.stars);
-    const prevStars = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+    const prevOnScale = (typeof modStrikeRecordIsOnCurrentScale === 'function' && modStrikeRecordIsOnCurrentScale(prev))
+      || (typeof isModStrikeScaleV4StoreMigrated === 'function' && isModStrikeScaleV4StoreMigrated());
+    const prevStars = prevOnScale
       ? clampModStrikeStars(prevStarsRaw)
       : ((typeof migrateModStrikeStarsFromPrevMax === 'function')
         ? migrateModStrikeStarsFromPrevMax(prevStarsRaw)

@@ -24,11 +24,11 @@ function sliceFn(startMark, endMark) {
   return src.slice(i, j);
 }
 
-console.log('Performance calm motion self-test (1.3.091822a)');
+console.log('Performance calm motion self-test (1.3.091822b)');
 
-assert('APP_VERSION 1.3.091822a',
-  /const APP_VERSION = '1\.3\.091822a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091822a'));
+assert('APP_VERSION 1.3.091822b',
+  /const APP_VERSION = '1\.3\.091822b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091822b'));
 
 const perfFn = sliceFn('function renderPerformance(body)', 'function renderPerfTilesHTML');
 const incidentFn = sliceFn('function renderIncidentReport', 'function renderIncidentTilesHTML');
