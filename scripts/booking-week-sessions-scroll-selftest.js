@@ -40,8 +40,8 @@ assert(
 );
 assert('week list scrolls on the y axis', /overflow-y:\s*auto/.test(weekRule));
 assert(
-  'week list can shrink inside the locked page',
-  /min-height:\s*0/.test(weekRule) && /flex:\s*0 1 auto/.test(weekRule)
+  'week list is not allowed to squash to zero height',
+  /flex-shrink:\s*0/.test(weekRule)
 );
 assert(
   'week session scrollbar stays visible',
@@ -50,6 +50,10 @@ assert(
 assert(
   'session cards do not squash inside the week list',
   /\.bk-dash-grid\.is-week \.bk-session-list > \.bk-session-card \{\s*flex-shrink:\s*0;/.test(html)
+);
+assert(
+  'short landscape phones cap the same week list to the visible area',
+  /@media \(max-height:\s*500px\) \{\s*\.bk-dash-grid\.is-week \.bk-session-list \{\s*max-height:\s*min\(34vh,/.test(html)
 );
 
 const sharedStart = html.indexOf('.bk-session-list {');
@@ -71,16 +75,14 @@ assert(
 );
 
 const lockStart = html.indexOf('body.booking-week-assign-open');
-const lockSlice = lockStart >= 0 ? html.slice(lockStart, lockStart + 2200) : '';
+const lockSlice = lockStart >= 0 ? html.slice(lockStart, lockStart + 1800) : '';
 assert(
-  'week assign open still locks the page and lets sessions shrink',
-  /overflow:\s*hidden/.test(lockSlice)
-    && /grid-template-rows:\s*auto auto minmax\(0,\s*1fr\)/.test(lockSlice)
-    && /\.bk-sessions \{[\s\S]*min-height:\s*0/.test(lockSlice)
+  'week assign open keeps the app behind the sheet from scrolling',
+  /body\.booking-week-assign-open \{\s*overflow:\s*hidden/.test(lockSlice)
 );
 assert(
-  'wide week layout gives the leftover row to sessions',
-  /@media \(min-width:\s*900px\) \{[\s\S]*grid-template-rows:\s*auto minmax\(0,\s*1fr\)/.test(lockSlice)
+  'week booking sheet still scrolls so the session list is reachable',
+  /#bookingPage\.is-week-assign-open \.booking-page-body[\s\S]{0,280}overflow-y:\s*auto/.test(lockSlice)
 );
 
 assert(

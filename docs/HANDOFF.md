@@ -6,15 +6,15 @@
 
 **Ask:** In Booking week view, Sessions this day stopped scrolling once a day had more than about three sessions. Extra cards were cut off.
 
-**Cause:** Week view with Assign a team open locks the booking page (`overflow: hidden` on the page body). The session list’s own cap was `min(52vh, 540px)`, taller than the space left under the week header, so the locked page clipped the 4th card before the list could scroll.
+**Cause:** Week view with Assign a team open set the booking sheet to `overflow: hidden`. The session list’s own cap was `min(52vh, 540px)`, taller than the space left under the week header, so the sheet clipped the 4th card before the list could scroll.
 
 **Fix:**
-- Week session list max-height is about three cards (`3 × 112px` plus gaps) with `overflow-y: auto` and a visible scrollbar.
-- While that page lock is on, the dash fills the shell and the session list shrinks into the leftover space so the scrollbar stays on screen.
+- Week session list max-height is about three cards (`3 × 116px` plus gaps) with `overflow-y: auto` and a visible scrollbar.
+- The booking sheet scrolls again so that three-row list is not cut off on a phone or a short window. The app behind the sheet stays still.
 - Month view still uses the taller list. Week grid, day headers, and Assign a team are unchanged.
 - Version **1.3.091822b**. Selftest: `scripts/booking-week-sessions-scroll-selftest.js`.
 
-**PR:** draft on `cursor/booking-week-sessions-scroll-e23b` — do **not** merge until the coordinator merges.
+**PR:** [#160](https://github.com/DK-Centific/Twilight-Tracker/pull/160) draft on `cursor/booking-week-sessions-scroll-e23b` — do **not** merge until the coordinator merges.
 
 **Verify (David):** Hard refresh → **1.3.091822b**. Admin → Booking → Week. Pick a day with four or more sessions. Sessions this day shows about three, and you can scroll inside that list to see the rest. The day buttons and the rest of the week screen stay put.
 
