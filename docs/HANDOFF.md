@@ -1,6 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-22 · Cursor · Team complete OR for Flagged (1.3.091821g)
+**Last updated:** 2026-09-22 · Cursor · Performance clicks use a short fade (1.3.091822a)
+
+## 2026-09-22 · Performance clicks are calmer (1.3.091822a)
+
+**Ask:** Clicking Performance tiles or filters flashed the whole page. Keep the first-visit motion. Make later clicks short and smooth.
+
+**Cause:** Every Live / Next / Done / Flagged tile, date pill, Teams/Moderators switch, search, and Flagged filter rebuilt the list and replayed the full Helios rise-and-stagger (cards starting invisible and sliding up, one after another). The red Flagged glow was not the flash.
+
+**Fix:**
+- First time you open Performance, or first time you open Flagged history, the gentle staggered entrance still plays.
+- Tile, filter, date, Teams/Moderators, search, Grid/List, and Sessions/Incident clicks only fade the results for **160ms**. The summary tiles and toolbar stay still.
+- Flagged filters, sort, and search do the same short fade. List/Split does too.
+- Version **1.3.091822a**. Selftest: `scripts/perf-motion-soft-selftest.js`.
+
+**PR:** draft on `cursor/perf-calm-motion-3ffe` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091822a**. Admin → Performance. The first open can still ease in. Click **Live**, **Next**, **Done**, **Flagged**, **Today**, **Past**, **Teams**, and **Moderators**. The list should fade briefly. The tiles you clicked should not blink or slide in again.
+
+---
 
 ## 2026-09-22 · Team complete is the best primary (1.3.091821g)
 
@@ -427,8 +445,8 @@ Full static + selftest pass after My session today-priority (**#130 / 091818y**)
 
 | Item | Value |
 | --- | --- |
-| **`main` version** | **`1.3.091821f`** (strike reset freshness · #157 merged) |
-| **This branch** | **`1.3.091821g`** · Team complete OR for Flagged / Done · `cursor/team-complete-or-flagged-f537` · [#158](https://github.com/DK-Centific/Twilight-Tracker/pull/158) |
+| **`main` version** | **`1.3.091821g`** (team complete OR · #158 merged) |
+| **This branch** | **`1.3.091822a`** · Performance tile/filter clicks use a 160ms fade · `cursor/perf-calm-motion-3ffe` |
 | **Live site** | https://dk-centific.github.io/Twilight-Tracker/ |
 | **Last merged** | PR #154 · team happypath Flag / strike |
 
