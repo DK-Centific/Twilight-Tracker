@@ -24,7 +24,7 @@
 - Team sync scores progress after yesterday’s work is removed. An empty other-browser copy does not replace a finished session.
 - Version **1.3.091823c**. Selftest: `scripts/critical-client-selftest.js`.
 
-**PR:** ready for review on `cursor/critical-ahp-client-fixes-ea44`. Do not merge from this agent. Watchdog merges after AHP review.
+**PR:** [#166](https://github.com/DK-Centific/Twilight-Tracker/pull/166) ready for review on `cursor/critical-ahp-client-fixes-ea44`. Do not merge from this agent. Watchdog merges after AHP review.
 
 **Verify (David):** Hard refresh → **1.3.091823c**. Submit a station for review only when you are on a booked session. If the send fails, you should see a message and the Submit button again, not a stuck “waiting” card. After a reviewer approves, stay on that station for more than 10 minutes (or turn the network off briefly and back on). The later scenarios should stay open. Confirm Arrival should stay locked when the booking has no address. Finish a session, leave the page open through a refresh, and Done should stay Done.
 
