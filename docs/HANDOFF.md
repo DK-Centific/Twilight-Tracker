@@ -18,7 +18,7 @@
 - A false star already taken is **not** auto-cleared. Admin can open **Moderators**, open the person, and tap **Reset** to put stars back to 4. The job will not strike that same finished session again.
 - Version **1.3.091823b**. Selftest: `scripts/mod-strike-selftest.js`, `scripts/team-happypath-flag-selftest.js`.
 
-**PR:** ready for review. David authorized merge once this PR is ready. Watchdog merges. Do not merge from this agent.
+**PR:** [#165](https://github.com/DK-Centific/Twilight-Tracker/pull/165) ready for review on `cursor/strike-9am-skip-gate-429d`. David authorized merge once this PR is ready. Watchdog merges. Do not merge from this agent.
 
 **Verify (David):** Hard refresh → **1.3.091823b**. Before 9:00 AM PT, an unfinished team can show Flagged, and stars stay put. After 9:00 AM, an unfinished team can lose one star. A team that already finished (either person done) does not lose a star. On the 9 AM list, tap **Skip** for one incomplete team, refresh, and that team does not lose a star. Their next session is not stuck on Flagged. To give back a star that was taken by mistake: **Moderators** → open the person → **Reset**.
 
