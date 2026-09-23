@@ -1,6 +1,23 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Cursor · Admin can edit scenarios past the approval gate (1.3.091822d)
+**Last updated:** 2026-09-23 · Grok · Admin Performance stays on Performance (1.3.091822e)
+
+## 2026-09-23 · Admin Performance no longer jumps to Moderator Hub (1.3.091822e)
+
+**Ask:** Opening Admin → Performance landed on Moderator Hub. Performance clicks also felt slow. Keep the calm 822a fades.
+
+**Cause:** Performance and Moderator Hub both paint into `#subtabBody`. The hub’s role filter stays on Moderators even while another tab is open. When the moderator list finished loading (often after Performance was already open), it wrote the hub into that shared spot. Filter clicks also rebuilt the whole Performance screen and then built the tile list again to decide if anything changed.
+
+**Fix:**
+- A finished moderator or participant load only draws the hub when that tab is actually open. On Performance it only refreshes the list. Overview → Moderators, the Activities pill, and the Moderator Hub tab still open the hub on purpose.
+- Tile, date, Teams/Moderators, and search clicks light the control right away and update the list on the next frame. The first-open rise and the short 160ms list fade stay. The pressed pill reacts in about 90ms.
+- Version **1.3.091822e**. Selftests: `scripts/perf-hub-redirect-selftest.js`, `scripts/perf-motion-soft-selftest.js`.
+
+**PR:** [#163](https://github.com/DK-Centific/Twilight-Tracker/pull/163) draft on `cursor/perf-hub-redirect-latency-066a` — do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091822e**. Admin → Performance. You should stay on Performance (tiles: All, Done, Live, Next, Flagged). Click **Live**, **Past**, **Teams**, and **Moderators**. The list should fade briefly and the button you clicked should highlight right away. Then click **Moderator Hub** on purpose. That should still open the hub.
+
+---
 
 ## 2026-09-23 · Admin scenario edit past the approval gate (1.3.091822d)
 

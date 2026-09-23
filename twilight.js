@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091822d';
-const APP_UPDATED_AT = '09/23/2026 05:20';
+const APP_VERSION = '1.3.091822e';
+const APP_UPDATED_AT = '09/23/2026 16:00';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12694,6 +12694,11 @@ function renderFlaggedHistoryViewHTML() {
 }
 
 function perfRepaintFromFlagged() {
+  const host = document.getElementById('adminTabBody');
+  if (host && typeof schedulePerfInteractiveRepaint === 'function') {
+    schedulePerfInteractiveRepaint(host);
+    return;
+  }
   if (typeof renderAdminTabBody === 'function') {
     renderAdminTabBody({ animate: false });
     return;
@@ -12737,16 +12742,15 @@ function fhPlayMotion(root, kind) {
     const ms = 520;
     clearTimeout(root._fhEnterTimer);
     root._fhEnterTimer = setTimeout(() => root.classList.remove('fh-enter'), ms);
-  } else if (kind === 'soft' && body) {
-    void body.offsetWidth;
-    body.classList.add('fh-soft');
-    clearTimeout(root._fhSoftTimer);
-    root._fhSoftTimer = setTimeout(() => body.classList.remove('fh-soft'), 220);
-  } else if (kind === 'crossfade' && body) {
-    void body.offsetWidth;
-    body.classList.add('fh-crossfade');
-    clearTimeout(root._fhCrossTimer);
-    root._fhCrossTimer = setTimeout(() => body.classList.remove('fh-crossfade'), 220);
+  } else if ((kind === 'soft' || kind === 'crossfade') && body) {
+    const cls = kind === 'crossfade' ? 'fh-crossfade' : 'fh-soft';
+    const timerKey = kind === 'crossfade' ? '_fhCrossTimer' : '_fhSoftTimer';
+    requestAnimationFrame(() => {
+      if (!body.isConnected) return;
+      body.classList.add(cls);
+      clearTimeout(root[timerKey]);
+      root[timerKey] = setTimeout(() => body.classList.remove(cls), 220);
+    });
   }
 }
 
@@ -12792,20 +12796,18 @@ function perfPlayMotion(body, kind) {
   perfClearMotionClasses(shell);
   if (perfPrefersReducedMotion()) return;
   if (k === 'none' || !k) return;
-  if (k === 'enter') {
-    // First paint only · rise + stagger. Filter clicks must not queue this.
-    void shell.offsetWidth;
-    shell.classList.add('perf-enter');
-    clearTimeout(shell._perfEnterTimer);
-    shell._perfEnterTimer = setTimeout(() => shell.classList.remove('perf-enter'), 560);
-  } else if (k === 'soft' || k === 'restagger' || k === 'crossfade') {
-    // Results-only opacity (≤200ms). Status tiles and toolbar stay put.
-    void shell.offsetWidth;
-    const cls = (k === 'crossfade') ? 'perf-crossfade' : (k === 'restagger' ? 'perf-restagger' : 'perf-soft');
+  const cls = (k === 'enter') ? 'perf-enter'
+    : ((k === 'crossfade') ? 'perf-crossfade' : (k === 'restagger' ? 'perf-restagger' : 'perf-soft'));
+  const ms = (k === 'enter') ? 560 : 220;
+  const timerKey = (k === 'enter') ? '_perfEnterTimer' : '_perfSoftTimer';
+  // Next frame restarts the animation. A synchronous layout read
+  // (offsetWidth) here blocked the click from painting.
+  requestAnimationFrame(() => {
+    if (!shell.isConnected) return;
     shell.classList.add(cls);
-    clearTimeout(shell._perfSoftTimer);
-    shell._perfSoftTimer = setTimeout(() => shell.classList.remove(cls), 220);
-  }
+    clearTimeout(shell[timerKey]);
+    shell[timerKey] = setTimeout(() => shell.classList.remove(cls), ms);
+  });
 }
 
 /** Consume queued motion kind (set by callers before remount). Default enter. */
@@ -12819,13 +12821,47 @@ function perfQueueMotion(kind) {
   if (adminState) adminState._perfMotionKind = kind || 'enter';
 }
 
+// Paint the pressed pill immediately. The results list follows on the next frame.
+function markPerfChoice(root, attr, value) {
+  if (!root || !root.querySelectorAll) return;
+  const nodes = root.querySelectorAll('[' + attr + ']');
+  for (let i = 0; i < nodes.length; i++) {
+    const el = nodes[i];
+    const on = el.getAttribute(attr) === value;
+    el.classList.toggle('active', on);
+    if (el.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+}
+
+// Filter / tile / date clicks. One frame later, rebuild results only.
+// Skips directory fetches and the SessionState hydrate that used to
+// render the tile list two more times after every click.
+function schedulePerfInteractiveRepaint(body) {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  adminState._perfRepaintBody = body || null;
+  if (adminState._perfRepaintRaf) return;
+  adminState._perfRepaintRaf = requestAnimationFrame(() => {
+    adminState._perfRepaintRaf = 0;
+    if (!adminState || adminState.tab !== 'performance') return;
+    const host = adminState._perfRepaintBody || document.getElementById('adminTabBody');
+    if (!host) return;
+    if ((adminState.perfSection || 'sessions') === 'incidents') {
+      renderIncidentReport(host, { interactive: true });
+    } else {
+      renderPerformance(host, { interactive: true });
+    }
+  });
+}
+
 function perfApplyDetailEnter(el) {
   if (!el || perfPrefersReducedMotion()) return;
   el.classList.remove('perf-detail-enter');
-  void el.offsetWidth;
-  el.classList.add('perf-detail-enter');
-  clearTimeout(el._perfDetailTimer);
-  el._perfDetailTimer = setTimeout(() => el.classList.remove('perf-detail-enter'), 400);
+  requestAnimationFrame(() => {
+    if (!el.isConnected) return;
+    el.classList.add('perf-detail-enter');
+    clearTimeout(el._perfDetailTimer);
+    el._perfDetailTimer = setTimeout(() => el.classList.remove('perf-detail-enter'), 400);
+  });
 }
 
 
@@ -12870,16 +12906,17 @@ function fhRefreshBody(root, opts) {
 function fhApplyDetailEnter(detail) {
   if (!detail || fhPrefersReducedMotion()) return;
   detail.classList.remove('fh-detail-enter');
-  void detail.offsetWidth;
-  detail.classList.add('fh-detail-enter');
   const hero = detail.querySelector('.fh-star-hero');
-  if (hero) {
-    hero.classList.remove('fh-star-pop');
-    void hero.offsetWidth;
-    hero.classList.add('fh-star-pop');
-    clearTimeout(detail._fhStarTimer);
-    detail._fhStarTimer = setTimeout(() => hero.classList.remove('fh-star-pop'), 420);
-  }
+  if (hero) hero.classList.remove('fh-star-pop');
+  requestAnimationFrame(() => {
+    if (!detail.isConnected) return;
+    detail.classList.add('fh-detail-enter');
+    if (hero && hero.isConnected) {
+      hero.classList.add('fh-star-pop');
+      clearTimeout(detail._fhStarTimer);
+      detail._fhStarTimer = setTimeout(() => hero.classList.remove('fh-star-pop'), 420);
+    }
+  });
 }
 
 function wireFlaggedHistoryBody(root) {
@@ -13407,6 +13444,63 @@ async function ensurePerfSessionStateRows() {
 // than the data can meaningfully change.
 const PERF_LIVE_POLL_MS = 30000;
 
+// Cheap stand-in for rebuilding every tile's HTML just to see if a poll
+// should repaint. Mixes booking id, status bucket, live status, and
+// whether a Lakitu URL is present.
+function perfSessionsBodyFingerprint() {
+  try {
+    const scope = (adminState && adminState.perfStatusScope) || 'all';
+    const view = (adminState && adminState.perfView) || 'teams';
+    const range = (typeof perfActiveDateRange === 'function')
+      ? perfActiveDateRange()
+      : ((adminState && adminState.perfDateRange) || 'today');
+    const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
+    let h = 2166136261;
+    let n = 0;
+    const mix = (s) => {
+      s = String(s == null ? '' : s);
+      for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+    };
+    const take = (a) => {
+      if (!a) return;
+      if (typeof perfDateInRange === 'function' && !perfDateInRange(a, range)) return;
+      const bucket = (typeof classifyBookingForPerf === 'function') ? (classifyBookingForPerf(a) || '') : '';
+      if (scope !== 'all' && scope !== 'flagged' && bucket !== scope) return;
+      n += 1;
+      const st = (typeof getLatestStatusForAssignment === 'function') ? getLatestStatusForAssignment(a.id) : null;
+      let urlBit = '';
+      if (typeof getLakituUrlForAssignment === 'function') {
+        urlBit = getLakituUrlForAssignment(a.id) ? '1' : '0';
+      }
+      mix(String(a.id) + ':' + bucket + ':' + ((st && st.status) || '') + ':' + urlBit + ';');
+    };
+    if (view === 'mods') {
+      const mods = (adminState && adminState.moderators) || [];
+      for (let i = 0; i < mods.length; i++) {
+        const id = (typeof perfModId === 'function') ? perfModId(mods[i]) : '';
+        if (!id) continue;
+        mix('m' + id);
+        const list = (typeof perfModBookings === 'function') ? (perfModBookings(id) || []) : [];
+        for (let j = 0; j < list.length; j++) take(list[j]);
+      }
+    } else {
+      const teams = (adminState && adminState.teams) || [];
+      for (let i = 0; i < teams.length; i++) {
+        const t = teams[i];
+        if (!t) continue;
+        mix('t' + t.id);
+        const list = (typeof perfTeamBookings === 'function') ? (perfTeamBookings(t.id) || []) : [];
+        for (let j = 0; j < list.length; j++) take(list[j]);
+      }
+    }
+    mix('q' + search);
+    mix('focus' + ((adminState && adminState.perfFocusTeamId) || ''));
+    return n + ':' + (h >>> 0).toString(16);
+  } catch (_) {
+    return 'err';
+  }
+}
+
 /** Signature of Performance / Flagged painted content — skip full remount when unchanged. */
 function perfLiveContentSig() {
   try {
@@ -13437,14 +13531,8 @@ function perfLiveContentSig() {
         + '#q:' + String((adminState && adminState.perfFlaggedSearch) || '')
         + '#m:' + String((adminState && adminState.perfFlaggedViewMode) || 'list')
         + '#sel:' + String((adminState && adminState.perfFlaggedSelectedKey) || '');
-    } else if (typeof renderPerfTilesHTML === 'function') {
-      // Lightweight tile fingerprint: assignment id + status bucket + star counts for visible mods
-      const html = renderPerfTilesHTML(view, search);
-      // Avoid storing huge HTML as sig key long-term — hash length + a few markers
-      bodySig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length
-        + ':' + (html.match(/class="perf-status/g) || []).length
-        + ':' + (html.match(/is-empty/g) || []).length
-        + ':' + (html.match(/mod-star /g) || []).length;
+    } else if (typeof perfSessionsBodyFingerprint === 'function') {
+      bodySig = perfSessionsBodyFingerprint();
     }
     const strikeSig = (typeof modStrikeStoreSig === 'function' && typeof loadModStrikeStore === 'function')
       ? modStrikeStoreSig(loadModStrikeStore())
@@ -13608,9 +13696,11 @@ function stopPerfLivePoll() {
   }
 }
 
-function renderIncidentReport(body) {
-  if (!adminState.moderators) loadModerators(false);
-  ensurePanicLogRows().then(() => {
+function renderIncidentReport(body, opts) {
+  opts = opts || {};
+  const interactive = !!opts.interactive;
+  if (!interactive && !adminState.moderators) loadModerators(false);
+  if (!interactive) ensurePanicLogRows().then(() => {
     if (adminState.tab !== 'performance' || adminState.perfSection !== 'incidents') return;
     const grid = document.getElementById('perfTileGrid');
     if (grid) {
@@ -13632,7 +13722,7 @@ function renderIncidentReport(body) {
     const countEl = body.querySelector('[data-perf-section="incidents"] .subtab-count');
     if (countEl) countEl.textContent = (adminState.panicLogRows || []).length || '';
   });
-  if (typeof startPerfLivePoll === 'function') startPerfLivePoll();
+  if (!interactive && typeof startPerfLivePoll === 'function') startPerfLivePoll();
 
   const search = adminState.perfSearch || '';
   const dateRange = (typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : (adminState.perfDateRange || 'today');
@@ -13713,7 +13803,8 @@ function renderIncidentReport(body) {
       if (next === adminState.incidentScope) return;
       adminState.incidentScope = next;
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderIncidentReport(body);
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-status-scope', next);
+      schedulePerfInteractiveRepaint(body);
     });
   });
   body.querySelectorAll('[data-perf-range]').forEach((btn) => {
@@ -13722,20 +13813,24 @@ function renderIncidentReport(body) {
       if (next === adminState.perfDateRange) return;
       adminState.perfDateRange = next;
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderIncidentReport(body);
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-range', next);
+      schedulePerfInteractiveRepaint(body);
     });
   });
   const searchInput = body.querySelector('#perfSearchInput');
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       adminState.perfSearch = e.target.value;
-      const grid = document.getElementById('perfTileGrid');
-      if (grid) {
+      if (adminState._perfSearchRaf) cancelAnimationFrame(adminState._perfSearchRaf);
+      adminState._perfSearchRaf = requestAnimationFrame(() => {
+        adminState._perfSearchRaf = 0;
+        const grid = document.getElementById('perfTileGrid');
+        if (!grid) return;
         grid.innerHTML = renderIncidentTilesHTML();
         wireIncidentTileGrid(grid);
         // Search: short results fade. Do not replay the first-paint stagger.
         if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
-      }
+      });
     });
   }
   const cStart = body.querySelector('#perfCustomStart');
@@ -13744,14 +13839,14 @@ function renderIncidentReport(body) {
     cStart.addEventListener('change', (e) => {
       adminState.perfCustomStart = e.target.value || '';
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderIncidentReport(body);
+      schedulePerfInteractiveRepaint(body);
     });
   }
   if (cEnd) {
     cEnd.addEventListener('change', (e) => {
       adminState.perfCustomEnd = e.target.value || '';
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderIncidentReport(body);
+      schedulePerfInteractiveRepaint(body);
     });
   }
   const exportBtn = body.querySelector('#perfExportBtn');
@@ -13891,11 +13986,14 @@ function exportIncidentXLSX() {
   toast('Exported ' + fname);
 }
 
-function renderPerformance(body) {
+function renderPerformance(body, opts) {
+  opts = opts || {};
+  const interactive = !!opts.interactive;
   if ((adminState.perfSection || 'sessions') === 'incidents') {
-    renderIncidentReport(body);
+    renderIncidentReport(body, opts);
     return;
   }
+  if (!interactive) {
   ensurePanicLogRows().then(() => {
     const el = document.querySelector('[data-perf-section="incidents"] .subtab-count');
     if (el) el.textContent = ((adminState.panicLogRows || []).length) || '';
@@ -13903,6 +14001,8 @@ function renderPerformance(body) {
   // Auto-load adjacent data the tab needs. Most likely already loaded
   // (admin lands here via the top-tab; assignments/teams come from
   // the assignment tab's loader). But cover the cold-load case.
+  // Do not call this on filter clicks: loadModerators() paints into
+  // #subtabBody, which is also the Performance shell.
   if (!adminState.moderators) loadModerators(false);
   if (!adminState.assignments || !adminState.teams) {
     const stored = loadAssignmentData();
@@ -13940,6 +14040,7 @@ function renderPerformance(body) {
   // Start the live auto-refresh poll (idempotent · no-op if already
   // running). Stopped by the tab dispatcher when admin leaves this tab.
   if (typeof startPerfLivePoll === 'function') startPerfLivePoll();
+  }
 
   const view = adminState.perfView || 'teams';
   const search = (adminState.perfSearch || '').trim().toLowerCase();
@@ -14062,7 +14163,8 @@ function renderPerformance(body) {
       adminState.perfStatusFilter = {};
       if (next !== 'inprogress' && next !== 'flagged') adminState.perfFocusTeamId = null;
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderPerformance(body);
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-status-scope', next);
+      schedulePerfInteractiveRepaint(body);
     });
   });
 
@@ -14075,7 +14177,8 @@ function renderPerformance(body) {
       adminState.perfListLayout = next;
       try { localStorage.setItem('orbit_perf_list_layout', next); } catch (_) {}
       if (typeof perfQueueMotion === 'function') perfQueueMotion('crossfade');
-      renderPerformance(body);
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-layout', next);
+      schedulePerfInteractiveRepaint(body);
     });
   });
 
@@ -14106,6 +14209,7 @@ function renderPerformance(body) {
     btn.addEventListener('click', () => {
       adminState.perfView = btn.dataset.perfView;
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-view', btn.dataset.perfView);
       // Clear search on view switch · keeping "John" filtering for
       // teams when admin flips to moderators would be confusing.
       // Same for the open-expansion set: tile IDs are namespaced by
@@ -14117,7 +14221,7 @@ function renderPerformance(body) {
       adminState.perfSearch = '';
       adminState.perfExpanded = new Set();
       adminState.perfStatusFilter = {};
-      renderPerformance(body);
+      schedulePerfInteractiveRepaint(body);
     });
   });
   body.querySelectorAll('[data-perf-range]').forEach(btn => {
@@ -14132,7 +14236,8 @@ function renderPerformance(body) {
       // that team has 0 completed · drill would render an empty body).
       adminState.perfStatusFilter = {};
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderPerformance(body);
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-range', next);
+      schedulePerfInteractiveRepaint(body);
     });
   });
   const searchInput = body.querySelector('#perfSearchInput');
@@ -14141,12 +14246,17 @@ function renderPerformance(body) {
       adminState.perfSearch = e.target.value;
       // Re-render ONLY the tile grid (not the whole tab) · keeps the
       // input focused and the cursor in place as admin types.
-      const grid = document.getElementById('perfTileGrid');
-      if (grid) {
-        grid.innerHTML = renderPerfTilesHTML(adminState.perfView, e.target.value.trim().toLowerCase());
+      // One frame so a burst of keystrokes does not stack full tile builds.
+      if (adminState._perfSearchRaf) cancelAnimationFrame(adminState._perfSearchRaf);
+      adminState._perfSearchRaf = requestAnimationFrame(() => {
+        adminState._perfSearchRaf = 0;
+        const grid = document.getElementById('perfTileGrid');
+        if (!grid) return;
+        const q = (adminState.perfSearch || '').trim().toLowerCase();
+        grid.innerHTML = renderPerfTilesHTML(adminState.perfView, q);
         wirePerfTileGrid(grid);
         if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
-      }
+      });
     });
   }
   // Custom date-range inputs · commit on 'change' (fires when the picker
@@ -14160,7 +14270,7 @@ function renderPerformance(body) {
       adminState.perfCustomStart = e.target.value || '';
       adminState.perfStatusFilter = {};  // same rationale as a pill switch
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderPerformance(body);
+      schedulePerfInteractiveRepaint(body);
     });
   }
   if (cEnd) {
@@ -14168,7 +14278,7 @@ function renderPerformance(body) {
       adminState.perfCustomEnd = e.target.value || '';
       adminState.perfStatusFilter = {};
       if (typeof perfQueueMotion === 'function') perfQueueMotion('soft');
-      renderPerformance(body);
+      schedulePerfInteractiveRepaint(body);
     });
   }
   // Excel export · snapshots exactly what's currently on screen.
@@ -17711,10 +17821,48 @@ function renderAdminTabBody(opts) {
 }
 
 /* ----------- Moderators ----------- */
+
+// Where a finished moderator-directory load is allowed to paint.
+// Performance and Overview must not receive the hub. Deep-links that
+// mean to open Moderator Hub set tab to 'moderators' before render.
+function moderatorLoadPaintTarget(tab, subtab) {
+  if (tab === 'assignment' || subtab === 'assignment') return 'assignment';
+  if (tab === 'moderators') return 'hub';
+  if (tab === 'performance') return 'performance';
+  if (tab === 'overview') return 'overview';
+  return 'none';
+}
+
+function paintAfterModeratorLoad() {
+  if (typeof adminState === 'undefined' || !adminState) return;
+  if (typeof mergeGeoDemoRoster === 'function') mergeGeoDemoRoster();
+  if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) {
+    console.log('[Twilight] Moderators load landed during open modal · deferring render');
+    adminState._pendingPostFetchRender = true;
+    return;
+  }
+  const target = moderatorLoadPaintTarget(adminState.tab, adminState.subtab);
+  if (target === 'assignment') {
+    renderAssignment();
+    return;
+  }
+  if (target === 'hub') {
+    renderModerators();
+    return;
+  }
+  if (target === 'performance' && typeof refreshPerfLiveDataInPlace === 'function') {
+    refreshPerfLiveDataInPlace({ force: true, reason: 'mods-hydrate' });
+    return;
+  }
+  if (target === 'overview' && typeof updateOverviewMetrics === 'function') {
+    updateOverviewMetrics();
+  }
+}
+
 async function loadModerators(force = false) {
   if (adminState.modLoading && !force) return;
   if (adminState.moderators && !force) {
-    renderModerators();
+    if (adminState.tab === 'moderators') renderModerators();
     return;
   }
   // Same force-refresh / abort-in-flight pattern as loadParticipants.
@@ -17729,7 +17877,7 @@ async function loadModerators(force = false) {
   adminState._modAbortController = abortCtrl;
   adminState.modLoading = true;
   adminState.modError = null;
-  renderModerators();
+  if (adminState.tab === 'moderators') renderModerators();
   try {
     const data = await fetchModeratorDirectory({ signal: abortCtrl.signal });
     const arr = extractArray(data);
@@ -17767,15 +17915,7 @@ async function loadModerators(force = false) {
       // has a booking modal open, defer the page rebuild to avoid a
       // visible repaint underneath. The data on adminState is already
       // current; the UI just hasn't been redrawn yet.
-      if (typeof mergeGeoDemoRoster === 'function') mergeGeoDemoRoster();
-      if (typeof isAnyAsgnModalOpen === 'function' && isAnyAsgnModalOpen()) {
-        console.log('[Twilight] Moderators load landed during open modal · deferring render');
-        adminState._pendingPostFetchRender = true;
-      } else if (adminState.tab === 'assignment' || adminState.subtab === 'assignment') {
-        renderAssignment();
-      } else {
-        renderModerators();
-      }
+      paintAfterModeratorLoad();
     }
   }
 }
@@ -17795,7 +17935,10 @@ function renderModerators() {
       modCountEl.textContent = adminState.moderators.length;
     }
   }
-  if (adminState.subtab !== 'moderators') return;
+  // Performance reuses #subtabBody. Painting the hub here while the
+  // Performance tab is selected replaces that screen with Moderator Hub.
+  // Intentional hub opens set tab to 'moderators' first (selectAdminTab).
+  if (adminState.tab !== 'moderators' || adminState.subtab !== 'moderators') return;
   const body = document.getElementById('subtabBody');
   if (!body) return;
 
@@ -23686,7 +23829,7 @@ async function loadParticipants(force = false) {
         adminState._pendingPostFetchRender = true;
       } else if (adminState.tab === 'assignment' || adminState.subtab === 'assignment') {
         renderAssignment();
-      } else {
+      } else if (adminState.tab === 'moderators') {
         renderParticipants();
       }
       // If the View Assignment modal is currently open, re-render it so
@@ -23726,8 +23869,10 @@ function renderParticipants() {
   if (partCountEl) {
     partCountEl.textContent = adminState.participants ? adminState.participants.length : '··';
   }
-  // Only paint into the body if Participants is the active subtab (avoid clobbering on async resolve)
-  if (adminState.subtab !== 'participants') return;
+  // Only paint into the body if Participants is the active hub subtab.
+  // Performance also uses #subtabBody; subtab can still be 'participants'
+  // after the admin leaves the hub.
+  if (adminState.tab !== 'moderators' || adminState.subtab !== 'participants') return;
   const body = document.getElementById('subtabBody');
   if (!body) return;
   if (adminState.partLoading) {
