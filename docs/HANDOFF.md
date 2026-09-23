@@ -15,7 +15,7 @@
 - Station submit is unchanged. The old Ring/Lakitu outside link button is not the guide.
 - Version **1.3.091823d**. Selftest: `scripts/lakitu-guide-selftest.js`.
 
-**PR:** On `cursor/lakitu-howto-guide-2e1c`. David reviews on localhost. Do **not** merge from this agent.
+**PR:** [#167](https://github.com/DK-Centific/Twilight-Tracker/pull/167) draft on `cursor/lakitu-howto-guide-2e1c`. David reviews on localhost. Do **not** merge from this agent.
 
 **Verify (David):** Hard refresh → **1.3.091823d**. On the moderator side, the new circle-and-triangle button sits just after the book icon. Tap it. A panel should slide in from the right with Steps, Metadata, Bad takes, Troubleshooting, and FAQ. Tap FAQ and the panel should scroll, not the page behind it. Tap outside the panel or press Escape and it should close. Sign in as Admin. The same button is next to the Approval tutorial. Open it, tap **Edit**, change a line, tap **Publish**. Refresh. The new line should still be there. Tap **Undo publish** to put the previous text back.
 
