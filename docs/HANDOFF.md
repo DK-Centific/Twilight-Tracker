@@ -13,7 +13,7 @@
 - Tile, date, Teams/Moderators, and search clicks light the control right away and update the list on the next frame. The first-open rise and the short 160ms list fade stay. The pressed pill reacts in about 90ms.
 - Version **1.3.091822e**. Selftests: `scripts/perf-hub-redirect-selftest.js`, `scripts/perf-motion-soft-selftest.js`.
 
-**PR:** draft on `cursor/perf-hub-redirect-latency-066a` — do **not** merge until David types **push**.
+**PR:** [#163](https://github.com/DK-Centific/Twilight-Tracker/pull/163) draft on `cursor/perf-hub-redirect-latency-066a` — do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091822e**. Admin → Performance. You should stay on Performance (tiles: All, Done, Live, Next, Flagged). Click **Live**, **Past**, **Teams**, and **Moderators**. The list should fade briefly and the button you clicked should highlight right away. Then click **Moderator Hub** on purpose. That should still open the hub.
 
