@@ -56,7 +56,7 @@ assert('poll clears orphan Pending when the read has no row',
 assert('scrub no-ops when assignment id is blank',
   /if \(!want\) return;/.test(extractFn('scrubApprovalGateToActiveAssignment')));
 assert('verified Approved is not TTL-relocked',
-  /if \(g\.status === 'Approved' && g\.verifiedAt\) return true;/.test(extractFn('gateApproved')));
+  /if \(g\.verifiedAt\) return true;/.test(extractFn('gateApproved')));
 assert('confirm arrival requires inside, not skipped, and a fresh position',
   /result\.ok && !result\.skipped && result\.inside && fresh/.test(extractFn('confirmOperatorArrival')));
 assert('missing address is not inside the fence',
@@ -94,7 +94,9 @@ assert('Approved past 10 minutes stays unlocked', gateCtx.gateApproved('station1
 gateCtx.gates.station1 = { status: 'Approved' };
 assert('Approved with no cloud verify stays locked', gateCtx.gateApproved('station1') === false);
 gateCtx.gates.station1 = { status: 'AutoApproved', verifiedAt: past };
-assert('AutoApproved past the TTL locks again', gateCtx.gateApproved('station1') === false);
+assert('cloud-verified AutoApproved past 10 minutes stays unlocked', gateCtx.gateApproved('station1') === true);
+gateCtx.gates.station1 = { status: 'AutoApproved', autoLocalAt: past };
+assert('unverified AutoApproved past the grace window locks', gateCtx.gateApproved('station1') === false);
 gateCtx.gates.station1 = { status: 'Rejected', verifiedAt: Date.now() };
 assert('Rejected stays locked', gateCtx.gateApproved('station1') === false);
 
@@ -148,7 +150,7 @@ assert('orphan helper does not clear Approved',
 const ssCtx = { state: {}, _operatorBookingNavExplicit: false };
 vm.createContext(ssCtx);
 vm.runInContext(
-  extractFn('operatorBookingKey') + '\n'
+  extractFn('bookingKey') + '\n'
   + extractFn('completionPinsPreviousBooking') + '\n'
   + extractFn('shouldClearOperatorProgress'),
   ssCtx
@@ -162,8 +164,11 @@ assert('poll does not clear while wrap-up still pins the last booking',
   ssCtx.shouldClearOperatorProgress('asgnDone|2026-09-23', 'asgnNext|2026-09-23', { explicitUserNav: false }) === false);
 assert('a disappeared booking id does not clear',
   ssCtx.shouldClearOperatorProgress('asgnDone|2026-09-23', '', { explicitUserNav: false }) === false);
-assert('a swipe can move off a finished booking',
-  ssCtx.shouldClearOperatorProgress('asgnDone|2026-09-23', 'asgnNext|2026-09-23', { explicitUserNav: true }) === true);
+assert('a swipe does not clear while wrap-up still pins the last booking',
+  ssCtx.shouldClearOperatorProgress('asgnDone|2026-09-23', 'asgnNext|2026-09-23', { explicitUserNav: true }) === false);
+ssCtx.state = { sessionCompletedAt: null, _completionWriteAsgnId: null, _lastSeenActiveAsgnId: 'asgnA' };
+assert('a swipe to a different booking still clears when nothing is pinned',
+  ssCtx.shouldClearOperatorProgress('asgnA|2026-09-23', 'asgnB|2026-09-23', { explicitUserNav: true }) === true);
 ssCtx.state = { sessionCompletedAt: null, _completionWriteAsgnId: null, _lastSeenActiveAsgnId: 'yest' };
 assert('a real booking change with no completion pin still clears',
   ssCtx.shouldClearOperatorProgress('yest|2026-09-22', 'today|2026-09-23', { explicitUserNav: false }) === true);

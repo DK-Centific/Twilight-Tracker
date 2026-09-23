@@ -23,6 +23,7 @@
 - A background refresh does not erase a finished session. Progress clears when the person swipes to another booking, or when the booking id and day really change.
 - Team sync scores progress after yesterday’s work is removed. An empty other-browser copy does not replace a finished session.
 - Version **1.3.091823c**. Selftest: `scripts/critical-client-selftest.js`.
+- AHP follow-up: a cloud-confirmed automatic approval stays unlocked (the 10-minute timer is only before the cloud confirms it). A finished session is not cleared by a swipe while wrap-up still pins that booking. A Pending that just saved is kept for 5 minutes if the refresh has not shown the row yet.
 
 **PR:** [#166](https://github.com/DK-Centific/Twilight-Tracker/pull/166) ready for review on `cursor/critical-ahp-client-fixes-ea44`. Do not merge from this agent. Watchdog merges after AHP review.
 

@@ -634,8 +634,8 @@ function syncSessionDateFromActiveAssignment(asgn) {
   const explicit = !!_operatorBookingNavExplicit;
   const prevId = state._lastSeenActiveAsgnId || state._completionWriteAsgnId || '';
   const nextId = (session && session.id != null) ? session.id : prevId;
-  const prevKey = (typeof operatorBookingKey === 'function') ? operatorBookingKey(prevId, prev) : '';
-  const nextKey = (typeof operatorBookingKey === 'function') ? operatorBookingKey(nextId, ymd) : '';
+  const prevKey = (typeof bookingKey === 'function') ? bookingKey(prevId, prev) : '';
+  const nextKey = (typeof bookingKey === 'function') ? bookingKey(nextId, ymd) : '';
   const overnight = (typeof operatorHasOvernightSessionInProgress === 'function'
     && operatorHasOvernightSessionInProgress(ymd));
   // Silent poll must not retarget a just-finished booking onto another day.
@@ -6257,10 +6257,10 @@ function calibrationComplete(k) {
 }
 // Authoritative unlock check. A local Approved/AutoApproved is NOT trusted on
 // its own · that's the local-memory bypass we must prevent.
-// Cloud-verified Approved (verifiedAt stamped by pollMyApprovals) stays
-// unlocked for this live booking until Rejected or a new resubmit. A missed
-// poll must not re-lock. AutoApproved still uses the verify TTL plus the
-// write-propagation grace window. Fabricated localStorage with no verifiedAt
+// Once pollMyApprovals has cloud-verified this assignment|station (verifiedAt),
+// unlock stays for the live booking until Rejected or a new resubmit. A missed
+// poll must not re-lock. The grace window applies only to AutoApproved that
+// the cloud has not confirmed yet. Fabricated localStorage with no verifiedAt
 // stays locked.
 function gateApproved(k) {
   const g = getGate(k);
@@ -6269,12 +6269,9 @@ function gateApproved(k) {
   // status (offline/legacy). In production the read URL is always set, so the
   // confirmation requirement below is what actually governs unlocking.
   if (!APPROVAL_PA_READ_URL) return true;
-  if (g.status === 'Approved' && g.verifiedAt) return true;
+  if (g.verifiedAt) return true;
   const now = Date.now();
-  if (g.status === 'AutoApproved') {
-    if (g.verifiedAt && (now - g.verifiedAt) < APPROVAL_VERIFY_TTL_MS) return true;
-    if (g.autoLocalAt && (now - g.autoLocalAt) < APPROVAL_AUTO_GRACE_MS) return true;
-  }
+  if (g.status === 'AutoApproved' && g.autoLocalAt && (now - g.autoLocalAt) < APPROVAL_AUTO_GRACE_MS) return true;
   return false;
 }
 // 0A cross-station lock REMOVED. Stations 0a/0b no longer exist, so Stations
@@ -43146,7 +43143,7 @@ function resolveAssignmentBookingYmd(asgnId) {
 }
 
 // assignmentId|sessionDate. Empty id is not a booking (poll flicker).
-function operatorBookingKey(asgnOrId, sessionYmd) {
+function bookingKey(asgnOrId, sessionYmd) {
   if (asgnOrId && typeof asgnOrId === 'object') {
     const id = asgnOrId.id != null ? String(asgnOrId.id).trim() : '';
     if (!id) return '';
@@ -43158,10 +43155,11 @@ function operatorBookingKey(asgnOrId, sessionYmd) {
   return id + '|' + String(sessionYmd || '').trim();
 }
 
-// True while wrap-up still pins this booking. Silent poll must not clear it.
-function completionPinsPreviousBooking(prevKey, opts) {
-  opts = opts || {};
-  if (opts.explicitUserNav) return false;
+// True while wrap-up still pins this booking. Do not clear progress while
+// sessionCompletedAt or _completionWriteAsgnId still points at that id,
+// including a carousel swipe. "Next assignment" resets through
+// resetOperatorSessionState instead.
+function completionPinsPreviousBooking(prevKey) {
   if (typeof state === 'undefined' || !state) return false;
   const prevId = String(prevKey || '').split('|')[0];
   if (!prevId) return false;
@@ -51582,9 +51580,9 @@ function syncBookedParticipantName() {
   const asgnId = asgn ? asgn.id : null;
   const last = state._lastSeenActiveAsgnId || null;
   const explicit = !!_operatorBookingNavExplicit;
-  const nextKey = (typeof operatorBookingKey === 'function') ? operatorBookingKey(asgn) : (asgnId ? String(asgnId) : '');
-  const prevKey = (typeof operatorBookingKey === 'function')
-    ? operatorBookingKey(last, state.sessionDate)
+  const nextKey = (typeof bookingKey === 'function') ? bookingKey(asgn) : (asgnId ? String(asgnId) : '');
+  const prevKey = (typeof bookingKey === 'function')
+    ? bookingKey(last, state.sessionDate)
     : (last ? String(last) : '');
 
   // Same active assignment as last sync → preserve edits, no work.
