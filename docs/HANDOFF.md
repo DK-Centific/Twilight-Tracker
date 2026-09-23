@@ -1,6 +1,23 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Grok · Admin Performance stays on Performance (1.3.091822e)
+**Last updated:** 2026-09-23 · Grok · Performance message picker lists moderators (1.3.091823a)
+
+## 2026-09-23 · Message a moderator lists people, not teams (1.3.091823a)
+
+**Ask:** Admin → Performance → Message a moderator. The dropdown showed teams. David wants the people whose role is Moderator.
+
+**Cause:** The note composer asked for a team first, then only the primaries and backups on that team. It did not read the moderator directory’s Moderator role.
+
+**Fix:**
+- The composer has one Moderator list. It shows directory people whose role is Moderator (Mod / Moderator). Admins, reviewers, and team names are not in the list. A moderator who is not on a team is still listed.
+- Send still writes the same private note to that person’s login. Team feedback is unchanged.
+- Version **1.3.091823a**. Selftest: `scripts/feedback-inbox-selftest.js`.
+
+**PR:** opened ready for review on `cursor/perf-message-moderators-4a27`. Do not merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091823a**. Admin → Performance → **Message a moderator**. The list should be people’s names, not team names. Pick one person, write a short note, and send. That person should get it in Inbox.
+
+---
 
 ## 2026-09-23 · Admin Performance no longer jumps to Moderator Hub (1.3.091822e)
 
