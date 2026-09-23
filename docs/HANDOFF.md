@@ -1,6 +1,28 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Grok · Performance message picker lists moderators (1.3.091823a)
+**Last updated:** 2026-09-23 · Grok · 9 AM strike gate + Skip + completed teams (1.3.091823b)
+
+## 2026-09-23 · No strike before 9 AM, Skip sticks, finished teams stay at their stars (1.3.091823b)
+
+**Ask:** Do not give a strike before 9:00 AM Pacific. Admin Skip on a flagged incomplete session must stick and block that session’s strike. A team that finished before 9:00 AM must never lose a star. After the live push, **Pradeepreddy × Manoj** and **Jashit × Adidela** were struck even though they had finished.
+
+**Cause:**
+- The 9 AM check read the hour with a clock format that can say “past 9” at midnight (hour 24 or a 12-hour number). Stars could drop before 9:00 AM PT.
+- Auto-strike ran as soon as assignments loaded, **before SessionState was read**. Finish status (station 4 done, wrap-up, session done, all scenarios uploaded) lives on SessionState. The Assignment row often stays Booked. With no rows loaded, the team looked incomplete and lost a star. **Pradeepreddy × Manoj** is that shape in the notes (both primaries at station 4 done, Assignment not flipped to Completed). **Jashit × Adidela** is not in the repo; the same path explains a finished pair losing a star. A 256-row SessionState page can also hide an older finish row; that case is no longer treated as incomplete.
+- The strike save wrote an older copy of the star list back over the new one, and Skip was stored only on “today,” so a refresh could miss it. Idempotency was the team id, so one session could collide with another.
+
+**Fix:**
+- Strike only at or after **9:00 AM PT on the morning after the booking date**, and only when SessionState has loaded and the team is still incomplete (team-OR: any primary finishing counts).
+- Skip is saved on the booking day and the strike morning, keyed by assignment id, and blocks that session only. A later session for the same team is not stuck flagged.
+- The strike job does not write an old star list back on top of Skip or a real decrement.
+- A false star already taken is **not** auto-cleared. Admin can open **Moderators**, open the person, and tap **Reset** to put stars back to 4. The job will not strike that same finished session again.
+- Version **1.3.091823b**. Selftest: `scripts/mod-strike-selftest.js`, `scripts/team-happypath-flag-selftest.js`.
+
+**PR:** [#165](https://github.com/DK-Centific/Twilight-Tracker/pull/165) ready for review on `cursor/strike-9am-skip-gate-429d`. David authorized merge once this PR is ready. Watchdog merges. Do not merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091823b**. Before 9:00 AM PT, an unfinished team can show Flagged, and stars stay put. After 9:00 AM, an unfinished team can lose one star. A team that already finished (either person done) does not lose a star. On the 9 AM list, tap **Skip** for one incomplete team, refresh, and that team does not lose a star. Their next session is not stuck on Flagged. To give back a star that was taken by mistake: **Moderators** → open the person → **Reset**.
+
+---
 
 ## 2026-09-23 · Message a moderator lists people, not teams (1.3.091823a)
 
