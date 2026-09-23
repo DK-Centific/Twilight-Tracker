@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091822a',
-  /const APP_VERSION = '1\.3\.091822a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091822a'));
+assert('version bump 091822c',
+  /const APP_VERSION = '1\.3\.091822c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091822c'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -146,6 +146,8 @@ assert('strikes SessionState app setting sync',
   /MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes'/.test(src)
   && /function persistModeratorStrikesSetting/.test(src)
   && /function ingestModeratorStrikesFromSessionRows/.test(src)
+  && /function foldModeratorStrikesBlobs/.test(src)
+  && /MOD_STRIKE_BARRIER_LS_KEY/.test(src)
   && /ingestModeratorStrikesFromSessionRows\(rows\)/.test(src));
 assert('strike delegation + eligibility',
   /function ensureModStrikeActionDelegation/.test(src)
@@ -185,7 +187,12 @@ const block = src.slice(sliceStart, sliceEnd);
 const ctx = {
   setTimeout(fn) { if (typeof fn === 'function') fn(); return 0; },
   clearTimeout() {},
-  localStorage: { _m: {}, getItem(k) { return this._m[k] || null; }, setItem(k, v) { this._m[k] = v; } },
+  localStorage: {
+    _m: {},
+    getItem(k) { return this._m[k] || null; },
+    setItem(k, v) { this._m[k] = v; },
+    removeItem(k) { delete this._m[k]; },
+  },
   adminState: {
     teams: [{ id: 't1', name: 'Alpha', primaryIds: ['a-orbit', 'b-orbit'] }],
     assignments: [{
@@ -546,7 +553,8 @@ assert('post-reset poll does not re-deactivate', !ctx._deactCalls.some(c => c[1]
 ctx.console = console;
 ctx.SESSIONSTATE_PA_WRITE_URL = 'https://example.test/write';
 ctx.fetch = async () => ({ ok: true });
-ctx.fetchWithRetry = () => new Promise(() => {});
+let releaseInflight = null;
+ctx.fetchWithRetry = () => new Promise(resolve => { releaseInflight = resolve; });
 ctx.persistModeratorStrikesSetting = realPersistStrikes;
 ctx.saveModStrikeStore({
   mods: {
@@ -571,6 +579,165 @@ ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
 }, { version: 8, lastWriter: 'Brian-tw' })]);
 assert('in-flight persist blocks lowering ingest', ctx.getModStrikeStars('inflight-mod') === 4);
 assert('in-flight persist does not re-deactivate', !ctx._deactCalls.some(c => c[1] === true), JSON.stringify(ctx._deactCalls));
+if (releaseInflight) releaseInflight({ ok: true });
+try { vm.runInContext('_modStrikePersistInFlight = 0;', ctx); } catch (_) {}
+
+// --- Reload-after-push holes (1.3.091822c) ---
+ctx.persistModeratorStrikesSetting = async function(opts) {
+  const store = ctx.loadModStrikeStore();
+  ctx._persistReasons.push((opts && opts.reason) || '');
+  ctx._persistedStars = ctx._persistedStars || [];
+  ctx._persistedStars.push({
+    reason: (opts && opts.reason) || '',
+    empty: ctx.modStrikeModsAreEmpty(store.mods),
+    david: store.mods['david-tw'] && store.mods['david-tw'].stars,
+  });
+  return { ok: true };
+};
+ctx._persistReasons = [];
+ctx._persistedStars = [];
+ctx._deactCalls = [];
+
+// Empty cloud must not replace a healthy local 3★.
+ctx.saveModStrikeStore({
+  mods: {
+    'david-tw': {
+      stars: 3, starScale: 4,
+      updatedAt: '2026-09-22T04:00:00.000Z', updatedBy: 'Admin-Twilight',
+      log: [{ at: '2026-09-22T04:00:00.000Z', kind: 'manual', by: 'Admin-Twilight' }],
+    },
+  },
+  checkpoints: {},
+  version: 4,
+  lastWriter: 'Admin-Twilight',
+});
+ctx._persistReasons = [];
+ctx._persistedStars = [];
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({}, {
+  version: 8, lastWriter: 'shell', lastActive: '2026-09-22T18:00:00.000Z',
+})]);
+assert('empty cloud does not wipe non-empty local', ctx.getModStrikeStars('david-tw') === 3);
+assert('empty cloud backfill writes local 3',
+  ctx._persistedStars.some(p => p.reason === 'backfill-local-to-cloud' && p.empty !== true && p.david === 3),
+  JSON.stringify(ctx._persistedStars));
+
+// Cold localStorage: newer-lastActive empty SS row must not hide an older healthy blob.
+ctx.localStorage.removeItem('centific_mod_strike_scale_v4_done');
+ctx.saveModStrikeStore({ mods: {}, checkpoints: {}, version: 0, lastWriter: '' });
+ctx.ingestModeratorStrikesFromSessionRows([
+  strikeRow({
+    'david-tw': {
+      stars: 3, starScale: 4,
+      updatedAt: '2026-09-22T01:00:00.000Z',
+      log: [{ at: '2026-09-22T01:00:00.000Z', kind: 'manual', by: 'Admin-Twilight' }],
+    },
+  }, { version: 4, lastActive: '2026-09-22T01:00:00.000Z', lastWriter: 'Admin-Twilight' }),
+  strikeRow({}, { version: 9, lastActive: '2026-09-22T06:00:00.000Z', lastWriter: 'shell' }),
+]);
+assert('newer-lastActive empty row does not wipe cold local',
+  ctx.getModStrikeStars('david-tw') === 3,
+  JSON.stringify(ctx.loadModStrikeStore().mods['david-tw'] || {}));
+
+// Blob starScale 4 + unstamped remaining 3 must not remap to 4 on cold ingest.
+ctx.localStorage.removeItem('centific_mod_strike_scale_v4_done');
+ctx.saveModStrikeStore({ mods: {}, checkpoints: {}, version: 0, lastWriter: '' });
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 3,
+    updatedAt: '2026-09-22T02:00:00.000Z',
+    log: [{ at: '2026-09-22T02:00:00.000Z', kind: 'manual', by: 'Admin-Twilight' }],
+  },
+}, { version: 3, lastActive: '2026-09-22T02:00:00.000Z' })]);
+const unstamped = ctx.loadModStrikeStore().mods['david-tw'];
+assert('v4 blob does not remap unstamped remaining 3',
+  unstamped && unstamped.stars === 3 && unstamped.starScale === 4,
+  JSON.stringify(unstamped || {}));
+
+// Already-stamped 3 survives a read and a same-count cloud poll (version bump / hard refresh).
+ctx.saveModStrikeStore({
+  mods: {
+    'david-tw': {
+      stars: 3, starScale: 4,
+      updatedAt: '2026-09-22T04:00:00.000Z',
+      log: [{ at: '2026-09-22T04:00:00.000Z', kind: 'manual' }],
+    },
+  },
+  checkpoints: {},
+  version: 6,
+  lastWriter: 'Admin-Twilight',
+});
+ctx._persistReasons = [];
+assert('read path does not change stamped 3', ctx.getModStrikeStars('david-tw') === 3);
+assert('read path does not schedule a cloud write', ctx._persistReasons.length === 0, JSON.stringify(ctx._persistReasons));
+assert('scale helper does not remigrate stamped 3',
+  ctx.ensureModStrikeScaleV4(ctx.loadModStrikeStore().mods['david-tw']).stars === 3);
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 3, starScale: 4,
+    updatedAt: '2026-09-22T04:00:00.000Z',
+    log: [{ at: '2026-09-22T04:00:00.000Z', kind: 'manual' }],
+  },
+}, { version: 6, lastActive: '2026-09-22T20:00:00.000Z' })]);
+assert('version-bump poll keeps stamped 3', ctx.getModStrikeStars('david-tw') === 3);
+
+// Same updatedAt poison (cloud 4, local 3) must not raise stars.
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 4, starScale: 4, deactivated: false,
+    updatedAt: '2026-09-22T04:00:00.000Z',
+    log: [{ at: '2026-09-22T04:00:00.000Z', kind: 'reset' }],
+  },
+}, { version: 7, lastActive: '2026-09-22T21:00:00.000Z', lastWriter: 'bad-scale' })]);
+assert('tied cloud copy cannot raise stamped 3 to 4', ctx.getModStrikeStars('david-tw') === 3);
+
+// Stale lower remote after an Admin reset (barrier still in memory).
+ctx._deactCalls = [];
+ctx.resetModStrikeStars('david-tw');
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'david-tw': {
+    stars: 1, starScale: 4,
+    updatedAt: '2026-09-21T08:00:00.000Z',
+    log: [{ at: '2026-09-21T08:00:00.000Z', kind: 'manual' }],
+  },
+}, { version: 1, lastActive: '2026-09-22T22:00:00.000Z' })]);
+assert('stale lower remote after Admin reset stays at 4', ctx.getModStrikeStars('david-tw') === 4);
+assert('stale lower after reset does not deactivate', !ctx._deactCalls.some(c => c[1] === true));
+
+// Hard refresh drops the in-memory barrier. The stored barrier must still block.
+ctx.localStorage.setItem('centific_mod_strike_barrier_v1', JSON.stringify({
+  'reload-mod': Date.now() + 120000,
+}));
+ctx.saveModStrikeStore({
+  mods: {
+    'reload-mod': {
+      stars: 4, starScale: 4, deactivated: false,
+      updatedAt: '2026-09-21T01:00:00.000Z', updatedBy: 'Admin-Twilight',
+      log: [{ at: '2026-09-21T01:00:00.000Z', kind: 'reset', by: 'Admin-Twilight' }],
+    },
+  },
+  checkpoints: {},
+  version: 2,
+  lastWriter: 'Admin-Twilight',
+});
+ctx._deactCalls = [];
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow({
+  'reload-mod': {
+    stars: 0, starScale: 4, strikeDeactivated: true, deactivated: true,
+    updatedAt: '2026-09-22T12:00:00.000Z',
+    log: [{ at: '2026-09-22T12:00:00.000Z', kind: 'manual' }],
+  },
+}, { version: 8, lastActive: '2026-09-22T12:01:00.000Z' })]);
+assert('stored barrier blocks stale lower after reload', ctx.getModStrikeStars('reload-mod') === 4);
+assert('stored barrier does not deactivate', !ctx._deactCalls.some(c => c[1] === true), JSON.stringify(ctx._deactCalls));
+
+// Pre-v4 bare {stars:3} (old "full") still remaps once when the blob has no starScale.
+ctx.localStorage.removeItem('centific_mod_strike_scale_v4_done');
+ctx.saveModStrikeStore({ mods: {}, checkpoints: {}, version: 0, lastWriter: '' });
+ctx.ingestModeratorStrikesFromSessionRows([strikeRow(
+  { 'legacy-mod': { stars: 3 } },
+  { starScale: null, version: 1, lastActive: '2020-01-01T00:00:00.000Z' }
+)]);
+assert('pre-v4 bare 3 still remaps once to 4', ctx.getModStrikeStars('legacy-mod') === 4);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

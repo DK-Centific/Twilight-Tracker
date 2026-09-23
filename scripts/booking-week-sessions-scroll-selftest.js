@@ -93,9 +93,9 @@ assert(
 );
 
 assert(
-  'APP_VERSION is 1.3.091822b',
-  /const APP_VERSION = '1\.3\.091822b'/.test(src)
-    && html.includes('twilight.js?v=twilight-1.3.091822b')
+  'APP_VERSION is 1.3.091822c',
+  /const APP_VERSION = '1\.3\.091822c'/.test(src)
+    && html.includes('twilight.js?v=twilight-1.3.091822c')
 );
 
 console.log(passed + ' passed, ' + failed + ' failed');
