@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091823b',
-  /const APP_VERSION = '1\.3\.091823b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091823b'));
+assert('version bump 091823c',
+  /const APP_VERSION = '1\.3\.091823c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091823c'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -750,7 +750,7 @@ assert('skip stamps every checkpoint day for that booking',
   /modStrikeCheckpointDaysForBooking\(booking\)/.test(src)
   && /modStrikeBumpBlobVersion\(store\)/.test(src));
 
-// --- 9 AM gate + completed teams + Skip (1.3.091823b) ---
+// --- 9 AM gate + completed teams + Skip (1.3.091823c) ---
 ctx.isAssignmentTeamHappypathComplete = (a) => !!ctx._teamComplete;
 ctx._teamComplete = false;
 ctx.adminState.assignments = [{

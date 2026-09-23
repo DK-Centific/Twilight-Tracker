@@ -71,7 +71,9 @@ assert('coords without timestamp still count for fence preview',
 assert('stale lastGeo is not fresh', !lastGeoIsFreshEnough({ lat: 47.6, lng: -122.3, at: now - 40 * 60 * 1000 }, 15 * 60 * 1000));
 
 assert('no assignment stays locked', liveLocationInsideAssignmentFence(null, { lat: 1, lng: 2, at: now }).reason === 'noassignment');
-assert('no address is treated as inside (legacy skip)', liveLocationInsideAssignmentFence({ id: 'a' }, { lat: 1, lng: 2, at: now }).inside === true);
+const noAddr = liveLocationInsideAssignmentFence({ id: 'a' }, { lat: 1, lng: 2, at: now });
+assert('no address is not inside', noAddr.inside === false && noAddr.known === false && noAddr.reason === 'no-address');
+assert('no address does not unlock worklog', isWorklogUnlockedByGeofence({ id: 'a' }, { lat: 1, lng: 2, at: now }) === false);
 
 const asgn = { id: 'a', address: '123 Main St' };
 assert('missing geocode stays locked', liveLocationInsideAssignmentFence(asgn, { lat: 47.6, lng: -122.3, at: now }).reason === 'nogeocode');

@@ -17,11 +17,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Performance hub redirect + click latency (1.3.091823b)');
+console.log('Performance hub redirect + click latency (1.3.091823c)');
 
-assert('APP_VERSION 1.3.091823b',
-  /const APP_VERSION = '1\.3\.091823b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091823b'));
+assert('APP_VERSION 1.3.091823c',
+  /const APP_VERSION = '1\.3\.091823c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091823c'));
 
 const paintFn = src.match(/function moderatorLoadPaintTarget\(tab, subtab\) \{[\s\S]*?\n\}/);
 assert('paint target helper exists', !!paintFn);

@@ -26,10 +26,10 @@ function assert(name, cond, detail) {
 
 console.log('Admin scenario edit vs approval gate');
 
-assert('APP_VERSION 1.3.091823b',
-  /const APP_VERSION = '1\.3\.091823b'/.test(src));
+assert('APP_VERSION 1.3.091823c',
+  /const APP_VERSION = '1\.3\.091823c'/.test(src));
 assert('cache-bust matches',
-  html.includes('twilight.js?v=twilight-1.3.091823b'));
+  html.includes('twilight.js?v=twilight-1.3.091823c'));
 
 assert('role bypass helper exists',
   /function adminBypassesScenarioEditLock\(/.test(src));
