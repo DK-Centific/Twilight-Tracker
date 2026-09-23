@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091822c',
-  /const APP_VERSION = '1\.3\.091822c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091822c'));
+assert('version bump 091823b',
+  /const APP_VERSION = '1\.3\.091823b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091823b'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -738,6 +738,91 @@ ctx.ingestModeratorStrikesFromSessionRows([strikeRow(
   { starScale: null, version: 1, lastActive: '2020-01-01T00:00:00.000Z' }
 )]);
 assert('pre-v4 bare 3 still remaps once to 4', ctx.getModStrikeStars('legacy-mod') === 4);
+
+assert('auto-strike waits for SessionState and rechecks team-OR',
+  /function modStrikeSessionStateReady/.test(src)
+  && /function modStrikeAssignmentEvidence/.test(src)
+  && /function commitAutoModStrike/.test(src)
+  && /_perfSSOk/.test(src)
+  && /evidence !== 'incomplete'/.test(src)
+  && /pacificWallClockToMs\(today, 9 \* 60\)/.test(src));
+assert('skip stamps every checkpoint day for that booking',
+  /modStrikeCheckpointDaysForBooking\(booking\)/.test(src)
+  && /modStrikeBumpBlobVersion\(store\)/.test(src));
+
+// --- 9 AM gate + completed teams + Skip (1.3.091823b) ---
+ctx.isAssignmentTeamHappypathComplete = (a) => !!ctx._teamComplete;
+ctx._teamComplete = false;
+ctx.adminState.assignments = [{
+  id: 'asgn1', teamId: 't1', date: '2026-09-16', status: 'Booked',
+  startMin: 10 * 60, endMin: 12 * 60,
+}];
+ctx.adminState._perfSSOk = true;
+ctx.adminState.perfSessionStateRows = [];
+ctx.resetModStrikeStars('a-orbit');
+ctx.resetModStrikeStars('b-orbit');
+ctx.saveModStrikeStore({
+  mods: ctx.loadModStrikeStore().mods,
+  checkpoints: {},
+  version: ctx.loadModStrikeStore().version,
+  lastWriter: 'Admin-Twilight',
+});
+const gateMs = ctx.assignmentAutoStrikeDeadlineMs(ctx.adminState.assignments[0]);
+assert('deadline is 9:00 AM PT the morning after the booking',
+  Number.isFinite(gateMs) && gateMs === ctx.pacificWallClockToMs('2026-09-17', 9 * 60));
+
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs - 60 * 1000 });
+assert('before 9 AM PT incomplete does not remove a star',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
+
+ctx._teamComplete = true;
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
+assert('completed team (team-OR) is not struck after 9 AM',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
+
+ctx._teamComplete = false;
+ctx.adminState._perfSSOk = false;
+ctx.adminState.perfSessionStateRows = null;
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
+assert('no auto-strike before SessionState has loaded',
+  ctx.getModStrikeStars('a-orbit') === 4);
+
+ctx.adminState._perfSSOk = true;
+ctx.adminState.perfSessionStateRows = new Array(256).fill(null).map((_, i) => ({
+  id: i, assignmentId: 'other', orbitLoginId: 'x', stateJson: '{}',
+}));
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
+assert('truncated SessionState page does not strike a booking with no row',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
+
+ctx.adminState.perfSessionStateRows = [];
+ctx.skipModStrikeCheckpointTeam('t1');
+const skipCk = ctx.loadModStrikeStore().checkpoints['2026-09-17'] || {};
+const skipBook = ctx.loadModStrikeStore().checkpoints['2026-09-16'] || {};
+assert('skip persists on the strike day and the booking day',
+  !!(skipCk.skippedTeams && skipCk.skippedTeams.asgn1)
+  && !!(skipBook.skippedTeams && skipBook.skippedTeams.asgn1));
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
+assert('skip blocks the strike for that session',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
+
+ctx.saveModStrikeStore({
+  mods: ctx.loadModStrikeStore().mods,
+  checkpoints: {},
+  version: ctx.loadModStrikeStore().version,
+  lastWriter: 'Admin-Twilight',
+});
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
+assert('after 9 AM an incomplete team is strike eligible',
+  ctx.getModStrikeStars('a-orbit') === 3 && ctx.getModStrikeStars('b-orbit') === 3);
+const struckStore = ctx.loadModStrikeStore();
+const autoMark = struckStore.checkpoints['2026-09-17'] || {};
+assert('auto-strike is scoped to assignmentId and session date',
+  !!(autoMark.teamAutoStrike && autoMark.teamAutoStrike.asgn1 && autoMark.teamAutoStrike['asgn1|2026-09-16'])
+  && !autoMark.teamAutoStrike.t1);
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 5 * 60 * 1000 });
+assert('same session is not struck twice',
+  ctx.getModStrikeStars('a-orbit') === 3 && ctx.getModStrikeStars('b-orbit') === 3);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

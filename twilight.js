@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091823a';
-const APP_UPDATED_AT = '09/23/2026 16:45';
+const APP_VERSION = '1.3.091823b';
+const APP_UPDATED_AT = '09/23/2026 18:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12265,11 +12265,15 @@ function isAssignmentSkipOrResolvedForFlagged(a) {
   if (!a) return false;
   const teamId = a.teamId;
   const asgnId = a.id;
-  const endDay = assignmentSessionEndYmdPt(a);
-  const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-  const days = [];
-  if (endDay) days.push(endDay);
-  if (today && today !== endDay) days.push(today);
+  const days = (typeof modStrikeCheckpointDaysForBooking === 'function')
+    ? modStrikeCheckpointDaysForBooking(a).slice()
+    : [];
+  if (!days.length) {
+    const endDay = assignmentSessionEndYmdPt(a);
+    const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
+    if (endDay) days.push(endDay);
+    if (today && days.indexOf(today) < 0) days.push(today);
+  }
   for (const day of days) {
     if (typeof modStrikeCheckpointIsSkipped === 'function'
         && modStrikeCheckpointIsSkipped(day, teamId, asgnId)) return true;
@@ -13409,11 +13413,17 @@ async function ensurePerfSessionStateRows() {
   try {
     if (typeof fetchSessionStateRows === 'function') {
       const rows = await fetchSessionStateRows();
-      adminState.perfSessionStateRows = Array.isArray(rows) ? rows : [];
-      adminState._perfSSFetchedAt = Date.now();
+      if (Array.isArray(rows)) {
+        adminState.perfSessionStateRows = rows;
+        adminState._perfSSFetchedAt = Date.now();
+        adminState._perfSSOk = true;
+      } else {
+        adminState._perfSSOk = false;
+      }
     } else {
       adminState.perfSessionStateRows = [];
       adminState._perfSSFetchedAt = Date.now();
+      adminState._perfSSOk = false;
     }
   } catch (e) {
     console.warn('[Twilight] Performance: SessionState fetch failed', e && e.message);
@@ -14016,6 +14026,11 @@ function renderPerformance(body, opts) {
     maybeRunModStrikeNineAmCheckpoint({ silent: true });
   }
   ensurePerfSessionStateRows().then(() => {
+    // Strike only after SessionState is in memory. The call above this
+    // fetch used to remove a star while completion rows were still null.
+    if (typeof maybeRunModStrikeNineAmCheckpoint === 'function') {
+      maybeRunModStrikeNineAmCheckpoint({ silent: true });
+    }
     // SessionState data carries the Lakitu URLs that the per-row pills
     // need. On first render the rows array is still empty so every
     // pill renders "No url"; once the fetch resolves we patch in place
@@ -29434,15 +29449,17 @@ function addDaysToYmd(ymdStr, delta) {
   return ymd(d);
 }
 
-function isPastModStrikeCheckpointHour() {
+function isPastModStrikeCheckpointHour(nowMs) {
+  // Compare to 9:00 AM Pacific wall clock. hour:numeric / hour12:false
+  // can report 24 at midnight or a 12-hour number, which opened this
+  // gate before 9:00 AM PT and awarded strikes early.
   try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Los_Angeles',
-      hour: 'numeric',
-      hour12: false,
-    }).formatToParts(new Date());
-    const hour = Number((parts.find(p => p.type === 'hour') || {}).value);
-    return Number.isFinite(hour) && hour >= 9;
+    const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+    if (!today || typeof pacificWallClockToMs !== 'function') return false;
+    const gateMs = pacificWallClockToMs(today, 9 * 60);
+    if (!Number.isFinite(gateMs)) return false;
+    const now = nowMs != null ? nowMs : Date.now();
+    return now >= gateMs;
   } catch (_) {
     return false;
   }
@@ -29640,7 +29657,71 @@ function modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking) {
   return tid;
 }
 
-function buildModStrikeCheckpointReport() {
+function modStrikeSessionStateReady() {
+  if (typeof adminState === 'undefined' || !adminState) return false;
+  if (adminState._perfSSOk !== true) return false;
+  return Array.isArray(adminState.perfSessionStateRows);
+}
+
+// 9:00 AM PT on the morning after the booking date. That is the deadline
+// to finish an assigned session. Completing before that instant is not a strike.
+function assignmentAutoStrikeDeadlineMs(a) {
+  const m = (typeof assignmentPerfMaterialize === 'function') ? assignmentPerfMaterialize(a) : a;
+  const bookingDay = String((m && m.date) || '').split('T')[0];
+  if (!bookingDay || typeof addDaysToYmd !== 'function') return NaN;
+  const morningAfter = addDaysToYmd(bookingDay, 1);
+  if (!morningAfter || typeof pacificWallClockToMs !== 'function') return NaN;
+  return pacificWallClockToMs(morningAfter, 9 * 60);
+}
+
+function modStrikeCheckpointDaysForBooking(booking) {
+  const days = [];
+  const push = (d) => {
+    const s = String(d || '').split('T')[0].trim();
+    if (s && days.indexOf(s) < 0) days.push(s);
+  };
+  try {
+    if (typeof getPSTDateString === 'function') push(getPSTDateString());
+  } catch (_) {}
+  if (!booking) return days;
+  push(booking.date);
+  if (typeof assignmentSessionEndYmdPt === 'function') {
+    try { push(assignmentSessionEndYmdPt(booking)); } catch (_) {}
+  }
+  const book = String(booking.date || '').split('T')[0];
+  if (book && typeof addDaysToYmd === 'function') push(addDaysToYmd(book, 1));
+  return days;
+}
+
+// 'complete' · team-OR happypath (or Assignment Completed).
+// 'incomplete' · SessionState has been read and this booking is not done.
+// 'unknown' · rows not loaded, or a full 256-row page has no row for this
+// booking (completion may have fallen off the read). Never auto-strike unknown.
+function modStrikeAssignmentEvidence(a) {
+  if (!a) return 'unknown';
+  if (a.status === 'Completed') return 'complete';
+  if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) return 'complete';
+  if (typeof classifyBookingForPerf === 'function') {
+    try {
+      if (classifyBookingForPerf(a) === 'completed') return 'complete';
+    } catch (_) {}
+  }
+  if (!modStrikeSessionStateReady()) return 'unknown';
+  const all = adminState.perfSessionStateRows;
+  if (all.length >= 256) {
+    let matched = [];
+    if (typeof sessionStateRowsForAssignment === 'function') {
+      matched = sessionStateRowsForAssignment(a.id, all) || [];
+    } else {
+      matched = all.filter(r => r && String(r.assignmentId || '') === String(a.id));
+    }
+    if (!matched.length) return 'unknown';
+  }
+  return 'incomplete';
+}
+
+function buildModStrikeCheckpointReport(nowMs) {
+  const now = nowMs != null ? nowMs : Date.now();
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
   const todayPst = getPSTDateString();
   const teams = [];
@@ -29650,17 +29731,30 @@ function buildModStrikeCheckpointReport() {
     if (primaries.length !== 2) continue;
     const booking = teamBookingOnDateForStrike(t.id, yesterday);
     if (!booking) continue;
-    const completed = isAssignmentCompleteForStrike(booking);
-    const pastSessionEnd = isPastAssignmentSessionEnd(booking);
+    const evidence = modStrikeAssignmentEvidence(booking);
+    const completed = evidence === 'complete';
+    const pastSessionEnd = isPastAssignmentSessionEnd(booking, now);
+    const deadline = assignmentAutoStrikeDeadlineMs(booking);
+    const strikeGateOpen = Number.isFinite(deadline) && now >= deadline;
     const asgnId = booking.id;
+    const days = modStrikeCheckpointDaysForBooking(booking);
+    let skipped = false;
+    let resolved = false;
+    for (let i = 0; i < days.length; i++) {
+      if (!skipped && modStrikeCheckpointIsSkipped(days[i], t.id, asgnId)) skipped = true;
+      if (!resolved && modStrikeCheckpointIsResolved(days[i], t.id, asgnId)) resolved = true;
+    }
     teams.push({
       teamId: t.id,
       teamName: t.name || 'Team',
       completed,
+      evidence,
       pastSessionEnd,
+      strikeGateOpen,
+      sessionDate: String(booking.date || yesterday || ''),
       flagIncomplete: pastSessionEnd && !completed,
-      skipped: modStrikeCheckpointIsSkipped(todayPst, t.id, asgnId),
-      resolved: modStrikeCheckpointIsResolved(todayPst, t.id, asgnId),
+      skipped,
+      resolved,
       assignmentId: asgnId,
       primaryIds: primaries.slice(),
     });
@@ -29668,18 +29762,43 @@ function buildModStrikeCheckpointReport() {
   return {
     yesterday,
     todayPst,
-    pastGate: isPastModStrikeCheckpointHour(),
+    pastGate: isPastModStrikeCheckpointHour(now),
+    sessionStateReady: modStrikeSessionStateReady(),
     teams,
   };
 }
 
+function commitAutoModStrike(orbitId, booking, entry, nowMs) {
+  if (!booking || !orbitId) return false;
+  const now = nowMs != null ? nowMs : Date.now();
+  if (!isPastModStrikeCheckpointHour(now)) return false;
+  const deadline = assignmentAutoStrikeDeadlineMs(booking);
+  if (!Number.isFinite(deadline) || now < deadline) return false;
+  // Team-OR: station_4_done / session_done / wrap / full scenarios on any
+  // primary completes the assignment. Completed before 9 AM is not a strike.
+  if (modStrikeAssignmentEvidence(booking) !== 'incomplete') return false;
+  const days = modStrikeCheckpointDaysForBooking(booking);
+  for (let i = 0; i < days.length; i++) {
+    if (modStrikeCheckpointIsSkipped(days[i], booking.teamId, booking.id)) return false;
+    if (modStrikeCheckpointIsResolved(days[i], booking.teamId, booking.id)) return false;
+  }
+  const before = getModStrikeStars(orbitId);
+  if (before <= 0) return false;
+  setModStrikeStars(orbitId, before - 1, entry);
+  return true;
+}
+
 function maybeRunModStrikeNineAmCheckpoint(opts) {
   opts = opts || {};
-  const report = buildModStrikeCheckpointReport();
+  const nowMs = opts.nowMs != null ? opts.nowMs : Date.now();
+  const report = buildModStrikeCheckpointReport(nowMs);
   if (typeof adminState !== 'undefined' && adminState) {
     adminState._modStrikeCheckpointReport = report;
   }
   if (!report.pastGate || !report.yesterday) return report;
+  // SessionState is the completion record. Striking before it loads
+  // treats a finished team (Assignment still Booked) as incomplete.
+  if (!report.sessionStateReady) return report;
 
   const todayPst = getPSTDateString();
   const store = loadModStrikeStore();
@@ -29692,37 +29811,66 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   let struck = 0;
   for (const row of report.teams) {
     if (row.completed || row.skipped || row.resolved) continue;
-    if (!row.pastSessionEnd) continue;
-    if (ckRow.teamAutoStrike[String(row.teamId)]) continue;
+    if (row.evidence !== 'incomplete') continue;
+    if (!row.pastSessionEnd || !row.strikeGateOpen) continue;
+    const aid = row.assignmentId != null && row.assignmentId !== '' ? String(row.assignmentId) : '';
+    const tid = String(row.teamId || '');
+    const sessionKey = aid ? (aid + '|' + String(row.sessionDate || report.yesterday || '')) : '';
+    if ((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey])) continue;
+    if (!aid && tid && ckRow.teamAutoStrike[tid]) continue;
+    const booking = aid
+      ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+          .find(a => a && String(a.id) === aid)
+      : null;
+    if (!booking) continue;
+    let rowStruck = false;
     for (const orbitId of row.primaryIds) {
-      const before = getModStrikeStars(orbitId);
-      if (before <= 0) continue;
-      setModStrikeStars(orbitId, before - 1, {
-        at: new Date().toISOString(),
+      const did = commitAutoModStrike(orbitId, booking, {
+        at: new Date(nowMs).toISOString(),
         kind: 'auto',
         reason: `9 AM checkpoint · ${row.teamName} session ${report.yesterday} not completed`,
         teamId: row.teamId,
         assignmentId: row.assignmentId,
-      });
+        sessionDate: row.sessionDate || report.yesterday,
+      }, nowMs);
+      if (!did) continue;
       struck++;
+      rowStruck = true;
     }
-    ckRow.teamAutoStrike[String(row.teamId)] = true;
+    if (!rowStruck) continue;
+    if (aid) ckRow.teamAutoStrike[aid] = true;
+    if (sessionKey) ckRow.teamAutoStrike[sessionKey] = true;
   }
   const allResolved = report.teams.every(t => {
     if (t.completed || t.skipped || t.resolved) return true;
-    if (!t.pastSessionEnd) return false;
-    return !!ckRow.teamAutoStrike[String(t.teamId)];
+    if (t.evidence !== 'incomplete') return false;
+    if (!t.pastSessionEnd || !t.strikeGateOpen) return false;
+    const aid = t.assignmentId != null && t.assignmentId !== '' ? String(t.assignmentId) : '';
+    const sessionKey = aid ? (aid + '|' + String(t.sessionDate || report.yesterday || '')) : '';
+    return !!((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey]));
   });
-  if (allResolved) {
-    ckRow.applied = true;
-    ckRow.appliedAt = new Date().toISOString();
-    ckRow.struck = (Number(ckRow.struck) || 0) + struck;
-    ckRow.yesterday = report.yesterday;
-  } else if (struck > 0) {
-    ckRow.struck = (Number(ckRow.struck) || 0) + struck;
-    ckRow.yesterday = report.yesterday;
+  // Reload so this write keeps the star decrement from setModStrikeStars
+  // and any Skip stamped while those saves ran. The old snapshot put
+  // pre-strike stars (and a checkpoint without Skip) back on top.
+  const fresh = loadModStrikeStore();
+  if (!fresh.checkpoints || typeof fresh.checkpoints !== 'object') fresh.checkpoints = {};
+  if (!fresh.checkpoints[todayPst] || typeof fresh.checkpoints[todayPst] !== 'object') {
+    fresh.checkpoints[todayPst] = { applied: false };
   }
-  saveModStrikeStore(store);
+  const freshCk = fresh.checkpoints[todayPst];
+  freshCk.teamAutoStrike = Object.assign({}, freshCk.teamAutoStrike || {}, ckRow.teamAutoStrike || {});
+  freshCk.yesterday = report.yesterday;
+  if (allResolved) {
+    freshCk.applied = true;
+    freshCk.appliedAt = new Date(nowMs).toISOString();
+    freshCk.struck = (Number(freshCk.struck) || 0) + struck;
+  } else if (struck > 0) {
+    freshCk.struck = (Number(freshCk.struck) || 0) + struck;
+  }
+  if (struck > 0 || allResolved) saveModStrikeStore(fresh);
+  if (struck > 0 && typeof flushPersistModeratorStrikesSetting === 'function') {
+    flushPersistModeratorStrikesSetting({ reason: 'auto-strike' });
+  }
   if (!opts.silent && struck > 0 && typeof toast === 'function') {
     toast(`Auto-strike: ${struck} star(s) removed for incomplete sessions (${report.yesterday})`);
   }
@@ -29730,15 +29878,24 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
 }
 
 function stampModStrikeCheckpointOccurrence(field, teamId, assignmentId, booking) {
-  const todayPst = getPSTDateString();
   const store = loadModStrikeStore();
-  if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
-  const ck = store.checkpoints[todayPst];
-  if (!ck[field] || typeof ck[field] !== 'object') ck[field] = {};
+  const days = (typeof modStrikeCheckpointDaysForBooking === 'function')
+    ? modStrikeCheckpointDaysForBooking(booking)
+    : [];
+  if (!days.length) days.push(getPSTDateString());
   const key = modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking);
   if (!key) return null;
-  ck[field][key] = true;
+  days.forEach(day => {
+    if (!day) return;
+    if (!store.checkpoints[day] || typeof store.checkpoints[day] !== 'object') {
+      store.checkpoints[day] = { applied: false };
+    }
+    const ck = store.checkpoints[day];
+    if (!ck[field] || typeof ck[field] !== 'object') ck[field] = {};
+    ck[field][key] = true;
+  });
   // Do not also stamp bare teamId — that would mute later same-day sessions.
+  if (typeof modStrikeBumpBlobVersion === 'function') modStrikeBumpBlobVersion(store);
   saveModStrikeStore(store);
   return key;
 }
