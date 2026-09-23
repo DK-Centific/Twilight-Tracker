@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Grok · Lakitu how-to guide drawer (1.3.091823d)
+**Last updated:** 2026-09-23 · Grok · Hide Lakitu edit toolbar from moderators (1.3.091823e)
+
+## 2026-09-23 · Hide Lakitu edit toolbar from moderators (1.3.091823e)
+
+**Ask:** Signed in as Moderator, the Color / Size / Bold / Add table strip was still showing in the Lakitu Guide. Only Admins should see that.
+
+**Cause:** The toolbar style set `display: flex`, which beat the `hidden` flag, so the bar stayed on screen even when the script marked it hidden.
+
+**Fix:**
+- A hidden toolbar (and the error line, Edit, Publish, and Undo publish) stays fully gone.
+- Moderators and reviewers never get the edit strip. Opening the guide clears edit mode if it was on.
+- Admins still see Edit, and the strip only while they are editing.
+- Version **1.3.091823e**. Same pull request [#167](https://github.com/DK-Centific/Twilight-Tracker/pull/167). David authorized Watchdog to merge. Do **not** merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091823e**. Sign in as a Moderator. Open the Lakitu Guide. You should see the steps and the pills only — no Color, Size, Bold, Add table, Image, or Undo strip, and no Edit or Publish. Sign in as Admin, open the guide, and tap **Edit**. That strip should show then, and hide again after you leave edit.
+
+---
 
 ## 2026-09-23 · Lakitu how-to guide drawer (1.3.091823d)
 

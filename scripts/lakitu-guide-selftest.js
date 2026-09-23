@@ -55,8 +55,13 @@ function assert(name, cond) {
 
 console.log('Lakitu guide self-test');
 
-assert('version bumped', /const APP_VERSION = '1\.3\.091823d'/.test(js));
-assert('cache bust matches', /twilight\.js\?v=twilight-1\.3\.091823d/.test(html));
+assert('version bumped', /const APP_VERSION = '1\.3\.091823e'/.test(js));
+assert('cache bust matches', /twilight\.js\?v=twilight-1\.3\.091823e/.test(html));
+assert('hidden toolbar cannot display',
+  /#lakituGuideToolbar\[hidden\][\s\S]{0,220}display:\s*none\s*!important/.test(html));
+assert('non-admin edit flag is cleared',
+  /if \(!admin && _lakituGuideEditing\)/.test(js)
+  && /function lakituGuideAdminCanEdit\(\) \{\s*return typeof isAdminSession === 'function' && isAdminSession\(\);/.test(js));
 assert('draft key', LAKITU_GUIDE_DRAFT_KEY === 'centific_twilight_lakitu_guide_draft_v1');
 assert('nav keys', LAKITU_GUIDE_NAV.join(',') === 'steps,metadata,badTakes,troubleshooting,faq');
 

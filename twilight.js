@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091823d';
-const APP_UPDATED_AT = '09/23/2026 19:45';
+const APP_VERSION = '1.3.091823e';
+const APP_UPDATED_AT = '09/23/2026 19:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -47308,23 +47308,28 @@ function syncLakituGuideTriggers() {
 
 function syncLakituGuideAdminActions() {
   const admin = lakituGuideAdminCanEdit();
+  if (!admin && _lakituGuideEditing) {
+    _lakituGuideEditing = false;
+    _lakituGuideUndoStack = [];
+  }
+  const editing = !!(admin && _lakituGuideEditing);
   const edit = document.getElementById('lakituGuideEditBtn');
   const pub = document.getElementById('lakituGuidePublishBtn');
   const undoP = document.getElementById('lakituGuideUndoPublishBtn');
   const bar = document.getElementById('lakituGuideToolbar');
   if (edit) {
     edit.hidden = !admin;
-    edit.textContent = _lakituGuideEditing ? 'Done' : 'Edit';
-    edit.setAttribute('aria-pressed', _lakituGuideEditing ? 'true' : 'false');
+    edit.textContent = editing ? 'Done' : 'Edit';
+    edit.setAttribute('aria-pressed', editing ? 'true' : 'false');
   }
   if (pub) {
     pub.hidden = !admin;
-    pub.disabled = !_lakituGuideEditing;
+    pub.disabled = !editing;
   }
   const hasPrev = !!(_publishedLakituGuide && _publishedLakituGuide.previous
     && !lakituGuideIsEmpty(_publishedLakituGuide.previous));
   if (undoP) undoP.hidden = !admin || !hasPrev;
-  if (bar) bar.hidden = !(admin && _lakituGuideEditing);
+  if (bar) bar.hidden = !editing;
 }
 
 function paintLakituGuide(guide) {
@@ -47658,6 +47663,7 @@ function openLakituGuideDrawer() {
   if (typeof closeMenu === 'function') closeMenu();
   _lakituGuideEditing = false;
   _lakituGuideUndoStack = [];
+  syncLakituGuideAdminActions();
   lakituGuideShowError('');
   paintLakituGuide();
   overlay.hidden = false;
