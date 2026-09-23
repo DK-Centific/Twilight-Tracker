@@ -49,6 +49,7 @@ const {
   feedbackMatchesRecipient,
   listFeedbackTeams,
   listFeedbackTeamModerators,
+  listFeedbackModeratorRecipients,
   filterFeedbackChoices,
   findFeedbackTeamForModerator,
 } = context;
@@ -271,6 +272,35 @@ assert('finds Alex team',
   findFeedbackTeamForModerator(fbTeams, 'Alex-tw')
   && findFeedbackTeamForModerator(fbTeams, 'Alex-tw').id === '1');
 assert('unknown login is not on a team', findFeedbackTeamForModerator(fbTeams, 'No-Such') === null);
+
+const directory = [
+  { orbitLoginId: 'Alex-tw', firstName: 'Alex', lastName: 'Chen', LoginRole: 'Moderator' },
+  { orbitLoginId: 'Pat-tw', firstName: 'Pat', lastName: 'Lee', LoginRole: 'Mod' },
+  { orbitLoginId: 'Sam-tw', firstName: 'Sam', lastName: 'Kim', LoginRole: 'Reviewer' },
+  { orbitLoginId: 'Ada-tw', firstName: 'Ada', lastName: 'Admin', LoginRole: 'Admin' },
+  { orbitLoginId: 'Boss-tw', firstName: 'Bo', lastName: 'Master', LoginRole: 'Master Admin' },
+  { orbitLoginId: 'Blank-tw', firstName: 'Blank', lastName: 'Role', LoginRole: '' },
+  { orbitLoginId: 'Nova-tw', firstName: 'Nova', lastName: 'Ng', loginRole: 'moderator' },
+  { orbitLoginId: 'Alex-tw', firstName: 'Alex', lastName: 'Duplicate', LoginRole: 'Mod' },
+  { id: 'team-alpha', name: 'Team Alpha', LoginRole: '' },
+];
+const recipients = listFeedbackModeratorRecipients(directory);
+assert('message picker lists moderator role only',
+  recipients.map(m => m.id).join(',') === 'Alex-tw,Nova-tw,Pat-tw');
+assert('message picker is people, not team names',
+  recipients.every(m => m.name && !/^Team /.test(m.name))
+  && !recipients.some(m => m.id === 'team-alpha' || m.id === 'Sam-tw' || m.id === 'Ada-tw' || m.id === 'Boss-tw' || m.id === 'Blank-tw'));
+assert('moderator with no team is still listed', recipients.some(m => m.id === 'Nova-tw' && m.name === 'Nova Ng'));
+assert('duplicate login is listed once', recipients.filter(m => m.id === 'Alex-tw').length === 1);
+assert('search finds a moderator by name',
+  filterFeedbackChoices(recipients, 'chen').length === 1
+  && filterFeedbackChoices(recipients, 'chen')[0].id === 'Alex-tw');
+assert('composer offers a moderator picker, not a team picker',
+  src.includes('id="fbSendModPick"')
+  && src.includes('Search moderators')
+  && src.includes('Choose a moderator.')
+  && !src.includes('id="fbSendTeamPick"')
+  && !src.includes('Choose a team first'));
 
 if (failed) {
   console.log('\n' + failed + ' check(s) failed');

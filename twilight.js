@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091822e';
-const APP_UPDATED_AT = '09/23/2026 16:00';
+const APP_VERSION = '1.3.091823a';
+const APP_UPDATED_AT = '09/23/2026 16:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -17852,6 +17852,7 @@ function paintAfterModeratorLoad() {
   }
   if (target === 'performance' && typeof refreshPerfLiveDataInPlace === 'function') {
     refreshPerfLiveDataInPlace({ force: true, reason: 'mods-hydrate' });
+    if (typeof refreshOpenFeedbackModeratorPick === 'function') refreshOpenFeedbackModeratorPick();
     return;
   }
   if (target === 'overview' && typeof updateOverviewMetrics === 'function') {
@@ -48817,6 +48818,7 @@ function resetInboxToastAt(now) {
   g.resetInboxToastAt = resetInboxToastAt;
   g.listFeedbackTeams = listFeedbackTeams;
   g.listFeedbackTeamModerators = listFeedbackTeamModerators;
+  g.listFeedbackModeratorRecipients = listFeedbackModeratorRecipients;
   g.filterFeedbackChoices = filterFeedbackChoices;
   g.findFeedbackTeamForModerator = findFeedbackTeamForModerator;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -49418,6 +49420,49 @@ function findFeedbackTeamForModerator(teams, loginId) {
   return null;
 }
 
+function feedbackRowLoginRole(row) {
+  if (!row) return '';
+  if (typeof directoryLoginRole === 'function') return directoryLoginRole(row);
+  const keys = ['LoginRole', 'loginRole', 'login_role', 'Login Role', 'LOGINROLE'];
+  for (let i = 0; i < keys.length; i++) {
+    const v = row[keys[i]];
+    if (v != null && String(v).trim()) return String(v).trim();
+  }
+  return '';
+}
+
+function feedbackRowIsModerator(row) {
+  if (typeof directoryRoleIsModerator === 'function') return !!directoryRoleIsModerator(row);
+  const compact = String(feedbackRowLoginRole(row) || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return compact === 'mod' || compact === 'moderator' || compact === 'primary' || compact === 'backup';
+}
+
+function listFeedbackModeratorRecipients(moderators, opts) {
+  opts = opts || {};
+  const idOf = opts.idOf || function (m) {
+    return String((m && (m.orbitLoginId || m.loginId || m.id)) || '');
+  };
+  const nameOf = opts.nameOf || function (m) {
+    const n = [m && m.firstName, m && m.lastName].filter(Boolean).join(' ').trim();
+    return n || idOf(m);
+  };
+  const isMod = opts.isModerator || feedbackRowIsModerator;
+  const mods = Array.isArray(moderators) ? moderators : [];
+  const seen = {};
+  const out = [];
+  mods.forEach(row => {
+    if (!row || !isMod(row)) return;
+    const id = String(idOf(row) || '').trim();
+    const key = feedbackOrbitKey(id);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    const name = String(nameOf(row) || id).trim() || id;
+    out.push({ id: id, name: name, key: key });
+  });
+  out.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
+  return out;
+}
+
 function adminModeratorChoices() {
   const rows = (typeof adminState !== 'undefined' && adminState && adminState.moderators) || [];
   return rows.map(m => {
@@ -49431,7 +49476,7 @@ function adminModeratorChoices() {
 
 function ensureIndividualFeedbackModal() {
   const existing = document.getElementById('fbSendOverlay');
-  if (existing && !document.getElementById('fbSendTeamPick')) existing.remove();
+  if (existing && document.getElementById('fbSendTeamPick')) existing.remove();
   if (document.getElementById('fbSendOverlay')) return;
   const overlay = document.createElement('div');
   overlay.id = 'fbSendOverlay';
@@ -49440,8 +49485,6 @@ function ensureIndividualFeedbackModal() {
     <div class="fb-send-modal" role="dialog" aria-modal="true" aria-labelledby="fbSendTitle">
       <div class="inbox-modal-title" id="fbSendTitle">Message a moderator</div>
       <div class="inbox-modal-sub">Private note · they will see it in Inbox</div>
-      <label class="tf-draft-hint" id="fbSendTeamLabel">Team</label>
-      <div class="tw-pick" id="fbSendTeamPick" data-open="false"></div>
       <label class="tf-draft-hint" id="fbSendModLabel">Moderator</label>
       <div class="tw-pick" id="fbSendModPick" data-open="false"></div>
       <input type="hidden" id="fbSendTarget" value="">
@@ -49457,18 +49500,6 @@ function ensureIndividualFeedbackModal() {
   overlay.addEventListener('click', e => { if (e.target === overlay) closeIndividualFeedbackComposer(); });
   overlay.querySelector('#fbSendCancel').addEventListener('click', closeIndividualFeedbackComposer);
   overlay.querySelector('#fbSendBtn').addEventListener('click', submitIndividualFeedbackComposer);
-}
-
-function feedbackPickerLiveTeams() {
-  let teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
-  if ((!teams || !teams.length) && typeof loadAssignmentData === 'function') {
-    const stored = loadAssignmentData() || {};
-    if (Array.isArray(stored.teams) && stored.teams.length) {
-      teams = stored.teams;
-      if (typeof adminState !== 'undefined' && adminState) adminState.teams = stored.teams;
-    }
-  }
-  return listFeedbackTeams(teams);
 }
 
 function feedbackPickerLiveMods() {
@@ -49491,119 +49522,48 @@ function feedbackPickerModOpts() {
 }
 
 function closeFeedbackPicks(exceptId) {
-  ['fbSendTeamPick', 'fbSendModPick'].forEach(id => {
-    if (exceptId && id === exceptId) return;
-    const el = document.getElementById(id);
-    if (el) el.setAttribute('data-open', 'false');
-  });
+  const el = document.getElementById('fbSendModPick');
+  if (!el) return;
+  if (exceptId === 'fbSendModPick') return;
+  el.setAttribute('data-open', 'false');
 }
 
-function paintFeedbackTeamPick(selectedId, query) {
-  const host = document.getElementById('fbSendTeamPick');
-  if (!host) return;
-  const teams = feedbackPickerLiveTeams();
-  const selected = teams.find(t => String(t.id) === String(selectedId)) || null;
-  const shown = filterFeedbackChoices(teams, query);
-  const open = host.getAttribute('data-open') === 'true';
-  host.innerHTML = `
-    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendTeamBtn" aria-expanded="${open ? 'true' : 'false'}">
-      <span>${selected ? escapeHTML(selected.name) : 'Choose a team'}</span>
-      <span class="tw-pick-caret" aria-hidden="true">▾</span>
-    </button>
-    <div class="tw-pick-panel">
-      <input type="search" class="part-pick-search tw-pick-search" id="fbSendTeamSearch" placeholder="Search teams" value="${escapeHTML(query || '')}" autocomplete="off">
-      <div class="tw-pick-list" id="fbSendTeamList" role="listbox">
-        ${shown.length ? shown.map(t => `
-          <button type="button" class="tw-pick-item ${selected && String(selected.id) === String(t.id) ? 'is-on' : ''}" data-team-id="${escapeHTML(t.id)}" role="option">
-            <span class="tw-pick-item-name">${escapeHTML(t.name)}</span>
-            <span class="tw-pick-item-meta">${t.primaryIds.length + t.backupIds.length} moderator${(t.primaryIds.length + t.backupIds.length) === 1 ? '' : 's'}</span>
-          </button>
-        `).join('') : `<div class="tw-pick-empty">${teams.length ? 'No teams match that search.' : 'No teams loaded yet.'}</div>`}
-      </div>
-    </div>
-  `;
-  const trigger = host.querySelector('#fbSendTeamBtn');
-  if (trigger) {
-    trigger.addEventListener('click', () => {
-      const next = host.getAttribute('data-open') !== 'true';
-      closeFeedbackPicks(next ? 'fbSendTeamPick' : '');
-      host.setAttribute('data-open', next ? 'true' : 'false');
-      paintFeedbackTeamPick(selectedId, query);
-      if (next) {
-        const search = document.getElementById('fbSendTeamSearch');
-        if (search) search.focus();
-      }
-    });
-  }
-  const search = host.querySelector('#fbSendTeamSearch');
-  if (search) {
-    search.addEventListener('input', () => {
-      host.setAttribute('data-open', 'true');
-      paintFeedbackTeamPick(selectedId, search.value);
-      const again = document.getElementById('fbSendTeamSearch');
-      if (again) {
-        again.focus();
-        const len = again.value.length;
-        try { again.setSelectionRange(len, len); } catch (_) {}
-      }
-    });
-  }
-  host.querySelectorAll('[data-team-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const teamId = btn.getAttribute('data-team-id') || '';
-      host.setAttribute('data-open', 'false');
-      const modPick = document.getElementById('fbSendModPick');
-      if (modPick) modPick.setAttribute('data-open', 'true');
-      const target = document.getElementById('fbSendTarget');
-      if (target) target.value = '';
-      paintFeedbackTeamPick(teamId, '');
-      paintFeedbackModPick(teamId, '', '');
-    });
-  });
-}
-
-function paintFeedbackModPick(teamId, selectedLoginId, query) {
+function paintFeedbackModPick(selectedLoginId, query) {
   const host = document.getElementById('fbSendModPick');
   if (!host) return;
-  const teams = feedbackPickerLiveTeams();
-  const team = teams.find(t => String(t.id) === String(teamId)) || null;
-  const mods = team
-    ? listFeedbackTeamModerators(team, feedbackPickerLiveMods(), feedbackPickerModOpts())
-    : [];
+  const opts = feedbackPickerModOpts();
+  const mods = listFeedbackModeratorRecipients(feedbackPickerLiveMods(), opts);
   const selected = mods.find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(selectedLoginId)) || null;
   const shown = filterFeedbackChoices(mods, query);
   const open = host.getAttribute('data-open') === 'true';
-  const disabled = !team;
   host.innerHTML = `
-    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendModBtn" aria-expanded="${open ? 'true' : 'false'}" ${disabled ? 'disabled' : ''}>
-      <span>${selected ? escapeHTML(selected.name) : (disabled ? 'Choose a team first' : 'Choose a moderator')}</span>
+    <button type="button" class="tw-pick-trigger ${selected ? '' : 'is-empty'}" id="fbSendModBtn" aria-expanded="${open ? 'true' : 'false'}">
+      <span>${selected ? escapeHTML(selected.name) : 'Choose a moderator'}</span>
       <span class="tw-pick-caret" aria-hidden="true">▾</span>
     </button>
     <div class="tw-pick-panel">
-      <input type="search" class="part-pick-search tw-pick-search" id="fbSendModSearch" placeholder="Search this team" value="${escapeHTML(query || '')}" autocomplete="off" ${disabled ? 'disabled' : ''}>
+      <input type="search" class="part-pick-search tw-pick-search" id="fbSendModSearch" placeholder="Search moderators" value="${escapeHTML(query || '')}" autocomplete="off">
       <div class="tw-pick-list" id="fbSendModList" role="listbox">
-        ${disabled ? `<div class="tw-pick-empty">Pick a team to see primaries and backups.</div>`
-          : (shown.length ? shown.map(m => `
+        ${shown.length ? shown.map(m => `
           <button type="button" class="tw-pick-item ${selected && m.key === selected.key ? 'is-on' : ''}" data-mod-id="${escapeHTML(m.id)}" role="option">
             <span class="tw-pick-item-copy">
               <span class="tw-pick-item-name">${escapeHTML(m.name)}</span>
               <span class="tw-pick-item-meta">${escapeHTML(m.id)}</span>
             </span>
-            <span class="tw-pick-role ${m.role === 'Backup' ? 'is-backup' : 'is-primary'}">${escapeHTML(m.role)}</span>
           </button>
-        `).join('') : `<div class="tw-pick-empty">${mods.length ? 'No moderators match that search.' : 'This team has no primaries or backups yet.'}</div>`)}
+        `).join('') : `<div class="tw-pick-empty">${mods.length ? 'No moderators match that search.' : 'No moderators loaded yet.'}</div>`}
       </div>
     </div>
   `;
   const target = document.getElementById('fbSendTarget');
   if (target) target.value = selected ? selected.id : '';
   const trigger = host.querySelector('#fbSendModBtn');
-  if (trigger && !disabled) {
+  if (trigger) {
     trigger.addEventListener('click', () => {
       const next = host.getAttribute('data-open') !== 'true';
       closeFeedbackPicks(next ? 'fbSendModPick' : '');
       host.setAttribute('data-open', next ? 'true' : 'false');
-      paintFeedbackModPick(teamId, selectedLoginId, query);
+      paintFeedbackModPick(selectedLoginId, query);
       if (next) {
         const search = document.getElementById('fbSendModSearch');
         if (search) search.focus();
@@ -49611,10 +49571,10 @@ function paintFeedbackModPick(teamId, selectedLoginId, query) {
     });
   }
   const search = host.querySelector('#fbSendModSearch');
-  if (search && !disabled) {
+  if (search) {
     search.addEventListener('input', () => {
       host.setAttribute('data-open', 'true');
-      paintFeedbackModPick(teamId, selectedLoginId, search.value);
+      paintFeedbackModPick(selectedLoginId, search.value);
       const again = document.getElementById('fbSendModSearch');
       if (again) {
         again.focus();
@@ -49626,11 +49586,28 @@ function paintFeedbackModPick(teamId, selectedLoginId, query) {
   host.querySelectorAll('[data-mod-id]').forEach(btn => {
     btn.addEventListener('click', () => {
       host.setAttribute('data-open', 'false');
-      paintFeedbackModPick(teamId, btn.getAttribute('data-mod-id') || '', query);
+      paintFeedbackModPick(btn.getAttribute('data-mod-id') || '', query);
       const text = document.getElementById('fbSendText');
       if (text) text.focus();
     });
   });
+}
+
+function refreshOpenFeedbackModeratorPick() {
+  const overlay = document.getElementById('fbSendOverlay');
+  const host = document.getElementById('fbSendModPick');
+  if (!overlay || !overlay.classList.contains('open') || !host) return;
+  const search = document.getElementById('fbSendModSearch');
+  const typing = !!(search && document.activeElement === search);
+  const query = search ? search.value : '';
+  const target = document.getElementById('fbSendTarget');
+  paintFeedbackModPick(target ? target.value : '', query);
+  if (!typing) return;
+  const again = document.getElementById('fbSendModSearch');
+  if (!again) return;
+  again.focus();
+  const len = again.value.length;
+  try { again.setSelectionRange(len, len); } catch (_) {}
 }
 
 function openIndividualFeedbackComposer(prefill) {
@@ -49638,22 +49615,13 @@ function openIndividualFeedbackComposer(prefill) {
   if (typeof loadModerators === 'function' && (!adminState || !adminState.moderators || !adminState.moderators.length)) {
     loadModerators(false);
   }
-  feedbackPickerLiveTeams();
   const overlay = document.getElementById('fbSendOverlay');
   const text = document.getElementById('fbSendText');
   const err = document.getElementById('fbSendError');
-  const target = document.getElementById('fbSendTarget');
-  const teams = feedbackPickerLiveTeams();
   const prefillId = prefill && (prefill.loginId || prefill.id) ? String(prefill.loginId || prefill.id) : '';
-  const matchedTeam = prefillId ? findFeedbackTeamForModerator(teams, prefillId) : null;
-  const teamId = matchedTeam ? matchedTeam.id : '';
-  const teamPick = document.getElementById('fbSendTeamPick');
   const modPick = document.getElementById('fbSendModPick');
-  if (teamPick) teamPick.setAttribute('data-open', teamId ? 'false' : 'true');
-  if (modPick) modPick.setAttribute('data-open', teamId ? 'true' : 'false');
-  if (target) target.value = prefillId;
-  paintFeedbackTeamPick(teamId, '');
-  paintFeedbackModPick(teamId, prefillId, '');
+  if (modPick) modPick.setAttribute('data-open', prefillId ? 'false' : 'true');
+  paintFeedbackModPick(prefillId, '');
   if (text) text.value = '';
   if (err) err.textContent = '';
   overlay.classList.add('open');
@@ -49670,7 +49638,7 @@ async function submitIndividualFeedbackComposer() {
   const err = document.getElementById('fbSendError');
   const toLoginId = sel ? sel.value : '';
   const message = text ? text.value.trim() : '';
-  if (!toLoginId) { if (err) err.textContent = 'Choose a team, then a moderator.'; return; }
+  if (!toLoginId) { if (err) err.textContent = 'Choose a moderator.'; return; }
   if (!message) { if (err) err.textContent = 'Write a short note.'; return; }
   const choice = adminModeratorChoices().find(m => feedbackOrbitKey(m.id) === feedbackOrbitKey(toLoginId));
   const record = buildIndividualFeedbackRecord({
