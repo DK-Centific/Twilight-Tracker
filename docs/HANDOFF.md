@@ -1,6 +1,23 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-22 · Grok · Stars stay put after a refresh (1.3.091822c)
+**Last updated:** 2026-09-23 · Cursor · Admin can edit scenarios past the approval gate (1.3.091822d)
+
+## 2026-09-23 · Admin scenario edit past the approval gate (1.3.091822d)
+
+**Ask:** Admin opens Admin → Switch into the checklist (moderator station) app. The Edit pencil on scenarios after scenario 3 looks locked. Moderators must stay locked.
+
+**Cause:** The moderator approval gate locks every button on scenarios after calibration (`01` / `02`; scenario `03` and later). That includes the Master Admin scenario Edit pencil. The same gate also stops the next-scenario and next-station controls, so later stations cannot be opened to edit.
+
+**Fix:**
+- Signed-in Admin and Master Admin can open later scenarios and stations and tap Edit. Status buttons and notes on a locked scenario stay disabled. Submit still waits for reviewer approval.
+- Reviewer and moderator locks are unchanged.
+- Version **1.3.091822d**. Selftest: `scripts/admin-scenario-edit-gate-selftest.js`.
+
+**PR:** [#162](https://github.com/DK-Centific/Twilight-Tracker/pull/162) ready for review on `cursor/admin-scenario-edit-gate-9819`. David said **once done, push** (2026-09-23). Watchdog squash-merges. Do not merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091822d**. Admin → Switch. Open a station that still needs reviewer approval. Scenarios after scenario 3 show an Edit pencil you can tap. A moderator on that same station still cannot edit or move ahead until approval.
+
+---
 
 ## 2026-09-22 · Stars no longer reset on refresh (1.3.091822c)
 
