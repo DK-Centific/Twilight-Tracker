@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091822c';
-const APP_UPDATED_AT = '09/22/2026 21:30';
+const APP_VERSION = '1.3.091822d';
+const APP_UPDATED_AT = '09/23/2026 05:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -4517,7 +4517,9 @@ function mountAccordionStepper(openKey) {
   const sIdx = STATIONS.findIndex(s => String(s.key) === String(openKey));
   const hasPrev = sIdx > 0;
   const hasNext = sIdx >= 0 && sIdx < STATIONS.length - 1;
+  const editBypass = typeof adminBypassesScenarioEditLock === 'function' && adminBypassesScenarioEditLock();
   const nextBlocked = hasNext
+    && !editBypass
     && typeof stationApprovalBlocksAdvance === 'function'
     && stationApprovalBlocksAdvance(openKey);
   const stepper = document.createElement('div');
@@ -6262,6 +6264,20 @@ function gateApproved(k) {
 // its OWN per-station calibration gate (see isGateActive / LEVEL 2 below).
 function isZeroAApproved() { return true; }
 function isStationZeroALocked(k) { return false; }
+// Admin / Master Admin editing scenario copy (Admin app → Switch into the
+// checklist / station shell) is not held by the moderator approval gate.
+// Reviewers and field moderators stay locked. Submit still uses
+// stationApprovalBlocksAdvance, so the gate itself is not removed.
+function adminBypassesScenarioEditLock() {
+  try {
+    if (typeof isReviewerSession === 'function' && isReviewerSession()) return false;
+    if (typeof isMasterAdminUser === 'function' && isMasterAdminUser()) return true;
+    if (typeof state !== 'undefined' && state && (state.isAdmin || state.isMasterAdmin)) return true;
+    if (typeof isAdminUsername === 'function' && state && isAdminUsername(state.username)) return true;
+    if (typeof isAdminSession === 'function' && isAdminSession()) return true;
+  } catch (_) {}
+  return false;
+}
 // Forward nav is blocked while this station's approval checkpoint is open.
 // Reviewer approval is required before the next station (or later scenario
 // work) unlocks. Backward nav and re-opening the current station stay free.
@@ -6271,6 +6287,7 @@ function stationApprovalBlocksAdvance(k) {
 }
 
 function shouldHoldAtApprovalCheckpoint(stationKey, doneNum) {
+  if (typeof adminBypassesScenarioEditLock === 'function' && adminBypassesScenarioEditLock()) return false;
   if (!stationApprovalBlocksAdvance(stationKey)) return false;
   if (GATE_CAL_NUMS.indexOf(String(doneNum)) < 0) return false;
   return GATE_CAL_NUMS.every(n => {
@@ -6281,6 +6298,7 @@ function shouldHoldAtApprovalCheckpoint(stationKey, doneNum) {
 }
 
 function scenarioFlowCanFocus(stationKey, num) {
+  if (typeof adminBypassesScenarioEditLock === 'function' && adminBypassesScenarioEditLock()) return true;
   if (!stationApprovalBlocksAdvance(stationKey)) return true;
   return GATE_CAL_NUMS.indexOf(String(num)) >= 0;
 }
@@ -6299,6 +6317,7 @@ function guardEnterStation(k) {
   const toIdx = STATIONS.findIndex(s => String(s.key) === String(k));
   if (fromIdx < 0 || toIdx < 0) return true;
   if (toIdx > fromIdx && stationApprovalBlocksAdvance(from)) {
+    if (typeof adminBypassesScenarioEditLock === 'function' && adminBypassesScenarioEditLock()) return true;
     if (typeof showToast === 'function') {
       showToast('Reviewers must approve this station before you can continue.', 'warning', 3600);
     }
@@ -6710,6 +6729,20 @@ function animateApprovalSlideAway(done) {
   setTimeout(() => { if (typeof done === 'function') done(); }, 380);
 }
 
+// Lock scenario controls for the approval gate. Admin catalog pencils stay
+// enabled so scenario copy can be edited on a locked row.
+function _applyScenarioGateLock(container) {
+  if (!container) return;
+  container.classList.add('appr-locked');
+  const keepEdit = typeof adminBypassesScenarioEditLock === 'function' && adminBypassesScenarioEditLock();
+  if (keepEdit) container.classList.add('appr-edit-open');
+  container.querySelectorAll('button, input').forEach(el => {
+    if (keepEdit && el.classList && (el.classList.contains('sc-scen-pencil') || el.classList.contains('cl-scen-pencil'))) return;
+    el.setAttribute('disabled', 'disabled');
+    el.style.pointerEvents = 'none';
+  });
+}
+
 // Lock every scenario row/card in this station (used by the 0A-prerequisite
 // lock · Stations 1–3 are fully locked until 0A is approved).
 function _lockAllScenarios(c, k) {
@@ -6717,11 +6750,7 @@ function _lockAllScenarios(c, k) {
     if (String(grp.getAttribute('data-key')) !== String(k)) return;
     const container = grp.closest('tr') || grp.closest('.sc-flow-tile') || grp.closest('.scenario-card');
     if (!container) return;
-    container.classList.add('appr-locked');
-    container.querySelectorAll('button, input').forEach(el => {
-      el.setAttribute('disabled', 'disabled');
-      el.style.pointerEvents = 'none';
-    });
+    _applyScenarioGateLock(container);
   });
   // Disable the station's Submit (advance) button too.
   c.querySelectorAll('.actions-bar .right button[onclick*="submitStation"]').forEach(b => {
@@ -6752,11 +6781,7 @@ function decorateApprovalGate(c, station) {
     if (!isScenarioGateLocked(k, num)) return;
     const container = grp.closest('tr') || grp.closest('.sc-flow-tile') || grp.closest('.scenario-card');
     if (!container) return;
-    container.classList.add('appr-locked');
-    container.querySelectorAll('button, input').forEach(el => {
-      el.setAttribute('disabled', 'disabled');
-      el.style.pointerEvents = 'none';
-    });
+    _applyScenarioGateLock(container);
   });
 
   // Build the slide-down content for the current gate status.
