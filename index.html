@@ -12022,13 +12022,15 @@ input#ent_lakitu.lakitu-invalid {
 .perf-shell .mod-layout-btn,
 .perf-shell .perf-export-btn,
 .perf-shell .subtab-btn {
+  /* Click reaction stays short. The 160ms results fade is separate.
+     --perf-ms-fast (0.32s) is the first-open / detail motion, not this. */
   transition:
-    color var(--perf-ms-fast) var(--perf-ease),
-    background var(--perf-ms-fast) var(--perf-ease),
-    border-color var(--perf-ms-fast) var(--perf-ease),
-    box-shadow var(--perf-ms-fast) var(--perf-ease),
-    transform var(--perf-ms-fast) var(--perf-ease),
-    opacity var(--perf-ms-fast) var(--perf-ease);
+    color 0.09s var(--perf-ease),
+    background 0.09s var(--perf-ease),
+    border-color 0.09s var(--perf-ease),
+    box-shadow 0.09s var(--perf-ease),
+    transform 0.08s var(--perf-ease),
+    opacity 0.09s var(--perf-ease);
 }
 
 /* 1) Enter Performance · status tiles + toolbar + grid/list stagger */
@@ -19514,7 +19516,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091822d" defer></script>
+<script src="twilight.js?v=twilight-1.3.091822e" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
