@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('team-sync-assignment-teamid-selftest (1.3.091820x)');
-assert('APP_VERSION 1.3.091820x', /const APP_VERSION = '1\.3\.091820x'/.test(src));
-assert('index cache-bust 820x', /twilight\.js\?v=twilight-1\.3\.091820x/.test(html));
+console.log('team-sync-assignment-teamid-selftest (1.3.091823c)');
+assert('APP_VERSION 1.3.091823c', /const APP_VERSION = '1\.3\.091823c'/.test(src));
+assert('index cache-bust 823c', /twilight\.js\?v=twilight-1\.3\.091823c/.test(html));
 assert('sessionStateRowFreshnessMs helper', /function sessionStateRowFreshnessMs\(/.test(src));
 assert('sessionStateRowFreshnessIso helper', /function sessionStateRowFreshnessIso\(/.test(src));
 assert('isStale falls back to freshness when lastActive empty',

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091823b';
-const APP_UPDATED_AT = '09/23/2026 18:10';
+const APP_VERSION = '1.3.091823c';
+const APP_UPDATED_AT = '09/23/2026 18:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -631,13 +631,26 @@ function syncSessionDateFromActiveAssignment(asgn) {
   if (!ymd) return false;
   if (state.sessionDate === ymd) return false;
   const prev = String(state.sessionDate || '').trim();
+  const explicit = !!_operatorBookingNavExplicit;
+  const prevId = state._lastSeenActiveAsgnId || state._completionWriteAsgnId || '';
+  const nextId = (session && session.id != null) ? session.id : prevId;
+  const prevKey = (typeof bookingKey === 'function') ? bookingKey(prevId, prev) : '';
+  const nextKey = (typeof bookingKey === 'function') ? bookingKey(nextId, ymd) : '';
+  const overnight = (typeof operatorHasOvernightSessionInProgress === 'function'
+    && operatorHasOvernightSessionInProgress(ymd));
+  // Silent poll must not retarget a just-finished booking onto another day.
+  if (prev && prev !== ymd && !overnight
+      && typeof completionPinsPreviousBooking === 'function'
+      && completionPinsPreviousBooking(prevKey, { explicitUserNav: explicit })) {
+    return false;
+  }
   state.sessionDate = ymd;
   // Rescheduled / reused assignmentIds keep the same id while the booking
   // day moves forward. Drop leftover station progress so Admin Live does
   // not inherit yesterday's station_N_done on today's booking.
-  if (prev && prev !== ymd
-      && !(typeof operatorHasOvernightSessionInProgress === 'function'
-          && operatorHasOvernightSessionInProgress(ymd))
+  if (prev && prev !== ymd && !overnight
+      && typeof shouldClearOperatorProgress === 'function'
+      && shouldClearOperatorProgress(prevKey, nextKey, { explicitUserNav: explicit })
       && typeof clearOperatorProgressForNewBooking === 'function') {
     clearOperatorProgressForNewBooking('sessionDate:' + prev + '→' + ymd);
   }
@@ -6215,6 +6228,10 @@ function setGate(k, patch) {
   state.approvalGate[id] = { ...(state.approvalGate[id] || { status: 'none' }), ...patch };
   saveState();
 }
+function setGateStatus(k, status, extra) {
+  setGate(k, Object.assign({}, extra || {}, { status: status || 'none' }));
+  return getGate(k);
+}
 function _calStatus(k, num) {
   const sd = state.stations[k] && state.stations[k].scenarios[num];
   return sd ? (sd.status || 'Not Started') : 'Not Started';
@@ -6239,13 +6256,12 @@ function calibrationComplete(k) {
   });
 }
 // Authoritative unlock check. A local Approved/AutoApproved is NOT trusted on
-// its own · that's the local-memory bypass we must prevent. It only unlocks
-// when the backend has positively confirmed it (verifiedAt stamped by a
-// successful read in pollMyApprovals) within APPROVAL_VERIFY_TTL_MS, or when a
-// client auto-approve is still inside its write-propagation grace window.
-// Anything else · fabricated/edited localStorage, a stale approval from a
-// previous session, or a backend read that's failing/misreading · fails
-// CLOSED (locked).
+// its own · that's the local-memory bypass we must prevent.
+// Once pollMyApprovals has cloud-verified this assignment|station (verifiedAt),
+// unlock stays for the live booking until Rejected or a new resubmit. A missed
+// poll must not re-lock. The grace window applies only to AutoApproved that
+// the cloud has not confirmed yet. Fabricated localStorage with no verifiedAt
+// stays locked.
 function gateApproved(k) {
   const g = getGate(k);
   if (g.status !== 'Approved' && g.status !== 'AutoApproved') return false;
@@ -6253,8 +6269,8 @@ function gateApproved(k) {
   // status (offline/legacy). In production the read URL is always set, so the
   // confirmation requirement below is what actually governs unlocking.
   if (!APPROVAL_PA_READ_URL) return true;
+  if (g.verifiedAt) return true;
   const now = Date.now();
-  if (g.verifiedAt && (now - g.verifiedAt) < APPROVAL_VERIFY_TTL_MS) return true;
   if (g.status === 'AutoApproved' && g.autoLocalAt && (now - g.autoLocalAt) < APPROVAL_AUTO_GRACE_MS) return true;
   return false;
 }
@@ -6604,29 +6620,56 @@ async function submitApprovalFromStation(stationKey, resubmit, lakituUrlOverride
     || (state.recordLakituUrl && String(state.recordLakituUrl).trim())
     || ctx.lakitu
     || '';
-  // Optimistic local state · gate goes Pending immediately so the UI
-  // reflects "waiting" even if the cloud write is a no-op (empty URL).
-  setGate(stationKey, {
-    approvalId: apprId, status: 'Pending',
-    submittedAt: new Date().toISOString(), resubmitCount,
-    note: '', decidedBy: '', lakituUrl,
+  // Keep the gate as it was until the cloud write returns a real id.
+  // A failed write must not leave Pending — that locks the moderator
+  // with no card in the reviewer queue.
+  const prior = {
+    approvalId: g.approvalId || '',
+    status: g.status || 'none',
+    submittedAt: g.submittedAt || '',
+    resubmitCount: g.resubmitCount || 0,
+    note: g.note || '',
+    decidedBy: g.decidedBy || '',
+    lakituUrl: g.lakituUrl || '',
+    verifiedAt: g.verifiedAt || null,
+    autoLocalAt: g.autoLocalAt || null,
+    ackedToken: g.ackedToken || '',
+    sessionDate: g.sessionDate || '',
+    assignmentId: g.assignmentId || '',
+    pendingLocalAt: g.pendingLocalAt || null,
+  };
+  let writtenId = null;
+  try {
+    writtenId = await createApprovalRequest({
+      approval_id: apprId, assignmentId: asgnId,
+      teamId: ctx.teamId, teamName: ctx.teamName,
+      orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
+      station: stationLabel, scenario: 'calibration',
+      lakituUrl, resubmit: !!resubmit, resubmitCount,
+    });
+  } catch (_) { writtenId = null; }
+  if (!writtenId) {
+    setGateStatus(stationKey, prior.status || 'none', prior);
+    if (typeof renderApp === 'function') renderApp();
+    if (typeof showToast === 'function') {
+      showToast('Could not send this for review. Nothing was submitted. You can try again.', 'error', 6500);
+    }
+    return null;
+  }
+  setGateStatus(stationKey, 'Pending', {
+    approvalId: writtenId,
+    submittedAt: new Date().toISOString(),
+    resubmitCount,
+    note: '',
+    decidedBy: '',
+    lakituUrl,
+    verifiedAt: null,
+    pendingLocalAt: Date.now(),
+    sessionDate: (typeof approvalSessionDateYmd === 'function') ? approvalSessionDateYmd() : '',
+    assignmentId: asgnId,
   });
   if (typeof renderApp === 'function') renderApp();
   showApprovalWaitingPopup(stationKey);
-  // Cloud write. The gate stays locally "Pending" regardless, but a
-  // silent server-write failure is exactly why nothing shows up in Excel
-  // (and the admin queue) · so await the result and tell the moderator if
-  // it didn't reach the server.
-  const writtenId = await createApprovalRequest({
-    approval_id: apprId, assignmentId: asgnId,
-    teamId: ctx.teamId, teamName: ctx.teamName,
-    orbitLoginId: ctx.orbitId, moderatorName: ctx.modName,
-    station: stationLabel, scenario: 'calibration',
-    lakituUrl, resubmit: !!resubmit, resubmitCount,
-  });
-  if (!writtenId && typeof showToast === 'function') {
-    showToast('Saved locally, but logging to the server failed · it won\u2019t appear in the admin queue yet. Check the Approval Write flow / connection.', 'error', 6500);
-  }
 }
 
 // --- popups (reuse appAlert) ---
@@ -6946,6 +6989,8 @@ function scrubApprovalGateToActiveAssignment(asgnId, sessionYmd) {
   if (typeof state === 'undefined' || !state || !state.approvalGate
       || typeof state.approvalGate !== 'object') return;
   const want = String(asgnId || '').trim();
+  // Mid-hydrate _gateAsgnId() is blank. Do not wipe Approved/Pending.
+  if (!want) return;
   const wantDay = String(sessionYmd || '').trim().slice(0, 10);
   const next = {};
   let dropped = 0;
@@ -7025,6 +7070,28 @@ function findApprovalRowForGate(resolved, k, label, asgnId, sessionYmd, orbitId,
   }
   if (own) return { row: own, fromTeammate: false };
   return null;
+}
+
+// Successful poll found no cloud row for this station. Drop a local
+// Pending/InReview that never landed (or was removed) so the moderator
+// can submit again. A fresh successful write stays through the grace
+// window so a slow read does not undo it. Team Approved is handled
+// before this runs (findApprovalRowForGate).
+function clearStaleLocalGateIfNoCloudRow(k, g) {
+  const gate = g || ((typeof getGate === 'function') ? getGate(k) : null);
+  if (!gate) return false;
+  const st = String(gate.status || '');
+  if (st !== 'Pending' && st !== 'InReview') return false;
+  const grace = (typeof APPROVAL_AUTO_GRACE_MS === 'number') ? APPROVAL_AUTO_GRACE_MS : (5 * 60 * 1000);
+  if (gate.pendingLocalAt && (Date.now() - Number(gate.pendingLocalAt)) < grace) return false;
+  setGateStatus(k, 'none', {
+    verifiedAt: null,
+    pendingLocalAt: null,
+    approvalId: gate.approvalId || '',
+    note: '',
+    decidedBy: '',
+  });
+  return true;
 }
 
 async function pollMyApprovals() {
@@ -7135,10 +7202,13 @@ async function pollMyApprovals() {
             setGate(k, { status: 'none', verifiedAt: null, autoLocalAt: null });
             if (typeof renderApp === 'function') renderApp();
           }
+        } else if (typeof clearStaleLocalGateIfNoCloudRow === 'function'
+            && clearStaleLocalGateIfNoCloudRow(k, g)) {
+          if (typeof renderApp === 'function') renderApp();
         }
       }
-      // readOk === false and no row → couldn't reach cloud; leave local state
-      // and let gateApproved's TTL govern fail-closed behavior.
+      // readOk === false → couldn't reach cloud. Leave local state.
+      // A verified Approved stays unlocked; do not re-arm the lock.
     }
   }
   runClientAutoApprove();
@@ -10398,14 +10468,18 @@ if (typeof window !== 'undefined') {
         Object.keys(result.syncableState.equipment || {}).filter(k => result.syncableState.equipment[k]).length);
       console.info('Teammate stations populated:',
         Object.keys(result.syncableState.stations || {}));
-      mergeTeammateState(result.syncableState);
+      const scoredForce = (typeof scoreAfterScrub === 'function')
+        ? scoreAfterScrub(result.syncableState)
+        : { scrubbed: result.syncableState, score: 0 };
+      const beforeForce = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+        ? sessionStateProgressScore(extractSyncableState(state)) : 0;
+      mergeTeammateState(scoredForce.scrubbed);
+      const afterForce = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+        ? sessionStateProgressScore(extractSyncableState(state)) : scoredForce.score;
       state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
-        ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
-        : (result.row.lastActive || result.syncableState.progressAt || new Date().toISOString());
-      state._lastSyncMergeScore = (result.score != null)
-        ? result.score
-        : ((typeof sessionStateProgressScore === 'function')
-          ? sessionStateProgressScore(result.syncableState) : 0);
+        ? (sessionStateRowFreshnessIso(result.row, scoredForce.scrubbed) || result.row.lastActive || new Date().toISOString())
+        : (result.row.lastActive || scoredForce.scrubbed.progressAt || new Date().toISOString());
+      if (afterForce > beforeForce) state._lastSyncMergeScore = scoredForce.score;
       saveState();
       console.info('Merge complete. saveState() called.');
       if (typeof renderApp === 'function') renderApp();
@@ -20054,7 +20128,7 @@ function liveLocationInsideAssignmentFence(asgn, pos, opts) {
   opts = opts || {};
   const address = (typeof assignmentFenceAddress === 'function') ? assignmentFenceAddress(asgn) : '';
   if (!asgn) return { known: false, inside: false, reason: 'noassignment' };
-  if (!address) return { known: true, inside: true, reason: 'no-address' };
+  if (!address) return { known: false, inside: false, reason: 'no-address' };
   const dest = (typeof cachedFenceDestForAssignment === 'function')
     ? cachedFenceDestForAssignment(asgn)
     : cachedFenceDestForAddress(address);
@@ -20158,6 +20232,7 @@ function requiredEquipmentPacked(eqState) {
 
 function arrivalFenceReasonPhrase(check) {
   if (!check || check.reason === 'noassignment') return 'a booked session is available and you are at the assigned address';
+  if (check.reason === 'no-address') return 'this booking has an assigned address';
   if (check.reason === 'nolocation' || check.reason === 'stale') return 'your live location is available at the assigned address';
   if (check.reason === 'nogeocode') return 'the assigned address can be placed on the map';
   if (check.reason === 'outside' || !(check.known && check.inside)) return 'you are inside the assigned address area';
@@ -20955,7 +21030,7 @@ async function checkParticipantGeofence(asgn) {
   const role = getOperatorFenceRole();
   const address = assignmentFenceAddress(asgn);
   if (!address) {
-    return { ok: true, skipped: true, role, reason: 'no-address', kind: 'home', inside: true };
+    return { ok: false, skipped: true, role, reason: 'no-address', kind: 'home', inside: false };
   }
   let pos;
   try {
@@ -21148,7 +21223,11 @@ function showArrivalFenceFailure(result, asgn, retryFn) {
 async function confirmOperatorArrival() {
   const asgn = activeOperatorAssignmentForGeo();
   const result = await checkParticipantGeofence(asgn);
-  if (result.ok) {
+  const pos = result && result.pos;
+  const fresh = pos && (typeof lastGeoIsFreshEnough === 'function')
+    ? lastGeoIsFreshEnough(pos)
+    : !!(pos && Number.isFinite(Number(pos.lat)) && Number.isFinite(Number(pos.lng)));
+  if (result && result.ok && !result.skipped && result.inside && fresh) {
     applyOperatorArrival(asgn, formatGeoWorklogNote('arrival', result), result);
     return true;
   }
@@ -43063,6 +43142,48 @@ function resolveAssignmentBookingYmd(asgnId) {
   return hit && hit.date ? String(hit.date).trim() : '';
 }
 
+// assignmentId|sessionDate. Empty id is not a booking (poll flicker).
+function bookingKey(asgnOrId, sessionYmd) {
+  if (asgnOrId && typeof asgnOrId === 'object') {
+    const id = asgnOrId.id != null ? String(asgnOrId.id).trim() : '';
+    if (!id) return '';
+    const day = asgnOrId.date != null ? String(asgnOrId.date).trim() : String(sessionYmd || '').trim();
+    return id + '|' + day;
+  }
+  const id = asgnOrId != null ? String(asgnOrId).trim() : '';
+  if (!id) return '';
+  return id + '|' + String(sessionYmd || '').trim();
+}
+
+// True while wrap-up still pins this booking. Do not clear progress while
+// sessionCompletedAt or _completionWriteAsgnId still points at that id,
+// including a carousel swipe. "Next assignment" resets through
+// resetOperatorSessionState instead.
+function completionPinsPreviousBooking(prevKey) {
+  if (typeof state === 'undefined' || !state) return false;
+  const prevId = String(prevKey || '').split('|')[0];
+  if (!prevId) return false;
+  const pin = state._completionWriteAsgnId ? String(state._completionWriteAsgnId).trim() : '';
+  if (pin && pin === prevId) return true;
+  if (state.sessionCompletedAt && state._lastSeenActiveAsgnId
+      && String(state._lastSeenActiveAsgnId).trim() === prevId) return true;
+  return false;
+}
+
+// Clear only on a real booking-key change. Poll passes explicitUserNav false
+// and must not clear when the active id flickers empty or wrap-up still pins it.
+let _operatorBookingNavExplicit = false;
+function markExplicitOperatorBookingNav() { _operatorBookingNavExplicit = true; }
+function shouldClearOperatorProgress(prevKey, nextKey, opts) {
+  opts = opts || {};
+  const explicit = !!(opts.explicitUserNav || _operatorBookingNavExplicit);
+  const prev = String(prevKey || '');
+  const next = String(nextKey || '');
+  if (!prev || !next || prev === next) return false;
+  if (completionPinsPreviousBooking(prev, { explicitUserNav: explicit })) return false;
+  return true;
+}
+
 // Drop local station progress when the active booking changes (carousel
 // swipe, reschedule day move, or a new OD id). Equipment is kept.
 function clearOperatorProgressForNewBooking(reason) {
@@ -44622,74 +44743,42 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
   return { row: winner, syncableState: winnerParsed || {}, score: winnerScore };
 }
 
-// REPLACE local state wholesale with the adopted (other-browser) state.
-// Per spec the user chose "take the other browser's latest state
-// wholesale" rather than merge · so each syncable field is overwritten
-// (not overlaid). Identity fields (username, modProfile, theme) live
-// outside the syncable subset and are untouched.
+// Adopt another browser's SessionState by soft-merge. An empty or
+// scrubbed row must not replace a local Done, arrival, or notes.
 function applySelfSyncReplace(s) {
-  if (!s || typeof s !== 'object') return;
+  if (!s || typeof s !== 'object') return false;
   // Same booking-day scrub as mergeTeammateState · other-browser adopt must
   // not restore foreign station / wrap-up stamps onto today's open session.
   if (typeof scrubSyncableStateForOpenBooking === 'function') {
     s = scrubSyncableStateForOpenBooking(s);
   }
-  state.participantId      = s.participantId      || '';
-  state.participantName    = s.participantName    || '';
-  {
-    const cloudAddr = String(s.participantAddress || '').trim();
-    let bookedAddr = '';
-    try {
-      const asgnNow = (typeof getActiveOperatorAssignment === 'function')
-        ? getActiveOperatorAssignment()
-        : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
-      bookedAddr = (typeof assignmentFenceAddress === 'function')
-        ? String(assignmentFenceAddress(asgnNow) || '').trim()
-        : '';
-    } catch (_) { bookedAddr = ''; }
-    state.participantAddress = (bookedAddr && bookedAddr.toLowerCase() !== cloudAddr.toLowerCase())
-      ? bookedAddr
-      : cloudAddr;
+  const localSync = (typeof extractSyncableState === 'function')
+    ? extractSyncableState(state) : {};
+  const localScore = (typeof sessionStateProgressScore === 'function')
+    ? sessionStateProgressScore(localSync) : 0;
+  const cloudScore = (typeof sessionStateProgressScore === 'function')
+    ? sessionStateProgressScore(s) : 0;
+  const localDone = !!(state && state.sessionCompletedAt);
+  let localNotes = false;
+  const localStations = localSync && localSync.stations;
+  if (localStations && typeof localStations === 'object') {
+    Object.keys(localStations).forEach(k => {
+      const sc = (localStations[k] && localStations[k].scenarios) || {};
+      Object.keys(sc).forEach(n => {
+        if (sc[n] && String(sc[n].notes || '').trim()) localNotes = true;
+      });
+    });
   }
-  if (s.sessionDate) {
-    const incomingDate = String(s.sessionDate).trim();
-    const asgn = (typeof getActiveOperatorAssignment === 'function')
-      ? getActiveOperatorAssignment()
-      : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null);
-    const booked = asgn && asgn.date ? String(asgn.date).trim() : '';
-    if (!booked || incomingDate === booked) state.sessionDate = incomingDate;
+  if ((localDone || localNotes) && cloudScore < localScore) return false;
+  const keptDone = state && state.sessionCompletedAt;
+  if (typeof mergeTeammateState !== 'function') return false;
+  mergeTeammateState(s);
+  // Never null a newer local completion if the other row has none or an older stamp.
+  if (localDone && keptDone && (!s.sessionCompletedAt || String(keptDone) >= String(s.sessionCompletedAt))) {
+    state.sessionCompletedAt = keptDone;
+    if (typeof saveState === 'function') saveState();
   }
-  state.equipment          = (s.equipment && typeof s.equipment === 'object') ? { ...s.equipment } : {};
-  state.stations           = (s.stations && typeof s.stations === 'object')
-    ? JSON.parse(JSON.stringify(s.stations))
-    : {};
-  state.sessionCompletedAt = s.sessionCompletedAt || null;
-  state.stationCompletedAt = (s.stationCompletedAt && typeof s.stationCompletedAt === 'object')
-    ? { ...s.stationCompletedAt } : (state.stationCompletedAt || {});
-  if (state.suppressAutoArrival && !s.arrivedAt) {
-    state.arrivedAt = '';
-  } else if (state.suppressAutoArrival && !state.arrivedAt) {
-    state.arrivedAt = '';
-  } else {
-    state.arrivedAt          = s.arrivedAt          || '';
-  }
-  state.officeCheckedInAt  = s.officeCheckedInAt  || '';
-  state.officeCheckedOutAt = s.officeCheckedOutAt || '';
-  if (typeof shouldKeepLocalLastGeo === 'function' && shouldKeepLocalLastGeo(state.lastGeo, s.lastGeo)) {
-    // Keep the newer GPS fix from this device. An older cloud lastGeo
-    // (for example a Sept 9 pin) must not replace a just-captured fix.
-  } else {
-    state.lastGeo = s.lastGeo || null;
-  }
-  state.calGuideAck        = s.calGuideAck         || null;
-  state.recordLakituUrl    = s.recordLakituUrl     || '';
-  state._progressScore     = Number(s.progressScore || s._progressScore || 0);
-  state._progressAt        = s.progressAt || s._progressAt || '';
-  state._progressBy        = s.progressBy || s._progressBy || '';
-  // Personal per-device reminder tracking is re-derived from the
-  // adopted arrival anchor (same rationale as mergeTeammateState).
-  state.remindersShown = [];
-  saveState();
+  return true;
 }
 
 function sendSessionStateBeacon(reason) {
@@ -51135,13 +51224,18 @@ function renderMySessionSection() {
       newIdx = Math.max(0, Math.min(total - 1, newIdx));
       if (newIdx === window._mySessionCarouselIdx) return;
       window._mySessionCarouselIdx = newIdx;
-      renderMySessionSection();
-      // If the operator is on the welcome view, re-render it so the banner
-      // (and any other carousel-dependent content) reflects the new active
-      // assignment. This is what makes the lock/unlock state track the
-      // carousel correctly when the user swipes.
-      if (currentStationKey === null && typeof renderWelcome === 'function') {
-        renderWelcome();
+      if (typeof markExplicitOperatorBookingNav === 'function') markExplicitOperatorBookingNav();
+      try {
+        renderMySessionSection();
+        // If the operator is on the welcome view, re-render it so the banner
+        // (and any other carousel-dependent content) reflects the new active
+        // assignment. This is what makes the lock/unlock state track the
+        // carousel correctly when the user swipes.
+        if (currentStationKey === null && typeof renderWelcome === 'function') {
+          renderWelcome();
+        }
+      } finally {
+        _operatorBookingNavExplicit = false;
       }
     };
 
@@ -51485,18 +51579,29 @@ function syncBookedParticipantName() {
     : (typeof getOperatorAssignment === 'function' ? getOperatorAssignment() : null);
   const asgnId = asgn ? asgn.id : null;
   const last = state._lastSeenActiveAsgnId || null;
+  const explicit = !!_operatorBookingNavExplicit;
+  const nextKey = (typeof bookingKey === 'function') ? bookingKey(asgn) : (asgnId ? String(asgnId) : '');
+  const prevKey = (typeof bookingKey === 'function')
+    ? bookingKey(last, state.sessionDate)
+    : (last ? String(last) : '');
 
   // Same active assignment as last sync → preserve edits, no work.
-  if (asgnId === last) return;
+  if (asgnId != null && last != null && String(asgnId) === String(last)) return;
+
+  // Poll flicker / cleared active id after wrap-up. Keep Done, arrival, notes.
+  if (!nextKey && !explicit) return;
+  if (typeof completionPinsPreviousBooking === 'function'
+      && completionPinsPreviousBooking(prevKey, { explicitUserNav: explicit })) {
+    return;
+  }
 
   // Active assignment changed. Drop leftover station progress from the
   // prior booking (or a rescheduled same-id day move handled elsewhere)
   // so Live status cannot inherit station_N_done across bookings.
-  if (last && asgnId && String(last) !== String(asgnId)
+  if (typeof shouldClearOperatorProgress === 'function'
+      && shouldClearOperatorProgress(prevKey, nextKey, { explicitUserNav: explicit })
       && typeof clearOperatorProgressForNewBooking === 'function') {
-    clearOperatorProgressForNewBooking('asgn:' + last + '→' + asgnId);
-  } else if (last && !asgnId && typeof clearOperatorProgressForNewBooking === 'function') {
-    clearOperatorProgressForNewBooking('asgn-cleared:' + last);
+    clearOperatorProgressForNewBooking('booking:' + prevKey + '→' + nextKey);
   }
 
   // Active assignment changed. Re-derive the name from the new context.
@@ -53787,6 +53892,18 @@ function startAppAfterLogin() {
 // "Meaningful" check: at least one scenario in the teammate's state
 // isn't "Not Started" · otherwise it's just an empty default state
 // they wrote without doing any work. Don't prompt for empty merges.
+// Score a teammate/self payload AFTER booking-day scrub. Pre-scrub
+// scores can look complete, then scrub zeros them and a high
+// _lastSyncMergeScore blocks the next real merge.
+function scoreAfterScrub(syncable) {
+  const scrubbed = (typeof scrubSyncableStateForOpenBooking === 'function')
+    ? scrubSyncableStateForOpenBooking(syncable)
+    : Object.assign({}, syncable || {});
+  const score = (typeof sessionStateProgressScore === 'function')
+    ? sessionStateProgressScore(scrubbed) : 0;
+  return { scrubbed: scrubbed || {}, score: Number(score) || 0 };
+}
+
 async function checkAndOfferTeammateSync(prefetchedRows) {
   if (!SESSIONSTATE_PA_READ_URL) return;
   // Skip if the user's own session is already complete for today.
@@ -53888,9 +54005,10 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
       adminState._lastTeammateLiveAt = Date.now();
     }
 
-    const teammateScore = (result.score != null)
-      ? result.score
-      : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
+    const scoredCloud = (typeof scoreAfterScrub === 'function')
+      ? scoreAfterScrub(cloud)
+      : { scrubbed: cloud, score: (typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0 };
+    const teammateScore = scoredCloud.score;
     const myScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
       ? sessionStateProgressScore(extractSyncableState(state))
       : 0;
@@ -53898,9 +54016,12 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     const teammateNewer = teammateScore > myScore && teammateScore > lastMergeScore;
     if (teammateNewer) {
       try {
-        mergeTeammateState(cloud);
+        mergeTeammateState(scoredCloud.scrubbed);
+        const afterScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+          ? sessionStateProgressScore(extractSyncableState(state))
+          : teammateScore;
         state._lastSyncMergeAt = teammateAt || new Date().toISOString();
-        state._lastSyncMergeScore = teammateScore;
+        if (afterScore > myScore) state._lastSyncMergeScore = teammateScore;
         saveState();
         if (typeof renderApp === 'function') renderApp();
         if (typeof applyAssignmentToEntryFields === 'function') applyAssignmentToEntryFields();
@@ -53921,8 +54042,8 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
     }
   }
 
-  const teammateScoreForModal = (result.score != null)
-    ? result.score
+  const teammateScoreForModal = (typeof scoreAfterScrub === 'function')
+    ? scoreAfterScrub(cloud).score
     : ((typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(cloud) : 0);
   const myScoreForModal = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
     ? sessionStateProgressScore(extractSyncableState(state))
@@ -54085,12 +54206,16 @@ function showOrUpdateTeammateLiveBanner(result) {
       const atNow = (typeof sessionStateRowFreshnessIso === 'function')
         ? (sessionStateRowFreshnessIso(payload.row, cloudNow) || teammateAt || new Date().toISOString())
         : ((payload.row && payload.row.lastActive) || (cloudNow && cloudNow.progressAt) || teammateAt || new Date().toISOString());
-      mergeTeammateState(cloudNow);
+      const scoredNow = (typeof scoreAfterScrub === 'function')
+        ? scoreAfterScrub(cloudNow)
+        : { scrubbed: cloudNow, score: 0 };
+      const beforeScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+        ? sessionStateProgressScore(extractSyncableState(state)) : 0;
+      mergeTeammateState(scoredNow.scrubbed);
+      const afterScore = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+        ? sessionStateProgressScore(extractSyncableState(state)) : scoredNow.score;
       state._lastSyncMergeAt = atNow;
-      state._lastSyncMergeScore = (payload.score != null)
-        ? payload.score
-        : ((typeof sessionStateProgressScore === 'function')
-          ? sessionStateProgressScore(cloudNow) : 0);
+      if (afterScore > beforeScore) state._lastSyncMergeScore = scoredNow.score;
       saveState();
       hideTeammateLiveBanner();
       if (typeof showToast === 'function') {
@@ -54164,6 +54289,19 @@ async function checkAndOfferSelfSync(prefetchedRows) {
     return false;
   }
 
+  // Empty / scrubbed other-browser row must not offer a replace over local Done.
+  if (typeof scoreAfterScrub === 'function'
+      && typeof sessionStateProgressScore === 'function'
+      && typeof extractSyncableState === 'function') {
+    const scoredSelf = scoreAfterScrub(result.syncableState);
+    const mySelfScore = sessionStateProgressScore(extractSyncableState(state));
+    if (scoredSelf.score < mySelfScore && (state.sessionCompletedAt || mySelfScore > 0)) {
+      if (typeof hideSelfSyncBanner === 'function') hideSelfSyncBanner();
+      if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = null;
+      return false;
+    }
+  }
+
   // Mark self-live so the poll cadence stays ACTIVE (the other browser
   // is clearly working right now).
   if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = Date.now();
@@ -54208,16 +54346,28 @@ function showOrUpdateSelfSyncBanner(result) {
   `;
   const syncBtn = document.getElementById('selfSyncBannerSyncBtn');
   if (syncBtn) {
-    syncBtn.addEventListener('click', () => {
-      // Visual "syncing" feedback on the button.
+    syncBtn.addEventListener('click', async () => {
       syncBtn.disabled = true;
       syncBtn.textContent = 'Syncing…';
-      // REPLACE local state wholesale with the adopted latest.
-      applySelfSyncReplace(result.syncableState);
-      // Advance the baseline so we don't immediately re-prompt for the
-      // state we just adopted. Also prime the no-op diff guard so the
-      // next flush doesn't write an identical row.
-      _sessionStateSyncState.lastSyncedActive = result.row.lastActive || new Date().toISOString();
+      // Re-fetch before apply so a stale banner closure cannot wipe local Done.
+      let payload = result;
+      try {
+        if (typeof findSelfSessionStateUpdate === 'function') {
+          const fresh = await findSelfSessionStateUpdate();
+          if (fresh && fresh.syncableState) payload = fresh;
+        }
+      } catch (_) { /* keep banner snapshot */ }
+      const adopted = applySelfSyncReplace(payload.syncableState);
+      const activeAt = (payload.row && payload.row.lastActive) || result.row.lastActive || new Date().toISOString();
+      _sessionStateSyncState.lastSyncedActive = activeAt;
+      if (!adopted) {
+        hideSelfSyncBanner();
+        if (typeof adminState !== 'undefined' && adminState) adminState._lastSelfLiveAt = null;
+        if (typeof showToast === 'function') {
+          showToast('Kept your saved session. The other browser had less progress.', 'info', 4000);
+        }
+        return;
+      }
       try {
         _sessionStateSyncState.lastSyncedStateJson = JSON.stringify(extractSyncableState(state));
         const asgn = (typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null;
@@ -54430,14 +54580,18 @@ function showTeammateSyncModal(result) {
 
   // Wire the three explicit buttons
   document.getElementById('teammateSyncAcceptBtn').addEventListener('click', () => {
-    mergeTeammateState(result.syncableState);
+    const scoredAccept = (typeof scoreAfterScrub === 'function')
+      ? scoreAfterScrub(result.syncableState)
+      : { scrubbed: result.syncableState, score: 0 };
+    const beforeAccept = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+      ? sessionStateProgressScore(extractSyncableState(state)) : 0;
+    mergeTeammateState(scoredAccept.scrubbed);
+    const afterAccept = (typeof sessionStateProgressScore === 'function' && typeof extractSyncableState === 'function')
+      ? sessionStateProgressScore(extractSyncableState(state)) : scoredAccept.score;
     state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
-      ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
-      : (result.row.lastActive || (result.syncableState && result.syncableState.progressAt) || new Date().toISOString());
-    state._lastSyncMergeScore = (result.score != null)
-      ? result.score
-      : ((typeof sessionStateProgressScore === 'function')
-        ? sessionStateProgressScore(result.syncableState) : Number(state._lastSyncMergeScore || 0));
+      ? (sessionStateRowFreshnessIso(result.row, scoredAccept.scrubbed) || result.row.lastActive || new Date().toISOString())
+      : (result.row.lastActive || (scoredAccept.scrubbed && scoredAccept.scrubbed.progressAt) || new Date().toISOString());
+    if (afterAccept > beforeAccept) state._lastSyncMergeScore = scoredAccept.score;
     saveState();
     if (typeof showToast === 'function') {
       const msg = (typeof formatTeamSyncCompleteToast === 'function')
@@ -54457,13 +54611,13 @@ function showTeammateSyncModal(result) {
     // Mark this teammate snapshot as "seen and declined" so we don't
     // re-prompt on every poll. Stored in local state, NOT cloud · each
     // teammate makes their own decline decision independently.
+    const scoredDecline = (typeof scoreAfterScrub === 'function')
+      ? scoreAfterScrub(result.syncableState)
+      : { scrubbed: result.syncableState, score: (typeof sessionStateProgressScore === 'function') ? sessionStateProgressScore(result.syncableState) : 0 };
     state._lastSyncMergeAt = (typeof sessionStateRowFreshnessIso === 'function')
-      ? (sessionStateRowFreshnessIso(result.row, result.syncableState) || result.row.lastActive || new Date().toISOString())
-      : (result.row.lastActive || (result.syncableState && result.syncableState.progressAt) || new Date().toISOString());
-    state._lastSyncMergeScore = (result.score != null)
-      ? result.score
-      : ((typeof sessionStateProgressScore === 'function')
-        ? sessionStateProgressScore(result.syncableState) : Number(state._lastSyncMergeScore || 0));
+      ? (sessionStateRowFreshnessIso(result.row, scoredDecline.scrubbed) || result.row.lastActive || new Date().toISOString())
+      : (result.row.lastActive || (scoredDecline.scrubbed && scoredDecline.scrubbed.progressAt) || new Date().toISOString());
+    state._lastSyncMergeScore = scoredDecline.score;
     saveState();
     close();
     try { if (prevFocus) prevFocus.focus(); } catch (_) {}

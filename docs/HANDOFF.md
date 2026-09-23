@@ -1,6 +1,35 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Grok · 9 AM strike gate + Skip + completed teams (1.3.091823b)
+**Last updated:** 2026-09-23 · Grok · Critical approval, arrival, and session wipe fixes (1.3.091823c)
+
+## 2026-09-23 · Approval, arrival, and session wipe fixes (1.3.091823c)
+
+**Ask:** Fix the seven remaining critical client bugs from the AHP audit. Strike fixes in **1.3.091823b** stay as they are.
+
+**Cause:**
+- A failed review submit still showed Pending, and a later refresh never cleared it, so the moderator stayed locked with no card for the reviewer.
+- While bookings were still loading, an empty booking id wiped every saved Approved or Pending.
+- After about 10 minutes, an approved station locked again if the refresh missed.
+- A booking with no address counted as on site, so Confirm Arrival worked off site.
+- A background refresh could treat a finished booking as a new one and erase Done, arrival, and notes.
+- Team sync scored progress before it threw out yesterday’s work, then remembered that high score and blocked a later real sync.
+- Sync from another browser could replace a finished session with an empty copy.
+
+**Fix:**
+- Pending is kept only after the review row is actually saved. If the save fails, the moderator can submit again. A refresh that finds no review row clears a stuck Pending.
+- Gates are left alone until a real booking id is known.
+- A reviewer-approved station stays unlocked until it is sent back or submitted again.
+- No address means not on site. Confirm Arrival does not succeed.
+- A background refresh does not erase a finished session. Progress clears when the person swipes to another booking, or when the booking id and day really change.
+- Team sync scores progress after yesterday’s work is removed. An empty other-browser copy does not replace a finished session.
+- Version **1.3.091823c**. Selftest: `scripts/critical-client-selftest.js`.
+- AHP follow-up: a cloud-confirmed automatic approval stays unlocked (the 10-minute timer is only before the cloud confirms it). A finished session is not cleared by a swipe while wrap-up still pins that booking. A Pending that just saved is kept for 5 minutes if the refresh has not shown the row yet.
+
+**PR:** [#166](https://github.com/DK-Centific/Twilight-Tracker/pull/166) ready for review on `cursor/critical-ahp-client-fixes-ea44`. Do not merge from this agent. Watchdog merges after AHP review.
+
+**Verify (David):** Hard refresh → **1.3.091823c**. Submit a station for review only when you are on a booked session. If the send fails, you should see a message and the Submit button again, not a stuck “waiting” card. After a reviewer approves, stay on that station for more than 10 minutes (or turn the network off briefly and back on). The later scenarios should stay open. Confirm Arrival should stay locked when the booking has no address. Finish a session, leave the page open through a refresh, and Done should stay Done.
+
+---
 
 ## 2026-09-23 · No strike before 9 AM, Skip sticks, finished teams stay at their stars (1.3.091823b)
 
