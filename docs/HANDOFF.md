@@ -1,6 +1,41 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-23 · Grok · Critical approval, arrival, and session wipe fixes (1.3.091823c)
+**Last updated:** 2026-09-23 · Grok · Hide Lakitu edit toolbar from moderators (1.3.091823e)
+
+## 2026-09-23 · Hide Lakitu edit toolbar from moderators (1.3.091823e)
+
+**Ask:** Signed in as Moderator, the Color / Size / Bold / Add table strip was still showing in the Lakitu Guide. Only Admins should see that.
+
+**Cause:** The toolbar style set `display: flex`, which beat the `hidden` flag, so the bar stayed on screen even when the script marked it hidden.
+
+**Fix:**
+- A hidden toolbar (and the error line, Edit, Publish, and Undo publish) stays fully gone.
+- Moderators and reviewers never get the edit strip. Opening the guide clears edit mode if it was on.
+- Admins still see Edit, and the strip only while they are editing.
+- Version **1.3.091823e**. Same pull request [#167](https://github.com/DK-Centific/Twilight-Tracker/pull/167). David authorized Watchdog to merge. Do **not** merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091823e**. Sign in as a Moderator. Open the Lakitu Guide. You should see the steps and the pills only — no Color, Size, Bold, Add table, Image, or Undo strip, and no Edit or Publish. Sign in as Admin, open the guide, and tap **Edit**. That strip should show then, and hide again after you leave edit.
+
+---
+
+## 2026-09-23 · Lakitu how-to guide drawer (1.3.091823d)
+
+**Ask:** Add a Lakitu Guide button right after the calibration guide. It opens a panel from the right. Admins can edit and publish the steps. Do not merge until David checks it on localhost.
+
+**Fix:**
+- Moderator and Admin each get a Lakitu mark button (black circle, white triangle) immediately after the calibration guide / beside the Approval tutorial.
+- The guide slides in from the right, about 80% of the screen. Close, click outside, or Escape puts it away. The section pills scroll inside the panel.
+- Opening this guide closes the calibration guide and the Approval tutorial, and the reverse.
+- Admins see Edit, Publish, and Undo publish. Publish saves one SessionState row, `ss_app_setting_lakitu_guide`. No new Power Automate flow. An unpublished draft stays on this browser only.
+- The built-in steps show until an admin publishes. Publishing an empty guide is refused. Pasted web images are removed. A pasted picture must be under 80 KB.
+- Station submit is unchanged. The old Ring/Lakitu outside link button is not the guide.
+- Version **1.3.091823d**. Selftest: `scripts/lakitu-guide-selftest.js`.
+
+**PR:** [#167](https://github.com/DK-Centific/Twilight-Tracker/pull/167) draft on `cursor/lakitu-howto-guide-2e1c`. David reviews on localhost. Do **not** merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091823d**. On the moderator side, the new circle-and-triangle button sits just after the book icon. Tap it. A panel should slide in from the right with Steps, Metadata, Bad takes, Troubleshooting, and FAQ. Tap FAQ and the panel should scroll, not the page behind it. Tap outside the panel or press Escape and it should close. Sign in as Admin. The same button is next to the Approval tutorial. Open it, tap **Edit**, change a line, tap **Publish**. Refresh. The new line should still be there. Tap **Undo publish** to put the previous text back.
+
+---
 
 ## 2026-09-23 · Approval, arrival, and session wipe fixes (1.3.091823c)
 

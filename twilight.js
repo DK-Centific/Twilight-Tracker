@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091823c';
-const APP_UPDATED_AT = '09/23/2026 18:45';
+const APP_VERSION = '1.3.091823e';
+const APP_UPDATED_AT = '09/23/2026 19:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -7428,6 +7428,8 @@ function openApprovalGuideSlide() {
   const drawer = document.getElementById('apprGuideDrawer');
   const frame = document.getElementById('apprGuideFrame');
   if (!overlay || !drawer) return;
+  if (typeof closeLakituGuideDrawer === 'function') closeLakituGuideDrawer();
+  if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
   if (typeof closeMenu === 'function') closeMenu();
   overlay.hidden = false;
   drawer.hidden = false;
@@ -19324,6 +19326,7 @@ function ingestAppSettingsFromSessionRows(rows) {
   ingestMasterAdminsFromSessionRows(rows);
   if (typeof ingestFeedbackFromSessionRows === 'function') ingestFeedbackFromSessionRows(rows);
   if (typeof ingestCalGuideFromSessionRows === 'function') ingestCalGuideFromSessionRows(rows);
+  if (typeof ingestLakituGuideFromSessionRows === 'function') ingestLakituGuideFromSessionRows(rows);
   if (typeof ingestScenarioCatalogFromSessionRows === 'function') ingestScenarioCatalogFromSessionRows(rows);
   if (typeof ingestSessionLinkOverridesFromSessionRows === 'function') {
     ingestSessionLinkOverridesFromSessionRows(rows);
@@ -46740,6 +46743,1106 @@ function ingestCalGuideFromSessionRows(rows) {
   return _publishedCalGuide;
 }
 
+/* LAKITU_GUIDE_BEGIN */
+/* =====================================================================
+   LAKITU GUIDE · built-in how-to + optional SessionState publish
+   ---------------------------------------------------------------------
+   Moderators and admins open the right-side drawer. Built-in
+   LAKITU_GUIDE_DEFAULTS (from the cleaned field guide) are the fallback.
+   Admin edits free-form HTML and upserts ss_app_setting_lakitu_guide
+   (same SessionState write as calGuide · no new PA sig= URL).
+   This row is not calGuide. Station submit is not gated on this guide.
+   ===================================================================== */
+const LAKITU_GUIDE_SETTING_ID = 'ss_app_setting_lakitu_guide';
+const LAKITU_GUIDE_ASSIGNMENT_ID = 'app_setting_lakitu_guide';
+const LAKITU_GUIDE_DRAFT_KEY = 'centific_twilight_lakitu_guide_draft_v1';
+const LAKITU_GUIDE_MAX_IMAGE_BYTES = 80 * 1024;
+const LAKITU_GUIDE_MAX_STATE_BYTES = 400 * 1024;
+const LAKITU_GUIDE_NAV = ['steps', 'metadata', 'badTakes', 'troubleshooting', 'faq'];
+const LAKITU_GUIDE_NAV_LABELS = {
+  steps: 'Steps',
+  metadata: 'Metadata',
+  badTakes: 'Bad takes',
+  troubleshooting: 'Troubleshooting',
+  faq: 'FAQ',
+};
+const LAKITU_GUIDE_HASH_IDS = {
+  steps: 'steps',
+  metadata: 'metadata',
+  iterations: 'badTakes',
+  badtakes: 'badTakes',
+  troubleshooting: 'troubleshooting',
+  faq: 'faq',
+};
+const LAKITU_GUIDE_CLASS_RE = /^(alert|red|green|section-title|sub-title|step-list|step-num|step-body|note|details-body|arrow|tag|quote|bottom|wrap|lg-lead|lg-dim|lg-warn|lg-gap|lg-anchor)$/;
+const LAKITU_GUIDE_TAGS = {
+  section: 1, h2: 1, h3: 1, h4: 1, p: 1, div: 1, span: 1, strong: 1, b: 1, em: 1, i: 1, u: 1,
+  br: 1, ul: 1, ol: 1, li: 1, table: 1, thead: 1, tbody: 1, tfoot: 1, tr: 1, th: 1, td: 1,
+  details: 1, summary: 1, a: 1, img: 1, footer: 1, small: 1, blockquote: 1,
+};
+
+const LAKITU_GUIDE_DEFAULT_SECTIONS = {"steps":"<div class=\"alert\">\n    <strong>Before you start a session</strong>\n    Confirm you're on <strong>Lakitu V4</strong>. On V3, stations/scenarios won't display correctly — the app won't throw an error, it will just be missing content you need.\n  </div>\n<h2 class=\"section-title\" id=\"steps\">Full step-by-step</h2>\n\n  <h3 class=\"sub-title\">1. Log in &amp; select session</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Log in with your Centific email. First-time users set a password; returning users log in with the same one.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Confirm you have an assigned session — you'll get an email/OD notification and it will surface as a link in-app. If you don't see a session link, report it immediately.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Select the location, then click the session link. This lands you on the assigned session page — the session numbering may look different from other projects; that's expected, it's how the client shares links.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">2. Register participants &amp; vehicle</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>From the location home page, select <strong>Add New Participant</strong> for each moderator, then again for the vehicle.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Always append the date to the name (e.g. \"John Doe 08/20/2026\", \"Honda Civic 08/20/2026\").</p><p class=\"note\">Prevents Lakitu from overriding an existing entry with the same name.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Select <strong>View Participant → Register Participant</strong> and complete the fields: height (meters), gender, ethnicity for people; height, size, color, model, manufacturing year, length, width for the vehicle.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">3. Create the group</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Return to the home page, select the registered participant(s) and vehicle, then <strong>Add New Group → Create Group</strong>.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">4. Link Ring &amp; add devices</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Profile icon → <strong>Settings → Ring Settings</strong>. Link your Ring email/password if not already linked.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Go to <strong>Location Settings</strong>. Deselect/remove any old cameras carried over from a prior session before adding new ones.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p><strong>Add Device</strong> → enter the last 4 digits of the device's MAC address (found printed on the device). Lakitu will surface a matching camera name.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>For each device enter: height in meters, Rig ID (Rig 1 / Rig 2, etc.), team/location ID, rig coordinates (participant lat/long), rig orientation (from the Compass app), and home address.</p><p class=\"note\">Never add the Floodlight/Spotlight devices — they're light sources only, and adding them risks accidental selection during a recording.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Create devices one at a time and wait for each confirmation message before adding the next — don't queue all 8 at once.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">5. Copy devices to the lights-off station &amp; verify</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Add devices for Station 1 (Front Yard – Lights On), then copy the <strong>Devices JSON</strong> over to Station 2 (Front Yard – Lights Off) — same physical location, no need to re-enter.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Click <strong>Verify Ring Devices</strong>. Repeat both steps for Station 3 → Station 4 once you move to the backyard.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Confirm every device shows online in the Ring app before proceeding to calibration.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">6. Record calibration (QA gate)</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Calibration must be completed and reviewed before any scenario recording — this is a QA approval checkpoint.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Select the calibration item → select participants → select devices: <strong>4 devices (1 rig)</strong> per calibration take, not all 8.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Confirm Instructions &amp; Selections, then run Checkerboard in Air and Checkerboard on Ground for each rig.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">7. Record each scenario</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Select the scenario → select participants → select devices: <strong>all 8</strong> for scenario recordings.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Read the on-screen instructions, then <strong>Confirm Instructions &amp; Selections</strong>.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Fill in the scenario metadata — see the <a href=\"#metadata\" class=\"lg-anchor\">Metadata reference</a> below.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Put Lakitu and Ring in split view. Click <strong>Start Recording</strong> on Lakitu, wait for the 3-second countdown, then click <strong>Start Live View</strong> on Ring.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Watch Live View while the scenario runs to confirm it's being performed correctly.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>When done: <strong>End Live View on Ring first</strong>, then click <strong>Stop Recording</strong> on Lakitu — in that order.</p></div></li>\n  </ul>\n\n  <h3 class=\"sub-title\">8. Verify, save, and close out</h3>\n  <ul class=\"step-list\">\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Scroll to Recordings Verification and confirm every device's clip was found and uploaded.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>Preview all recordings. Wait for the upload tick mark on every clip before saving.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>If anything's wrong, use <strong>Clear and Record Again</strong> — not Save. If it's clean, click <strong>Save Recording</strong>.</p></div></li>\n    <li><span class=\"step-num\"></span><div class=\"step-body\"><p>At the end of the session, copy the Group ID and share it with coordinators.</p></div></li>\n  </ul>\n\n  <details class=\"lg-gap\">\n    <summary><span>In-app support: panic button &amp; location</span><span class=\"arrow\">▸</span></summary>\n    <div class=\"details-body\">\n      <p>The panic button routes to the external Twilight moderators Teams chat — use it for general communication, troubleshooting, or any emergency. On mobile it opens the Teams app directly.</p>\n      <p>You may be prompted to allow location access on first use. This is optional but enables faster support from the management team if you need help — it's only active while the app is open and isn't used for any other tracking. Do not use a VPN while running Lakitu — it can misreport your location (e.g. as another country) and flag your session.</p>\n    </div>\n  </details>","metadata":"<h2 class=\"section-title\" id=\"metadata\">Metadata reference</h2>\n  <table>\n    <tbody><tr><th>Field</th><th>Lights On</th><th>Lights Off</th></tr>\n    <tr><td>Camera_light</td><td>\"on\"</td><td>\"off\"</td></tr>\n    <tr><td>Illumination Condition</td><td>night_color_low_light</td><td>night_ir_low_light</td></tr>\n    <tr><td>Lux Value</td><td>Record separately for each condition — take a fresh reading, don't reuse the other condition's value</td><td></td></tr>\n    <tr><td>Notes</td><td colspan=\"2\">Environment conditions (rainy, windy, etc.) and anything affecting the take (e.g. only one car available for a multi-vehicle scenario) — <strong>and any incorrect station start</strong>, see below</td></tr>\n  </tbody></table>\n  <div class=\"alert red\">\n    <strong>Sessions must start at Station 1 — not Station 0</strong>\n    Always start in Lakitu at Station 1, never Station 0. If a session is started incorrectly (e.g. at Station 0), <strong>alert the QA team immediately</strong> and document it in the scenario's Notes field. Both steps are required — a note alone is not enough.\n  </div>","badTakes":"<h2 class=\"section-title\" id=\"badTakes\">Handling bad takes (incorrect iterations)</h2>\n  <p class=\"lg-lead\">Leaving extra un-ignored iterations forces auditors to review every take to figure out which one was intended — always clean up before leaving the site.</p>\n  <div class=\"alert red\">\n    <strong>Be careful with Ignore Iteration</strong>\n    If you ignore a video that should <em>not</em> have been ignored, it invalidates the session. Use the timestamp to confirm you have the correct tile before clicking Ignore Iteration — when in doubt, don't guess, check with QA first.\n  </div>\n  <table>\n    <tbody><tr><th>Situation</th><th>Method</th></tr>\n    <tr><td>You just finished recording and know it was bad</td><td><strong>Clear and Record Again</strong> (before saving)</td></tr>\n    <tr><td>You realize mid-recording something is wrong</td><td>Stop the recording → Clear and Record Again</td></tr>\n    <tr><td>You already saved and moved on, then realize it was bad</td><td><strong>Ignore Iteration</strong> in Review Participant</td></tr>\n    <tr><td>You notice extra iterations at the end of a station</td><td>Ignore Iteration in Review Participant</td></tr>\n  </tbody></table>\n  <details>\n    <summary><span>How each method works</span><span class=\"arrow\">▸</span></summary>\n    <div class=\"details-body\">\n      <p><strong>Method 1 — Clear and Record Again (preferred):</strong> Press Stop Recording when you realize it's a bad take. A \"Clear and Record Again\" button appears in place of Stop Recording — click it. This removes the iteration entirely; nothing extra is saved.</p>\n      <p><strong>Method 2 — Ignore Iteration:</strong> On the group's page, click Review Participant. Find the tile of the bad iteration (use the timestamp — video previews likely won't load in the field). Click the 3-dot (⋮) menu on that tile → Ignore Iteration. <span class=\"tag red\">Do not</span> click \"Load Videos and Auto Select\" — it makes review harder for auditors.</p>\n      <p class=\"note lg-warn\">This action is not easily reversible — ignoring the wrong iteration invalidates the session. Double-check the timestamp before confirming.</p>\n    </div>\n  </details>\n  <table>\n    <tbody><tr><th>Scenario</th><th>Expected iterations per station</th></tr>\n    <tr><td>CAL_EXT (Checkerboard in Air)</td><td>2 (1 per rig)</td></tr>\n    <tr><td>CAL_GND (Checkerboard on Ground)</td><td>2 (1 per rig)</td></tr>\n    <tr><td>All other scenarios</td><td>1</td></tr>\n  </tbody></table>\n  <p class=\"lg-dim\">Note: Station 3 has 0 iterations for vehicle scenarios — no vehicles are recorded in the backyard.</p>","troubleshooting":"<h2 class=\"section-title\" id=\"troubleshooting\">Troubleshooting</h2>\n\n  <h3 class=\"sub-title\">Network / connectivity</h3>\n  <p class=\"lg-lead\">Target is ≥75 Mbps download. Below that causes slow/failed feeds or blurry footage — grainy video from poor connectivity is unusable data. If quality doesn't improve, cancel the session.</p>\n  <table>\n    <tbody><tr><th>Step</th><th>Action</th></tr>\n    <tr><td>1. Eero Bridge Mode</td><td>Eero app → your router → Settings → Advanced Networking → DHCP &amp; NAT → switch to Bridge. Let it restart, then once it says \"No Internet,\" unplug it, connect ethernet to the participant's router, plug Eero back in. (Skip if customer has the newest Xfinity router.)</td></tr>\n    <tr><td>2. Xfinity, no separate router</td><td>Follow the Participant Guide – Temporary WiFi Setup (Bridge Mode) SOP. Confirm the customer has a laptop available to hardwire back into their router.</td></tr>\n    <tr><td>3. Direct to home WiFi (last resort)</td><td>Ring app → location → 3-dot menu → Device Settings → Device Health → Change Network → select home WiFi (not the guest network). Confirm cameras show online.</td></tr>\n  </tbody></table>\n\n  <h3 class=\"sub-title\">App / recording issues</h3>\n  <table>\n    <tbody><tr><th>Issue</th><th>Fix</th></tr>\n    <tr><td>Stations/scenarios missing or incomplete</td><td>Confirm you're on Lakitu V4, not V3</td></tr>\n    <tr><td>Recording won't save / stuck uploading</td><td>Wait for the tick mark confirming upload before clicking Save Recording</td></tr>\n    <tr><td>Duplicate participant gets overwritten</td><td>Always include the date in the participant/vehicle name</td></tr>\n    <tr><td>Extra/incorrect iterations left over</td><td>Use Ignore Iteration in Review Participant (see above)</td></tr>\n    <tr><td>Session location reporting incorrectly</td><td>Turn off any VPN — it can misreport your location and flag the session</td></tr>\n  </tbody></table>\n\n  <h3 class=\"sub-title\">Lighting / camera mode (affects scenario metadata &amp; footage)</h3>\n  <table>\n    <tbody><tr><th>Issue</th><th>Fix</th></tr>\n    <tr><td>Devices stay in RGB during lights-off</td><td>Turn off more surrounding lights; if not controllable, proceed</td></tr>\n    <tr><td>Cameras on the Longfin rig stay in IR during lights-on</td><td>Set both floodlight/spotlight units to 100% brightness. Homeowner's exterior light source is fine to use. If still not switching to RGB, try flashing the cameras before recording.</td></tr>\n    <tr><td>Mixed IR/RGB across devices (not Scenario 16)</td><td>Minimize ambient light; if not controllable, proceed</td></tr>\n    <tr><td>Feed switches IR→RGB during Scenario 16 (headlights)</td><td>Expected — proceed with recording</td></tr>\n    <tr><td>Motion-activated lights trigger during lights-off</td><td>Disable motion-activated lights on all floodlight/spotlight devices via Ring app</td></tr>\n  </tbody></table>","faq":"<h2 class=\"section-title\" id=\"faq\">FAQ</h2>\n  <table>\n    <tbody><tr><th>Question</th><th>Answer</th></tr>\n    <tr><td>Do we add the Floodlight/Spotlight to Lakitu?</td><td>No — risks accidental selection during recording</td></tr>\n    <tr><td>How many devices for calibration vs. scenarios?</td><td>4 (1 rig) for calibration, 8 for scenarios</td></tr>\n    <tr><td>What if the station numbering looks off?</td><td>Fine — just note it in the scenario's Notes field</td></tr>\n    <tr><td>What if the Floodlight/Spotlight turns off between scenarios?</td><td>Battery preservation mode — switch to wired power</td></tr>\n    <tr><td>Do we need to re-calibrate for lights-off scenarios?</td><td>No — one calibration per physical station covers both lighting conditions</td></tr>\n  </tbody></table>\n\n  <footer class=\"bottom\">Project Twilight · Lakitu reference · Companion to the field guide — refer to the full SOP for complete detail.</footer>"};
+
+function lakituGuideEscapeAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function lakituGuideStripText(html) {
+  return String(html || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function lakituGuideSectionHasContent(html) {
+  const s = String(html || '');
+  if (/<img\b/i.test(s)) return true;
+  if (/<table\b/i.test(s)) return true;
+  return !!lakituGuideStripText(s);
+}
+
+function lakituGuideDataUrlBytes(src) {
+  const m = String(src || '').trim().match(/^data:image\/(?:png|jpeg|jpg|gif|webp);base64,([a-z0-9+/=\s]+)$/i);
+  if (!m) return -1;
+  const b64 = m[1].replace(/\s+/g, '');
+  if (!b64 || /[^a-z0-9+/=]/i.test(b64)) return -1;
+  const pad = b64.endsWith('==') ? 2 : (b64.endsWith('=') ? 1 : 0);
+  return Math.floor((b64.length * 3) / 4) - pad;
+}
+
+function lakituGuideUtf8Bytes(text) {
+  const s = String(text || '');
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s).length;
+  return unescape(encodeURIComponent(s)).length;
+}
+
+function lakituGuideSafeStyle(raw) {
+  const parts = [];
+  String(raw || '').split(';').forEach(chunk => {
+    const m = chunk.match(/^\s*([a-z-]+)\s*:\s*(.+)\s*$/i);
+    if (!m) return;
+    const prop = m[1].toLowerCase();
+    const val = m[2].trim();
+    if (prop === 'color') {
+      if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(val)
+        || /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i.test(val)) {
+        parts.push('color:' + val.replace(/\s+/g, ''));
+      }
+    } else if (prop === 'font-size') {
+      const fm = val.match(/^(\d{1,2}(?:\.\d+)?)px$/i);
+      if (fm) {
+        const n = Number(fm[1]);
+        if (n >= 10 && n <= 32) parts.push('font-size:' + n + 'px');
+      }
+    }
+  });
+  return parts.join(';');
+}
+
+function lakituGuideSafeHref(href) {
+  let h = String(href || '').trim().replace(/[\u0000-\u001f\s]+/g, '');
+  if (!h) return '';
+  const hash = h.match(/#([A-Za-z0-9_-]+)$/);
+  if (hash && LAKITU_GUIDE_HASH_IDS[hash[1].toLowerCase()]) {
+    const id = LAKITU_GUIDE_HASH_IDS[hash[1].toLowerCase()];
+    if (h.charAt(0) === '#' || /claude/i.test(h)) return '#' + id;
+  }
+  if (h.charAt(0) === '#') {
+    const id = LAKITU_GUIDE_HASH_IDS[h.slice(1).toLowerCase()];
+    return id ? '#' + id : '';
+  }
+  if (/^https:\/\//i.test(h) && !/[\s<>"']/.test(h) && !/^javascript:/i.test(h)) return h;
+  return '';
+}
+
+function lakituGuideFontSizePx(size) {
+  const map = { 1: '12px', 2: '13px', 3: '14.5px', 4: '16px', 5: '18px', 6: '20px', 7: '24px' };
+  const n = parseInt(size, 10);
+  return map[n] || '';
+}
+
+function lakituGuideRewriteFonts(html) {
+  let s = String(html || '');
+  let prev = '';
+  while (s !== prev) {
+    prev = s;
+    s = s.replace(/<font\b([^>]*)>([\s\S]*?)<\/font>/gi, (full, attrs, inner) => {
+      const attrSrc = String(attrs || '');
+      const colorAttr = attrSrc.match(/\bcolor\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const sizeAttr = attrSrc.match(/\bsize\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const styleAttr = attrSrc.match(/\bstyle\s*=\s*("([^"]*)"|'([^']*)')/i);
+      let style = '';
+      let color = '';
+      if (colorAttr) color = colorAttr[2] || colorAttr[3] || colorAttr[4] || '';
+      if (!color && styleAttr) {
+        const m = String(styleAttr[2] || styleAttr[3] || '').match(/color\s*:\s*([^;]+)/i);
+        if (m) color = m[1];
+      }
+      if (color && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color.trim())) {
+        style += 'color:' + color.trim();
+      }
+      const px = sizeAttr ? lakituGuideFontSizePx(sizeAttr[2] || sizeAttr[3] || sizeAttr[4] || '') : '';
+      if (px) style += (style ? ';' : '') + 'font-size:' + px;
+      if (styleAttr && !px) {
+        const extra = lakituGuideSafeStyle(styleAttr[2] || styleAttr[3] || '');
+        if (extra && extra.indexOf('font-size:') >= 0 && style.indexOf('font-size:') < 0) {
+          style += (style ? ';' : '') + extra;
+        }
+      }
+      const body = inner == null ? '' : inner;
+      return style ? '<span style="' + style + '">' + body + '</span>' : body;
+    });
+  }
+  return s;
+}
+
+function lakituGuideFilterAttrs(tag, attrs) {
+  const src = String(attrs || '');
+  let out = '';
+  const classM = src.match(/\bclass\s*=\s*("([^"]*)"|'([^']*)')/i);
+  if (classM) {
+    const allowed = String(classM[2] || classM[3] || '').split(/\s+/).filter(c => LAKITU_GUIDE_CLASS_RE.test(c));
+    if (allowed.length) out += ' class="' + allowed.join(' ') + '"';
+  }
+  const idM = src.match(/\bid\s*=\s*("([^"]*)"|'([^']*)')/i);
+  if (idM) {
+    const id = String(idM[2] || idM[3] || '');
+    if (LAKITU_GUIDE_HASH_IDS[id] === id || LAKITU_GUIDE_HASH_IDS[id.toLowerCase()] === id) out += ' id="' + id + '"';
+  }
+  const styleM = src.match(/\bstyle\s*=\s*("([^"]*)"|'([^']*)')/i);
+  if (styleM) {
+    const css = lakituGuideSafeStyle(styleM[2] || styleM[3] || '');
+    if (css) out += ' style="' + css + '"';
+  }
+  if (tag === 'a') {
+    const hrefM = src.match(/\bhref\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (hrefM) {
+      const href = lakituGuideSafeHref(hrefM[2] || hrefM[3] || '');
+      if (href) {
+        out += ' href="' + lakituGuideEscapeAttr(href) + '"';
+        if (/^https:\/\//i.test(href)) out += ' target="_blank" rel="noopener noreferrer"';
+      }
+    }
+  }
+  if (tag === 'img') {
+    const srcM = src.match(/\bsrc\s*=\s*("([^"]*)"|'([^']*)')/i);
+    const altM = src.match(/\balt\s*=\s*("([^"]*)"|'([^']*)')/i);
+    if (srcM) {
+      const url = String(srcM[2] || srcM[3] || '').trim();
+      const bytes = lakituGuideDataUrlBytes(url);
+      if (bytes >= 0 && bytes <= LAKITU_GUIDE_MAX_IMAGE_BYTES) {
+        out += ' src="' + lakituGuideEscapeAttr(url) + '"';
+        const alt = altM ? String(altM[2] || altM[3] || '').slice(0, 180) : '';
+        out += ' alt="' + lakituGuideEscapeAttr(alt) + '"';
+      }
+    }
+  }
+  if (tag === 'td' || tag === 'th') {
+    ['colspan', 'rowspan'].forEach(name => {
+      const m = src.match(new RegExp('\\b' + name + '\\s*=\\s*("(\\d+)"|\'(\\d+)\'|(\\d+))', 'i'));
+      if (!m) return;
+      const n = parseInt(m[2] || m[3] || m[4] || '', 10);
+      if (n >= 1 && n <= 12) out += ' ' + name + '="' + n + '"';
+    });
+  }
+  if (tag === 'details' && /\bopen(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/i.test(src)) out += ' open';
+  return out;
+}
+
+function sanitizeLakituGuideHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  s = s.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+  s = s.replace(/<(?:iframe|object|embed|link|meta|form|svg|math|button|input|textarea|select)\b[^>]*>[\s\S]*?<\/(?:iframe|object|embed|link|meta|form|svg|math|button|input|textarea|select)>/gi, '');
+  s = s.replace(/<(?:iframe|object|embed|link|meta|form|svg|math|script|style|button|input|textarea|select)\b[^>]*\/?>/gi, '');
+  s = lakituGuideRewriteFonts(s);
+  s = s.replace(/\bid\s*=\s*(["'])iterations\1/gi, 'id="badTakes"');
+  s = s.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)(\s[^<>]*?)?\s*\/?>/g, (full, tag, attrs) => {
+    const name = String(tag || '').toLowerCase();
+    if (!LAKITU_GUIDE_TAGS[name]) return '';
+    if (full.charAt(1) === '/') {
+      if (name === 'br' || name === 'img') return '';
+      return '</' + name + '>';
+    }
+    if (name === 'br') return '<br>';
+    const keep = lakituGuideFilterAttrs(name, attrs || '');
+    if (name === 'img') {
+      if (keep.indexOf(' src=') < 0) return '';
+      return '<img' + keep + '>';
+    }
+    return '<' + name + keep + '>';
+  });
+  return s;
+}
+
+function lakituGuideIsEmpty(guide) {
+  if (!guide || typeof guide !== 'object') return true;
+  const sections = guide.sectionsHtml || {};
+  for (let i = 0; i < LAKITU_GUIDE_NAV.length; i++) {
+    if (lakituGuideSectionHasContent(sections[LAKITU_GUIDE_NAV[i]])) return false;
+  }
+  return !lakituGuideSectionHasContent(guide.bodyHtml);
+}
+
+function cloneLakituGuideSections(src) {
+  const out = {};
+  LAKITU_GUIDE_NAV.forEach(key => {
+    let html = src && src[key] != null ? src[key] : '';
+    if (key === 'badTakes' && !html && src && src.iterations) html = src.iterations;
+    out[key] = sanitizeLakituGuideHtml(html || '');
+  });
+  return out;
+}
+
+function lakituGuideDefaults() {
+  return {
+    id: '',
+    schemaVersion: 1,
+    title: 'Project Twilight — Lakitu Guide',
+    publishedAt: '',
+    publishedBy: '',
+    updatedAt: '',
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: cloneLakituGuideSections(LAKITU_GUIDE_DEFAULT_SECTIONS),
+    bodyHtml: '',
+    previous: null,
+  };
+}
+
+const LAKITU_GUIDE_DEFAULTS = lakituGuideDefaults();
+
+function normalizeLakituGuide(raw) {
+  const src = raw && raw.guide && typeof raw.guide === 'object' ? raw.guide : raw;
+  if (!src || typeof src !== 'object') return null;
+  const sectionsHtml = cloneLakituGuideSections(src.sectionsHtml || src.sections || {});
+  const hasSections = LAKITU_GUIDE_NAV.some(key => lakituGuideSectionHasContent(sectionsHtml[key]));
+  const bodyHtml = hasSections ? '' : sanitizeLakituGuideHtml(src.bodyHtml || '');
+  if (!hasSections && !lakituGuideSectionHasContent(bodyHtml)) return null;
+  let previous = null;
+  if (src.previous && typeof src.previous === 'object') {
+    previous = normalizeLakituGuide(Object.assign({}, src.previous, { previous: null }));
+    if (previous) previous.previous = null;
+  }
+  return {
+    id: String(src.id || ''),
+    schemaVersion: 1,
+    title: String(src.title || 'Project Twilight — Lakitu Guide'),
+    publishedAt: String(src.publishedAt || ''),
+    publishedBy: String(src.publishedBy || ''),
+    updatedAt: String(src.updatedAt || src.publishedAt || ''),
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: sectionsHtml,
+    bodyHtml: bodyHtml,
+    previous: previous,
+  };
+}
+
+function preferNewerLakituGuide(existing, incoming) {
+  const a = normalizeLakituGuide(existing);
+  const b = normalizeLakituGuide(incoming);
+  if (!b || lakituGuideIsEmpty(b)) return (a && !lakituGuideIsEmpty(a)) ? a : null;
+  if (!a || lakituGuideIsEmpty(a)) return b;
+  const at = String(a.publishedAt || '');
+  const bt = String(b.publishedAt || '');
+  if (!bt) return a;
+  if (!at) return b;
+  return at > bt ? a : b;
+}
+
+function lakituGuideForView(published) {
+  return preferNewerLakituGuide(LAKITU_GUIDE_DEFAULTS, published) || lakituGuideDefaults();
+}
+
+function lakituGuideForEditor(published, draft) {
+  const d = normalizeLakituGuide(draft);
+  if (d && !lakituGuideIsEmpty(d)) return d;
+  return lakituGuideForView(published);
+}
+
+function lakituGuideNewId() {
+  const rand = Math.random().toString(36).slice(2, 8);
+  return 'LG-' + Date.now() + '-' + rand;
+}
+
+function lakituGuideSnapshotForPrevious(live) {
+  const n = normalizeLakituGuide(live);
+  if (!n || lakituGuideIsEmpty(n)) return null;
+  return {
+    id: n.id || '',
+    schemaVersion: 1,
+    title: n.title,
+    publishedAt: n.publishedAt || '',
+    publishedBy: n.publishedBy || '',
+    updatedAt: n.updatedAt || n.publishedAt || '',
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: n.sectionsHtml,
+    bodyHtml: n.bodyHtml || '',
+    previous: null,
+  };
+}
+
+function buildLakituGuideRecord(draft, adminName, livePublished) {
+  const normalized = normalizeLakituGuide(draft);
+  if (!normalized || lakituGuideIsEmpty(normalized)) return null;
+  const now = new Date().toISOString();
+  return {
+    id: lakituGuideNewId(),
+    schemaVersion: 1,
+    title: normalized.title || 'Project Twilight — Lakitu Guide',
+    publishedAt: now,
+    publishedBy: adminName || 'Admin',
+    updatedAt: now,
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: normalized.sectionsHtml,
+    bodyHtml: LAKITU_GUIDE_NAV.some(key => lakituGuideSectionHasContent(normalized.sectionsHtml[key]))
+      ? ''
+      : (normalized.bodyHtml || ''),
+    previous: lakituGuideSnapshotForPrevious(livePublished),
+  };
+}
+
+function buildLakituGuideUndoRecord(live, adminName) {
+  const current = normalizeLakituGuide(live);
+  if (!current || !current.previous || lakituGuideIsEmpty(current.previous)) return null;
+  const restored = lakituGuideSnapshotForPrevious(current.previous);
+  if (!restored) return null;
+  const now = new Date().toISOString();
+  restored.previous = lakituGuideSnapshotForPrevious(current);
+  restored.publishedAt = now;
+  restored.publishedBy = adminName || 'Admin';
+  restored.updatedAt = now;
+  restored.id = lakituGuideNewId();
+  return restored;
+}
+
+function buildLakituGuideAppSettingPayload(guide) {
+  return {
+    sessionStateId: LAKITU_GUIDE_SETTING_ID,
+    assignmentId: LAKITU_GUIDE_ASSIGNMENT_ID,
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify({ type: 'appSetting', key: 'lakituGuide', guide: guide || {} }),
+    lastActive: new Date().toISOString(),
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+    writeMode: 'upsert',
+  };
+}
+
+function lakituGuidePublishBlockReason(record) {
+  if (!record || lakituGuideIsEmpty(record)) return 'empty';
+  let payload;
+  try { payload = buildLakituGuideAppSettingPayload(record); }
+  catch (e) { return 'empty'; }
+  if (!payload || lakituGuideUtf8Bytes(payload.stateJson) > LAKITU_GUIDE_MAX_STATE_BYTES) return 'tooLarge';
+  return '';
+}
+
+function collectLakituGuideFromSessionRows(rows) {
+  let best = null;
+  if (!Array.isArray(rows)) return null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row) continue;
+    const id = String(row.sessionStateId || row.assignmentId || '');
+    let parsed = row.stateJson;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch (e) { parsed = null; }
+    }
+    const keyOk = !!(parsed && parsed.type === 'appSetting' && parsed.key === 'lakituGuide');
+    const idOk = id === LAKITU_GUIDE_SETTING_ID || id === LAKITU_GUIDE_ASSIGNMENT_ID;
+    if (!keyOk && !idOk) continue;
+    if (parsed && parsed.key && parsed.key !== 'lakituGuide') continue;
+    const next = normalizeLakituGuide(parsed && parsed.guide ? parsed : (parsed || {}));
+    if (!next || lakituGuideIsEmpty(next)) continue;
+    if (!best || String(next.publishedAt || '') > String(best.publishedAt || '')) best = next;
+  }
+  return best;
+}
+
+function renderLakituGuideViewHtml(guide) {
+  const g = normalizeLakituGuide(guide) || lakituGuideDefaults();
+  const has = LAKITU_GUIDE_NAV.some(key => lakituGuideSectionHasContent(g.sectionsHtml[key]));
+  const inner = has
+    ? LAKITU_GUIDE_NAV.map(key => g.sectionsHtml[key] || '').join('\n')
+    : (g.bodyHtml || '');
+  return '<div class="wrap">' + inner + '</div>';
+}
+
+function renderLakituGuideEditorHtml(guide) {
+  const g = normalizeLakituGuide(guide) || lakituGuideDefaults();
+  const has = LAKITU_GUIDE_NAV.some(key => lakituGuideSectionHasContent(g.sectionsHtml[key]));
+  const blocks = LAKITU_GUIDE_NAV.map(key => {
+    const html = has ? (g.sectionsHtml[key] || '') : (key === 'steps' ? (g.bodyHtml || '') : '');
+    return '<div class="lg-edit-block" data-lg-section="' + key + '" contenteditable="true">' + html + '</div>';
+  }).join('');
+  return '<div class="wrap">' + blocks + '</div>';
+}
+
+function renderLakituGuideNavHtml() {
+  return LAKITU_GUIDE_NAV.map(key => {
+    const label = LAKITU_GUIDE_NAV_LABELS[key] || key;
+    return '<a class="lakitu-guide-pill" href="#' + key + '">' + label + '</a>';
+  }).join('');
+}
+
+function collectLakituGuideEditorDraft(root) {
+  if (!root || typeof root.querySelector !== 'function') return null;
+  const sectionsHtml = {};
+  LAKITU_GUIDE_NAV.forEach(key => {
+    const el = root.querySelector('[data-lg-section="' + key + '"]');
+    sectionsHtml[key] = el ? String(el.innerHTML || '') : '';
+  });
+  return {
+    schemaVersion: 1,
+    title: 'Project Twilight — Lakitu Guide',
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: sectionsHtml,
+    bodyHtml: '',
+  };
+}
+
+function readLakituGuideDraft(storage) {
+  if (!storage || typeof storage.getItem !== 'function') return null;
+  let raw = '';
+  try { raw = storage.getItem(LAKITU_GUIDE_DRAFT_KEY) || ''; } catch (e) { return null; }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const guide = normalizeLakituGuide(parsed && parsed.guide ? parsed.guide : parsed);
+    if (!guide || lakituGuideIsEmpty(guide)) return null;
+    return guide;
+  } catch (e) { return null; }
+}
+
+function serializeLakituGuideDraft(guide) {
+  const n = normalizeLakituGuide(guide);
+  if (!n || lakituGuideIsEmpty(n)) return '';
+  return JSON.stringify({
+    savedAt: new Date().toISOString(),
+    schemaVersion: 1,
+    title: n.title,
+    nav: LAKITU_GUIDE_NAV.slice(),
+    sectionsHtml: n.sectionsHtml,
+    bodyHtml: n.bodyHtml || '',
+  });
+}
+
+(function exportLakituGuideHelpers(g) {
+  if (!g) return;
+  g.LAKITU_GUIDE_SETTING_ID = LAKITU_GUIDE_SETTING_ID;
+  g.LAKITU_GUIDE_ASSIGNMENT_ID = LAKITU_GUIDE_ASSIGNMENT_ID;
+  g.LAKITU_GUIDE_DRAFT_KEY = LAKITU_GUIDE_DRAFT_KEY;
+  g.LAKITU_GUIDE_MAX_IMAGE_BYTES = LAKITU_GUIDE_MAX_IMAGE_BYTES;
+  g.LAKITU_GUIDE_MAX_STATE_BYTES = LAKITU_GUIDE_MAX_STATE_BYTES;
+  g.LAKITU_GUIDE_NAV = LAKITU_GUIDE_NAV;
+  g.LAKITU_GUIDE_DEFAULTS = LAKITU_GUIDE_DEFAULTS;
+  g.lakituGuideDefaults = lakituGuideDefaults;
+  g.sanitizeLakituGuideHtml = sanitizeLakituGuideHtml;
+  g.normalizeLakituGuide = normalizeLakituGuide;
+  g.preferNewerLakituGuide = preferNewerLakituGuide;
+  g.lakituGuideForView = lakituGuideForView;
+  g.lakituGuideForEditor = lakituGuideForEditor;
+  g.lakituGuideIsEmpty = lakituGuideIsEmpty;
+  g.buildLakituGuideRecord = buildLakituGuideRecord;
+  g.buildLakituGuideUndoRecord = buildLakituGuideUndoRecord;
+  g.buildLakituGuideAppSettingPayload = buildLakituGuideAppSettingPayload;
+  g.lakituGuidePublishBlockReason = lakituGuidePublishBlockReason;
+  g.collectLakituGuideFromSessionRows = collectLakituGuideFromSessionRows;
+  g.renderLakituGuideViewHtml = renderLakituGuideViewHtml;
+  g.renderLakituGuideEditorHtml = renderLakituGuideEditorHtml;
+  g.renderLakituGuideNavHtml = renderLakituGuideNavHtml;
+  g.collectLakituGuideEditorDraft = collectLakituGuideEditorDraft;
+  g.readLakituGuideDraft = readLakituGuideDraft;
+  g.serializeLakituGuideDraft = serializeLakituGuideDraft;
+  g.lakituGuideSafeHref = lakituGuideSafeHref;
+  g.lakituGuideDataUrlBytes = lakituGuideDataUrlBytes;
+})(typeof globalThis !== 'undefined' ? globalThis : this);
+/* LAKITU_GUIDE_END */
+
+let _publishedLakituGuide = null;
+let _lakituGuideEditing = false;
+let _lakituGuideUndoStack = [];
+let _lakituGuideUndoLock = false;
+let _lakituGuideDraftTimer = 0;
+let _lakituGuideOpenGen = 0;
+
+function ingestLakituGuideFromSessionRows(rows) {
+  const incoming = collectLakituGuideFromSessionRows(rows);
+  _publishedLakituGuide = preferNewerLakituGuide(_publishedLakituGuide, incoming);
+  const drawer = document.getElementById('lakituGuideDrawer');
+  if (drawer && drawer.classList.contains('open') && !_lakituGuideEditing) paintLakituGuide();
+  return _publishedLakituGuide;
+}
+
+function lakituGuideAdminCanEdit() {
+  return typeof isAdminSession === 'function' && isAdminSession();
+}
+
+function lakituGuideShowError(text) {
+  const err = document.getElementById('lakituGuideError');
+  if (!err) return;
+  err.textContent = text || '';
+  err.hidden = !text;
+}
+
+function syncLakituGuideTriggers() {
+  const drawer = document.getElementById('lakituGuideDrawer');
+  const open = !!(drawer && drawer.classList.contains('open'));
+  ['navLakituGuideBtn', 'adminLakituGuideBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.setAttribute('aria-label', open ? 'Close Lakitu guide' : 'Open Lakitu guide');
+  });
+}
+
+function syncLakituGuideAdminActions() {
+  const admin = lakituGuideAdminCanEdit();
+  if (!admin && _lakituGuideEditing) {
+    _lakituGuideEditing = false;
+    _lakituGuideUndoStack = [];
+  }
+  const editing = !!(admin && _lakituGuideEditing);
+  const edit = document.getElementById('lakituGuideEditBtn');
+  const pub = document.getElementById('lakituGuidePublishBtn');
+  const undoP = document.getElementById('lakituGuideUndoPublishBtn');
+  const bar = document.getElementById('lakituGuideToolbar');
+  if (edit) {
+    edit.hidden = !admin;
+    edit.textContent = editing ? 'Done' : 'Edit';
+    edit.setAttribute('aria-pressed', editing ? 'true' : 'false');
+  }
+  if (pub) {
+    pub.hidden = !admin;
+    pub.disabled = !editing;
+  }
+  const hasPrev = !!(_publishedLakituGuide && _publishedLakituGuide.previous
+    && !lakituGuideIsEmpty(_publishedLakituGuide.previous));
+  if (undoP) undoP.hidden = !admin || !hasPrev;
+  if (bar) bar.hidden = !editing;
+}
+
+function paintLakituGuide(guide) {
+  const root = document.getElementById('lakituGuideRoot');
+  const nav = document.getElementById('lakituGuideNav');
+  if (nav) nav.innerHTML = renderLakituGuideNavHtml();
+  if (!root) return;
+  const view = guide || (_lakituGuideEditing
+    ? lakituGuideForEditor(_publishedLakituGuide, readLakituGuideDraft(lakituGuideStorage()))
+    : lakituGuideForView(_publishedLakituGuide));
+  root.innerHTML = _lakituGuideEditing
+    ? renderLakituGuideEditorHtml(view)
+    : renderLakituGuideViewHtml(view);
+  syncLakituGuideAdminActions();
+}
+
+function lakituGuideStorage() {
+  try { return window.localStorage; } catch (e) { return null; }
+}
+
+function lakituGuideSaveDraftFromEditor() {
+  if (!_lakituGuideEditing || !lakituGuideAdminCanEdit()) return;
+  const root = document.getElementById('lakituGuideRoot');
+  const draft = collectLakituGuideEditorDraft(root);
+  const storage = lakituGuideStorage();
+  if (!draft || !storage) return;
+  const raw = serializeLakituGuideDraft(draft);
+  try {
+    if (raw) storage.setItem(LAKITU_GUIDE_DRAFT_KEY, raw);
+  } catch (e) {}
+}
+
+function lakituGuideScheduleDraft() {
+  clearTimeout(_lakituGuideDraftTimer);
+  _lakituGuideDraftTimer = setTimeout(lakituGuideSaveDraftFromEditor, 250);
+}
+
+function lakituGuidePushUndo() {
+  if (_lakituGuideUndoLock || !_lakituGuideEditing) return;
+  const root = document.getElementById('lakituGuideRoot');
+  const draft = collectLakituGuideEditorDraft(root);
+  if (!draft) return;
+  const snap = JSON.stringify(draft.sectionsHtml);
+  if (_lakituGuideUndoStack.length && _lakituGuideUndoStack[_lakituGuideUndoStack.length - 1] === snap) return;
+  _lakituGuideUndoStack.push(snap);
+  if (_lakituGuideUndoStack.length > 30) _lakituGuideUndoStack.shift();
+}
+
+function lakituGuideRestoreUndo(snap) {
+  const sections = JSON.parse(snap);
+  const root = document.getElementById('lakituGuideRoot');
+  if (!root) return;
+  LAKITU_GUIDE_NAV.forEach(key => {
+    const el = root.querySelector('[data-lg-section="' + key + '"]');
+    if (el) el.innerHTML = sanitizeLakituGuideHtml(sections[key] || '');
+  });
+}
+
+function lakituGuideUndoEdit() {
+  if (_lakituGuideUndoStack.length < 2) {
+    if (typeof toast === 'function') toast('Nothing to undo');
+    return;
+  }
+  _lakituGuideUndoStack.pop();
+  const snap = _lakituGuideUndoStack[_lakituGuideUndoStack.length - 1];
+  _lakituGuideUndoLock = true;
+  try { lakituGuideRestoreUndo(snap); } catch (e) {}
+  _lakituGuideUndoLock = false;
+  lakituGuideSaveDraftFromEditor();
+}
+
+function lakituGuideSelectionInEditor() {
+  const root = document.getElementById('lakituGuideRoot');
+  const sel = window.getSelection && window.getSelection();
+  if (!root || !sel || !sel.rangeCount || !sel.anchorNode) return null;
+  if (!root.contains(sel.anchorNode)) return null;
+  return sel;
+}
+
+function lakituGuideApplyInlineStyle(style) {
+  const sel = lakituGuideSelectionInEditor();
+  if (!sel || sel.isCollapsed) {
+    if (typeof toast === 'function') toast('Select some text first');
+    return;
+  }
+  lakituGuidePushUndo();
+  const range = sel.getRangeAt(0);
+  const span = document.createElement('span');
+  span.setAttribute('style', style);
+  try {
+    range.surroundContents(span);
+  } catch (e) {
+    const frag = range.extractContents();
+    span.appendChild(frag);
+    range.insertNode(span);
+  }
+  lakituGuidePushUndo();
+  lakituGuideSaveDraftFromEditor();
+}
+
+function lakituGuideInsertHtml(html) {
+  const root = document.getElementById('lakituGuideRoot');
+  if (!root) return;
+  lakituGuidePushUndo();
+  const sel = lakituGuideSelectionInEditor();
+  const clean = sanitizeLakituGuideHtml(html);
+  if (!clean) return;
+  if (sel && sel.rangeCount) {
+    const range = sel.getRangeAt(0);
+    range.deleteContents();
+    const holder = document.createElement('div');
+    holder.innerHTML = clean;
+    const frag = document.createDocumentFragment();
+    while (holder.firstChild) frag.appendChild(holder.firstChild);
+    range.insertNode(frag);
+  } else {
+    const block = root.querySelector('[data-lg-section="steps"]') || root;
+    block.insertAdjacentHTML('beforeend', clean);
+  }
+  lakituGuidePushUndo();
+  lakituGuideSaveDraftFromEditor();
+}
+
+function lakituGuideRemoveTable() {
+  const sel = lakituGuideSelectionInEditor();
+  if (!sel) {
+    if (typeof toast === 'function') toast('Click inside a table first');
+    return;
+  }
+  let node = sel.anchorNode;
+  if (node && node.nodeType === 3) node = node.parentNode;
+  const table = node && node.closest ? node.closest('table') : null;
+  if (!table) {
+    if (typeof toast === 'function') toast('Click inside a table first');
+    return;
+  }
+  lakituGuidePushUndo();
+  table.remove();
+  lakituGuidePushUndo();
+  lakituGuideSaveDraftFromEditor();
+}
+
+function lakituGuideInsertImageFile(file) {
+  if (!file) return;
+  const type = String(file.type || '').toLowerCase();
+  if (!/^image\/(png|jpeg|jpg|gif|webp)$/.test(type)) {
+    if (typeof toast === 'function') toast('Use a PNG, JPEG, GIF, or WebP image');
+    return;
+  }
+  if (file.size > LAKITU_GUIDE_MAX_IMAGE_BYTES) {
+    if (typeof toast === 'function') toast('That image is too large. Use one under 80 KB.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const url = String(reader.result || '');
+    const bytes = lakituGuideDataUrlBytes(url);
+    if (bytes < 0 || bytes > LAKITU_GUIDE_MAX_IMAGE_BYTES) {
+      if (typeof toast === 'function') toast('That image is too large. Use one under 80 KB.');
+      return;
+    }
+    lakituGuideInsertHtml('<img src="' + lakituGuideEscapeAttr(url) + '" alt="">');
+  };
+  reader.readAsDataURL(file);
+}
+
+function lakituGuideOnPaste(e) {
+  if (!_lakituGuideEditing) return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  const files = cd.files;
+  if (files && files.length && /^image\//.test(files[0].type || '')) {
+    e.preventDefault();
+    lakituGuideInsertImageFile(files[0]);
+    return;
+  }
+  const html = cd.getData('text/html');
+  const text = cd.getData('text/plain');
+  if (!html && !text) return;
+  e.preventDefault();
+  if (html) lakituGuideInsertHtml(html);
+  else lakituGuideInsertHtml('<p>' + lakituGuideEscapeAttr(text).replace(/\n/g, '<br>') + '</p>');
+}
+
+function scrollLakituGuideTo(id) {
+  const body = document.getElementById('lakituGuideBody');
+  const root = document.getElementById('lakituGuideRoot');
+  if (!body || !root) return;
+  const key = LAKITU_GUIDE_HASH_IDS[String(id || '').toLowerCase()] || id;
+  const el = root.querySelector('[id="' + key + '"]');
+  if (!el) return;
+  const nav = document.getElementById('lakituGuideNav');
+  const navH = nav ? nav.offsetHeight : 0;
+  const top = el.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop - navH - 8;
+  body.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  if (nav) {
+    nav.querySelectorAll('.lakitu-guide-pill').forEach(a => {
+      a.classList.toggle('is-active', a.getAttribute('href') === '#' + key);
+    });
+  }
+}
+
+function syncLakituGuideNavSpy() {
+  const body = document.getElementById('lakituGuideBody');
+  const root = document.getElementById('lakituGuideRoot');
+  const nav = document.getElementById('lakituGuideNav');
+  if (!body || !root || !nav) return;
+  const navH = nav.offsetHeight || 0;
+  let current = LAKITU_GUIDE_NAV[0];
+  LAKITU_GUIDE_NAV.forEach(id => {
+    const el = root.querySelector('[id="' + id + '"]');
+    if (!el) return;
+    const top = el.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    if (top - navH - 24 <= 0) current = id;
+  });
+  nav.querySelectorAll('.lakitu-guide-pill').forEach(a => {
+    a.classList.toggle('is-active', a.getAttribute('href') === '#' + current);
+  });
+}
+
+function setLakituGuideEditing(on) {
+  if (on && !lakituGuideAdminCanEdit()) return;
+  if (!on && _lakituGuideEditing) lakituGuideSaveDraftFromEditor();
+  _lakituGuideEditing = !!on;
+  _lakituGuideUndoStack = [];
+  lakituGuideShowError('');
+  if (_lakituGuideEditing) {
+    const guide = lakituGuideForEditor(_publishedLakituGuide, readLakituGuideDraft(lakituGuideStorage()));
+    paintLakituGuide(guide);
+    lakituGuidePushUndo();
+    const body = document.getElementById('lakituGuideBody');
+    if (body) body.scrollTop = 0;
+  } else {
+    paintLakituGuide();
+  }
+}
+
+async function publishLakituGuideFromEditor() {
+  if (!lakituGuideAdminCanEdit()) return;
+  const root = document.getElementById('lakituGuideRoot');
+  const draft = _lakituGuideEditing ? collectLakituGuideEditorDraft(root) : null;
+  if (!draft) {
+    lakituGuideShowError('Tap Edit before publishing.');
+    return;
+  }
+  const name = (typeof state !== 'undefined' && state && state.username) || 'Admin-Twilight';
+  const record = buildLakituGuideRecord(draft, name, _publishedLakituGuide);
+  const reason = lakituGuidePublishBlockReason(record);
+  if (reason === 'empty') {
+    lakituGuideShowError('Add some guide text before publishing.');
+    return;
+  }
+  if (reason === 'tooLarge') {
+    lakituGuideShowError('This guide is too large to publish. Remove an image and try again.');
+    if (typeof toast === 'function') toast('Guide is too large to publish. Remove an image and try again.');
+    return;
+  }
+  const pub = document.getElementById('lakituGuidePublishBtn');
+  if (pub) { pub.disabled = true; pub.textContent = 'Publishing…'; }
+  const payload = buildLakituGuideAppSettingPayload(record);
+  let result = { ok: false, reason: 'notconfigured' };
+  if (typeof persistFeedbackSetting === 'function') result = await persistFeedbackSetting(payload);
+  if (pub) { pub.disabled = false; pub.textContent = 'Publish'; }
+  if (!result || !result.ok) {
+    lakituGuideShowError(result && result.reason === 'notconfigured'
+      ? 'Cloud save is not set up yet. The built-in guide stays up until publish works.'
+      : 'Could not publish. Try again.');
+    return;
+  }
+  _publishedLakituGuide = record;
+  _lakituGuideEditing = false;
+  _lakituGuideUndoStack = [];
+  try {
+    const storage = lakituGuideStorage();
+    if (storage) storage.removeItem(LAKITU_GUIDE_DRAFT_KEY);
+  } catch (e) {}
+  lakituGuideShowError('');
+  paintLakituGuide();
+  if (typeof toast === 'function') toast('Lakitu guide published');
+}
+
+async function undoPublishLakituGuide() {
+  if (!lakituGuideAdminCanEdit()) return;
+  if (!_publishedLakituGuide || !_publishedLakituGuide.previous) {
+    if (typeof toast === 'function') toast('No earlier published guide to bring back');
+    return;
+  }
+  if (typeof window.confirm === 'function'
+    && !window.confirm('Bring back the previously published Lakitu guide?')) return;
+  const name = (typeof state !== 'undefined' && state && state.username) || 'Admin-Twilight';
+  const record = buildLakituGuideUndoRecord(_publishedLakituGuide, name);
+  const reason = lakituGuidePublishBlockReason(record);
+  if (reason) {
+    lakituGuideShowError('Could not bring back the previous guide.');
+    return;
+  }
+  const btn = document.getElementById('lakituGuideUndoPublishBtn');
+  if (btn) btn.disabled = true;
+  const payload = buildLakituGuideAppSettingPayload(record);
+  let result = { ok: false, reason: 'notconfigured' };
+  if (typeof persistFeedbackSetting === 'function') result = await persistFeedbackSetting(payload);
+  if (btn) btn.disabled = false;
+  if (!result || !result.ok) {
+    lakituGuideShowError('Could not bring back the previous guide. Try again.');
+    return;
+  }
+  _publishedLakituGuide = record;
+  _lakituGuideEditing = false;
+  _lakituGuideUndoStack = [];
+  try {
+    const storage = lakituGuideStorage();
+    if (storage) storage.removeItem(LAKITU_GUIDE_DRAFT_KEY);
+  } catch (e) {}
+  lakituGuideShowError('');
+  paintLakituGuide();
+  if (typeof toast === 'function') toast('Brought back the previous Lakitu guide');
+}
+
+function isLakituGuideOpen() {
+  const drawer = document.getElementById('lakituGuideDrawer');
+  return !!(drawer && drawer.classList.contains('open'));
+}
+
+function openLakituGuideDrawer() {
+  const overlay = document.getElementById('lakituGuideOverlay');
+  const drawer = document.getElementById('lakituGuideDrawer');
+  if (!overlay || !drawer) return;
+  const gen = ++_lakituGuideOpenGen;
+  if (typeof closeCalGuideModal === 'function') closeCalGuideModal();
+  if (typeof closeApprovalGuideSlide === 'function') closeApprovalGuideSlide();
+  if (typeof closeMenu === 'function') closeMenu();
+  _lakituGuideEditing = false;
+  _lakituGuideUndoStack = [];
+  syncLakituGuideAdminActions();
+  lakituGuideShowError('');
+  paintLakituGuide();
+  overlay.hidden = false;
+  drawer.hidden = false;
+  if (!drawer._escHandler) {
+    drawer._escHandler = e => {
+      if (e.key === 'Escape' && isLakituGuideOpen()) closeLakituGuideDrawer();
+    };
+  }
+  document.addEventListener('keydown', drawer._escHandler);
+  const body = document.getElementById('lakituGuideBody');
+  if (body && !body._lgScroll) {
+    body._lgScroll = true;
+    body.addEventListener('scroll', syncLakituGuideNavSpy, { passive: true });
+  }
+  requestAnimationFrame(() => {
+    if (gen !== _lakituGuideOpenGen) return;
+    overlay.classList.add('open');
+    drawer.classList.add('open');
+    syncLakituGuideTriggers();
+    const closeBtn = document.getElementById('lakituGuideClose');
+    if (closeBtn) closeBtn.focus();
+    if (body) body.scrollTop = 0;
+    syncLakituGuideNavSpy();
+  });
+  if (typeof fetchSessionStateRows === 'function') {
+    fetchSessionStateRows().then(rows => {
+      if (!Array.isArray(rows)) return;
+      ingestLakituGuideFromSessionRows(rows);
+    }).catch(() => {});
+  }
+}
+
+function closeLakituGuideDrawer() {
+  const overlay = document.getElementById('lakituGuideOverlay');
+  const drawer = document.getElementById('lakituGuideDrawer');
+  if (!overlay || !drawer) return;
+  _lakituGuideOpenGen++;
+  if (!drawer.classList.contains('open') && drawer.hidden) return;
+  if (_lakituGuideEditing) lakituGuideSaveDraftFromEditor();
+  _lakituGuideEditing = false;
+  _lakituGuideUndoStack = [];
+  overlay.classList.remove('open');
+  drawer.classList.remove('open');
+  if (drawer._escHandler) document.removeEventListener('keydown', drawer._escHandler);
+  syncLakituGuideTriggers();
+  syncLakituGuideAdminActions();
+  window.setTimeout(() => {
+    if (drawer.classList.contains('open')) return;
+    overlay.hidden = true;
+    drawer.hidden = true;
+  }, 360);
+}
+
+function toggleLakituGuideDrawer() {
+  if (isLakituGuideOpen()) closeLakituGuideDrawer();
+  else openLakituGuideDrawer();
+}
+
+function wireLakituGuideDrawer() {
+  ['navLakituGuideBtn', 'adminLakituGuideBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (!btn || btn._lakituGuideWired) return;
+    btn._lakituGuideWired = true;
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      toggleLakituGuideDrawer();
+    });
+  });
+  const overlay = document.getElementById('lakituGuideOverlay');
+  if (overlay && !overlay._lakituGuideWired) {
+    overlay._lakituGuideWired = true;
+    overlay.addEventListener('click', () => closeLakituGuideDrawer());
+  }
+  const closeBtn = document.getElementById('lakituGuideClose');
+  if (closeBtn && !closeBtn._lakituGuideWired) {
+    closeBtn._lakituGuideWired = true;
+    closeBtn.addEventListener('click', () => closeLakituGuideDrawer());
+  }
+  const editBtn = document.getElementById('lakituGuideEditBtn');
+  if (editBtn && !editBtn._lakituGuideWired) {
+    editBtn._lakituGuideWired = true;
+    editBtn.addEventListener('click', () => setLakituGuideEditing(!_lakituGuideEditing));
+  }
+  const pubBtn = document.getElementById('lakituGuidePublishBtn');
+  if (pubBtn && !pubBtn._lakituGuideWired) {
+    pubBtn._lakituGuideWired = true;
+    pubBtn.addEventListener('click', () => { publishLakituGuideFromEditor(); });
+  }
+  const undoPub = document.getElementById('lakituGuideUndoPublishBtn');
+  if (undoPub && !undoPub._lakituGuideWired) {
+    undoPub._lakituGuideWired = true;
+    undoPub.addEventListener('click', () => { undoPublishLakituGuide(); });
+  }
+  const undoBtn = document.getElementById('lakituGuideUndoBtn');
+  if (undoBtn && !undoBtn._lakituGuideWired) {
+    undoBtn._lakituGuideWired = true;
+    undoBtn.addEventListener('click', () => lakituGuideUndoEdit());
+  }
+  const boldBtn = document.getElementById('lakituGuideBold');
+  if (boldBtn && !boldBtn._lakituGuideWired) {
+    boldBtn._lakituGuideWired = true;
+    boldBtn.addEventListener('click', () => {
+      const sel = lakituGuideSelectionInEditor();
+      if (!sel || sel.isCollapsed) {
+        if (typeof toast === 'function') toast('Select some text first');
+        return;
+      }
+      lakituGuidePushUndo();
+      document.execCommand('bold');
+      lakituGuidePushUndo();
+      lakituGuideSaveDraftFromEditor();
+    });
+  }
+  const color = document.getElementById('lakituGuideColor');
+  if (color && !color._lakituGuideWired) {
+    color._lakituGuideWired = true;
+    color.addEventListener('change', () => {
+      const hex = String(color.value || '');
+      if (!/^#[0-9a-f]{6}$/i.test(hex)) return;
+      lakituGuideApplyInlineStyle('color:' + hex);
+    });
+  }
+  const size = document.getElementById('lakituGuideFontSize');
+  if (size && !size._lakituGuideWired) {
+    size._lakituGuideWired = true;
+    size.addEventListener('change', () => {
+      lakituGuideApplyInlineStyle('font-size:' + size.value);
+    });
+  }
+  const addTable = document.getElementById('lakituGuideTableAdd');
+  if (addTable && !addTable._lakituGuideWired) {
+    addTable._lakituGuideWired = true;
+    addTable.addEventListener('click', () => {
+      lakituGuideInsertHtml('<table><tbody><tr><th>Column</th><th>Column</th></tr><tr><td> </td><td> </td></tr><tr><td> </td><td> </td></tr></tbody></table>');
+    });
+  }
+  const removeTable = document.getElementById('lakituGuideTableRemove');
+  if (removeTable && !removeTable._lakituGuideWired) {
+    removeTable._lakituGuideWired = true;
+    removeTable.addEventListener('click', () => lakituGuideRemoveTable());
+  }
+  const imageBtn = document.getElementById('lakituGuideImageBtn');
+  const imageInput = document.getElementById('lakituGuideImageInput');
+  if (imageBtn && imageInput && !imageBtn._lakituGuideWired) {
+    imageBtn._lakituGuideWired = true;
+    imageBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files && imageInput.files[0];
+      imageInput.value = '';
+      lakituGuideInsertImageFile(file);
+    });
+  }
+  const drawer = document.getElementById('lakituGuideDrawer');
+  if (drawer && !drawer._lakituGuideClick) {
+    drawer._lakituGuideClick = true;
+    drawer.addEventListener('click', e => {
+      const a = e.target && e.target.closest ? e.target.closest('a[href^="#"]') : null;
+      if (!a || !drawer.contains(a)) return;
+      const href = a.getAttribute('href') || '';
+      if (href.charAt(0) !== '#') return;
+      e.preventDefault();
+      scrollLakituGuideTo(href.slice(1));
+    });
+    drawer.addEventListener('paste', lakituGuideOnPaste);
+    drawer.addEventListener('input', e => {
+      if (!_lakituGuideEditing) return;
+      if (e.target && e.target.closest && e.target.closest('#lakituGuideToolbar')) return;
+      lakituGuidePushUndo();
+      lakituGuideScheduleDraft();
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof wireLakituGuideDrawer === 'function') wireLakituGuideDrawer();
+});
+
+
 /* SCENARIO_CATALOG_BEGIN */
 /* =====================================================================
    ADMIN CHECKLIST · Stations & scenarios catalog
@@ -48477,6 +49580,8 @@ async function submitCalGuideFromEditor() {
 
 function openCalGuideModal(opts) {
   opts = opts || {};
+  if (typeof closeLakituGuideDrawer === 'function') closeLakituGuideDrawer();
+  if (typeof closeApprovalGuideSlide === 'function') closeApprovalGuideSlide();
   buildCalGuideModal();
   const overlay = document.getElementById('calGuideOverlay');
   const modal = document.getElementById('calGuideModal');
@@ -56077,6 +57182,7 @@ function setupNavRails() {
     { rail:'opRail', bottomBar:'opBottomBar', themeBtn:'navThemeBtnOp',
       items:[
         { id:'navCalGuideBtn', desktop:'opRailActions' },
+        { id:'navLakituGuideBtn', desktop:'opRailActions' },
         { id:'navRefreshBtn',  desktop:'opRailActions' },
         { id:'navSwitchAppBtn', desktop:'opRailActions' },
         { id:'navThemeBtnOp',  desktop:'opRailBottom'  },
@@ -56086,6 +57192,7 @@ function setupNavRails() {
       items:[
         { id:'adminBookingBtn', desktop:'adminRailBooking' },
         { id:'adminApprovalGuideBtn', desktop:'adminRailActions' },
+        { id:'adminLakituGuideBtn', desktop:'adminRailActions' },
         { id:'adminNavRefreshBtn', desktop:'adminRailActions' },
         { id:'adminNavSwitchAppBtn', desktop:'adminRailActions' },
         { id:'navThemeBtnAdmin',   desktop:'adminRailBottom'  },
@@ -56108,6 +57215,7 @@ function setupNavRails() {
     }
   });
   if (typeof wireApprovalGuideSlide === 'function') wireApprovalGuideSlide();
+  if (typeof wireLakituGuideDrawer === 'function') wireLakituGuideDrawer();
   if (typeof wireBookingPage === 'function') wireBookingPage();
 
   const apply = () => {
