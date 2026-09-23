@@ -13,7 +13,7 @@
 - Reviewer and moderator locks are unchanged.
 - Version **1.3.091822d**. Selftest: `scripts/admin-scenario-edit-gate-selftest.js`.
 
-**PR:** [#162](https://github.com/DK-Centific/Twilight-Tracker/pull/162) draft on `cursor/admin-scenario-edit-gate-9819` — do **not** merge until David types **push**.
+**PR:** [#162](https://github.com/DK-Centific/Twilight-Tracker/pull/162) ready for review on `cursor/admin-scenario-edit-gate-9819`. David said **once done, push** (2026-09-23). Watchdog squash-merges. Do not merge from this agent.
 
 **Verify (David):** Hard refresh → **1.3.091822d**. Admin → Switch. Open a station that still needs reviewer approval. Scenarios after scenario 3 show an Edit pencil you can tap. A moderator on that same station still cannot edit or move ahead until approval.
 
