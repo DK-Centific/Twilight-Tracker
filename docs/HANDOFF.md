@@ -1,24 +1,36 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-24 · Grok · Moderator Cancel session AHP fold (1.3.091824e)
+
+## 2026-09-24 · Moderator Cancel session, AHP folded in (1.3.091824e)
+
+**Ask:** Same Cancel session button, now matching the AHP client contract on the same draft. Cancelled stays Cancelled. It does not turn back into Booked at 9 AM. Session progress is kept for the record. Admin Skip is not part of this change.
+
+**Fix:**
+- Before check-in, Confirm Arrival is unchanged. After check-in (worklog arrived, or arrival time on this booking), the same spot is **Cancel session**. Hold 2 seconds, then confirm.
+- Confirm says the **team session** is cancelled. Buttons are **Cancel** and **Confirm**.
+- Confirm writes every co-mod Assignment row for that schedule: status **Cancelled** (permanent on that row), comment `mod-cancel-session:<login>:<time>`, same terminal lock as admin cancel. OneData status stays as it was. No Flagged, no strike, no Completed, no session done.
+- Station progress is not cleared. Assignment Cancelled is what My session, the carousel, and Performance use. The next Booked row can show (today, or the next future booking). An incomplete night that was not cancelled still stays pinned. 9 AM only chooses which booking My session shows. It does not undo Cancelled.
+- Admin Skip is unchanged.
+- Version **1.3.091824e**. Selftest: `scripts/mod-cancel-session-selftest.js`.
+
+**PR:** [#169](https://github.com/DK-Centific/Twilight-Tracker/pull/169) draft on `cursor/mod-cancel-session-58d5`. Do **not** merge until Watchdog says push.
+
+**PA:** Sync must keep rows whose comment starts with `mod-cancel-session` (hyphens, not underscores). Do not set them back to Booked, and do not purge them. That keep is permanent on the row, not only until 9 AM. Do not reuse `od-sync-soft-close`.
+
+**Verify (David):** Hard refresh → **1.3.091824e**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should leave that booking. The session should say Cancelled, not Completed. The next morning it should still say Cancelled.
+
+---
+
 **Last updated:** 2026-09-24 · Grok · Moderator Cancel session (1.3.091824d)
 
 ## 2026-09-24 · Moderator Cancel session (1.3.091824d)
 
 **Ask:** After check-in, Confirm Arrival becomes **Cancel session**. Press and hold 2 seconds, then confirm. The whole team’s Assignment rows for that schedule become Cancelled. My session can move to the next booking (Amy after Satya). No strike, no Flagged, no Completed, no OneData write.
 
-**Fix:**
-- Before check-in, Confirm Arrival is unchanged.
-- After check-in, the same spot is **Cancel session** (hold 2 seconds, gold fill). A normal tap does nothing. The in-session welcome banner has the same hold button.
-- Confirm opens: “Are you sure you want to cancel the current session?” Buttons are **Cancel** and **Confirm**.
-- Confirm writes every Assignment List row with the same schedule id: status **Cancelled**, comment `mod-cancel-session:<login>:<time>`. OneData fields stay as they were. SessionState gets `sessionStatus: Cancelled` for this moderator and co-mod copies already on this device. It does not mark the session Done.
-- A cancelled overnight no longer pins My session. The next Booked row can show. An incomplete night that was not cancelled still stays pinned.
-- Version **1.3.091824d**. Selftest: `scripts/mod-cancel-session-selftest.js`.
+**Fix:** Shipped on the same draft, then tightened in **1.3.091824e** (do not clear session progress; Cancelled stays Cancelled).
 
 **PR:** [#169](https://github.com/DK-Centific/Twilight-Tracker/pull/169) draft on `cursor/mod-cancel-session-58d5`. Do **not** merge until Watchdog says push.
-
-**PA (same window):** Sync must keep rows whose comment starts with `mod-cancel-session`. Do not set them back to Booked, and do not purge them, until the next 9 AM Pacific after the cancel. Do not reuse `od-sync-soft-close`.
-
-**Verify (David):** Hard refresh → **1.3.091824d**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should leave that booking. The session should say Cancelled, not Completed.
 
 ---
 

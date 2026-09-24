@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091824d';
-const APP_UPDATED_AT = '09/24/2026 15:30';
+const APP_VERSION = '1.3.091824e';
+const APP_UPDATED_AT = '09/24/2026 16:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1415,6 +1415,16 @@ function renderWelcome() {
 // does not cancel. The fill animation uses the same 2 seconds.
 const MOD_CANCEL_HOLD_MS = 2000;
 
+function operatorArrivedForCancelSession(asgn) {
+  if (!asgn || typeof state === 'undefined' || !state || !state.arrivedAt) return false;
+  try {
+    if (typeof sessionStateStampBelongsToAssignment === 'function') {
+      return !!sessionStateStampBelongsToAssignment(state.arrivedAt, asgn);
+    }
+  } catch (_) {}
+  return true;
+}
+
 function assignmentShowsCancelSession(asgn, myStatus, teamStatus) {
   if (!asgn) return false;
   const status = String(asgn.status || '');
@@ -1427,9 +1437,13 @@ function assignmentShowsCancelSession(asgn, myStatus, teamStatus) {
   const myIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(myStatus) : -1;
   const teamIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(teamStatus) : -1;
   const idx = Math.max(myIdx, teamIdx);
-  if (arrivedIdx < 0 || idx < arrivedIdx) return false;
   if (doneIdx >= 0 && idx >= doneIdx) return false;
-  return true;
+  if (typeof state !== 'undefined' && state) {
+    const ss = String(state.sessionStatus || '');
+    if (ss === 'session_done' || ss === 'office_checkout') return false;
+  }
+  const worklogArrived = arrivedIdx >= 0 && idx >= arrivedIdx;
+  return worklogArrived || operatorArrivedForCancelSession(asgn);
 }
 
 function modCancelSessionHoldButtonHTML(extraClass) {
@@ -1515,7 +1529,7 @@ function openModCancelSessionConfirm() {
   const ask = (typeof appConfirm === 'function')
     ? appConfirm({
         title: 'Are you sure you want to cancel the current session?',
-        message: 'Please reach out to the Twilight team and confirm with them before you cancel. This marks the session Cancelled for the whole team.',
+        message: 'Please reach out to the Twilight team and confirm with them before you cancel. This cancels the team session.',
         confirmLabel: 'Confirm',
         cancelLabel: 'Cancel',
         variant: 'warning',
@@ -1545,6 +1559,7 @@ function renderWelcomeWorklogBannerHTML() {
   const teamStatus = teamLatest ? teamLatest.status : null;
   const displayStatus = (statusOrderIdx(teamStatus) > statusOrderIdx(myStatus)) ? teamStatus : myStatus;
   const showCancel = assignmentShowsCancelSession(asgn, myStatus, teamStatus);
+  const teamIdx = statusOrderIdx(teamStatus);
   // Pre-check-in banner stays today-only. After check-in, overnight
   // sessions still need Cancel session on this banner.
   if (asgn.date !== todayStr && !showCancel) return '';
@@ -1609,7 +1624,8 @@ function renderWelcomeWorklogBannerHTML() {
   }
 
   // ---- Arrived, not yet started ----
-  if (myStatus === 'arrived' || displayStatus === 'arrived') {
+  if (myStatus === 'arrived' || displayStatus === 'arrived'
+      || (showCancel && myIdx <= arrivedIdx && teamIdx <= arrivedIdx)) {
     return `<div class="welcome-worklog-banner ready">
       <div class="welcome-worklog-banner-icon">
         <svg width="22" height="22" viewBox="0 0 16 16" fill="none">
@@ -41305,9 +41321,10 @@ async function completeAssignment(asgnId, opts) {
 }
 
 // Moderator Cancel session. Writes Assignment List through the same
-// MERGE path as other List updates (buildAssignmentExcelRow + ASSIGNMENT
-// write). OneData is not written. Skip / strike records are not touched.
-// Comment is mod-cancel-session, never od-sync-soft-close.
+// fields as cancelAssignmentSilent (status Cancelled, timestamps,
+// terminal lock, existing Assignment POST). OneData is not written.
+// Session progress stays for audit. Skip / strike records are not touched.
+// Comment starts with mod-cancel-session, never od-sync-soft-close.
 function modCancelSessionComment(actor, iso) {
   const who = String(actor || '').trim() || 'mod';
   return 'mod-cancel-session:' + who + ':' + iso;
@@ -41331,11 +41348,26 @@ function modCancelActorOrbit() {
 function assignmentsSharingModCancel(asgn) {
   const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
     ? adminState.assignments : [];
-  const od = String((asgn && asgn.odScheduleId) || '').trim();
-  if (!od) return asgn ? [asgn] : [];
-  const hits = rows.filter(a => a && String(a.odScheduleId || '').trim() === od);
-  if (asgn && !hits.some(a => String(a.id) === String(asgn.id))) hits.push(asgn);
-  return hits.length ? hits : (asgn ? [asgn] : []);
+  if (!asgn) return [];
+  const od = String(asgn.odScheduleId || '').trim();
+  const teamId = (asgn.teamId != null && asgn.teamId !== '') ? String(asgn.teamId) : '';
+  const date = String(asgn.date || '');
+  const start = asgn.startMin;
+  const sameSlot = (a) => {
+    if (!teamId || String(a.teamId) !== teamId) return false;
+    if (date && String(a.date || '') !== date) return false;
+    if (start != null && a.startMin != null && Number(a.startMin) !== Number(start)) return false;
+    return true;
+  };
+  const hits = rows.filter(a => {
+    if (!a) return false;
+    const rowOd = String(a.odScheduleId || '').trim();
+    if (od && rowOd === od) return true;
+    if (od && rowOd && rowOd !== od) return false;
+    return sameSlot(a);
+  });
+  if (!hits.some(a => String(a.id) === String(asgn.id))) hits.push(asgn);
+  return hits;
 }
 
 function patchStateJsonModCancel(stateJson, iso, actor, comment) {
@@ -41346,7 +41378,6 @@ function patchStateJsonModCancel(stateJson, iso, actor, comment) {
   parsed.sessionCancelledAt = iso;
   parsed.sessionCancelledBy = actor || '';
   parsed.cancelComment = comment;
-  parsed.sessionCompletedAt = null;
   return JSON.stringify(parsed);
 }
 
@@ -41387,7 +41418,7 @@ async function writeModCancelSessionState(asgn, iso, actor, comment) {
   let actorOk = false;
   try {
     if (typeof buildSessionStateCloudPayload === 'function' && state && (state.username || (state.modProfile && state.modProfile.orbitLoginId))) {
-      const payload = buildSessionStateCloudPayload(asgn, 'mod_cancel_session');
+      const payload = buildSessionStateCloudPayload(asgn, 'mod-cancel-session');
       payload.stateJson = patchStateJsonModCancel(payload.stateJson, iso, actor, comment);
       payload.lastActive = iso;
       payload.sessionStatus = 'Cancelled';
@@ -41458,7 +41489,7 @@ async function writeModCancelAssignmentListRow(asgn, comment, iso) {
     updatedAt: iso,
     savedAt: iso,
     odStatus: odStatus,
-    _terminalLockUntil: (typeof terminalLockUntil === 'function') ? terminalLockUntil() : null,
+    _terminalLockUntil: terminalLockUntil(),
   });
   if (typeof saveAssignmentData === 'function') saveAssignmentData();
   let error = null;
@@ -41514,9 +41545,6 @@ async function persistModeratorCancelSession(asgn) {
       const result = await writeModCancelAssignmentListRow(row, comment, iso);
       if (result && result.ok) wrote++;
     }
-    if (typeof clearOperatorProgressForNewBooking === 'function') {
-      clearOperatorProgressForNewBooking('mod-cancel-session');
-    }
     try { if (typeof window !== 'undefined') window._mySessionCarouselIdx = null; } catch (_) {}
     if (typeof saveState === 'function') saveState();
     try {
@@ -41527,8 +41555,8 @@ async function persistModeratorCancelSession(asgn) {
         renderApp();
       }
     } catch (_) {}
-    if (typeof toast === 'function') toast('Session cancelled');
-    return { ok: true, wrote: wrote, comment: comment };
+    if (wrote > 0 && typeof toast === 'function') toast('Session cancelled');
+    return { ok: wrote > 0, wrote: wrote, comment: comment };
   } finally {
     _modCancelPersistBusy = false;
   }
@@ -53083,7 +53111,9 @@ function renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, is
     </div>`;
   }
 
-  if (myIdx < arrivedIdx && teamIdx < arrivedIdx) {
+  const showCancel = (typeof assignmentShowsCancelSession === 'function')
+    && assignmentShowsCancelSession(asgn, myStatus, teamStatus);
+  if (myIdx < arrivedIdx && teamIdx < arrivedIdx && !showCancel) {
     const unlockCtx = (typeof resolveArrivalUnlockContext === 'function')
       ? resolveArrivalUnlockContext(asgn)
       : { check: { known: false, inside: false, reason: 'nolocation' } };
@@ -53107,7 +53137,8 @@ function renderWorklogControlsHTML(asgn, displayStatus, myStatus, teamStatus, is
     </div>`;
   }
 
-  if (statusOrderIdx(displayStatus) === arrivedIdx) {
+  if (statusOrderIdx(displayStatus) === arrivedIdx
+      || (showCancel && myIdx <= arrivedIdx && teamIdx <= arrivedIdx)) {
     return `<div class="worklog-row">
       <div class="worklog-copy">
         Please check in with the participant and location for the rig setup before you begin.
