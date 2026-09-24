@@ -1,5 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-24 · Grok · Moderator Cancel session (1.3.091824d)
+
+## 2026-09-24 · Moderator Cancel session (1.3.091824d)
+
+**Ask:** After check-in, Confirm Arrival becomes **Cancel session**. Press and hold 2 seconds, then confirm. The whole team’s Assignment rows for that schedule become Cancelled. My session can move to the next booking (Amy after Satya). No strike, no Flagged, no Completed, no OneData write.
+
+**Fix:**
+- Before check-in, Confirm Arrival is unchanged.
+- After check-in, the same spot is **Cancel session** (hold 2 seconds, gold fill). A normal tap does nothing. The in-session welcome banner has the same hold button.
+- Confirm opens: “Are you sure you want to cancel the current session?” Buttons are **Cancel** and **Confirm**.
+- Confirm writes every Assignment List row with the same schedule id: status **Cancelled**, comment `mod-cancel-session:<login>:<time>`. OneData fields stay as they were. SessionState gets `sessionStatus: Cancelled` for this moderator and co-mod copies already on this device. It does not mark the session Done.
+- A cancelled overnight no longer pins My session. The next Booked row can show. An incomplete night that was not cancelled still stays pinned.
+- Version **1.3.091824d**. Selftest: `scripts/mod-cancel-session-selftest.js`.
+
+**PR:** draft on `cursor/mod-cancel-session-58d5`. Do **not** merge until Watchdog says push.
+
+**PA (same window):** Sync must keep rows whose comment starts with `mod-cancel-session`. Do not set them back to Booked, and do not purge them, until the next 9 AM Pacific after the cancel. Do not reuse `od-sync-soft-close`.
+
+**Verify (David):** Hard refresh → **1.3.091824d**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should leave that booking. The session should say Cancelled, not Completed.
+
+---
+
 **Last updated:** 2026-09-24 · Grok · Exact List fixtures + sticky snap (1.3.091824c)
 
 ## 2026-09-24 · Exact List rows stay bindable; sticky index cannot resurrect Isaiah (1.3.091824c)

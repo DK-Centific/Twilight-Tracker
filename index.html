@@ -14998,6 +14998,54 @@ button.perf-stat-chip.scheduled.active {
   display: inline-flex; align-items: center;
   white-space: nowrap;
 }
+.welcome-worklog-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.cancel-session-hold {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(197, 160, 89, 0.72);
+  background: rgba(197, 160, 89, 0.08);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border-radius: 9px;
+  padding: 9px 16px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.cancel-session-hold-fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0;
+  background: rgba(197, 160, 89, 0.55);
+  z-index: 0;
+  pointer-events: none;
+}
+.cancel-session-hold.is-holding .cancel-session-hold-fill {
+  width: 100%;
+  transition: width 2s linear;
+}
+.cancel-session-hold-label {
+  position: relative;
+  z-index: 1;
+}
+.cancel-session-hold-block {
+  width: 100%;
+  justify-content: center;
+}
+.welcome-worklog-banner .cancel-session-hold.welcome-worklog-action {
+  justify-content: center;
+}
 .welcome-worklog-step-bar {
   flex-shrink: 0;
   display: grid;
@@ -19862,7 +19910,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091824c" defer></script>
+<script src="twilight.js?v=twilight-1.3.091824d" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
