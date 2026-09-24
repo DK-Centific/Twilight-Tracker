@@ -16,7 +16,7 @@
 - Team label uses the assignment’s team name when TeamLog disagrees.
 - Version **1.3.091824a**. Selftest: `scripts/mod-overnight-stale-team-selftest.js`.
 
-**PR:** draft on `cursor/mod-overnight-stale-team-80c9`. Do **not** merge until David types **push**.
+**PR:** [#168](https://github.com/DK-Centific/Twilight-Tracker/pull/168) draft on `cursor/mod-overnight-stale-team-80c9`. Do **not** merge until David types **push**.
 
 **Verify (David):** Hard refresh → **1.3.091824a**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not an older team and not the Sep 26 booking.
 
