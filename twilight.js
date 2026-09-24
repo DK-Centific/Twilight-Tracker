@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091823e';
-const APP_UPDATED_AT = '09/23/2026 19:55';
+const APP_VERSION = '1.3.091824c';
+const APP_UPDATED_AT = '09/24/2026 13:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -5553,20 +5553,32 @@ function getAssignedOpenSession() {
   const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
     && isPastModStrikeCheckpointHour();
-  const hasTodayOrLater = !!(today && carousel.some(a => a && String(a.date || '') >= today));
-  // After 9 AM PT with a today+ booking: NEVER bind My session / team label /
-  // approval / SessionState to an unfinished prior-day team (Team A yesterday
-  // while Mod is on Team B today). Carousel is already scoped, but defend
-  // here so sticky carousel idx / local progress cannot resurrect Team A.
-  const preferToday = !!(gateOpen && hasTodayOrLater);
+  // A future Booked row (date > today) is not "today" and must not knock
+  // out last night's incomplete overnight.
+  const hasTodayStart = !!(today && carousel.some(a => a && String(a.date || '') === today));
+  let night = null;
+  if (gateOpen && today && typeof assignmentIsLastNightOvernight === 'function') {
+    carousel.forEach(a => {
+      if (!a || !assignmentIsLastNightOvernight(a, today)) return;
+      if (!night || (typeof operatorOpenRowIsFresher === 'function' && operatorOpenRowIsFresher(a, night))) {
+        night = a;
+      }
+    });
+  }
+  // After 9 AM PT with a today+ booking: NEVER bind My session to an
+  // unfinished prior-day team when that booking starts today. A future
+  // row must not bind while last night's overnight is still open.
+  const preferToday = !!(gateOpen && hasTodayStart);
   const allow = (a) => {
     if (!isOpen(a)) return false;
     if (preferToday && today && String(a.date || '') < today) return false;
+    if (night && !preferToday && today && String(a.date || '') > today) return false;
     return true;
   };
   const active = (typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment() : null;
   if (allow(active)) return active;
+  if (night && allow(night)) return night;
   const todayHit = preferToday
     ? carousel.find(a => allow(a) && String(a.date || '') === today)
     : null;
@@ -26929,6 +26941,10 @@ function saveAssignmentData() {
 // Parse the "assignedDate" string the writer produces.
 // Format: "YYYY-MM-DD H[:MM] AM/PM – H[:MM] AM/PM"  (en-dash, not hyphen)
 // Returns { date, startMin, endMin } or null if unparseable.
+// `date` is the evening START calendar day. A 7 PM–2 AM overnight is
+// dated on the start night (2026-09-23), not the 2 AM end morning.
+// Queue / 9 AM gate math must use assignmentQueueEndCalendarYmd
+// (end day) so that night is still "today" on the following afternoon.
 function parseAssignedDate(str) {
   if (!str) return null;
   const s = String(str).trim();
@@ -51452,6 +51468,11 @@ function getActiveOperatorAssignment() {
       // never land on a past session.
       idx = (typeof defaultCarouselIdx === 'function') ? defaultCarouselIdx(all) : 0;
     }
+    if (typeof reconcileOperatorCarouselIdx === 'function') {
+      const snapped = reconcileOperatorCarouselIdx(all, idx);
+      if (snapped !== idx && typeof window !== 'undefined') window._mySessionCarouselIdx = snapped;
+      idx = snapped;
+    }
     return all[idx] || null;
   }
   // No current or upcoming session. Per the "no past sessions" rule we do NOT
@@ -51651,6 +51672,92 @@ function assignmentQueueEndCalendarYmd(a) {
   return String(a.date);
 }
 
+// Last-night overnight: start calendar is before today, but the booked
+// window ends on today's calendar (7 PM–2 AM dated on the start night)
+// or the end instant has not passed yet. Incomplete rows stay eligible
+// after 9 AM until wrap-up. A future Booked row is not this.
+function assignmentIsLastNightOvernight(a, todayStr) {
+  if (!a) return false;
+  const today = String(todayStr || '');
+  const start = String(a.date || '');
+  if (!today || !start || start >= today) return false;
+  const endYmd = String(assignmentQueueEndCalendarYmd(a) || start);
+  if (endYmd === today) return true;
+  try {
+    if (typeof assignmentBookingSessionEndMs === 'function') {
+      const endMs = assignmentBookingSessionEndMs(a);
+      if (Number.isFinite(endMs) && Date.now() < endMs && endYmd >= today) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+// Rescheduled / Scheduled / Notified are eligible successors. Booked is
+// not a higher rank. SessionState Modified is intentionally absent.
+function operatorStatusSuccessorScore(a) {
+  const blob = (String((a && a.status) || '') + ' ' + String((a && a.odStatus) || '')).toLowerCase();
+  if (blob.indexOf('rescheduled') >= 0) return 3;
+  if (blob.indexOf('scheduled') >= 0 || blob.indexOf('notified') >= 0) return 2;
+  if (blob.indexOf('booked') >= 0) return 1;
+  return 0;
+}
+
+// Rank: later assignment.date, then later start, then Rescheduled /
+// Scheduled as the successor. Do not use savedAt or SessionState
+// Modified — SS 481 (Amanda, older od) is newer than SS 498 (Jodie)
+// and must not win.
+function operatorOpenRowRankKey(a) {
+  const date = String((a && a.date) || '');
+  const start = String(Number(a && a.startMin) || 0).padStart(6, '0');
+  const succ = String(operatorStatusSuccessorScore(a)).padStart(2, '0');
+  return date + '|' + start + '|' + succ + '|' + String((a && a.id) || '');
+}
+
+function operatorOpenRowIsFresher(a, b) {
+  if (!b) return !!a;
+  if (!a) return false;
+  return operatorOpenRowRankKey(a) > operatorOpenRowRankKey(b);
+}
+
+function bookingQueueHasTodayStart(list, today) {
+  const day = String(today || '');
+  return (list || []).some(a => a && String(a.date || '') === day);
+}
+
+// After the booked end, once 9 AM has passed on the next calendar day,
+// a prior start does not stay just because endYmd == yesterday.
+// Last night (end day is today) stays until wrap-up.
+function operatorPriorStartStillEligible(a, todayStr, gateOpen) {
+  if (!a) return false;
+  const startYmd = String(a.date || '');
+  if (!startYmd) return false;
+  if (startYmd >= String(todayStr || '')) return true;
+  const endDay = String(
+    (typeof assignmentQueueEndCalendarYmd === 'function'
+      ? assignmentQueueEndCalendarYmd(a)
+      : startYmd) || startYmd
+  );
+  const floorYmd = (typeof addDaysToYmd === 'function')
+    ? addDaysToYmd(String(todayStr || ''), -1)
+    : '';
+  if (floorYmd && endDay < floorYmd) return false;
+  if (gateOpen && endDay < String(todayStr || '')) return false;
+  return true;
+}
+
+// True when some other open row is a later booking. A newer SessionState
+// Modified on this row must not keep it selected.
+function operatorRowLosesToNewerAssignment(a, list) {
+  if (!a) return false;
+  const mine = String(a.date || '');
+  for (const b of list || []) {
+    if (!b || String(b.id) === String(a.id)) continue;
+    if (String(b.date || '') > mine) return true;
+    if (String(b.date || '') === mine && operatorOpenRowIsFresher(b, a)) return true;
+  }
+  return false;
+}
+
 function operatorProgressOnAssignment(a) {
   if (!a || typeof state === 'undefined' || !state) return false;
   try {
@@ -51716,30 +51823,59 @@ function assignmentSessionStartedNotDone(asgn) {
 }
 
 function operatorInProgressAssignment(candidates) {
-  const list = candidates || [];
   const today = getPSTDateString();
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
     && isPastModStrikeCheckpointHour();
-  const hasNewer = list.some(a => a && String(a.date || '') >= today);
-  // After 9 AM PT with a today+ booking: never pin My session on a prior-day
-  // in-progress / unfinished row — carousel prioritizes today.
-  const preferToday = !!(gateOpen && hasNewer);
+  // Drop prior starts whose end day is before today after 9 AM, even
+  // when the caller has not run the carousel floor yet. Neither Jodie
+  // nor Amanda has assignment.date >= today on Sep 24 afternoon, so
+  // preferToday would be false and SS progress would otherwise pin
+  // Amanda (SS 481 Modified 15:58Z > SS 498 06:15Z).
+  const list = (candidates || []).filter(a => operatorPriorStartStillEligible(a, today, gateOpen));
+  // Only a booking that STARTS today hides last night. A future Booked
+  // (Sep 25/26) must not.
+  const hasTodayStart = bookingQueueHasTodayStart(list, today);
+  const preferTodayStart = !!(gateOpen && hasTodayStart);
+  if (gateOpen && !hasTodayStart) {
+    const nights = list.filter(a => {
+      if (!assignmentIsLastNightOvernight(a, today)) return false;
+      // Wrapped last night is no longer bindable. A future Booked row
+      // may show after that; it must not show before.
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+      } catch (_) {}
+      return true;
+    });
+    if (nights.length) {
+      let best = null;
+      for (const a of nights) {
+        if (operatorOpenRowIsFresher(a, best)) best = a;
+      }
+      if (best) return best;
+    }
+  }
   for (const a of list) {
-    if (preferToday && String(a.date || '') < today) continue;
+    if (preferTodayStart && String(a.date || '') < today) continue;
+    // Future never pins ahead of a current row. Newer SessionState
+    // Modified on an older booking must not pin it either.
+    if (gateOpen && String(a.date || '') > today) continue;
+    if (operatorRowLosesToNewerAssignment(a, list)) continue;
     if (operatorProgressOnAssignment(a)) return a;
   }
   for (const a of list) {
-    if (preferToday && String(a.date || '') < today) continue;
+    if (preferTodayStart && String(a.date || '') < today) continue;
+    if (gateOpen && String(a.date || '') > today) continue;
+    if (operatorRowLosesToNewerAssignment(a, list)) continue;
     if (assignmentSessionStartedNotDone(a)) return a;
   }
   const sd = String((state && state.sessionDate) || '').trim();
   if (state && sd && sd < today && !state.sessionCompletedAt) {
-    // Stale sessionDate with no arrival/station progress must not pin the
-    // carousel on unfinished yesterday after 9 AM when a newer booking
-    // exists (Jashit-tw Patrick → Rebecca).
-    if (preferToday) return null;
+    // Stale sessionDate (SS 481 sessionDate 2026-09-22) must not pin
+    // Amanda when a later Assignment date exists, even though that
+    // later row is also before today (Jodie starts 2026-09-23).
+    if (preferTodayStart) return null;
     const match = list.find(x => x && String(x.date) === sd);
-    if (match) {
+    if (match && !operatorRowLosesToNewerAssignment(match, list)) {
       try {
         if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(match)) return null;
       } catch (_) {}
@@ -51758,12 +51894,12 @@ function adminOpenBookingAssignment(candidates) {
   const today = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
     && isPastModStrikeCheckpointHour();
-  const hasNewer = !!(today && list.some(a => a && String(a.date || '') >= today));
-  // After 9 AM PT with a today+ booking: never pin Admin Live / Performance
-  // on unfinished yesterday (Venkata×Jashit Patrick → Rebecca flicker).
-  const preferToday = !!(gateOpen && hasNewer);
+  const hasTodayStart = !!(today && bookingQueueHasTodayStart(list, today));
+  // A future Booked row must not hide last night's incomplete overnight.
+  const preferToday = !!(gateOpen && hasTodayStart);
   for (const a of list) {
     if (preferToday && String(a.date || '') < today) continue;
+    if (gateOpen && !hasTodayStart && String(a.date || '') > today) continue;
     if (typeof assignmentSessionStartedNotDone === 'function' && assignmentSessionStartedNotDone(a)) {
       try {
         if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) continue;
@@ -51790,11 +51926,11 @@ function adminOpenBookingAssignment(candidates) {
 function applyAdminBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const hasTodayOrLater = (list || []).some(a => a && String(a.date || '') >= today);
-  // Parity with moderator applyBookingQueueGate: after 9 AM PT, unfinished
-  // yesterday must not hide today's checked-in Live team on Overview /
-  // Performance (appeared-then-disappeared flicker).
-  const scoped = (gateOpen && hasTodayOrLater)
+  const hasTodayStart = bookingQueueHasTodayStart(list, today);
+  // Parity with moderator applyBookingQueueGate: after 9 AM PT, a booking
+  // that STARTS today scopes out prior-day rows. A future-only Booked row
+  // must not drop last night's incomplete overnight.
+  const scoped = (gateOpen && hasTodayStart)
     ? (list || []).filter(a => a && String(a.date || '') >= today)
     : (list || []);
   const inProg = adminOpenBookingAssignment(scoped);
@@ -51802,9 +51938,10 @@ function applyAdminBookingQueueGate(list, todayPst) {
 
   return scoped.filter(a => {
     if (!a) return false;
-    if (inProg && String(a.id) === String(inProg.id)) return true;
+    // The in-progress / freshest current row is the only My-session pin.
+    // A blocker must not also keep an older Booked row beside it.
+    if (inProg) return String(a.id) === String(inProg.id);
     if (blocker && String(a.id) === String(blocker.id)) return true;
-    if (inProg && String(a.id) !== String(inProg.id)) return false;
     if (blocker && String(a.date) >= today && !gateOpen) return false;
     if (blocker && String(a.date) >= today && gateOpen) {
       try {
@@ -51865,15 +52002,11 @@ function bookingQueueGateBlocker(candidates, todayPst) {
     return true;
   };
 
-  // After 9 AM PT: if a newer booking (today or later) exists, do not let
-  // unfinished yesterday pin/hide it. applyBookingQueueGate then drops
-  // prior-day rows so My session shows only today+. Before 9 AM:
-  // unfinished yesterday still blocks today (overnight continuity).
-  // Older than yesterday remains hard-dropped upstream.
-  if (gateOpen) {
-    const hasNewer = list.some(a => a && String(a.date || '') >= today);
-    if (hasNewer) return null;
-  }
+  // After 9 AM PT: a booking that STARTS today clears the prior-day
+  // blocker. A future Booked row does not — last night's incomplete
+  // overnight stays the blocker until wrap-up. Before 9 AM, unfinished
+  // yesterday still blocks today.
+  if (gateOpen && bookingQueueHasTodayStart(list, today)) return null;
 
   // Only yesterday (PST) may block today's queue when the 9 AM gate is
   // still closed (or when there is no newer booking after 9 AM).
@@ -51896,13 +52029,13 @@ function bookingQueueGateBlocker(candidates, todayPst) {
 function applyBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const hasTodayOrLater = (list || []).some(a => a && String(a.date || '') >= today);
+  const hasTodayStart = bookingQueueHasTodayStart(list, today);
 
-  // Authoritative (2026-09-18): after 9 AM PT, if the mod has a today+
-  // eligible booking, My session must prioritize today and exclude
-  // unfinished yesterday/older from the carousel. Before 9 AM: keep
-  // overnight unfinished yesterday as the live session.
-  const scoped = (gateOpen && hasTodayOrLater)
+  // After 9 AM PT, a booking that STARTS today scopes My session to
+  // today+ and drops prior-day rows. Future Booked rows (date > today)
+  // must not do that — last night's incomplete overnight stays until
+  // wrap-up. Before 9 AM: keep that overnight as the live session.
+  const scoped = (gateOpen && hasTodayStart)
     ? (list || []).filter(a => a && String(a.date || '') >= today)
     : (list || []);
 
@@ -51911,9 +52044,8 @@ function applyBookingQueueGate(list, todayPst) {
 
   return scoped.filter(a => {
     if (!a) return false;
-    if (inProg && String(a.id) === String(inProg.id)) return true;
+    if (inProg) return String(a.id) === String(inProg.id);
     if (blocker && String(a.id) === String(blocker.id)) return true;
-    if (inProg && String(a.id) !== String(inProg.id)) return false;
     if (blocker && String(a.date) >= today && !gateOpen) return false;
     if (blocker && String(a.date) >= today && gateOpen) {
       try {
@@ -51927,9 +52059,6 @@ function applyBookingQueueGate(list, todayPst) {
 
 function operatorCarouselCandidateAssignments() {
   const todayStr = getPSTDateString();
-  // Hard floor: session end calendar day must be >= yesterday (PST).
-  // "Older than 2 days" bookings never enter My session queue.
-  const floorYmd = addDaysToYmd(todayStr, -1);
   const raw = (typeof getOperatorAssignments === 'function' ? getOperatorAssignments() : []);
   const out = [];
   const seen = new Set();
@@ -51942,13 +52071,12 @@ function operatorCarouselCandidateAssignments() {
     } catch (_) {}
     const startYmd = String(a.date || '');
     if (!startYmd) return;
-    const endYmd = (typeof assignmentQueueEndCalendarYmd === 'function')
-      ? assignmentQueueEndCalendarYmd(a)
-      : startYmd;
-    // Today / future always eligible (gate may still hide until 9 AM PT).
-    // Past starts: keep only when end calendar day is still within
-    // yesterday..today relevance (overnight carry + unfinished yesterday).
-    if (startYmd < todayStr && String(endYmd || startYmd) < floorYmd) return;
+    // After booked end + 9 AM on the next calendar day, endYmd == yesterday
+    // does not keep a prior start (Amanda Sep 22 → end Sep 23 on Sep 24).
+    // Last night (end day === today) stays until wrap-up.
+    const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+      && isPastModStrikeCheckpointHour();
+    if (!operatorPriorStartStillEligible(a, todayStr, gateOpen)) return;
     seen.add(String(a.id));
     out.push(a);
   };
@@ -51960,6 +52088,31 @@ function operatorCarouselCandidateAssignments() {
   });
   const sequenced = applySameTeamSequentialBookingGate(out);
   return applyBookingQueueGate(sequenced, todayStr);
+}
+
+// Sticky carousel index must not keep a future Booked row (Amy Sep 25,
+// Manpreet Sep 26) or a dropped leftover (Isaiah / Zekelia) while last
+// night's incomplete overnight is the pin. A hydrate that arrives late
+// must not leave the old index in place.
+function reconcileOperatorCarouselIdx(all, idx) {
+  const list = all || [];
+  if (!list.length) return 0;
+  const clamped = Math.max(0, Math.min(list.length - 1, Number(idx) || 0));
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  if (!gateOpen) return clamped;
+  const preferred = (typeof operatorOpenBookingAssignment === 'function')
+    ? operatorOpenBookingAssignment(list)
+    : null;
+  if (!preferred) return clamped;
+  const prefIdx = list.findIndex(a => a && String(a.id) === String(preferred.id));
+  if (prefIdx < 0) return clamped;
+  const shown = list[clamped];
+  if (!shown || String(shown.id) === String(preferred.id)) return prefIdx;
+  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+  if (String(shown.date || '') !== String(preferred.date || '')) return prefIdx;
+  if (today && String(shown.date || '') > today) return prefIdx;
+  return clamped;
 }
 
 function operatorHasOvernightSessionInProgress(todayPst) {
@@ -52058,25 +52211,30 @@ function getTeamById(teamId) {
 // The team that OWNS a given assignment · the correct source for the team
 // pair shown in the assigned tile and the entry-bar team cell. getOperatorTeam()
 // returns only the operator's FIRST team membership, which shows the wrong pair
-// for a multi-team mod whose active session belongs to a different team. Resolve
-// from the assignment's teamId first; fall back to first membership only when
-// the assignment has no teamId or that team isn't loaded.
+// for a multi-team mod whose active session belongs to a different team.
+// Assignment.team / teamName wins when it disagrees with the TeamLog row
+// (stale "Narendra x Isaiah" must not cover "Narendra x Satya").
 function teamForAssignment(asgn) {
-  if (asgn && asgn.teamId != null) {
-    const t = getTeamById(asgn.teamId);
-    if (t) return t;
+  const named = String((asgn && (asgn.teamName || asgn.team)) || '').trim();
+  let loaded = null;
+  if (asgn && asgn.teamId != null && typeof getTeamById === 'function') {
+    loaded = getTeamById(asgn.teamId);
   }
-  // OD-synced Assignment rows carry a display team name even when
-  // TeamLog has not reconstructed that team id yet.
-  if (asgn && asgn.teamName) {
-    const snaps = asgn.modSnapshots || [];
+  if (named) {
+    const loadedName = loaded ? String(loaded.name || '').trim() : '';
+    if (loaded && loadedName === named) return loaded;
+    if (loaded && loadedName && loadedName !== named) {
+      return Object.assign({}, loaded, { name: named });
+    }
+    const snaps = (asgn && asgn.modSnapshots) || [];
     return {
-      id: asgn.teamId,
-      name: asgn.teamName,
+      id: asgn.teamId != null ? asgn.teamId : (loaded && loaded.id),
+      name: named,
       primaryIds: snaps.map(s => s && s.orbitLoginId).filter(Boolean),
-      backupIds: [],
+      backupIds: (loaded && loaded.backupIds) || [],
     };
   }
+  if (loaded) return loaded;
   return (typeof getOperatorTeam === 'function') ? getOperatorTeam() : null;
 }
 
@@ -52099,6 +52257,22 @@ function defaultCarouselIdx(assignments) {
     if (openIdx >= 0) return openIdx;
   }
   const todayStr = getPSTDateString();  // PST team-reference day (see getOperatorCarouselAssignments)
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  // Last night's overnight (start date is yesterday, end day is today)
+  // beats a future Booked row. Do not land on Sep 25/26 first.
+  if (gateOpen && typeof assignmentIsLastNightOvernight === 'function') {
+    let bestIdx = -1;
+    let best = null;
+    assignments.forEach((a, i) => {
+      if (!a || !assignmentIsLastNightOvernight(a, todayStr)) return;
+      if (!best || (typeof operatorOpenRowIsFresher === 'function' && operatorOpenRowIsFresher(a, best))) {
+        best = a;
+        bestIdx = i;
+      }
+    });
+    if (bestIdx >= 0) return bestIdx;
+  }
   // Today (earliest of multiple today's sessions wins)
   let i = assignments.findIndex(a => a.date === todayStr);
   if (i >= 0) return i;
@@ -52149,18 +52323,15 @@ function renderMySessionSection() {
 
   // Initialize OR clamp the carousel index. If it's null (first load) pick a
   // sensible default; if it's out of bounds (assignments shrank) reset.
-  const openAsgn = (typeof operatorOpenBookingAssignment === 'function')
-    ? operatorOpenBookingAssignment(assignments)
-    : null;
-  if (openAsgn && assignments.length > 1) {
-    const forceIdx = assignments.findIndex(a => String(a.id) === String(openAsgn.id));
-    if (forceIdx >= 0) window._mySessionCarouselIdx = forceIdx;
-  }
   if (window._mySessionCarouselIdx === null ||
       window._mySessionCarouselIdx === undefined ||
       window._mySessionCarouselIdx >= assignments.length ||
       window._mySessionCarouselIdx < 0) {
     window._mySessionCarouselIdx = defaultCarouselIdx(assignments);
+  }
+  if (typeof reconcileOperatorCarouselIdx === 'function') {
+    window._mySessionCarouselIdx = reconcileOperatorCarouselIdx(
+      assignments, window._mySessionCarouselIdx);
   }
   const idx = window._mySessionCarouselIdx;
   const asgn = assignments[idx];
