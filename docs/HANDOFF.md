@@ -14,7 +14,7 @@
 - A cancelled overnight no longer pins My session. The next Booked row can show. An incomplete night that was not cancelled still stays pinned.
 - Version **1.3.091824d**. Selftest: `scripts/mod-cancel-session-selftest.js`.
 
-**PR:** draft on `cursor/mod-cancel-session-58d5`. Do **not** merge until Watchdog says push.
+**PR:** [#169](https://github.com/DK-Centific/Twilight-Tracker/pull/169) draft on `cursor/mod-cancel-session-58d5`. Do **not** merge until Watchdog says push.
 
 **PA (same window):** Sync must keep rows whose comment starts with `mod-cancel-session`. Do not set them back to Booked, and do not purge them, until the next 9 AM Pacific after the cancel. Do not reuse `od-sync-soft-close`.
 
