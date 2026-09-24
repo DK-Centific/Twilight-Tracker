@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091824b';
-const APP_UPDATED_AT = '09/24/2026 13:25';
+const APP_VERSION = '1.3.091824c';
+const APP_UPDATED_AT = '09/24/2026 13:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -51468,6 +51468,11 @@ function getActiveOperatorAssignment() {
       // never land on a past session.
       idx = (typeof defaultCarouselIdx === 'function') ? defaultCarouselIdx(all) : 0;
     }
+    if (typeof reconcileOperatorCarouselIdx === 'function') {
+      const snapped = reconcileOperatorCarouselIdx(all, idx);
+      if (snapped !== idx && typeof window !== 'undefined') window._mySessionCarouselIdx = snapped;
+      idx = snapped;
+    }
     return all[idx] || null;
   }
   // No current or upcoming session. Per the "no past sessions" rule we do NOT
@@ -51832,7 +51837,15 @@ function operatorInProgressAssignment(candidates) {
   const hasTodayStart = bookingQueueHasTodayStart(list, today);
   const preferTodayStart = !!(gateOpen && hasTodayStart);
   if (gateOpen && !hasTodayStart) {
-    const nights = list.filter(a => assignmentIsLastNightOvernight(a, today));
+    const nights = list.filter(a => {
+      if (!assignmentIsLastNightOvernight(a, today)) return false;
+      // Wrapped last night is no longer bindable. A future Booked row
+      // may show after that; it must not show before.
+      try {
+        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
+      } catch (_) {}
+      return true;
+    });
     if (nights.length) {
       let best = null;
       for (const a of nights) {
@@ -52077,6 +52090,31 @@ function operatorCarouselCandidateAssignments() {
   return applyBookingQueueGate(sequenced, todayStr);
 }
 
+// Sticky carousel index must not keep a future Booked row (Amy Sep 25,
+// Manpreet Sep 26) or a dropped leftover (Isaiah / Zekelia) while last
+// night's incomplete overnight is the pin. A hydrate that arrives late
+// must not leave the old index in place.
+function reconcileOperatorCarouselIdx(all, idx) {
+  const list = all || [];
+  if (!list.length) return 0;
+  const clamped = Math.max(0, Math.min(list.length - 1, Number(idx) || 0));
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  if (!gateOpen) return clamped;
+  const preferred = (typeof operatorOpenBookingAssignment === 'function')
+    ? operatorOpenBookingAssignment(list)
+    : null;
+  if (!preferred) return clamped;
+  const prefIdx = list.findIndex(a => a && String(a.id) === String(preferred.id));
+  if (prefIdx < 0) return clamped;
+  const shown = list[clamped];
+  if (!shown || String(shown.id) === String(preferred.id)) return prefIdx;
+  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+  if (String(shown.date || '') !== String(preferred.date || '')) return prefIdx;
+  if (today && String(shown.date || '') > today) return prefIdx;
+  return clamped;
+}
+
 function operatorHasOvernightSessionInProgress(todayPst) {
   const today = String(todayPst || getPSTDateString());
   const sd = String((state && state.sessionDate) || '').trim();
@@ -52219,6 +52257,22 @@ function defaultCarouselIdx(assignments) {
     if (openIdx >= 0) return openIdx;
   }
   const todayStr = getPSTDateString();  // PST team-reference day (see getOperatorCarouselAssignments)
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  // Last night's overnight (start date is yesterday, end day is today)
+  // beats a future Booked row. Do not land on Sep 25/26 first.
+  if (gateOpen && typeof assignmentIsLastNightOvernight === 'function') {
+    let bestIdx = -1;
+    let best = null;
+    assignments.forEach((a, i) => {
+      if (!a || !assignmentIsLastNightOvernight(a, todayStr)) return;
+      if (!best || (typeof operatorOpenRowIsFresher === 'function' && operatorOpenRowIsFresher(a, best))) {
+        best = a;
+        bestIdx = i;
+      }
+    });
+    if (bestIdx >= 0) return bestIdx;
+  }
   // Today (earliest of multiple today's sessions wins)
   let i = assignments.findIndex(a => a.date === todayStr);
   if (i >= 0) return i;
@@ -52269,18 +52323,15 @@ function renderMySessionSection() {
 
   // Initialize OR clamp the carousel index. If it's null (first load) pick a
   // sensible default; if it's out of bounds (assignments shrank) reset.
-  const openAsgn = (typeof operatorOpenBookingAssignment === 'function')
-    ? operatorOpenBookingAssignment(assignments)
-    : null;
-  if (openAsgn && assignments.length > 1) {
-    const forceIdx = assignments.findIndex(a => String(a.id) === String(openAsgn.id));
-    if (forceIdx >= 0) window._mySessionCarouselIdx = forceIdx;
-  }
   if (window._mySessionCarouselIdx === null ||
       window._mySessionCarouselIdx === undefined ||
       window._mySessionCarouselIdx >= assignments.length ||
       window._mySessionCarouselIdx < 0) {
     window._mySessionCarouselIdx = defaultCarouselIdx(assignments);
+  }
+  if (typeof reconcileOperatorCarouselIdx === 'function') {
+    window._mySessionCarouselIdx = reconcileOperatorCarouselIdx(
+      assignments, window._mySessionCarouselIdx);
   }
   const idx = window._mySessionCarouselIdx;
   const asgn = assignments[idx];

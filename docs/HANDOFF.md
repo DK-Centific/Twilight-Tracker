@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-24 · Grok · SessionState time must not pin Amanda (1.3.091824b)
+**Last updated:** 2026-09-24 · Grok · Exact List fixtures + sticky snap (1.3.091824c)
+
+## 2026-09-24 · Exact List rows stay bindable; sticky index cannot resurrect Isaiah (1.3.091824c)
+
+**Ask:** Self-test must use the live rows. On Sep 24 after 9 AM, Narendra Id115 (Satya / Jodie) stays even though Id218 (Amy, Sep 25) is date ≥ today. Id116 (Isaiah) drops, and a newer SessionState time (SS 481) must not bring it back. Pradeepreddy Id227 (Adidela × Pradeepreddy / Michael Luo) stays even with Id217 (Manpreet, Sep 26) present. Id149 never wins. A saved carousel position must not land on Isaiah or on the future row.
+
+**Fix:** Same client gate as 1.3.091824b. A future booking does not count as “starts today.” After wrap-up, last night is no longer the pin. If the saved carousel spot points at a different night, My session snaps to the bindable row (Id115 / Id227). Team label for that row is the assignment team, Adidela × Pradeepreddy. SS 494 (Isaiah orbit on the Satya schedule) is not the pin.
+
+**Version:** **1.3.091824c**. Same draft [#168](https://github.com/DK-Centific/Twilight-Tracker/pull/168). Do **not** merge.
+
+**Verify (David):** Hard refresh → **1.3.091824c**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah and not Amy. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not Manoj and not the Sep 26 booking.
+
+---
 
 ## 2026-09-24 · SessionState time must not pin the older Booked row (1.3.091824b)
 
@@ -28,7 +40,7 @@
 
 **PR:** [#168](https://github.com/DK-Centific/Twilight-Tracker/pull/168) draft on `cursor/mod-overnight-stale-team-80c9`. Do **not** merge until David types **push**.
 
-**Verify (David):** Hard refresh → **1.3.091824b**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not an older team and not the Sep 26 booking.
+**Verify (David):** Hard refresh → **1.3.091824c**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah and not Amy. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not Manoj and not the Sep 26 booking.
 
 ---
 
