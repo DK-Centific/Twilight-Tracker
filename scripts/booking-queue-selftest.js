@@ -223,7 +223,9 @@ runCase('mod has yesterday incomplete + today booked after 9 AM → carousel onl
   }
 });
 
-runCase('after 9 AM unfinished yesterday alone still shows (no today booking)', () => {
+runCase('after 9 AM a session that ended before today drops even with no today booking', () => {
+  // End calendar day is yesterday (not last night's 2 AM spill into today).
+  // After 9 AM that leftover is not My session.
   const ids = runQueue({
     today: '2026-09-18',
     gateOpen: true,
@@ -233,8 +235,8 @@ runCase('after 9 AM unfinished yesterday alone still shows (no today booking)', 
     isSessionWrapUpDone: () => false,
     state: {},
   });
-  if (!ids.includes('yest-only')) {
-    throw new Error('yesterday wrap-up still allowed when no today booking, got ' + JSON.stringify(ids));
+  if (ids.includes('yest-only')) {
+    throw new Error('ended-before-today must drop after 9 AM, got ' + JSON.stringify(ids));
   }
 });
 

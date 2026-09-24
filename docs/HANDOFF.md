@@ -1,5 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-24 · Grok · Moderator last-night overnight pin (1.3.091824a)
+
+## 2026-09-24 · Last-night overnight stays My session (1.3.091824a)
+
+**Ask:** After 9 AM PT, Pradeepreddy-tw still missed Adidela × Pradeepreddy (Michael Luo, Sep 23 7 PM–2 AM) and Narendra-tw still showed Isaiah × Narendra instead of Narendra × Satya (Jodie, Rescheduled).
+
+**Cause:** The 9 AM gate treated any future Booked row (Sep 25 / Sep 26) as “today” and dropped last night, because overnight rows are dated on the evening start (Sep 23). The floor still kept the older Sep 22 night that ended Sep 23 (Isaiah, still Booked). TeamLog name is secondary: the wrong row was selected. List team text on the right rows is already correct.
+
+**Fix (client only, no List/OD writes):**
+- After 9 AM, last night’s incomplete overnight (end calendar day is today) stays the pin until wrap-up. A future booking does not remove it or take the pin.
+- A booking that starts today still replaces last night (unchanged).
+- Sessions whose end day is before today drop after 9 AM (Isaiah). Before 9 AM, last night can still be the live session.
+- A newer Rescheduled row beats an older Booked row. Booked is not a bonus.
+- Team label uses the assignment’s team name when TeamLog disagrees.
+- Version **1.3.091824a**. Selftest: `scripts/mod-overnight-stale-team-selftest.js`.
+
+**PR:** draft on `cursor/mod-overnight-stale-team-80c9`. Do **not** merge until David types **push**.
+
+**Verify (David):** Hard refresh → **1.3.091824a**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not an older team and not the Sep 26 booking.
+
+---
+
 **Last updated:** 2026-09-23 · Grok · Hide Lakitu edit toolbar from moderators (1.3.091823e)
 
 ## 2026-09-23 · Hide Lakitu edit toolbar from moderators (1.3.091823e)
