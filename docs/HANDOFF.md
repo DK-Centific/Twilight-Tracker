@@ -1,6 +1,16 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-24 · Grok · Moderator last-night overnight pin (1.3.091824a)
+**Last updated:** 2026-09-24 · Grok · SessionState time must not pin Amanda (1.3.091824b)
+
+## 2026-09-24 · SessionState time must not pin the older Booked row (1.3.091824b)
+
+**Ask:** On Sep 24 afternoon neither Narendra row starts today. Amanda (Id 116, Booked, SS 481 Modified 15:58Z) was newer than Jodie (Id 115, Rescheduled, SS 498 Modified 06:15Z), so My session could stick on Isaiah.
+
+**Fix:** After 9 AM, a prior start whose end day is yesterday is dropped even when no booking starts today. Ranking is later booking date, then later start, then Rescheduled/Scheduled. SessionState Modified is not a rank. The team name stays the selected booking’s team (Narendra × Satya / Adidela × Pradeepreddy). Manpreet SS 511 does not take Pradeepreddy’s pin.
+
+**Version:** **1.3.091824b**. Same draft [#168](https://github.com/DK-Centific/Twilight-Tracker/pull/168). Do **not** merge.
+
+---
 
 ## 2026-09-24 · Last-night overnight stays My session (1.3.091824a)
 
@@ -14,11 +24,11 @@
 - Sessions whose end day is before today drop after 9 AM (Isaiah). Before 9 AM, last night can still be the live session.
 - A newer Rescheduled row beats an older Booked row. Booked is not a bonus.
 - Team label uses the assignment’s team name when TeamLog disagrees.
-- Version **1.3.091824a**. Selftest: `scripts/mod-overnight-stale-team-selftest.js`.
+- Version **1.3.091824b** (was 1.3.091824a). Selftest: `scripts/mod-overnight-stale-team-selftest.js`.
 
 **PR:** [#168](https://github.com/DK-Centific/Twilight-Tracker/pull/168) draft on `cursor/mod-overnight-stale-team-80c9`. Do **not** merge until David types **push**.
 
-**Verify (David):** Hard refresh → **1.3.091824a**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not an older team and not the Sep 26 booking.
+**Verify (David):** Hard refresh → **1.3.091824b**. Sign in as Narendra-tw. My session should be Narendra × Satya / Jodie, not Isaiah. Sign in as Pradeepreddy-tw. My session should be Adidela × Pradeepreddy / Michael Luo, not an older team and not the Sep 26 booking.
 
 ---
 

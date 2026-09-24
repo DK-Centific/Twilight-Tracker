@@ -45,11 +45,11 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Moderator overnight stale-team self-test (1.3.091824a)');
+console.log('Moderator overnight stale-team self-test (1.3.091824b)');
 
-assert('APP_VERSION 1.3.091824a',
-  /const APP_VERSION = '1\.3\.091824a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091824a'));
+assert('APP_VERSION 1.3.091824b',
+  /const APP_VERSION = '1\.3\.091824b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091824b'));
 
 function runQueue(opts) {
   const gateOpen = opts.gateOpen !== false;
@@ -77,9 +77,12 @@ function runQueue(opts) {
   };
   vm.createContext(ctx);
   vm.runInNewContext(block, ctx);
+  const carousel = ctx.operatorCarouselCandidateAssignments();
   return {
-    ids: ctx.operatorCarouselCandidateAssignments().map(a => a.id),
-    pin: ctx.operatorInProgressAssignment(ctx.operatorCarouselCandidateAssignments()),
+    ids: carousel.map(a => a.id),
+    pin: ctx.operatorInProgressAssignment(carousel),
+    rawPin: ctx.operatorInProgressAssignment(opts.assignments || []),
+    ctx: ctx,
   };
 }
 
@@ -109,13 +112,17 @@ const AM3 = 3 * 60;
     odScheduleId: '6a8daffa-0000-4000-8000-000000000002',
     savedAt: '2026-09-24T19:36:09.092Z',
   };
+  // SS 481 Amanda Modified 15:58Z is NEWER than SS 498 Jodie 06:15Z.
+  // Neither assignment.date is >= Sep 24, so preferToday would be false.
+  const ss481 = { status: 'arrived', lastActive: '2026-09-24T15:58:54Z', sessionDate: '2026-09-22' };
+  const ss498 = { status: 'arrived', lastActive: '2026-09-24T06:15:27Z', sessionDate: '2026-09-23' };
   const q = runQueue({
     today: '2026-09-24',
     gateOpen: true,
     assignments: [isaiah, jodie, amy],
     state: { sessionDate: '2026-09-22', arrivedAt: '2026-09-23T04:00:00.000Z' },
-    getMyLatestStatusForAssignment: (id) => (id === 'isaiah' ? { status: 'arrived' } : null),
-    getLatestStatusForAssignment: (id) => (id === 'isaiah' ? { status: 'arrived' } : null),
+    getMyLatestStatusForAssignment: (id) => (id === 'isaiah' ? ss481 : (id === 'jodie' ? ss498 : null)),
+    getLatestStatusForAssignment: (id) => (id === 'isaiah' ? ss481 : (id === 'jodie' ? ss498 : null)),
   });
   assert('Narendra: last-night Jodie Rescheduled is the pin',
     q.ids[0] === 'jodie' && q.pin && q.pin.id === 'jodie', JSON.stringify(q.ids));
@@ -123,6 +130,11 @@ const AM3 = 3 * 60;
     !q.ids.includes('isaiah'), JSON.stringify(q.ids));
   assert('Narendra: future Amy does not steal the pin',
     q.ids[0] !== 'amy' && !(q.pin && q.pin.id === 'amy'), JSON.stringify(q.ids));
+  assert('Narendra: newer SS 481 Modified does not pin Amanda over Jodie',
+    q.rawPin && q.rawPin.id === 'jodie'
+    && q.rawPin.teamName === 'Narendra x Satya'
+    && String(q.rawPin.odScheduleId).indexOf('3f751074') === 0,
+    q.rawPin && q.rawPin.id);
 }
 
 // Pradeepreddy — Michael Luo last night stays; older leftover drops; Sep 26 does not pin.
@@ -147,10 +159,19 @@ const AM3 = 3 * 60;
     gateOpen: true,
     assignments: [zekelia, michael, manpreet],
     state: { sessionDate: '2026-09-22', arrivedAt: '2026-09-23T06:00:00.000Z' },
-    getLatestStatusForAssignment: (id) => (id === 'zekelia' ? { status: 'station_4_done' } : null),
+    getLatestStatusForAssignment: (id) => {
+      if (id === 'zekelia') return { status: 'station_4_done', lastActive: '2026-09-23T12:00:00Z' };
+      // SS 511 Manpreet is newer and unrelated. It must not win the pin.
+      if (id === 'manpreet') return { status: 'arrived', lastActive: '2026-09-24T19:26:00Z' };
+      if (id === 'michael') return { status: 'arrived', lastActive: '2026-09-24T15:54:10Z' };
+      return null;
+    },
   });
   assert('Pradeepreddy: Michael overnight is the pin',
-    q.ids[0] === 'michael' && q.pin && q.pin.id === 'michael', JSON.stringify(q.ids));
+    q.ids[0] === 'michael' && q.pin && q.pin.id === 'michael'
+    && q.pin.teamName === 'Adidela x Pradeepreddy', JSON.stringify(q.ids));
+  assert('Pradeepreddy: newer SS 511 Manpreet does not steal the pin',
+    q.rawPin && q.rawPin.id === 'michael', q.rawPin && q.rawPin.id);
   assert('Pradeepreddy: older Booked leftover dropped',
     !q.ids.includes('zekelia'), JSON.stringify(q.ids));
   assert('Pradeepreddy: future Manpreet does not steal the pin',
@@ -176,6 +197,31 @@ const AM3 = 3 * 60;
   });
   assert('newer Rescheduled beats older Booked on the same night',
     q.ids[0] === 'newer-resched' && !q.ids.includes('older-booked'), JSON.stringify(q.ids));
+}
+
+// Same start clock. Booked row carries the newer timestamp. Rescheduled still wins.
+{
+  const booked = {
+    id: 'tie-booked', date: '2026-09-23', startMin: PM7, endMin: AM2,
+    status: 'Booked', odStatus: 'Scheduled', teamName: 'Narendra x Isaiah',
+    odScheduleId: 'acc02679', savedAt: '2026-09-24T15:58:54Z',
+  };
+  const resched = {
+    id: 'tie-resched', date: '2026-09-23', startMin: PM7, endMin: AM2,
+    status: 'Rescheduled', odStatus: 'Rescheduled', teamName: 'Narendra x Satya',
+    odScheduleId: '3f751074', savedAt: '2026-09-24T06:15:27Z',
+  };
+  const q = runQueue({
+    today: '2026-09-24',
+    gateOpen: true,
+    assignments: [booked, resched],
+    getLatestStatusForAssignment: (id) => (id === 'tie-booked'
+      ? { status: 'arrived', lastActive: '2026-09-24T15:58:54Z' }
+      : { status: 'arrived', lastActive: '2026-09-24T06:15:27Z' }),
+  });
+  assert('same slot: Rescheduled successor beats Booked with newer SessionState time',
+    q.pin && q.pin.id === 'tie-resched' && q.pin.odScheduleId === '3f751074',
+    q.ids.join(','));
 }
 
 // Before 9 AM the last-night overnight still hides a later same-calendar booking.
