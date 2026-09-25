@@ -14,7 +14,7 @@
 - The richer co-mod still wins the merge. Live / Next / Done filters are unchanged.
 - Version **1.3.091825c**. Selftest: `scripts/perf-panel-past-incomplete-selftest.js`.
 
-**PR:** draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
+**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
 
 **Verify (David):** Hard refresh → **1.3.091825c**. Admin → Performance. Open Venkata × Jashit / Amanda W Li from yesterday. The small status should still say **In session · St 2**. The panel should list Station 1 and Station 2 as complete, Station 3 as partly done, and Station 4 as not started. It should not say the session hasn't started.
 
