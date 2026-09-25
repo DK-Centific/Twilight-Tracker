@@ -14,7 +14,7 @@
 - Soft-close plus happypath still shows under Done. Soft-close without happypath stays off Done. Unassigned and other Cancelled stay hidden from Done. The booking carousel still drops every Cancelled row.
 - Version **1.3.091825h**. Selftest: `scripts/perf-soft-close-done-selftest.js`.
 
-**PR:** draft on `cursor/soft-close-html-strip-54c5`. Do **not** merge until David says push.
+**PR:** draft [#176](https://github.com/DK-Centific/Twilight-Tracker/pull/176) on `cursor/soft-close-html-strip-54c5`. Do **not** merge until David says push.
 
 **Verify (David):** Hard refresh → **1.3.091825h**. Admin → Performance. Click **All time**. Click **Done**. These finished sessions should show **Completed**: REBECCA Young, lisa payne, Danica Kjorsvik, Seth Schnurman, Shelly Bowman, Zekelia Sanders, Wendy Clough, Michael Luo. A soft-close night that never finished should not be under Done. A team that used **Cancel session** should still say Cancelled, not Done.
 
