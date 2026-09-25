@@ -1,5 +1,25 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Performance panel past incomplete (1.3.091825c)
+
+## 2026-09-25 · Performance panel shows past incomplete stations (1.3.091825c)
+
+**Ask:** Admin Performance for Venkata × Jashit yesterday (Amanda W Li). The mini pill says In session · St 2, but the panel body said the session hasn't started. Leave the session incomplete. Do not heal SessionState, stamp session_done, change List/OD, or touch strikes.
+
+**Cause:** The panel showed the empty copy whenever `classifyBookingForPerf` was `scheduled`, and never called the station list. A past incomplete session stays scheduled (booked end has passed, not Live, not Done). The pill still reads the latest SessionState status, so the pill and the panel disagreed.
+
+**Fix:**
+- The empty “hasn't started” copy is only when there is no check-in and no real station rows.
+- If the session started (`assignmentPerfSessionStarted`) or a non-geo SessionState row has arrived / `station_*_done` / scenario progress, the panel shows the merged station list even when the booking is still scheduled.
+- The richer co-mod still wins the merge. Live / Next / Done filters are unchanged.
+- Version **1.3.091825c**. Selftest: `scripts/perf-panel-past-incomplete-selftest.js`.
+
+**PR:** draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh → **1.3.091825c**. Admin → Performance. Open Venkata × Jashit / Amanda W Li from yesterday. The small status should still say **In session · St 2**. The panel should list Station 1 and Station 2 as complete, Station 3 as partly done, and Station 4 as not started. It should not say the session hasn't started.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Cancel session wipes checklist (1.3.091825b)
 
 ## 2026-09-25 · Cancel session wipes checklist progress (1.3.091825b)
