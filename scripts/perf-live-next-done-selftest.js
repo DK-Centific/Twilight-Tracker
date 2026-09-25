@@ -213,9 +213,9 @@ function cls(a) {
 
 console.log('Performance Live / Next / Done window self-test (1.3.091822c)');
 
-assert('APP_VERSION 1.3.091822c',
-  /const APP_VERSION = '1\.3\.091822c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091822c'));
+assert('APP_VERSION 1.3.091822+',
+  /const APP_VERSION = '1\.3\.09182[2-9][a-z]'/.test(src)
+  && /twilight\.js\?v=twilight-1\.3\.09182[2-9][a-z]/.test(html));
 assert('live-window helper present',
   /function assignmentInPerfLiveWindow/.test(src)
   && /LIVE \/ NEXT \/ DONE CONTRACT/.test(src));
@@ -263,10 +263,10 @@ assert('overnight after end may stay queued for wrap-up, never Live',
   cls(overnightStuck) !== 'inprogress'
   && !ctx.overviewAssignmentIsPerfLive(overnightStuck));
 
-assert('Past filter still sees overnight completed',
+assert('Past filter drops a session that ended more than 24 hours ago',
+  ctx.perfDateInRange(pastEveningDone, 'past') === false);
+assert('Past filter still sees overnight completed on Today or within 24h',
   ctx.perfDateInRange(overnightDone, 'past') || ctx.perfDateInRange(overnightDone, 'today'));
-assert('Past filter sees yesterday-evening completed',
-  ctx.perfDateInRange(pastEveningDone, 'past'));
 assert('Today filter excludes last-week stale',
   !ctx.perfDateInRange(lastWeekArrived, 'today'));
 assert('Today filter excludes future-day stale',

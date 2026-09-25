@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091824e';
-const APP_UPDATED_AT = '09/24/2026 16:10';
+const APP_VERSION = '1.3.091825a';
+const APP_UPDATED_AT = '09/25/2026 08:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -8665,12 +8665,13 @@ const adminState = {
   //   { 'team-3': { key: 'date',   dir: 'desc' },
   //     'mod-jane': { key: 'status', dir: 'asc' } }
   // perfDateRange: 'today' | 'past' | 'week' | 'all' | 'custom'
+  // 'past' = booked session end inside the rolling last 24 hours (not all history)
   //   · toolbar-level filter applied to BOTH tile counts and tile body
   //   lists. Default 'today' keeps Admin Performance ops-focused
   //   (Live queue + 9 AM gate). Past / This week / All time / Custom
   //   use the history source so completed + skipped sessions stay
-  //   reviewable. Uses parseYMD on a.date (week/custom) or Pacific
-  //   overlap (today/past).
+  //   reviewable. Today uses Pacific-day overlap. Past uses the booked
+  //   session end inside the rolling last 24 hours.
   // perfStatusFilter: { [tileId]: 'completed' | 'inprogress' | 'scheduled' }
   //   · per-tile drill filter set by clicking a stat chip in the tile
   //   header. Stacks on top of perfDateRange + perfSearch but only
@@ -11750,8 +11751,50 @@ function assignmentInPerfLiveWindow(a) {
   return now >= (startMs - grace) && now < endMs;
 }
 
+// Raw SessionState cancel. Checked before day-gate scrub so a kept
+// station map / sessionCompletedAt cannot hide sessionStatus Cancelled.
+function sessionStateRowSaysCancelled(row) {
+  if (!row) return false;
+  const col = String(row.sessionStatus || row.SessionStatus || '').trim().toLowerCase();
+  if (col === 'cancelled') return true;
+  let parsed = null;
+  try {
+    if (typeof parseSessionStateJson === 'function') parsed = parseSessionStateJson(row);
+    else parsed = JSON.parse(row.stateJson || '{}');
+  } catch (_) { parsed = null; }
+  if (!parsed || typeof parsed !== 'object') return false;
+  if (String(parsed.sessionStatus || '').trim().toLowerCase() === 'cancelled') return true;
+  if (typeof assignmentCommentIsModCancel === 'function'
+      && assignmentCommentIsModCancel(parsed.cancelComment)) return true;
+  return false;
+}
+
+function assignmentSessionStateSaysCancelled(a) {
+  if (!a || a.id == null) return false;
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(a.id, rows)
+    : rows.filter(r => r && String(r.assignmentId || '') === String(a.id));
+  for (let i = 0; i < matching.length; i++) {
+    if (sessionStateRowSaysCancelled(matching[i])) return true;
+  }
+  return false;
+}
+
+// Moderator Cancel session on this booking. Admin cancel (status
+// Cancelled without this comment and without SessionState Cancelled)
+// stays out of the Performance list. Live / Next / Done stay null.
+function perfAssignmentIsTeamCancelled(a) {
+  if (!a) return false;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return true;
+  return false;
+}
+
 function classifyBookingForPerf(a) {
   if (!a) return null;
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return null;
   if (a.status === 'Cancelled' || a.status === 'Unassigned') return null;
   if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return null;
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
@@ -11825,6 +11868,13 @@ function perfLiveStatusDisplay(a) {
   if (!a) return { key: 'booked', label: 'Booked' };
   if (a.status === 'Cancelled')  return { key: 'cancelled', label: 'Cancelled' };
   if (a.status === 'Unassigned') return { key: 'cancelled', label: 'Unassigned' };
+  // Team cancel wins over a leftover session_done / check-in stamp.
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) {
+    return { key: 'cancelled', label: 'Cancelled' };
+  }
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) {
+    return { key: 'cancelled', label: 'Cancelled' };
+  }
   const live = (typeof getLatestStatusForAssignment === 'function')
     ? getLatestStatusForAssignment(a.id)
     : null;
@@ -12070,7 +12120,10 @@ function renderPerfGeoTrackHTML(a, variant) {
 // Date with explicit local components · see parseYMD's comment).
 //
 // 'today'  = Pacific-day overlap (overnight Sep17→Sep18 counts as Today)
-// 'past'   = not overlapping today (prior completed/skipped review)
+// 'past'   = booked session end inside the rolling last 24 hours
+//            (assignmentBookingSessionEndMs, America/Los_Angeles).
+//            End still ahead stays on Today / Live / Next. Older than
+//            24 hours stays on All time / This week / Custom.
 // 'week'   = current Monday–Sunday calendar week (NOT a 7-day rolling window)
 // 'month'  = current calendar month (legacy · remapped to 'all')
 // 'custom' = inclusive [start, end] on a.date; open bounds allowed
@@ -12097,6 +12150,9 @@ function perfBookingOverlapsPacificDay(a, ymd) {
   return String((mat && mat.date) || '').split('T')[0] === day;
 }
 
+// Past pill window. Booked session end must fall in [now - 24h, now].
+const PERF_PAST_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 function perfActiveDateRange() {
   const raw = (typeof adminState !== 'undefined' && adminState)
     ? String(adminState.perfDateRange || '')
@@ -12119,19 +12175,20 @@ function perfDateInRange(a, range) {
   }
 
   if (range === 'past') {
-    // Prior Pacific days only. Overnight that still overlaps today
-    // stays on Today so Live ops and Past review do not double-count.
-    if (typeof perfBookingOverlapsPacificDay === 'function' && perfBookingOverlapsPacificDay(a)) {
-      return false;
-    }
-    const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
-    const startYmd = String((a && a.date) || '').split('T')[0];
-    const endYmd = (typeof assignmentSessionEndYmdPt === 'function')
-      ? String(assignmentSessionEndYmdPt(a) || '')
-      : startYmd;
-    if (today && startYmd && startYmd < today) return true;
-    if (today && endYmd && endYmd < today) return true;
-    return false;
+    // Rolling last 24 hours from now. Clock is the booked session end
+    // in America/Los_Angeles (assignmentBookingSessionEndMs) — the same
+    // end instant Performance already uses for "this session is past."
+    // A booking is included only when that end has already happened and
+    // is still inside the window. In-progress rows (end ahead of now)
+    // stay on Today. History older than 24 hours stays on All time,
+    // This week, and Custom.
+    const endMs = (typeof assignmentBookingSessionEndMs === 'function')
+      ? assignmentBookingSessionEndMs(a) : NaN;
+    if (!Number.isFinite(endMs)) return false;
+    const now = Date.now();
+    const windowMs = (typeof PERF_PAST_WINDOW_MS === 'number')
+      ? PERF_PAST_WINDOW_MS : (24 * 60 * 60 * 1000);
+    return endMs <= now && endMs >= (now - windowMs);
   }
 
   const d = parseYMD(a && a.date);
@@ -12192,7 +12249,7 @@ function perfDateRangeOptions() {
   if (adminState.perfDateRange === 'month') adminState.perfDateRange = 'all';
   return [
     { key: 'today',  label: 'Today',     sub: now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) },
-    { key: 'past',   label: 'Past',      sub: 'before today' },
+    { key: 'past',   label: 'Past',      sub: 'last 24 hours' },
     { key: 'week',   label: 'This week', sub: `from ${wkStartLabel}` },
     { key: 'all',    label: 'All time',  sub: '' },
     { key: 'custom', label: 'Custom',    sub: customSub },
@@ -12358,6 +12415,9 @@ function sessionStateStampsAllBeforeBooking(parsed, bookingYmd) {
 // count even when sessionCompletedAt never landed. A prior booking day
 // or foreign stamp set does not.
 function sessionStateCountsAsTeamComplete(parsed, row, bookingYmd) {
+  const parsedStatus = String((parsed && parsed.sessionStatus) || '').trim().toLowerCase();
+  const rowStatus = String((row && (row.sessionStatus || row.SessionStatus)) || '').trim().toLowerCase();
+  if (parsedStatus === 'cancelled' || rowStatus === 'cancelled') return false;
   const booked = String(bookingYmd || '').trim();
   const sd = String(
     (parsed && parsed.sessionDate)
@@ -12445,6 +12505,8 @@ function isAssignmentTeamHappypathComplete(a) {
   // Mod cancel is team-wide for this assignment and is not happypath Done.
   if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return false;
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return false;
   if (a.status === 'Completed') return true;
   const bookingYmd = (typeof resolveAssignmentBookingYmd === 'function')
     ? resolveAssignmentBookingYmd(a.id)
@@ -12540,6 +12602,8 @@ function isAssignmentSkipOrResolvedForFlagged(a) {
 function isAssignmentFlaggedForPerf(a) {
   if (!a) return false;
   if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return false;
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return false;
   if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return false;
   if (typeof isPastAssignmentSessionEnd === 'function') {
     if (!isPastAssignmentSessionEnd(a)) return false;
@@ -13519,7 +13583,7 @@ function perfAssignmentVisibleInAdminQueue(a) {
 //   Does NOT re-flag and does NOT clear Skip.
 //
 // Date predicate: perfDateInRange (today = Pacific overlap; past =
-//   not today; week/custom on a.date).
+//   booked session end inside the rolling last 24 hours).
 // Status predicate: classifyBookingForPerf (Done/Live/Next).
 //   Live = checked-in + assignmentInPerfLiveWindow (today / open overnight).
 //   Next = not yet checked in, including today upcoming.
@@ -13559,7 +13623,10 @@ function perfTeamAssignmentsForSource(teamId, source) {
   const list = source === 'history'
     ? perfTeamHistoryBookings(teamId)
     : perfTeamBookingCandidates(teamId);
-  return list.filter(a => classifyBookingForPerf(a));
+  const visible = list.filter(a =>
+    (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a))
+    || classifyBookingForPerf(a));
+  return perfMergeTeamCancelledBookings(visible, a => String(a.teamId) === String(teamId));
 }
 
 function perfModMatchedAssignments(modOrbitId) {
@@ -13591,10 +13658,31 @@ function perfModMatchedAssignments(modOrbitId) {
 
 function perfModAssignmentsForSource(modOrbitId, source) {
   return perfModMatchedAssignments(modOrbitId).filter(a => {
+    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return true;
     if (!classifyBookingForPerf(a)) return false;
     if (source === 'history') return true;
     return perfAssignmentVisibleInAdminQueue(a);
   });
+}
+
+// Status Cancelled rows are dropped from the live queue and from history.
+// Put moderator team-cancels back so Performance can show Cancelled.
+// They still do not count as Live, Next, or Done.
+function perfMergeTeamCancelledBookings(list, pred) {
+  const out = Array.isArray(list) ? list.slice() : [];
+  const seen = new Set();
+  out.forEach(a => { if (a && a.id != null) seen.add(String(a.id)); });
+  const all = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  for (let i = 0; i < all.length; i++) {
+    const a = all[i];
+    if (!a || a.id == null || seen.has(String(a.id))) continue;
+    if (pred && !pred(a)) continue;
+    if (typeof perfAssignmentIsTeamCancelled !== 'function' || !perfAssignmentIsTeamCancelled(a)) continue;
+    seen.add(String(a.id));
+    out.push(a);
+  }
+  return out;
 }
 
 // All bookings for a team · used in team-tile expansion.
@@ -14691,7 +14779,11 @@ function exportPerformanceXLSX() {
         a.date || '',
         (a.startMin != null) ? fmtTimeOfDay(a.startMin) : '',
         (a.endMin   != null) ? fmtTimeOfDay(a.endMin)   : '',
-        statusLabel(classifyBookingForPerf(a)),
+        statusLabel(classifyBookingForPerf(a)) || (
+          (typeof perfLiveStatusDisplay === 'function')
+            ? String((perfLiveStatusDisplay(a) || {}).label || '')
+            : ''
+        ),
       ]);
     });
   });
@@ -14709,7 +14801,7 @@ function exportPerformanceXLSX() {
 }
 
 function perfEmptyWidenHint(dateRange) {
-  if (dateRange === 'today') return ' Click Past or All time to review completed sessions.';
+  if (dateRange === 'today') return ' Click Past for the last 24 hours, or All time for older sessions.';
   return ' Try widening the filters.';
 }
 
@@ -29737,6 +29829,8 @@ function teamBookingOnDateForStrike(teamId, ymd) {
   for (const a of rows) {
     if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
     if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) continue;
+    if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) continue;
+    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) continue;
     return a;
   }
   return null;
@@ -29967,6 +30061,8 @@ function modStrikeAssignmentEvidence(a) {
   if (!a) return 'unknown';
   if (a.status === 'Cancelled') return 'cancelled';
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return 'cancelled';
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return 'cancelled';
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return 'cancelled';
   if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return 'cancelled';
   if (a.status === 'Completed') return 'complete';
   if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) return 'complete';
@@ -43418,6 +43514,16 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
   const booked = String(bookingYmd || '').trim();
   if (!booked) return parsed;
   opts = opts || {};
+  // Team cancel is terminal. Day-gate scrub must not rewrite Cancelled
+  // into session_done / arrived when station progress was kept for audit.
+  const rawCancelStatus = String((parsed && parsed.sessionStatus) || '').trim().toLowerCase();
+  const rawCancelComment = String((parsed && parsed.cancelComment) || '').trim();
+  if (rawCancelStatus === 'cancelled'
+      || (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(rawCancelComment))) {
+    const keptCancel = Object.assign({}, parsed);
+    keptCancel.sessionStatus = 'Cancelled';
+    return keptCancel;
+  }
   // Admin Performance / strike still evaluate yesterday's completed rows.
   // Day-gate scrub for the OPEN booking must not erase sessionCompletedAt
   // when preserveSessionCompletion is set (deriveLatestStatusFromSessionState).
@@ -45572,6 +45678,27 @@ function deriveLatestStatusFromSessionState(asgnId) {
     let parsed = (typeof parseSessionStateJson === 'function')
       ? parseSessionStateJson(r)
       : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    // Cancel wins before scrub. A kept sessionCompletedAt must not
+    // become session_done for a mod-cancel-session row.
+    if (typeof sessionStateRowSaysCancelled === 'function' && sessionStateRowSaysCancelled(r)) {
+      const who = String((r && r.orbitLoginId) || '');
+      const result = {
+        assignmentId: String(asgnId),
+        status: 'Cancelled',
+        timestamp: (r && r.lastActive) || new Date().toISOString(),
+        orbitLoginId: who,
+        lastActive: (r && r.lastActive) || '',
+        moderatorId: who,
+        moderatorName: (typeof getModeratorDisplayName === 'function' && who)
+          ? getModeratorDisplayName(who) : who,
+        moderatorMatch: true,
+        sessionCompletedAt: null,
+        _derived: true,
+        _modCancel: true,
+      };
+      _derivedStatusCache.byAsgnId[asgnId] = result;
+      return result;
+    }
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
       // Preserve wrap-up stamps on prior bookings Admin still scores for
       // incomplete/flag (day-gate must not wipe sessionCompletedAt).
