@@ -13,7 +13,7 @@
 - A second team row for that same assignment and date does nothing. A later refresh does nothing if that person’s log already has that assignment and date (including the two lines already on file).
 - A different assignment the same day can still take its own one star.
 - Skip, finished, cancelled, and before 9:00 AM PT are unchanged.
-- Version **1.3.091825e**. Tip **1.3.091825c** is the open Performance panel PR (#172). Selftest: `scripts/mod-strike-once-per-session-selftest.js` (16 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
+- Version **1.3.091825e**, rebased on main after #172 merged as **1.3.091825d**. Selftest: `scripts/mod-strike-once-per-session-selftest.js` (16 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
 
 **PR:** draft https://github.com/DK-Centific/Twilight-Tracker/pull/173 on `cursor/strike-once-per-mod-8dd7`. David said push when ready; Watchdog merges after AHP LGTM. Do **not** merge from this branch. Do not write List/OD/SessionState to change stars.
 

@@ -37,7 +37,7 @@ function sessionKeyFor(username) {
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
 const APP_VERSION = '1.3.091825e';
-const APP_UPDATED_AT = '09/25/2026 10:05';
+const APP_UPDATED_AT = '09/25/2026 17:00';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
