@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
+/**
+ * Overview donut: total booked = Completed + Cancelled + Open.
+ * Demo and Unassigned are out. Not checked-in is not a slice.
+ */
+
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -27,8 +32,12 @@ const ctx = {
     ],
   },
   isTerminalStatus: s => s === 'Cancelled' || s === 'Unassigned',
+  assignmentCommentIsModCancel: (c) => String(c || '').trim().indexOf('mod-cancel-session') === 0,
   classifyBookingForPerf: (a) => {
-    if (a.id === 'wrap-only') return 'completed';
+    if (!a || a.status === 'Cancelled' || a.status === 'Unassigned') return null;
+    if (String(a.comment || '').indexOf('mod-cancel-session') === 0) return null;
+    if (a.status === 'Completed' || a.id === 'wrap-only' || a.id === 'happypath') return 'completed';
+    if (a.id === 'live-1') return 'inprogress';
     return 'scheduled';
   },
   assignmentHasModeratorArrivalCheckIn: (a) => a.id === 'r2' || a.id === 'r3',
@@ -51,7 +60,7 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview donut + demo exclusion self-test');
+console.log('Overview donut total booked self-test');
 
 const demo = {
   id: 'd1',
@@ -61,22 +70,47 @@ const demo = {
   modSnapshots: [{ orbitLoginId: 'demo-annie' }],
 };
 const cancelled = { id: 'c1', teamId: '99', status: 'Cancelled' };
-const realDoneNoCheckIn = { id: 'r1', teamId: '99', status: 'Completed', participantName: 'Pat Smith' };
-const realCheckedIn = { id: 'r2', teamId: '99', status: 'Booked', participantName: 'Jane Doe' };
+const modCancel = {
+  id: 'c2',
+  teamId: '99',
+  status: 'Booked',
+  comment: 'mod-cancel-session:amy:2026-09-25T16:00:00Z',
+  participantName: 'Pat Smith',
+};
+const realDone = { id: 'r1', teamId: '99', status: 'Completed', participantName: 'Pat Smith' };
+const realOpen = { id: 'r2', teamId: '99', status: 'Booked', participantName: 'Jane Doe' };
 const wrapOnly = { id: 'wrap-only', teamId: '100', status: 'Booked' };
 const testing = { id: 't1', teamId: '99', status: 'Booked', participantName: 'For Testing Only' };
-const teamBOpen = { id: 'r3', teamId: '100', status: 'Booked', participantName: 'Sam Lee' };
+const live = { id: 'live-1', teamId: '100', status: 'Booked', participantName: 'Sam Lee' };
+const unassigned = { id: 'u1', teamId: '100', status: 'Unassigned' };
+const happypath = { id: 'happypath', teamId: '100', status: 'Booked', participantName: 'Ada' };
 
 assert('demo team booking is demo', ctx.assignmentIsDemoBooking(demo));
 assert('for testing name is demo', ctx.assignmentIsDemoBooking(testing));
-assert('real booking is not demo', !ctx.assignmentIsDemoBooking(realDoneNoCheckIn));
+assert('real booking is not demo', !ctx.assignmentIsDemoBooking(realDone));
+assert('mod-cancel comment is cancelled for the donut', ctx.overviewAssignmentIsCancelledForDonut(modCancel));
+assert('status Cancelled is cancelled for the donut', ctx.overviewAssignmentIsCancelledForDonut(cancelled));
+assert('cancel wins over a Completed status on the same row',
+  ctx.overviewAssignmentIsCancelledForDonut({ id: 'both', status: 'Completed', comment: 'mod-cancel-session:x' })
+  && !ctx.overviewAssignmentIsCompletedForDonut({ id: 'both', status: 'Completed', comment: 'mod-cancel-session:x' }));
 
-const list = [demo, cancelled, realDoneNoCheckIn, realCheckedIn, wrapOnly, testing, teamBOpen];
+const list = [demo, cancelled, modCancel, realDone, realOpen, wrapOnly, testing, live, unassigned, happypath];
 const counts = ctx.computeOverviewDonutCounts(list);
 
-assert('denominator is distinct in-scope teams', counts.progressTotal === 2);
-assert('numerator is checked-in teams not booking rows', counts.completedCount === 2);
-assert('Completed without check-in does not inflate numerator', counts.remainingCount === 0);
+assert('demo and Unassigned are outside total booked', counts.progressTotal === 7);
+assert('completed is Completed status plus Performance Done', counts.completedCount === 3);
+assert('cancelled is status Cancelled plus mod-cancel-session', counts.cancelledCount === 2);
+assert('open is live and not-started bookings', counts.openCount === 2);
+assert('slices sum to total booked',
+  counts.completedCount + counts.cancelledCount + counts.openCount === counts.progressTotal);
+assert('not-checked-in is not the opposing count',
+  counts.remainingCount === counts.cancelledCount + counts.openCount
+  && !('checkedInCount' in counts));
+
+const onlyOpen = ctx.computeOverviewDonutCounts([realOpen]);
+assert('a single open booking is 1 booked, 0 completed, 0 cancelled',
+  onlyOpen.progressTotal === 1 && onlyOpen.completedCount === 0
+  && onlyOpen.cancelledCount === 0 && onlyOpen.openCount === 1);
 
 if (failed) {
   console.error('\n' + failed + ' failed');

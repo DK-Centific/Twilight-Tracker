@@ -1,5 +1,25 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Incomplete alert after auto-strike + Total booked donut (1.3.091825f)
+
+## 2026-09-25 · Incomplete alert clears after auto-strike; Overview donut is Total booked (1.3.091825f)
+
+**Ask:** After 9:00 AM PT, Overview and Performance still listed teams that already got the automatic strike (Venkata × Jashit / Amanda, assignment `od_8d6bedbf…`, session 2026-09-24). Stars were already healed to 3. Do not strike them again. On Overview, the Team check-in ring should show total booked split into Completed and Cancelled, not checked-in versus not checked-in.
+
+**Cause (alert):** The incomplete list only went away after Skip or a manual Strike. The 9 AM automatic strike writes a `kind=auto` log and a checkpoint stamp, but it does not mark the team resolved. The session is still unfinished, so Overview Live status, the Performance banner, and the Flagged count kept showing “Not completed.”
+
+**Fix (alert):** Past 9:00 AM PT, that team drops off those incomplete alerts when every moderator on the team already has an automatic strike log for that assignment and date, or the checkpoint already stamped that assignment and date. A team that has not been struck still shows. Skip and Cancelled stay off the open Strike list. This does not remove stars, write OneData, or strike again.
+
+**Fix (donut):** The ring is **Total booked**. Slices are **Completed**, **Cancelled**, and **Open** (still booked: live, not started, or unfinished). Open is there so the slices add up to the total. Demo and Unassigned bookings are left out. Cancelled uses the same cancel marks as Performance. Completed uses the same Done rule as Performance. The Bookings number on the left still does not count Cancelled.
+
+**Version:** **1.3.091825f**. Selftests: `scripts/incomplete-alert-after-strike-selftest.js` (22 passed), `scripts/overview-donut-demo-selftest.js` (all passed). Also strike, cancel, and Performance panel tests.
+
+**PR:** draft on `cursor/incomplete-alert-donut-a2f7`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh → **1.3.091825f**. Admin → Overview. The ring on the right should say **Total booked**, with Completed, Cancelled, and Open. It should not say Not checked in. Admin → Performance. After 9:00 AM PT, Venkata × Jashit should not sit in the “not completed” list for the Amanda session they were already struck for. A team that is still unfinished and has not been struck should still show.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · One strike per assignment and date (1.3.091825e)
 
 ## 2026-09-25 · One strike per assignment and date, not per team row (1.3.091825e)
