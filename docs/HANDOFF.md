@@ -1,5 +1,25 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Cancel session wipes checklist (1.3.091825b)
+
+## 2026-09-25 · Cancel session wipes checklist progress (1.3.091825b)
+
+**Ask:** PA + AHP confirmed the wipe. On Confirm Cancel, clear that team session’s SessionState checklist. Do not keep progress for the record. Assignment stays Cancelled with `mod-cancel-session`. No OneData, Flagged, strike, Completed, or Admin Skip change.
+
+**Fix:**
+- One confirm upserts every co-mod SessionState shell for that assignmentId (existing rows, team primaries, backups). `sessionStateId` stays stable. `assignmentId` stays bound. `sessionStatus` is **Cancelled**, never Completed or `session_done`.
+- The blob is an intentional clear, not a sparse empty write: stations, stationProgress, scenarios, equipment ticks, approval gate, `sessionStartedAt`, `sessionCompletedAt`, and progress score are cleared. Name and address stay. `checklistCleared` is set.
+- A richer stale teammate shell for that same assignment does not win back the checklist. Pending offline worklog rows for that assignment are dropped. A later sync will not write checklist progress back onto the cancelled assignment.
+- Assignment list is unchanged from the prior contract: status Cancelled, comment starts with `mod-cancel-session`, terminal lock, OneData status untouched, address untouched.
+- The person who confirmed also gets a local checklist clear, then welcome re-renders onto the next Booked row.
+- Version **1.3.091825b**. Performance **1.3.091825a** is already on main (#171 merged). This branch is rebased onto that main. Selftests: `scripts/mod-cancel-session-selftest.js`, `scripts/perf-past-24h-cancel-selftest.js`.
+
+**PR:** [#170](https://github.com/DK-Centific/Twilight-Tracker/pull/170) draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091825b**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should move to the next booking with stations not started and equipment unchecked. The cancelled session should say Cancelled, not Completed. The other moderator on that same session should also see a clean checklist. The booking address should stay the same.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Performance Past = last 24 hours, cancelled stays Cancelled (1.3.091825a)
 
 ## 2026-09-25 · Performance Past is the last 24 hours; team cancel stays Cancelled (1.3.091825a)
@@ -11,7 +31,7 @@
 - A moderator cancel (Assignment comment starts with `mod-cancel-session`, and/or SessionState says Cancelled) shows **Cancelled** on Performance. It is not Live, Next, or Done. It is not Flagged and it is not a strike. Saved station progress is not turned back into Done. Admin Skip is unchanged. OneData is not written.
 - Version **1.3.091825a**. Selftests: `scripts/perf-past-24h-cancel-selftest.js`, `scripts/perf-past-history-selftest.js`.
 
-**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) draft on `cursor/perf-past-24h-cancel-a71e`. Do **not** merge until Watchdog says push (AHP CR + David).
+**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) merged to main (`0ccfc3c`).
 
 **Verify (David):** Hard refresh → **1.3.091825a**. Admin → Performance. Click **Past**. The small line under Past should say **last 24 hours**. You should see sessions that ended in the last day, not the whole history. Click **All time** to see older ones. Open a team that cancelled a session. The status should say **Cancelled**, not Done or Flagged.
 

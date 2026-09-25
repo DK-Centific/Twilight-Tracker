@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825a';
-const APP_UPDATED_AT = '09/25/2026 08:45';
+const APP_VERSION = '1.3.091825b';
+const APP_UPDATED_AT = '09/25/2026 08:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15694,7 +15694,19 @@ function renderPerfStationListHTML(a) {
   // Skip geo_presence / asgn_remote shells · ss_od_* is authoritative.
   rows.sort((x, y) => String(y.lastActive || '').localeCompare(String(x.lastActive || '')));
   const merged = { stations: {} };
+  let cancelWipe = false;
   for (const r of rows) {
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
+    const st = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+    if (typeof sessionStateBlobIsModCancelWipe === 'function' && sessionStateBlobIsModCancelWipe(st, r)) {
+      cancelWipe = true;
+      break;
+    }
+  }
+  if (!cancelWipe) for (const r of rows) {
     if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
         && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
     const st = (typeof parseSessionStateJson === 'function')
@@ -41419,8 +41431,108 @@ async function completeAssignment(asgnId, opts) {
 // Moderator Cancel session. Writes Assignment List through the same
 // fields as cancelAssignmentSilent (status Cancelled, timestamps,
 // terminal lock, existing Assignment POST). OneData is not written.
-// Session progress stays for audit. Skip / strike records are not touched.
+// Checklist progress on this assignment is wiped for every co-mod
+// SessionState row (stations, scenarios, equipment ticks, approval
+// gate, completion stamps). Cancel markers stay. The assignment id
+// stays on the row. Skip / strike records are not touched.
 // Comment starts with mod-cancel-session, never od-sync-soft-close.
+
+// True when this blob is a moderator cancel, not a live checklist.
+// A richer teammate shell must not win over this for the same assignment.
+function sessionStateBlobIsModCancelWipe(parsed, row) {
+  const src = (parsed && typeof parsed === 'object') ? parsed : {};
+  const st = String(
+    src.sessionStatus
+    || (row && (row.sessionStatus || row.SessionStatus))
+    || ''
+  ).trim().toLowerCase();
+  if (st === 'cancelled') return true;
+  if (src.checklistCleared === true) return true;
+  const comment = String(src.cancelComment || '');
+  return comment.indexOf('mod-cancel-session') === 0;
+}
+
+// Equipment ticks cleared to false. Keys stay present so a merge does not
+// treat a missing equipment object as "keep the old checks."
+function clearedEquipmentTicksForModCancel(prev) {
+  const out = {};
+  const src = (prev && prev.equipment && typeof prev.equipment === 'object') ? prev.equipment : {};
+  Object.keys(src).forEach(k => { out[k] = false; });
+  if (typeof EQUIPMENT_LIST !== 'undefined' && Array.isArray(EQUIPMENT_LIST)) {
+    EQUIPMENT_LIST.forEach(it => { if (it && it.id) out[it.id] = false; });
+  }
+  return out;
+}
+
+// Intentional cleared SessionState blob for one cancelled assignment.
+// Same completion fields extractSyncableState / wrap-up would set, zeroed.
+// Identity (name, address, assignmentId) stays. Not a sparse empty write.
+function wipeChecklistProgressForModCancel(parsed) {
+  const src = (parsed && typeof parsed === 'object') ? parsed : {};
+  return {
+    participantId: src.participantId || '',
+    participantName: src.participantName || '',
+    participantAddress: src.participantAddress || '',
+    assignmentAddress: src.assignmentAddress || src.participantAddress || '',
+    sessionDate: src.sessionDate || '',
+    assignmentId: src.assignmentId != null ? src.assignmentId : '',
+    stations: {},
+    stationProgress: {},
+    scenarios: {},
+    equipment: clearedEquipmentTicksForModCancel(src),
+    stationCompletedAt: {},
+    sessionStartedAt: null,
+    sessionCompletedAt: null,
+    progressScore: 0,
+    progressAt: '',
+    progressBy: '',
+    approvalGate: {},
+    officeCheckedInAt: '',
+    officeCheckedOutAt: '',
+    calGuideAck: null,
+    recordLakituUrl: '',
+    arrivedAt: '',
+    lastGeo: (src.lastGeo && typeof src.lastGeo === 'object') ? src.lastGeo : null,
+    checklistCleared: true,
+  };
+}
+
+let _modCancelBlockedAsgnIds = Object.create(null);
+function blockModCancelAssignmentRehydrate(asgnId) {
+  const id = String(asgnId || '');
+  if (!id) return;
+  if (!_modCancelBlockedAsgnIds || typeof _modCancelBlockedAsgnIds !== 'object') {
+    _modCancelBlockedAsgnIds = Object.create(null);
+  }
+  _modCancelBlockedAsgnIds[id] = true;
+}
+function sessionStateRehydrateBlockedForModCancel(asgnId) {
+  if (!_modCancelBlockedAsgnIds || typeof _modCancelBlockedAsgnIds !== 'object') return false;
+  return !!_modCancelBlockedAsgnIds[String(asgnId || '')];
+}
+
+// Drop queued offline worklog writes for this assignment so a later flush
+// cannot stamp session_done / station progress after Cancel.
+function dropPendingQueueWritesForModCancel(asgnId) {
+  const id = String(asgnId || '');
+  if (!id) return 0;
+  if (typeof loadSyncQueue !== 'function' || typeof saveSyncQueue !== 'function') return 0;
+  let q = [];
+  try { q = loadSyncQueue() || []; } catch (_) { return 0; }
+  if (!Array.isArray(q) || !q.length) return 0;
+  let dropped = 0;
+  const next = [];
+  for (const item of q) {
+    const ev = item && item.event;
+    const aid = ev && (ev.assignmentId != null ? ev.assignmentId : ev.assignment_id);
+    if (aid != null && String(aid) === id) { dropped++; continue; }
+    next.push(item);
+  }
+  if (dropped) {
+    try { saveSyncQueue(next); } catch (_) {}
+  }
+  return dropped;
+}
 function modCancelSessionComment(actor, iso) {
   const who = String(actor || '').trim() || 'mod';
   return 'mod-cancel-session:' + who + ':' + iso;
@@ -41470,11 +41582,57 @@ function patchStateJsonModCancel(stateJson, iso, actor, comment) {
   let parsed = {};
   try { parsed = stateJson ? JSON.parse(stateJson) : {}; } catch (_) { parsed = {}; }
   if (!parsed || typeof parsed !== 'object') parsed = {};
+  parsed = wipeChecklistProgressForModCancel(parsed);
   parsed.sessionStatus = 'Cancelled';
   parsed.sessionCancelledAt = iso;
   parsed.sessionCancelledBy = actor || '';
   parsed.cancelComment = comment;
+  parsed.checklistCleared = true;
   return JSON.stringify(parsed);
+}
+
+// Every co-mod shell for this assignmentId: existing SessionState rows,
+// booking snapshots, and team primaries/backups. Same aid stays bound.
+function modCancelSessionStateTargets(asgn) {
+  const targets = [];
+  const seen = new Set();
+  const add = (orbit, row) => {
+    const name = String(orbit || '').trim();
+    if (!name || name.toLowerCase() === '_app_setting') return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      if (row) {
+        const hit = targets.find(t => t.orbit.toLowerCase() === key);
+        if (hit && !hit.row) hit.row = row;
+      }
+      return;
+    }
+    seen.add(key);
+    targets.push({ orbit: name, row: row || null });
+  };
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? (sessionStateRowsForAssignment(asgn && asgn.id, rows) || [])
+    : [];
+  matching.forEach(r => { if (r) add(r.orbitLoginId, r); });
+  (asgn && asgn.modSnapshots || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId), null));
+  let team = null;
+  try {
+    if (typeof teamForAssignment === 'function') team = teamForAssignment(asgn);
+  } catch (_) { team = null; }
+  if (!team && typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams) && asgn) {
+    team = adminState.teams.find(t => t && String(t.id) === String(asgn.teamId)) || null;
+  }
+  if (team) {
+    (team.primaryIds || []).forEach(id => add(id, null));
+    const backups = (typeof getTeamBackupIds === 'function')
+      ? getTeamBackupIds(team)
+      : (team.backupIds || []);
+    (backups || []).forEach(id => add(id, null));
+  }
+  try { add(modCancelActorOrbit(), null); } catch (_) {}
+  return targets;
 }
 
 async function postSessionStatePayloadDirect(payload) {
@@ -41512,57 +41670,45 @@ async function postSessionStatePayloadDirect(payload) {
 async function writeModCancelSessionState(asgn, iso, actor, comment) {
   if (!asgn || asgn.id == null || asgn.id === '') return { ok: false };
   let actorOk = false;
-  try {
-    if (typeof buildSessionStateCloudPayload === 'function' && state && (state.username || (state.modProfile && state.modProfile.orbitLoginId))) {
-      const payload = buildSessionStateCloudPayload(asgn, 'mod-cancel-session');
-      payload.stateJson = patchStateJsonModCancel(payload.stateJson, iso, actor, comment);
-      payload.lastActive = iso;
-      payload.sessionStatus = 'Cancelled';
-      const posted = await postSessionStatePayloadDirect(payload);
-      actorOk = !!(posted && posted.ok);
-      if (actorOk && typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
-        _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
-        _sessionStateSyncState.lastSyncedStateJson = payload.stateJson;
-        _sessionStateSyncState.lastSyncedActive = iso;
-      }
-    }
-  } catch (e) {
-    console.warn('[Twilight] mod cancel actor SessionState failed', e && e.message);
-  }
-  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
-    ? adminState.perfSessionStateRows : [];
-  const matching = (typeof sessionStateRowsForAssignment === 'function')
-    ? (sessionStateRowsForAssignment(asgn.id, rows) || [])
-    : [];
   const actorKey = String(actor || '').toLowerCase();
-  for (const row of matching) {
-    if (!row) continue;
-    const orbit = String(row.orbitLoginId || '').trim();
-    if (!row.stateJson) continue;
-    const nextJson = patchStateJsonModCancel(row.stateJson, iso, actor, comment);
-    if (actorKey && orbit.toLowerCase() === actorKey) {
-      row.stateJson = nextJson;
-      row.sessionStatus = 'Cancelled';
-      continue;
-    }
-    if (!orbit) continue;
-    const sid = row.sessionStateId || ((typeof sessionStateStableId === 'function') ? sessionStateStableId(asgn, orbit) : '');
+  const targets = modCancelSessionStateTargets(asgn);
+  for (const target of targets) {
+    if (!target || !target.orbit) continue;
+    const row = target.row;
+    const baseJson = row && row.stateJson ? row.stateJson : '{}';
+    const nextJson = patchStateJsonModCancel(baseJson, iso, actor, comment);
+    const sid = (row && row.sessionStateId)
+      || ((typeof sessionStateStableId === 'function') ? sessionStateStableId(asgn, target.orbit) : '');
     if (!sid) continue;
-    await postSessionStatePayloadDirect({
+    const payload = {
       sessionStateId: sid,
       assignmentId: String(asgn.id),
-      teamId: String(row.teamId || asgn.teamId || ''),
-      orbitLoginId: orbit,
+      teamId: String((row && row.teamId) || asgn.teamId || ''),
+      orbitLoginId: target.orbit,
       stateJson: nextJson,
       lastActive: iso,
       appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
       sessionStatus: 'Cancelled',
       overwrite: true,
       writeMode: 'upsert',
-    });
-    row.stateJson = nextJson;
-    row.sessionStatus = 'Cancelled';
-    row.lastActive = iso;
+    };
+    const posted = await postSessionStatePayloadDirect(payload);
+    if (row) {
+      row.stateJson = nextJson;
+      row.sessionStatus = 'Cancelled';
+      row.lastActive = iso;
+      if (!row.sessionStateId) row.sessionStateId = sid;
+      if (!row.assignmentId) row.assignmentId = String(asgn.id);
+    }
+    const isActor = actorKey && target.orbit.toLowerCase() === actorKey;
+    if (isActor && posted && posted.ok) {
+      actorOk = true;
+      if (typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
+        _sessionStateSyncState.lastSyncedAsgnId = String(asgn.id);
+        _sessionStateSyncState.lastSyncedStateJson = nextJson;
+        _sessionStateSyncState.lastSyncedActive = iso;
+      }
+    }
   }
   try { _derivedStatusCache = { sourceRef: null, byAsgnId: {} }; } catch (_) {}
   return { ok: actorOk };
@@ -41616,6 +41762,12 @@ async function persistModeratorCancelSession(asgn) {
   const iso = new Date().toISOString();
   const actor = modCancelActorOrbit();
   const comment = modCancelSessionComment(actor, iso);
+  const shareIds = assignmentsSharingModCancel(asgn).map(row => row && row.id).filter(id => id != null && id !== '');
+  if (!shareIds.some(id => String(id) === String(asgn.id))) shareIds.push(asgn.id);
+  shareIds.forEach(id => {
+    try { blockModCancelAssignmentRehydrate(id); } catch (_) {}
+    try { dropPendingQueueWritesForModCancel(id); } catch (_) {}
+  });
   try {
     try {
       if (typeof waitForSessionStateSyncIdle === 'function') await waitForSessionStateSyncIdle(8000);
@@ -41642,6 +41794,29 @@ async function persistModeratorCancelSession(asgn) {
       if (result && result.ok) wrote++;
     }
     try { if (typeof window !== 'undefined') window._mySessionCarouselIdx = null; } catch (_) {}
+    if (typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
+      if (_sessionStateSyncState.timer) {
+        clearTimeout(_sessionStateSyncState.timer);
+        _sessionStateSyncState.timer = null;
+      }
+      _sessionStateSyncState.pendingAgain = false;
+      _sessionStateSyncState.pendingForce = false;
+      _sessionStateSyncState.pendingPersistCompletion = false;
+    }
+    if (typeof clearOperatorProgressForNewBooking === 'function') {
+      clearOperatorProgressForNewBooking('mod-cancel-session');
+    }
+    if (typeof state !== 'undefined' && state) {
+      state.equipment = state.equipment && typeof state.equipment === 'object' ? state.equipment : {};
+      Object.keys(state.equipment).forEach(k => { state.equipment[k] = false; });
+      if (typeof EQUIPMENT_LIST !== 'undefined' && Array.isArray(EQUIPMENT_LIST)) {
+        EQUIPMENT_LIST.forEach(it => { if (it && it.id) state.equipment[it.id] = false; });
+      }
+      state.sessionStartedAt = null;
+      state.stationProgress = {};
+      state.approvalGate = {};
+    }
+    try { currentStationKey = null; } catch (_) {}
     if (typeof saveState === 'function') saveState();
     try {
       if (typeof renderMySessionSection === 'function') renderMySessionSection();
@@ -43511,6 +43686,19 @@ function sessionCompletionStampBelongsToBooking(stamp, bookingYmd) {
 
 function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
   if (!parsed || typeof parsed !== 'object') return parsed || {};
+  // Cancelled is not an open Booked day. Do not demote it to arrived / blank
+  // or keep its station map as live checklist progress.
+  if (typeof sessionStateBlobIsModCancelWipe === 'function' && sessionStateBlobIsModCancelWipe(parsed)) {
+    const wiped = (typeof wipeChecklistProgressForModCancel === 'function')
+      ? wipeChecklistProgressForModCancel(parsed)
+      : Object.assign({}, parsed);
+    wiped.sessionStatus = 'Cancelled';
+    wiped.sessionCancelledAt = parsed.sessionCancelledAt || '';
+    wiped.sessionCancelledBy = parsed.sessionCancelledBy || '';
+    wiped.cancelComment = parsed.cancelComment || '';
+    wiped.checklistCleared = true;
+    return wiped;
+  }
   const booked = String(bookingYmd || '').trim();
   if (!booked) return parsed;
   opts = opts || {};
@@ -44133,6 +44321,8 @@ function pickLatestTeamProgress(rows, opts) {
     const computed = sessionStateProgressScore(parsed);
     const stored = Number(parsed.progressScore);
     const score = Number.isFinite(stored) ? Math.max(stored, computed) : computed;
+    const cancelWipe = (typeof sessionStateBlobIsModCancelWipe === 'function')
+      && sessionStateBlobIsModCancelWipe(parsed, r);
     candidates.push({
       row: r,
       syncableState: parsed,
@@ -44141,9 +44331,14 @@ function pickLatestTeamProgress(rows, opts) {
         || sessionStateRowFreshnessMs(r, parsed),
       lastActiveMs: sessionStateRowFreshnessMs(r, parsed),
       progressBy: parsed.progressBy || r.orbitLoginId || '',
+      cancelWipe: cancelWipe,
     });
   }
   if (!candidates.length) return null;
+  if (candidates.some(c => c.cancelWipe)) {
+    const wipedOnly = candidates.filter(c => c.cancelWipe);
+    if (wipedOnly.length) candidates.splice(0, candidates.length, ...wipedOnly);
+  }
   candidates.sort((a, b) => {
     if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
     if ((b.progressAtMs || 0) !== (a.progressAtMs || 0)) return (b.progressAtMs || 0) - (a.progressAtMs || 0);
@@ -44610,6 +44805,10 @@ async function flushSessionStateSync(opts) {
   }
   const asgn = getSessionStateWriteContext(opts);
   if (!asgn || !asgn.id) return { ok: false, reason: 'noassignment' };
+  if (typeof sessionStateRehydrateBlockedForModCancel === 'function'
+      && sessionStateRehydrateBlockedForModCancel(asgn.id)) {
+    return { ok: true, reason: 'mod-cancel' };
+  }
   _sessionStateSyncState.inflight = true;
 
   // Tracks the outcome to return after the finally block runs.
@@ -44889,19 +45088,31 @@ function newestSessionStatePerUser(rows) {
     const nextMs = parseLastActiveMs(r.lastActive);
     let nextScore = 0;
     let prevScore = 0;
+    let nextWipe = false;
+    let prevWipe = false;
     try {
       const parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : {};
       nextScore = (typeof sessionStateProgressScore === 'function')
         ? sessionStateProgressScore(parsed) : 0;
-      if (prev && typeof parseSessionStateJson === 'function'
-          && typeof sessionStateProgressScore === 'function') {
-        prevScore = sessionStateProgressScore(parseSessionStateJson(prev));
+      nextWipe = (typeof sessionStateBlobIsModCancelWipe === 'function')
+        && sessionStateBlobIsModCancelWipe(parsed, r);
+      if (prev && typeof parseSessionStateJson === 'function') {
+        const prevParsed = parseSessionStateJson(prev);
+        if (typeof sessionStateProgressScore === 'function') {
+          prevScore = sessionStateProgressScore(prevParsed);
+        }
+        prevWipe = (typeof sessionStateBlobIsModCancelWipe === 'function')
+          && sessionStateBlobIsModCancelWipe(prevParsed, prev);
       }
     } catch (_) {}
+    // A moderator cancel wipe wins over a stale richer shell for this
+    // assignment. Empty-cloud prefer-richer must not put the checklist back.
+    if (prevWipe && !nextWipe) continue;
     // Duplicate SS rows (Narendra 444/445): prefer the richer station map,
     // not merely the newest heartbeat — an empty newer append must not
     // hide real progress for teammate merge / self-sync.
     if (!prev
+        || (nextWipe && !prevWipe)
         || nextScore > prevScore
         || (nextScore === prevScore && nextMs >= prevMs)) {
       newest.set(key, r);
@@ -45108,6 +45319,17 @@ function formatTeamSyncCompleteToast(result, syncableState) {
 // for debounce.
 function mergeTeammateState(syncableState) {
   if (!syncableState || typeof syncableState !== 'object') return;
+  // A cancelled checklist wipe must not overlay the next Booked session,
+  // and must not be treated as an empty cloud row to heal from.
+  if (typeof sessionStateBlobIsModCancelWipe === 'function'
+      && sessionStateBlobIsModCancelWipe(syncableState)) return;
+  try {
+    const live = (typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null);
+    if (live && typeof sessionStateRehydrateBlockedForModCancel === 'function'
+        && sessionStateRehydrateBlockedForModCancel(live.id)) return;
+  } catch (_) {}
   // Drop prior-day / foreign station progress before overlay so a teammate
   // or stale SS row cannot re-attach yesterday (or pre-9AM) work onto
   // today's moderator Booking/Session flow.
@@ -45273,7 +45495,13 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
     const ms = (typeof sessionStateRowFreshnessMs === 'function')
       ? sessionStateRowFreshnessMs(r, parsed)
       : parseLastActiveMs(r.lastActive);
+    const wipe = (typeof sessionStateBlobIsModCancelWipe === 'function')
+      && sessionStateBlobIsModCancelWipe(parsed, r);
+    const winnerWipe = !!(winnerParsed && typeof sessionStateBlobIsModCancelWipe === 'function'
+      && sessionStateBlobIsModCancelWipe(winnerParsed, winner));
+    if (winnerWipe && !wipe) continue;
     if (!winner
+        || (wipe && !winnerWipe)
         || score > winnerScore
         || (score === winnerScore && ms >= winnerMs)) {
       winner = r;
@@ -45283,6 +45511,12 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
     }
   }
   if (!winner) return null;
+  if (typeof sessionStateRehydrateBlockedForModCancel === 'function'
+      && sessionStateRehydrateBlockedForModCancel(asgn.id)
+      && !(typeof sessionStateBlobIsModCancelWipe === 'function'
+        && sessionStateBlobIsModCancelWipe(winnerParsed, winner))) {
+    return null;
+  }
   return { row: winner, syncableState: winnerParsed || {}, score: winnerScore };
 }
 
@@ -45290,6 +45524,14 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
 // scrubbed row must not replace a local Done, arrival, or notes.
 function applySelfSyncReplace(s) {
   if (!s || typeof s !== 'object') return false;
+  if (typeof sessionStateBlobIsModCancelWipe === 'function' && sessionStateBlobIsModCancelWipe(s)) return false;
+  try {
+    const live = (typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment()
+      : ((typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null);
+    if (live && typeof sessionStateRehydrateBlockedForModCancel === 'function'
+        && sessionStateRehydrateBlockedForModCancel(live.id)) return false;
+  } catch (_) {}
   // Same booking-day scrub as mergeTeammateState · other-browser adopt must
   // not restore foreign station / wrap-up stamps onto today's open session.
   if (typeof scrubSyncableStateForOpenBooking === 'function') {
@@ -45336,6 +45578,8 @@ function sendSessionStateBeacon(reason) {
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return false;
   const asgn = getSessionStateWriteContext();
   if (!asgn || !asgn.id) return false;
+  if (typeof sessionStateRehydrateBlockedForModCancel === 'function'
+      && sessionStateRehydrateBlockedForModCancel(asgn.id)) return false;
   try {
     if (state.lastGeo) {
       state.lastGeo.syncReason = reason || 'app_close';
@@ -55904,6 +56148,15 @@ async function checkAndOfferTeammateSync(prefetchedRows) {
       : 0;
     const lastMergeScore = Number(state._lastSyncMergeScore || 0);
     const teammateNewer = teammateScore > myScore && teammateScore > lastMergeScore;
+    const cancelledShell = (typeof sessionStateBlobIsModCancelWipe === 'function'
+        && sessionStateBlobIsModCancelWipe(scoredCloud.scrubbed || cloud, result.row))
+      || (result.row && typeof sessionStateRehydrateBlockedForModCancel === 'function'
+        && sessionStateRehydrateBlockedForModCancel(result.row.assignmentId || result.row.assignment_id));
+    if (cancelledShell) {
+      if (typeof hideTeammateLiveBanner === 'function') hideTeammateLiveBanner();
+      if (typeof adminState !== 'undefined' && adminState) adminState._lastTeammateLiveAt = null;
+      return;
+    }
     if (teammateNewer) {
       try {
         mergeTeammateState(scoredCloud.scrubbed);
