@@ -1,6 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-25 · Grok · Soft-close happypath shows under Performance Done (1.3.091825g)
+**Last updated:** 2026-09-25 · Grok · Soft-close HTML comments still count as Done (1.3.091825h)
+
+## 2026-09-25 · Soft-close Done works when SharePoint wraps the comment (1.3.091825h)
+
+**Ask:** Tip **1.3.091825g** (PR #175) is live, but finished soft-close sessions still stay off Done. SharePoint stores the comment as `<div class="ExternalClass…">od-sync-soft-close</div>`. No List, SessionState, or OneData writes.
+
+**Cause:** `assignmentCommentIsOdSoftClose` only matched when the raw comment started with `od-sync-soft-close`. The HTML wrapper means it never did, so soft-close stayed false and Cancelled rows stayed hidden from Done.
+
+**Fix:**
+- Plain-text the comment with `stripHtmlTagsToPlainText`, then match `od-sync-soft-close`.
+- The same strip applies to `mod-cancel-session`, so a real Cancel session still counts when SharePoint wraps that comment.
+- Soft-close plus happypath still shows under Done. Soft-close without happypath stays off Done. Unassigned and other Cancelled stay hidden from Done. The booking carousel still drops every Cancelled row.
+- Version **1.3.091825h**. Selftest: `scripts/perf-soft-close-done-selftest.js`.
+
+**PR:** draft [#176](https://github.com/DK-Centific/Twilight-Tracker/pull/176) on `cursor/soft-close-html-strip-54c5`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh → **1.3.091825h**. Admin → Performance. Click **All time**. Click **Done**. These finished sessions should show **Completed**: REBECCA Young, lisa payne, Danica Kjorsvik, Seth Schnurman, Shelly Bowman, Zekelia Sanders, Wendy Clough, Michael Luo. A soft-close night that never finished should not be under Done. A team that used **Cancel session** should still say Cancelled, not Done.
+
+---
 
 ## 2026-09-25 · Soft-close finished sessions show under Performance Done (1.3.091825g)
 

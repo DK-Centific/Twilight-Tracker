@@ -45,21 +45,27 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Performance soft-close Done carve-out (1.3.091825g)');
+console.log('Performance soft-close Done carve-out (1.3.091825h)');
 
-assert('APP_VERSION 1.3.091825g',
-  /const APP_VERSION = '1\.3\.091825g'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825g'));
-assert('soft-close comment helper is not mod-cancel',
+assert('APP_VERSION 1.3.091825h',
+  /const APP_VERSION = '1\.3\.091825h'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825h'));
+assert('soft-close and mod-cancel plain-text the comment before the marker',
   /function assignmentCommentIsOdSoftClose/.test(src)
   && /od-sync-soft-close/.test(extractFn('assignmentCommentIsOdSoftClose'))
-  && extractFn('assignmentCommentIsModCancel').indexOf('od-sync-soft-close') < 0);
+  && extractFn('assignmentCommentIsModCancel').indexOf('od-sync-soft-close') < 0
+  && /stripHtmlTagsToPlainText/.test(extractFn('assignmentCommentPlainForMarker'))
+  && extractFn('assignmentCommentIsOdSoftClose').indexOf('assignmentCommentPlainForMarker') >= 0
+  && extractFn('assignmentCommentIsModCancel').indexOf('assignmentCommentPlainForMarker') >= 0);
 assert('queue still treats every Cancelled row as a drop',
   /String\(a\.status \|\| ''\) === 'Cancelled'/.test(extractFn('assignmentIsModCancelForQueue')));
 assert('history keeps soft-close Cancelled and drops other Cancelled',
   /assignmentIsOdSoftClose/.test(extractFn('perfHistoryAssignments')));
 
 const SOFT = 'od-sync-soft-close';
+// Live SharePoint Note fields wrap the marker. Raw indexOf === 0 misses this.
+const SOFT_HTML = '<div class="ExternalClassAABC6FCFB38B4C1CBA91962FD918F19B">od-sync-soft-close</div>';
+const MOD_CANCEL_HTML = '<div class="ExternalClassMODCANCEL99">mod-cancel-session:Narendra-tw:2026-09-24T22:00:00.000Z</div>';
 
 function asgn(extra) {
   return Object.assign({
@@ -273,6 +279,8 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext([
+  'stripHtmlTagsToPlainText',
+  'assignmentCommentPlainForMarker',
   'assignmentCommentIsModCancel',
   'assignmentCommentIsOdSoftClose',
   'assignmentIsOdSoftClose',
@@ -305,13 +313,36 @@ vm.runInContext([
   'perfMergeTeamCancelledBookings',
 ].map(extractFn).join('\n'), ctx);
 
-assert('soft-close helper matches the comment prefix only on Cancelled',
+assert('soft-close helper matches the comment after HTML strip, only on Cancelled',
   ctx.assignmentCommentIsOdSoftClose(SOFT) === true
   && ctx.assignmentCommentIsOdSoftClose('od-sync-soft-close:2026-09-19T08:00:00Z') === true
   && ctx.assignmentCommentIsOdSoftClose('mod-cancel-session:x') === false
+  && SOFT_HTML.trim().indexOf('od-sync-soft-close') !== 0
+  && ctx.assignmentCommentIsOdSoftClose(SOFT_HTML) === true
   && ctx.assignmentIsOdSoftClose(rebecca) === true
   && ctx.assignmentIsOdSoftClose(stillBooked) === false
-  && ctx.assignmentIsOdSoftClose({ status: 'Booked', comment: SOFT }) === false);
+  && ctx.assignmentIsOdSoftClose({ status: 'Booked', comment: SOFT }) === false
+  && ctx.assignmentIsOdSoftClose({ status: 'Booked', comment: SOFT_HTML }) === false);
+
+const rebeccaHtml = Object.assign({}, rebecca, { comment: SOFT_HTML });
+assert('ExternalClass soft-close happypath is Done',
+  ctx.assignmentIsOdSoftClose(rebeccaHtml) === true
+  && ctx.classifyBookingForPerf(rebeccaHtml) === 'completed',
+  ctx.classifyBookingForPerf(rebeccaHtml));
+assert('ExternalClass soft-close happypath pill says Completed',
+  ctx.perfLiveStatusDisplay(rebeccaHtml).label === 'Completed');
+
+const modCancelHtml = Object.assign({}, modCancel, {
+  id: 'od_mod_cancel_html',
+  comment: MOD_CANCEL_HTML,
+});
+assert('ExternalClass mod-cancel is detected and is not Done',
+  MOD_CANCEL_HTML.trim().indexOf('mod-cancel-session') !== 0
+  && ctx.assignmentCommentIsModCancel(MOD_CANCEL_HTML) === true
+  && ctx.assignmentCommentIsOdSoftClose(MOD_CANCEL_HTML) === false
+  && ctx.classifyBookingForPerf(modCancelHtml) == null
+  && ctx.assignmentIsModCancelForQueue(modCancelHtml) === true
+  && ctx.perfLiveStatusDisplay(modCancelHtml).label === 'Cancelled');
 
 happypathRows.forEach(a => {
   const who = (a.participantData.firstName + ' ' + a.participantData.lastName).trim();

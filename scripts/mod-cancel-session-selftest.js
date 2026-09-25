@@ -44,9 +44,9 @@ function extractFn(name) {
 
 console.log('Moderator cancel-session self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091825g',
-  /const APP_VERSION = '1\.3\.091825g'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825g'));
+assert('APP_VERSION 1.3.091825h',
+  /const APP_VERSION = '1\.3\.091825h'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825h'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
@@ -600,6 +600,7 @@ async function runAhP() {
     'writeModCancelSessionState',
     'writeModCancelAssignmentListRow',
     'persistModeratorCancelSession',
+    'assignmentCommentPlainForMarker',
     'assignmentCommentIsModCancel',
     'clearOperatorProgressForNewBooking',
   ].map(extractFn).join('\n'), ctx);
@@ -742,6 +743,7 @@ async function runAhP() {
   };
   vm.createContext(perf);
   vm.runInContext([
+    'assignmentCommentPlainForMarker',
     'assignmentCommentIsModCancel',
     'assignmentIsModCancelForQueue',
     'classifyBookingForPerf',
