@@ -29,9 +29,9 @@ function assert(name, cond, detail) {
 
 console.log('One strike per moderator per incomplete session');
 
-assert('version 1.3.091825d',
-  /const APP_VERSION = '1\.3\.091825d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825d'));
+assert('version 1.3.091825e',
+  /const APP_VERSION = '1\.3\.091825e'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825e'));
 
 const sliceStart = src.indexOf('function ymd(d)');
 const sliceEnd = src.indexOf('function fmtTimeOfDay(min)', sliceStart);
@@ -266,6 +266,91 @@ assert('flag history lists each moderator once for the co-mod rows',
   'rows ' + hist.length + ' V ' + histV.length + ' J ' + histJ.length);
 assert('flag history stars are that moderator’s count',
   histV[0] && histV[0].stars === 3 && histJ[0] && histJ[0].stars === 3);
+
+// PA 2026-09-25: same assignment od_8d6bedbf, sessionDate 2026-09-24,
+// two List rows / team ids (200027 then 200040). Key is assignment + date.
+const PA_OD = 'od_8d6bedbf';
+function paRows() {
+  ctx.adminState.teams = [
+    { id: 200027, name: 'Venkata x Jashit', primaryIds: ['Venkata-tw', 'Jashit-tw'] },
+    { id: 200040, name: 'Venkata x Jashit', primaryIds: ['Venkata-tw', 'Jashit-tw'] },
+  ];
+  ctx.adminState.assignments = [
+    {
+      id: 'list-230', assignmentId: PA_OD, teamId: 200027, date: '2026-09-24', status: 'Booked',
+      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: PA_OD,
+      modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
+    },
+    {
+      id: 'list-231', assignmentId: PA_OD, teamId: 200040, date: '2026-09-24', status: 'Booked',
+      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: PA_OD,
+      modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
+    },
+  ];
+  ctx.adminState._perfSSOk = true;
+  ctx.adminState.perfSessionStateRows = [
+    sessionRow('list-230', 'Venkata-tw'),
+    sessionRow('list-231', 'Jashit-tw'),
+  ];
+  ctx.adminState._flaggedAsgns = [];
+}
+
+function healedAuto(teamId, at) {
+  return {
+    at: at,
+    kind: 'auto',
+    reason: '9 AM checkpoint',
+    teamId: teamId,
+    assignmentId: PA_OD,
+    sessionDate: '2026-09-24',
+  };
+}
+function healedRec() {
+  return {
+    stars: 3,
+    starScale: 4,
+    log: [
+      healedAuto(200040, '2026-09-25T16:20:11.000Z'),
+      healedAuto(200027, '2026-09-25T16:20:01.000Z'),
+    ],
+    updatedAt: '2026-09-25T17:00:00.000Z',
+  };
+}
+
+paRows();
+ctx.saveModStrikeStore({
+  mods: { 'venkata-tw': healedRec(), 'jashit-tw': healedRec() },
+  checkpoints: {},
+  version: 1,
+  lastWriter: 'test',
+});
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now });
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now + 11 * 1000 });
+assert('healed stars stay at 3 when the same assignment was already logged twice',
+  ctx.getModStrikeStars('Venkata-tw') === 3 && ctx.getModStrikeStars('Jashit-tw') === 3
+  && autoLogs('Venkata-tw').length === 2 && autoLogs('Jashit-tw').length === 2,
+  'stars ' + ctx.getModStrikeStars('Venkata-tw') + '/' + ctx.getModStrikeStars('Jashit-tw')
+  + ' logs ' + autoLogs('Venkata-tw').length + '/' + autoLogs('Jashit-tw').length);
+
+paRows();
+ctx.saveModStrikeStore({ mods: {}, checkpoints: {}, version: 1, lastWriter: 'test' });
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now });
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now + 11 * 1000 });
+const paV = autoLogs('Venkata-tw');
+const paJ = autoLogs('Jashit-tw');
+const paStore = ctx.loadModStrikeStore();
+const paMark = (paStore.checkpoints['2026-09-25'] || {}).teamAutoStrike || {};
+const paKey = 'asgn:' + PA_OD + '|2026-09-24';
+assert('two team ids for one assignment take one star each',
+  ctx.getModStrikeStars('Venkata-tw') === 3 && ctx.getModStrikeStars('Jashit-tw') === 3
+  && paV.length === 1 && paJ.length === 1,
+  'stars ' + ctx.getModStrikeStars('Venkata-tw') + '/' + ctx.getModStrikeStars('Jashit-tw')
+  + ' logs ' + paV.length + '/' + paJ.length);
+assert('strike key is assignment plus date, not team id',
+  paV[0] && paV[0].sessionKey === paKey && paJ[0] && paJ[0].sessionKey === paKey
+  && !!paMark[paKey]
+  && !paMark['200027'] && !paMark['200040'] && !paMark[200027] && !paMark[200040],
+  'key ' + (paV[0] && paV[0].sessionKey) + ' mark ' + Object.keys(paMark).join(','));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

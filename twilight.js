@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825d';
-const APP_UPDATED_AT = '09/25/2026 09:45';
+const APP_VERSION = '1.3.091825e';
+const APP_UPDATED_AT = '09/25/2026 10:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -30328,8 +30328,28 @@ function modStrikeCrewSessionKey(booking) {
   return 'crew:' + crew.join('|') + '|' + ymd + '|' + start + '|' + modStrikeParticipantToken(booking);
 }
 
-// Every id that means this session for one moderator. Co-mod Assignment
-// rows often have different assignment ids and team ids for one night.
+// Shared assignment for one night. List row id and teamId are not this id.
+// OneData rows use odScheduleId (od_…). Twilight rows use assignmentId, then id.
+function modStrikeCanonicalAssignmentId(booking) {
+  if (!booking) return '';
+  const od = modStrikeMeaningfulToken(booking.odScheduleId);
+  if (od) return od;
+  const explicit = modStrikeMeaningfulToken(booking.assignmentId);
+  if (explicit) return explicit;
+  if (booking.id != null && String(booking.id).trim()) return String(booking.id).trim();
+  return '';
+}
+
+// One auto-strike slot: assignment + session date. Never teamId or List row.
+function modStrikeAssignmentDateKey(assignmentId, sessionDate) {
+  const aid = modStrikeMeaningfulToken(assignmentId) || String(assignmentId || '').trim();
+  const day = String(sessionDate || '').split('T')[0].trim();
+  if (!aid || !day) return '';
+  return 'asgn:' + aid + '|' + day;
+}
+
+// Every id that means this session for one moderator. Two List rows / team
+// ids for one assignment and date collapse to the same key.
 function modStrikeSessionAliasKeys(booking) {
   const keys = [];
   const add = (k) => {
@@ -30342,6 +30362,12 @@ function modStrikeSessionAliasKeys(booking) {
   const aid = booking.id != null && booking.id !== '' ? String(booking.id).trim() : '';
   const od = modStrikeMeaningfulToken(booking.odScheduleId);
   const bg = modStrikeMeaningfulToken(booking.bookingGroupId);
+  const canonical = modStrikeCanonicalAssignmentId(booking);
+  const asgnKey = modStrikeAssignmentDateKey(canonical, ymd);
+  if (asgnKey) add(asgnKey);
+  if (aid && ymd) add(modStrikeAssignmentDateKey(aid, ymd));
+  const explicit = modStrikeMeaningfulToken(booking.assignmentId);
+  if (explicit && ymd) add(modStrikeAssignmentDateKey(explicit, ymd));
   if (aid) add('aid:' + aid);
   if (od) add('od:' + od + (ymd ? '|' + ymd : ''));
   if (bg) add('bg:' + bg + (ymd ? '|' + ymd : ''));
@@ -30355,7 +30381,8 @@ function modStrikeSessionAliasKeys(booking) {
     const sameOd = !!(od && modStrikeMeaningfulToken(a.odScheduleId) === od && aYmd === ymd);
     const sameBg = !!(bg && modStrikeMeaningfulToken(a.bookingGroupId) === bg && aYmd === ymd);
     const sameCrew = !!(crewKey && modStrikeCrewSessionKey(a) === crewKey);
-    if (sameOd || sameBg || sameCrew) add('aid:' + String(a.id));
+    const sameAsgn = !!(canonical && modStrikeCanonicalAssignmentId(a) === canonical && aYmd === ymd);
+    if (sameOd || sameBg || sameCrew || sameAsgn) add('aid:' + String(a.id));
   }
   return keys;
 }
@@ -30387,10 +30414,21 @@ function modStrikeStruckKeysFromEntry(entry) {
   if (Array.isArray(entry.sessionAliases)) {
     entry.sessionAliases.forEach(k => { if (k) out[String(k)] = true; });
   }
-  if (entry.assignmentId != null && entry.assignmentId !== '') out['aid:' + String(entry.assignmentId)] = true;
-  const od = modStrikeMeaningfulToken(entry.odScheduleId);
   const day = entry.sessionDate ? String(entry.sessionDate).split('T')[0] : '';
-  if (od) out['od:' + od + (day ? '|' + day : '')] = true;
+  // assignmentId + sessionDate. teamId on the log is ignored.
+  if (entry.assignmentId != null && entry.assignmentId !== '') {
+    out['aid:' + String(entry.assignmentId)] = true;
+    const asgnKey = (typeof modStrikeAssignmentDateKey === 'function')
+      ? modStrikeAssignmentDateKey(entry.assignmentId, day) : '';
+    if (asgnKey) out[asgnKey] = true;
+  }
+  const od = modStrikeMeaningfulToken(entry.odScheduleId);
+  if (od) {
+    out['od:' + od + (day ? '|' + day : '')] = true;
+    const odKey = (typeof modStrikeAssignmentDateKey === 'function')
+      ? modStrikeAssignmentDateKey(od, day) : '';
+    if (odKey) out[odKey] = true;
+  }
   if (entry.sessionKey) out[String(entry.sessionKey)] = true;
   return out;
 }
@@ -30449,10 +30487,13 @@ function applyRecordedSessionStrike(orbitId, booking, entry) {
   const before = getModStrikeStars(orbitId);
   if (before <= 0) return false;
   const ymd = modStrikeBookingYmd(booking);
+  const canonical = modStrikeCanonicalAssignmentId(booking);
+  const sessionKey = modStrikeAssignmentDateKey(canonical, ymd);
   const next = Object.assign({}, entry || {}, {
     assignmentId: (entry && entry.assignmentId != null && entry.assignmentId !== '')
       ? entry.assignmentId : booking.id,
     sessionDate: (entry && entry.sessionDate) || ymd,
+    sessionKey: sessionKey || (entry && entry.sessionKey) || '',
     sessionAliases: modStrikeSessionAliasKeys(booking),
     odScheduleId: modStrikeMeaningfulToken(booking.odScheduleId)
       || (entry && entry.odScheduleId) || '',
@@ -30500,15 +30541,19 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
     if (row.evidence !== 'incomplete') continue;
     if (!row.pastSessionEnd || !row.strikeGateOpen) continue;
     const aid = row.assignmentId != null && row.assignmentId !== '' ? String(row.assignmentId) : '';
-    const tid = String(row.teamId || '');
-    const sessionKey = aid ? (aid + '|' + String(row.sessionDate || report.yesterday || '')) : '';
-    if ((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey])) continue;
-    if (!aid && tid && ckRow.teamAutoStrike[tid]) continue;
+    const ymd = String(row.sessionDate || report.yesterday || '');
+    const sessionKey = aid ? (aid + '|' + ymd) : '';
     const booking = aid
       ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
           .find(a => a && String(a.id) === aid)
       : null;
     if (!booking) continue;
+    const asgnKey = (typeof modStrikeAssignmentDateKey === 'function')
+      ? modStrikeAssignmentDateKey(modStrikeCanonicalAssignmentId(booking), ymd) : '';
+    // Same assignment + date is one strike, even when the other List row
+    // has a different teamId. Do not key this gate by teamId.
+    if (asgnKey && ckRow.teamAutoStrike[asgnKey]) continue;
+    if ((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey])) continue;
     const aliases = (typeof modStrikeSessionAliasKeys === 'function')
       ? modStrikeSessionAliasKeys(booking) : [];
     if (aliases.some(k => ckRow.teamAutoStrike[k])) continue;
@@ -30544,6 +30589,7 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
       ckRow.teamAutoStrike[k] = true;
       if (String(k).indexOf('aid:') === 0) ckRow.teamAutoStrike[String(k).slice(4)] = true;
     });
+    if (asgnKey) ckRow.teamAutoStrike[asgnKey] = true;
     if (aid) ckRow.teamAutoStrike[aid] = true;
     if (sessionKey) ckRow.teamAutoStrike[sessionKey] = true;
   }
@@ -30552,8 +30598,17 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
     if (t.evidence !== 'incomplete') return false;
     if (!t.pastSessionEnd || !t.strikeGateOpen) return false;
     const aid = t.assignmentId != null && t.assignmentId !== '' ? String(t.assignmentId) : '';
-    const sessionKey = aid ? (aid + '|' + String(t.sessionDate || report.yesterday || '')) : '';
-    return !!((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey]));
+    const ymd = String(t.sessionDate || report.yesterday || '');
+    const sessionKey = aid ? (aid + '|' + ymd) : '';
+    const booking = aid
+      ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+          .find(a => a && String(a.id) === aid)
+      : null;
+    const asgnKey = (booking && typeof modStrikeAssignmentDateKey === 'function')
+      ? modStrikeAssignmentDateKey(modStrikeCanonicalAssignmentId(booking), ymd) : '';
+    return !!((asgnKey && ckRow.teamAutoStrike[asgnKey])
+      || (aid && ckRow.teamAutoStrike[aid])
+      || (sessionKey && ckRow.teamAutoStrike[sessionKey]));
   });
   // Reload so this write keeps the star decrement from setModStrikeStars
   // and any Skip stamped while those saves ran. The old snapshot put

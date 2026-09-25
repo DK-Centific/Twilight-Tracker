@@ -1,24 +1,23 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-25 · Grok · One strike per moderator per incomplete session (1.3.091825d)
+**Last updated:** 2026-09-25 · Grok · One strike per assignment and date (1.3.091825e)
 
-## 2026-09-25 · One strike per moderator for one incomplete session (1.3.091825d)
+## 2026-09-25 · One strike per assignment and date, not per team row (1.3.091825e)
 
-**Ask:** Venkata × Jashit lost two stars each for one incomplete session. Each person should lose one star, not two. Do not restore the live stars in this change. Watchdog/PA adds one star back so each shows 3.
+**Ask:** Venkata × Jashit lost two stars each for one incomplete session. PA confirmed the logs: each person has two `kind=auto` lines for assignment `od_8d6bedbf` on 2026-09-24 — team 200027 at 9:20:01 AM PT, then team 200040 at 9:20:11 AM PT (List 230/231). The strike was once per team row. It must be once per assignment + date per person. Stars are already healed 2→3 on SessionState 450. Do not write live stars in this change.
 
-**Cause:** One night is stored as two Assignment rows (one per co-mod), often with different assignment ids and team ids. The 9 AM job struck once per row, so each person was struck twice. The “already struck” mark lived on the assignment, not on the person, so a later refresh could strike again if that mark was missing. Flag history also listed the person once per co-mod row.
+**Cause:** The 9 AM job walked each team row. Two List rows for the same assignment used two team ids, so each person was struck twice about 10 seconds apart.
 
 **Fix:**
-- A person is struck at most once for a session. The session is the shared schedule, the same crew/night/start, or either co-mod assignment id.
-- That mark is saved on the person’s strike record in the same save as the star change. A second pass, the other co-mod row, or a refresh with the checkpoint mark wiped does nothing.
-- A different session the same day can still take its own one star.
-- Skip on either co-mod row blocks the strike for both. Finished, cancelled, and before 9:00 AM PT are unchanged.
-- Flag history shows one line per person for that session.
-- Version **1.3.091825d**. Tip **1.3.091825c** is the open Performance panel PR (#172). Selftest: `scripts/mod-strike-once-per-session-selftest.js` (13 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
+- The strike key is assignment + session date + person. Team id and List row are not part of the key.
+- A second team row for that same assignment and date does nothing. A later refresh does nothing if that person’s log already has that assignment and date (including the two lines already on file).
+- A different assignment the same day can still take its own one star.
+- Skip, finished, cancelled, and before 9:00 AM PT are unchanged.
+- Version **1.3.091825e**. Tip **1.3.091825c** is the open Performance panel PR (#172). Selftest: `scripts/mod-strike-once-per-session-selftest.js` (16 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
 
-**PR:** draft https://github.com/DK-Centific/Twilight-Tracker/pull/173 on `cursor/strike-once-per-mod-8dd7`. Do **not** merge. Do not write List/OD/SessionState to heal Venkata or Jashit. When PA adds the star back, keep each person’s strike log so this gate does not take the star again.
+**PR:** draft https://github.com/DK-Centific/Twilight-Tracker/pull/173 on `cursor/strike-once-per-mod-8dd7`. David said push when ready; Watchdog merges after AHP LGTM. Do **not** merge from this branch. Do not write List/OD/SessionState to change stars.
 
-**Verify (David):** Hard refresh → **1.3.091825d**. This build does not put the missing star back. After Watchdog adds one star, Venkata and Jashit should each show 3 stars and stay at 3 after a refresh. A new incomplete team after 9:00 AM PT should lose one star each, not two.
+**Verify (David):** Hard refresh → **1.3.091825e**. Venkata and Jashit should already show 3 stars. Refresh again. They should stay at 3. A new unfinished team after 9:00 AM PT should lose one star each, not two.
 
 ---
 
