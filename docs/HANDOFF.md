@@ -1,5 +1,26 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Performance panel past incomplete, every booking (1.3.091825d)
+
+## 2026-09-25 · Performance panel shows past incomplete stations for every booking (1.3.091825d)
+
+**Ask:** The panel rule is every Performance booking, not one team. If the session actually started, show station progress. The empty “hasn't started” line is only when there is no progress. Amanda / Venkata × Jashit is the example, not a special case. Do not heal SessionState, stamp session_done, change List/OD, or touch strikes.
+
+**Cause:** The panel showed the empty copy whenever `classifyBookingForPerf` was `scheduled`, and never called the station list. A past incomplete session stays scheduled (booked end has passed, not Live, not Done). The pill still reads the latest SessionState status, so the pill and the panel disagreed.
+
+**Fix:**
+- One gate for every booking. It does not look at team, assignment id, or participant.
+- The empty “hasn't started” copy is only when no co-mod has checked in or recorded station work.
+- If the session started, or any non-geo SessionState row has arrived / `station_*_done` / scenario progress, the panel shows the merged station list even when the booking is still scheduled.
+- The richer co-mod still wins the merge. Live / Next / Done filters are unchanged.
+- Version **1.3.091825d**. Selftest: `scripts/perf-panel-past-incomplete-selftest.js` (generic past partial team, plus the Amanda example).
+
+**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh → **1.3.091825d**. Admin → Performance. Open any team whose session already started, including one from yesterday that is not finished. The panel should list the stations they completed. It should not say the session hasn't started. Venkata × Jashit / Amanda W Li is one example: the small status should still say **In session · St 2**, with Station 1 and Station 2 complete, Station 3 partly done, and Station 4 not started. A booking that was never checked in should still say the session hasn't started.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Cancel session wipes checklist (1.3.091825b)
 
 ## 2026-09-25 · Cancel session wipes checklist progress (1.3.091825b)

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825b';
-const APP_UPDATED_AT = '09/25/2026 08:55';
+const APP_VERSION = '1.3.091825d';
+const APP_UPDATED_AT = '09/25/2026 16:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15493,6 +15493,96 @@ function wirePerfTileBody(tile) {
 // =====================================================================
 // Slide-in performance detail panel (from the LEFT, per user spec)
 // =====================================================================
+
+// A live status that means the team actually checked in or advanced a
+// station. Used so a past incomplete session (classify still 'scheduled')
+// is not described as "hasn't started".
+function perfLiveStatusIsPartialProgress(status) {
+  const s = String(status || '').trim().toLowerCase();
+  if (!s) return false;
+  if (s === 'arrived' || s === 'session_done' || s === 'office_checkout') return true;
+  return /^station_[0-9a-z]+_done$/.test(s);
+}
+
+// Non-geo SessionState row that already holds check-in or station work.
+// Geo / remote shells do not count — they are location pings, not progress.
+function perfNonGeoSessionRowHasStartedWork(r) {
+  if (!r) return false;
+  if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+      && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
+  const rowStatus = (r.sessionStatus != null ? r.sessionStatus : r.SessionStatus);
+  if (perfLiveStatusIsPartialProgress(rowStatus)) return true;
+  const parsed = (typeof parseSessionStateJson === 'function')
+    ? parseSessionStateJson(r)
+    : (() => { try { return JSON.parse(r.stateJson || '{}'); } catch (_) { return {}; } })();
+  if (!parsed || typeof parsed !== 'object') return false;
+  if (parsed.arrivedAt || parsed.sessionStartedAt || parsed.sessionCompletedAt) return true;
+  if (perfLiveStatusIsPartialProgress(parsed.sessionStatus)) return true;
+  const stamps = parsed.stationCompletedAt;
+  if (stamps && typeof stamps === 'object') {
+    for (const k of Object.keys(stamps)) {
+      if (stamps[k]) return true;
+    }
+  }
+  const stations = parsed.stations;
+  if (!stations || typeof stations !== 'object') return false;
+  for (const key of Object.keys(stations)) {
+    const sd = stations[key] || {};
+    const scenarios = sd.scenarios;
+    if (!scenarios || typeof scenarios !== 'object') continue;
+    for (const num of Object.keys(scenarios)) {
+      const sc = scenarios[num] || {};
+      const status = String(sc.status || '').trim();
+      if ((sc.iterations || 0) > 0) return true;
+      if (status && status !== 'Not Started') return true;
+      if (sc.notes && String(sc.notes).trim()) return true;
+    }
+  }
+  return false;
+}
+
+// True when this booking has real session work, even if Performance still
+// buckets it as Next / scheduled (past end, not happypath-complete).
+// Applies to every booking. Team name, assignment id, and participant
+// are not consulted.
+function perfPanelSessionHasStarted(a) {
+  if (!a) return false;
+  if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)) {
+    return true;
+  }
+  const live = (typeof getLatestStatusForAssignment === 'function')
+    ? getLatestStatusForAssignment(a.id)
+    : null;
+  if (live && perfLiveStatusIsPartialProgress(live.status)) return true;
+  const rows = (typeof sessionStateRowsForAssignment === 'function'
+      && typeof adminState !== 'undefined' && adminState)
+    ? sessionStateRowsForAssignment(a.id, adminState.perfSessionStateRows || [])
+    : [];
+  for (let i = 0; i < rows.length; i++) {
+    if (perfNonGeoSessionRowHasStartedWork(rows[i])) return true;
+  }
+  return false;
+}
+
+// Station body for every Performance booking. The empty "hasn't started"
+// copy is only when no co-mod has checked in or recorded station work.
+// A past incomplete session stays classified scheduled and still gets
+// the same station list Live and Completed panels use.
+function perfPanelStationDetailHTML(a, cls) {
+  const bucket = (cls !== undefined)
+    ? cls
+    : ((typeof classifyBookingForPerf === 'function') ? classifyBookingForPerf(a) : null);
+  if (bucket !== 'scheduled' || perfPanelSessionHasStarted(a)) {
+    return (typeof renderPerfStationListHTML === 'function')
+      ? renderPerfStationListHTML(a)
+      : '';
+  }
+  return `
+      <div class="perf-panel-section-title">Session</div>
+      <div class="perf-empty">Session hasn't started yet. Station progress will appear here once the team begins work.</div>
+    `;
+}
+
 function openPerformancePanel(asgnId) {
   const a = (adminState.assignments || []).find(x => x.id === asgnId);
   if (!a) return;
@@ -15551,19 +15641,10 @@ function openPerformancePanel(asgnId) {
   // See renderPerfLakituPillHTML for the full behavior matrix.
   const lakituPillHTML = renderPerfLakituPillHTML(a, cls, 'panel');
 
-  // Per-station detail.
-  // For scheduled bookings, we show "Session not started yet" instead
-  // of the station list. For active/completed sessions we synthesize
-  // per-station progress from SessionState rows.
-  let stationDetailHTML;
-  if (cls === 'scheduled') {
-    stationDetailHTML = `
-      <div class="perf-panel-section-title">Session</div>
-      <div class="perf-empty">Session hasn't started yet. Station progress will appear here once the team begins work.</div>
-    `;
-  } else {
-    stationDetailHTML = renderPerfStationListHTML(a);
-  }
+  // Per-station detail. Scheduled bookings with no check-in and no
+  // station rows keep the empty copy. A past incomplete session stays
+  // classified scheduled, but still shows the merged station list.
+  const stationDetailHTML = perfPanelStationDetailHTML(a, cls);
 
   panel.innerHTML = `
     <div class="perf-panel-head">
