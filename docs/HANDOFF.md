@@ -1,5 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Performance Past = last 24 hours, cancelled stays Cancelled (1.3.091825a)
+
+## 2026-09-25 · Performance Past is the last 24 hours; team cancel stays Cancelled (1.3.091825a)
+
+**Ask:** On Admin → Performance, **Past** should show only the last 24 hours, not every older session. A team that used **Cancel session** should show **Cancelled**. It must not show Done, Incomplete, or Flagged, and it must not get a strike.
+
+**Fix:**
+- **Past** uses the booked session end (Pacific time). The session is listed only when that end time is already in the past and still inside the last 24 hours. Sessions that have not ended yet stay on Today. Older sessions stay on All time, This week, and Custom. The Past button now says **last 24 hours**.
+- A moderator cancel (Assignment comment starts with `mod-cancel-session`, and/or SessionState says Cancelled) shows **Cancelled** on Performance. It is not Live, Next, or Done. It is not Flagged and it is not a strike. Saved station progress is not turned back into Done. Admin Skip is unchanged. OneData is not written.
+- Version **1.3.091825a**. Selftests: `scripts/perf-past-24h-cancel-selftest.js`, `scripts/perf-past-history-selftest.js`.
+
+**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) draft on `cursor/perf-past-24h-cancel-a71e`. Do **not** merge until Watchdog says push (AHP CR + David).
+
+**Verify (David):** Hard refresh → **1.3.091825a**. Admin → Performance. Click **Past**. The small line under Past should say **last 24 hours**. You should see sessions that ended in the last day, not the whole history. Click **All time** to see older ones. Open a team that cancelled a session. The status should say **Cancelled**, not Done or Flagged.
+
+---
+
 **Last updated:** 2026-09-24 · Grok · Moderator Cancel session AHP fold (1.3.091824e)
 
 ## 2026-09-24 · Moderator Cancel session, AHP folded in (1.3.091824e)

@@ -6,7 +6,8 @@
  *
  * Reproduces: PA-healed Sep 19 session_done teams (PxM / MxS) with
  * Skip+resolved on checkpoint 2026-09-20 disappear from the Today/Live
- * admin queue, but must remain reviewable under Past / All time / Done.
+ * admin queue, but must remain reviewable under All time / Custom / Done.
+ * Past is only the rolling last 24 hours (booked session end).
  */
 
 const fs = require('fs');
@@ -87,6 +88,19 @@ const skipOnly = {
   modSnapshots: [{ orbitLoginId: 'Pradeepreddy-tw' }],
 };
 
+// Ended Sep 20 10:00 PM PT. At the frozen now (Sep 21 4:00 PM PT) that
+// end is 18 hours ago — inside the Past rolling 24h window.
+const recentPast = {
+  id: 'od_recent_past',
+  teamId: 100212,
+  teamName: 'Recent Past team',
+  date: '2026-09-20',
+  startMin: 18 * 60,
+  endMin: 22 * 60,
+  status: 'Booked',
+  modSnapshots: [{ orbitLoginId: 'Recent-tw' }],
+};
+
 const liveStatus = {
   'od_27c50635-pxm': { status: 'session_done', sessionCompletedAt: '2026-09-20T04:00:00Z' },
   'od_d9286d02-mxs': { status: 'session_done', sessionCompletedAt: '2026-09-20T05:00:00Z' },
@@ -106,12 +120,13 @@ const ctx = {
     perfDateRange: 'today',
     perfStatusScope: 'all',
     perfView: 'teams',
-    assignments: [pxm, mxs, todayLive, todayDone, skipOnly],
+    assignments: [pxm, mxs, todayLive, todayDone, skipOnly, recentPast],
     teams: [
       { id: 100210, name: 'Pradeepreddy × Manoj', primaryIds: ['Pradeepreddy-tw', 'Manoj-tw'] },
       { id: 100211, name: 'Muhammad × Sravya', primaryIds: ['Muhammad-tw', 'Sravya-tw'] },
       { id: 77, name: 'Today Live team', primaryIds: ['Live-tw'] },
       { id: 88, name: 'Today Done team', primaryIds: ['Done-tw'] },
+      { id: 100212, name: 'Recent Past team', primaryIds: ['Recent-tw'] },
     ],
     moderators: [
       { firstName: 'Pradeepreddy', lastName: 'T', orbitLoginId: 'Pradeepreddy-tw' },
@@ -281,18 +296,22 @@ assert('Today + Done still omits Sep 19 completed (no Pacific overlap)',
 setPerf('past', 'all');
 assert('Past uses history source',
   ctx.perfUsesHistoryBookings() === true);
-assert('Past date includes Sep 19 PxM',
-  ctx.perfDateInRange(pxm, 'past'));
-assert('Past date includes Sep 19 MxS',
-  ctx.perfDateInRange(mxs, 'past'));
-assert('Past date excludes today live',
+assert('Past is the rolling last 24 hours on booked session end',
+  ctx.perfDateInRange(recentPast, 'past'));
+assert('Past drops Sep 19 PxM (ended more than 24h ago)',
+  ctx.perfDateInRange(pxm, 'past') === false);
+assert('Past drops Sep 19 MxS (ended more than 24h ago)',
+  ctx.perfDateInRange(mxs, 'past') === false);
+assert('Past date excludes today live (end still ahead)',
   !ctx.perfDateInRange(todayLive, 'past'));
-assert('Past tiles include Skip’d completed PxM',
-  idsOf(scopedTeamBookings(100210)).includes(pxm.id));
-assert('Past tiles include Skip’d completed MxS',
-  idsOf(scopedTeamBookings(100211)).includes(mxs.id));
-assert('Past tiles include Skip-only prior booking (not re-flagged)',
-  idsOf(scopedTeamBookings(100210)).includes(skipOnly.id));
+assert('Past tiles include the session that ended within 24h',
+  idsOf(scopedTeamBookings(100212)).includes(recentPast.id));
+assert('Past tiles omit Sep 19 Skip’d completed PxM',
+  !idsOf(scopedTeamBookings(100210)).includes(pxm.id));
+assert('Past tiles omit Sep 19 Skip’d completed MxS',
+  !idsOf(scopedTeamBookings(100211)).includes(mxs.id));
+assert('Past tiles omit Skip-only booking older than 24h',
+  !idsOf(scopedTeamBookings(100210)).includes(skipOnly.id));
 assert('Past tiles exclude today live',
   !idsOf(scopedTeamBookings(77)).includes(todayLive.id));
 
@@ -333,12 +352,16 @@ assert('Skip-only incomplete is NOT flagged (Skip preserved)',
 assert('Skip helper still true for healed assignment ids',
   ctx.isAssignmentSkipOrResolvedForFlagged(pxm) === true);
 
-assert('Past pill exists in toolbar options (source)',
-  /key: 'past'/.test(src) && /label: 'Past'/.test(src));
+assert('Past pill is last 24 hours',
+  /key: 'past'/.test(src) && /label: 'Past'/.test(src) && /last 24 hours/.test(src));
 
-assert('mod history includes PxM for Pradeepreddy without live-queue gate', (() => {
-  setPerf('past', 'all');
+assert('mod history on All time includes PxM for Pradeepreddy', (() => {
+  setPerf('all', 'all');
   return idsOf(scopedModBookings('Pradeepreddy-tw')).includes(pxm.id);
+})());
+assert('mod history on Past omits PxM (older than 24h)', (() => {
+  setPerf('past', 'all');
+  return !idsOf(scopedModBookings('Pradeepreddy-tw')).includes(pxm.id);
 })());
 
 Date.now = realNow;
