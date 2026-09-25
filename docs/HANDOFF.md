@@ -4,18 +4,19 @@
 
 ## 2026-09-25 · Cancel session wipes checklist progress (1.3.091825a)
 
-**Ask:** Confirm Cancel must clear leftover station, scenario, and approval progress for that team session. The 1.3.091824e choice to keep SessionState progress "for the record" is overturned. Cancel itself stays.
+**Ask:** PA + AHP confirmed the wipe. On Confirm Cancel, clear that team session’s SessionState checklist. Do not keep progress for the record. Assignment stays Cancelled with `mod-cancel-session`. No OneData, Flagged, strike, Completed, or Admin Skip change.
 
 **Fix:**
-- Confirm still writes every co-mod Assignment row for that schedule: status **Cancelled**, comment `mod-cancel-session:<login>:<time>`, same terminal lock, OneData status unchanged. No Flagged, strike, Completed, or session-done.
-- `wipeChecklistProgressForModCancel` runs inside `patchStateJsonModCancel` before the cancel stamp. Actor and co-mod SessionState rows for that assignmentId are overwritten: `stations` empty, station stamps cleared, `sessionCompletedAt` null, progress score 0, `approvalGate` empty. `sessionStatus` stays **Cancelled**, with `sessionCancelledAt` / `sessionCancelledBy` / `cancelComment`.
-- The person who confirmed also gets `clearOperatorProgressForNewBooking('mod-cancel-session')`, then welcome re-renders. My session binds the next Booked row with a fresh checklist.
-- Name, address, and equipment on the SessionState blob are left in place. Approval Excel rows are not deleted (List + SessionState only).
-- Version **1.3.091825a**. Selftest: `scripts/mod-cancel-session-selftest.js`.
+- One confirm upserts every co-mod SessionState shell for that assignmentId (existing rows, team primaries, backups). `sessionStateId` stays stable. `assignmentId` stays bound. `sessionStatus` is **Cancelled**, never Completed or `session_done`.
+- The blob is an intentional clear, not a sparse empty write: stations, stationProgress, scenarios, equipment ticks, approval gate, `sessionStartedAt`, `sessionCompletedAt`, and progress score are cleared. Name and address stay. `checklistCleared` is set.
+- A richer stale teammate shell for that same assignment does not win back the checklist. Pending offline worklog rows for that assignment are dropped. A later sync will not write checklist progress back onto the cancelled assignment.
+- Assignment list is unchanged from the prior contract: status Cancelled, comment starts with `mod-cancel-session`, terminal lock, OneData status untouched, address untouched.
+- The person who confirmed also gets a local checklist clear, then welcome re-renders onto the next Booked row.
+- Version stays **1.3.091825a**. Selftest: `scripts/mod-cancel-session-selftest.js`.
 
 **PR:** [#170](https://github.com/DK-Centific/Twilight-Tracker/pull/170) draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
 
-**Verify (David):** Hard refresh → **1.3.091825a**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should move to the next booking with stations not started. The cancelled session should say Cancelled, not Completed. The other moderator on that same session should also see a clean checklist.
+**Verify (David):** Hard refresh → **1.3.091825a**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should move to the next booking with stations not started and equipment unchecked. The cancelled session should say Cancelled, not Completed. The other moderator on that same session should also see a clean checklist. The booking address should stay the same.
 
 ---
 
