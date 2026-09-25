@@ -13,7 +13,7 @@
 - Name, address, and equipment on the SessionState blob are left in place. Approval Excel rows are not deleted (List + SessionState only).
 - Version **1.3.091825a**. Selftest: `scripts/mod-cancel-session-selftest.js`.
 
-**PR:** draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
+**PR:** [#170](https://github.com/DK-Centific/Twilight-Tracker/pull/170) draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
 
 **Verify (David):** Hard refresh → **1.3.091825a**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should move to the next booking with stations not started. The cancelled session should say Cancelled, not Completed. The other moderator on that same session should also see a clean checklist.
 
