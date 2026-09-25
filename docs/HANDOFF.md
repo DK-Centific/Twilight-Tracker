@@ -1,6 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-25 · Grok · Incomplete alert after auto-strike + Total booked donut (1.3.091825f)
+**Last updated:** 2026-09-25 · Grok · Soft-close happypath shows under Performance Done (1.3.091825g)
+
+## 2026-09-25 · Soft-close finished sessions show under Performance Done (1.3.091825g)
+
+**Ask:** Admin Performance **Done** missed past sessions that overnight soft-close marked List `status=Cancelled` with comment `od-sync-soft-close`, even when SessionState already had a real wrap-up (`session_done` / `station_4_done` / `sessionCompletedAt` / full scenarios). Client only. Do not write List, SessionState, or OneData. Do not undo the soft-close comment.
+
+**Cause:** History dropped every Cancelled row, and Done treated Cancelled as a hard stop before it read SessionState. Soft-close uses a different comment than moderator **Cancel session** (`mod-cancel-session`).
+
+**Fix:**
+- A Cancelled row whose comment starts with `od-sync-soft-close` can enter Performance history.
+- It shows under **Done** only when the team happypath would already pass, and the existing Done rule is met (session done / office check-out, or the booked end has passed).
+- Soft-close without that wrap-up stays off Done, Live, and Next. It is not marked Completed.
+- Moderator cancel, Unassigned, and Cancelled without the soft-close comment stay hidden from Done / Live / Next. Moderator cancel can still show as Cancelled.
+- The booking carousel still drops every Cancelled row, including soft-close, so the next booking can bind.
+- Soft-close plus happypath is not a 9 AM strike. Soft-close without happypath stays out of Flagged the same way other Cancelled rows already do.
+- Version **1.3.091825g**. Selftest: `scripts/perf-soft-close-done-selftest.js`. Also past-24h cancel, history, team happypath, mod-cancel, strike, and donut tests.
+
+**PR:** draft on `cursor/perf-soft-close-done-b781`. Do **not** merge until David says push. No data heals.
+
+**Verify (David):** Hard refresh → **1.3.091825g**. Admin → Performance. Click **All time** (or **Custom** from Sep 15). Click **Done**. These finished sessions should show **Completed**: REBECCA Young, lisa payne, Danica Kjorsvik, Seth Schnurman, Shelly Bowman, Zekelia Sanders, Wendy Clough, Michael Luo. A soft-close night that never finished (for example Patrick Steffens) should not be under Done. A team that used **Cancel session** should still say Cancelled, not Done.
+
+---
 
 ## 2026-09-25 · Incomplete alert clears after auto-strike; Overview donut is Total booked (1.3.091825f)
 

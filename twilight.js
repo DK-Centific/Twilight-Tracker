@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825f';
-const APP_UPDATED_AT = '09/25/2026 19:30';
+const APP_VERSION = '1.3.091825g';
+const APP_UPDATED_AT = '09/25/2026 21:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -11831,8 +11831,14 @@ function perfAssignmentIsTeamCancelled(a) {
 function classifyBookingForPerf(a) {
   if (!a) return null;
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return null;
-  if (a.status === 'Cancelled' || a.status === 'Unassigned') return null;
-  if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return null;
+  // Overnight soft-close writes List status Cancelled with comment
+  // od-sync-soft-close so the carousel can move on. That is not a
+  // moderator cancel. Done may still count it when the team happypath
+  // meets the existing wrap-up contract. It is never Live or Next.
+  const softClose = (typeof assignmentIsOdSoftClose === 'function') && assignmentIsOdSoftClose(a);
+  if (a.status === 'Unassigned') return null;
+  if (!softClose && a.status === 'Cancelled') return null;
+  if (!softClose && typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return null;
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
   // -----------------------------------------
   // Prefer the moderator's live session progress over the static
@@ -11877,6 +11883,9 @@ function classifyBookingForPerf(a) {
       return 'completed';
     }
   }
+  // Soft-close without that Done contract stays off Live and Next.
+  // The carousel still drops the row because status is Cancelled.
+  if (softClose) return null;
   // Live · checked in from the app and still in today's live window.
   // Do not treat arrived-without-a-today-window as Live (future-day
   // stale check-in, or overnight that already ended).
@@ -11902,6 +11911,14 @@ const PERF_STATUS_STATION_SHORT = {
 };
 function perfLiveStatusDisplay(a) {
   if (!a) return { key: 'booked', label: 'Booked' };
+  // Soft-close + happypath that already classifies as Done shows
+  // Completed. Other Cancelled rows, including soft-close without
+  // happypath, stay Cancelled.
+  if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)
+      && typeof classifyBookingForPerf === 'function'
+      && classifyBookingForPerf(a) === 'completed') {
+    return { key: 'completed', label: 'Completed' };
+  }
   if (a.status === 'Cancelled')  return { key: 'cancelled', label: 'Cancelled' };
   if (a.status === 'Unassigned') return { key: 'cancelled', label: 'Unassigned' };
   // Team cancel wins over a leftover session_done / check-in stamp.
@@ -12539,7 +12556,13 @@ function assignmentHasSessionDoneStamp(a) {
 function isAssignmentTeamHappypathComplete(a) {
   if (!a) return false;
   // Mod cancel is team-wide for this assignment and is not happypath Done.
-  if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+  // Overnight soft-close is also List status Cancelled, but the comment
+  // is od-sync-soft-close. Read SessionState for that row so a real
+  // wrap-up still counts. A true cancel, Unassigned, and SessionState
+  // Cancelled stay not complete.
+  const softClose = (typeof assignmentIsOdSoftClose === 'function') && assignmentIsOdSoftClose(a);
+  if (a.status === 'Unassigned') return false;
+  if (a.status === 'Cancelled' && !softClose) return false;
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return false;
   if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return false;
@@ -13644,6 +13667,9 @@ function perfAssignmentVisibleInAdminQueue(a) {
 // History (review · Past / This week / All time / Custom, or Done):
 //   Assignment List rows for the team/mod, including session_done,
 //   Assignment Completed, Admin Skip, and resolved checkpoints.
+//   Also od-sync-soft-close Cancelled rows, so a finished overnight
+//   can show under Done. Other Cancelled rows stay out (mod-cancel
+//   is merged back separately as Cancelled, not Done).
 //   Does NOT re-flag and does NOT clear Skip.
 //
 // Date predicate: perfDateInRange (today = Pacific overlap; past =
@@ -13675,8 +13701,14 @@ function perfHistoryAssignments() {
   const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
     ? adminState.assignments : [];
   // Booked / Rescheduled / Scheduled stay in. odStatus is not a hide rule.
-  return list.filter(a => a && a.id
-    && a.status !== 'Cancelled' && a.status !== 'Unassigned');
+  // Soft-close Cancelled stays in so Done can read happypath. Unassigned
+  // and every other Cancelled (mod-cancel, admin cancel) stay out.
+  return list.filter(a => {
+    if (!a || !a.id) return false;
+    if (a.status === 'Unassigned') return false;
+    if (a.status !== 'Cancelled') return true;
+    return (typeof assignmentIsOdSoftClose === 'function') && assignmentIsOdSoftClose(a);
+  });
 }
 
 function perfTeamHistoryBookings(teamId) {
@@ -30261,6 +30293,20 @@ function modStrikeCheckpointDaysForBooking(booking) {
 // booking (completion may have fallen off the read). Never auto-strike unknown.
 function modStrikeAssignmentEvidence(a) {
   if (!a) return 'unknown';
+  // Soft-close + happypath is finished, so it is not an incomplete strike.
+  // Soft-close without happypath stays cancelled (not invented Completed,
+  // and not a new incomplete). Other Cancelled rows stay cancelled.
+  if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) {
+    if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) {
+      return 'complete';
+    }
+    try {
+      if (typeof classifyBookingForPerf === 'function' && classifyBookingForPerf(a) === 'completed') {
+        return 'complete';
+      }
+    } catch (_) {}
+    return 'cancelled';
+  }
   if (a.status === 'Cancelled') return 'cancelled';
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return 'cancelled';
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return 'cancelled';
@@ -53147,6 +53193,19 @@ function bookingQueueHasTodayStart(list, today) {
 function assignmentCommentIsModCancel(comment) {
   const c = String(comment || '').trim();
   return c.indexOf('mod-cancel-session') === 0;
+}
+
+// Overnight sync marks a finished (or unfinished) List row Cancelled
+// with this comment so the next booking can bind. It is not mod-cancel.
+function assignmentCommentIsOdSoftClose(comment) {
+  const c = String(comment || '').trim();
+  return c.indexOf('od-sync-soft-close') === 0;
+}
+
+function assignmentIsOdSoftClose(a) {
+  if (!a) return false;
+  if (String(a.status || '') !== 'Cancelled') return false;
+  return assignmentCommentIsOdSoftClose(a.comment);
 }
 
 function assignmentIsModCancelForQueue(a) {
