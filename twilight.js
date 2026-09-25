@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825e';
-const APP_UPDATED_AT = '09/25/2026 17:00';
+const APP_VERSION = '1.3.091825f';
+const APP_UPDATED_AT = '09/25/2026 19:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -9944,21 +9944,53 @@ function overviewAssignmentHasTeamCheckIn(a) {
   return false;
 }
 
+// Donut cancel uses the same signals as Performance Cancelled
+// (status Cancelled, mod-cancel-session comment, SessionState Cancelled).
+function overviewAssignmentIsCancelledForDonut(a) {
+  if (!a) return false;
+  if (a.status === 'Cancelled') return true;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return true;
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return true;
+  if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return true;
+  return false;
+}
+
+// Completed uses the Performance Done rule (Assignment Completed, or
+// classifyBookingForPerf === 'completed'). Cancel wins if both apply.
+function overviewAssignmentIsCompletedForDonut(a) {
+  if (!a || overviewAssignmentIsCancelledForDonut(a)) return false;
+  if (a.status === 'Completed') return true;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'completed';
+}
+
+// Total booked for the donut: rows in the Overview filter, excluding
+// demo and Unassigned. Cancelled stays in the total so the ring can
+// show Completed and Cancelled of that total.
+function overviewAssignmentInDonutBookedScope(a) {
+  if (!a) return false;
+  if (a.status === 'Unassigned') return false;
+  if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  return true;
+}
+
 function computeOverviewDonutCounts(filteredAsgns) {
-  const booked = (filteredAsgns || []).filter(overviewAssignmentInBookedMetricsScope);
-  const teamIdsInScope = new Set();
-  const checkedInTeamIds = new Set();
-  booked.forEach(a => {
-    if (a.teamId == null || a.teamId === '') return;
-    const tid = String(a.teamId);
-    teamIdsInScope.add(tid);
-    if (overviewAssignmentHasTeamCheckIn(a)) checkedInTeamIds.add(tid);
+  let completedCount = 0;
+  let cancelledCount = 0;
+  let openCount = 0;
+  (filteredAsgns || []).forEach(a => {
+    if (!overviewAssignmentInDonutBookedScope(a)) return;
+    if (overviewAssignmentIsCancelledForDonut(a)) cancelledCount += 1;
+    else if (overviewAssignmentIsCompletedForDonut(a)) completedCount += 1;
+    else openCount += 1;
   });
-  const progressTotal = teamIdsInScope.size;
-  const completedCount = checkedInTeamIds.size;
+  const progressTotal = completedCount + cancelledCount + openCount;
   return {
     completedCount,
-    remainingCount: Math.max(0, progressTotal - completedCount),
+    cancelledCount,
+    openCount,
+    remainingCount: cancelledCount + openCount,
     progressTotal,
   };
 }
@@ -10104,12 +10136,14 @@ function computeOverviewMetrics() {
     }
   }
 
-  // ----- Team check-in (donut chart)
-  // Distinct in-scope teams with a non-demo, non-terminal booking (denominator).
-  // Numerator = teams with moderator arrival check-in (I've arrived → before wrap)
-  // or session_done on any in-scope assignment · not Completed-without-check-in.
+  // ----- Total booked donut
+  // Booking rows in this filter (demo and Unassigned out). Segments are
+  // Completed, Cancelled, and Open (still booked: live, not started,
+  // incomplete). Open exists so the slices add up to total booked.
   const donut = computeOverviewDonutCounts(filteredAsgns);
   const completedCount = donut.completedCount;
+  const cancelledCount = donut.cancelledCount;
+  const openCount = donut.openCount;
   const remainingCount = donut.remainingCount;
   const progressTotal = donut.progressTotal;
 
@@ -10120,7 +10154,7 @@ function computeOverviewMetrics() {
   return {
     totalMods, totalLiveTeams, totalParticipants, totalBookings,
     modStarCounts,
-    series, completedCount, remainingCount,
+    series, completedCount, cancelledCount, openCount, remainingCount,
     // Expose the donut-specific denominator so the subtitle and
     // tooltip can read "K of N" with N matching what the donut
     // actually divides into. Without this exported field, the
@@ -10163,7 +10197,9 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     const rep = buildModStrikeCheckpointReport();
     (rep.teams || []).forEach(row => {
       if (!teamMatch(row.teamId)) return;
-      if (row.skipped || row.resolved || !row.flagIncomplete) return;
+      if (typeof modStrikeCheckpointRowStillAlerts === 'function') {
+        if (!modStrikeCheckpointRowStillAlerts(row)) return;
+      } else if (row.skipped || row.resolved || !row.flagIncomplete) return;
       const strikeAsgn = (row.assignmentId != null)
         ? ((adminState.assignments || []).find(x => String(x.id) === String(row.assignmentId))
           || (filteredAsgns || []).find(x => String(x.id) === String(row.assignmentId)))
@@ -12610,6 +12646,10 @@ function isAssignmentFlaggedForPerf(a) {
   }
   if (isAssignmentCompleteForFlagged(a)) return false;
   if (isAssignmentSkipOrResolvedForFlagged(a)) return false;
+  // Past 9 AM, a team the auto-strike gate already processed for this
+  // assignment and date is not still an incomplete alert.
+  if (typeof modStrikeAutoStrikeClearsIncompleteAlert === 'function'
+      && modStrikeAutoStrikeClearsIncompleteAlert(a)) return false;
   return true;
 }
 
@@ -12634,7 +12674,9 @@ function perfFlaggedAssignmentsInDateRange() {
   if (dateRange === 'today' && typeof buildModStrikeCheckpointReport === 'function') {
     const rep = buildModStrikeCheckpointReport();
     for (const row of (rep.teams || [])) {
-      if (!row || !row.flagIncomplete || row.skipped || row.resolved) continue;
+      if (typeof modStrikeCheckpointRowStillAlerts === 'function') {
+        if (!modStrikeCheckpointRowStillAlerts(row)) continue;
+      } else if (!row || !row.flagIncomplete || row.skipped || row.resolved) continue;
       if (row.assignmentId == null || row.assignmentId === '') continue;
       const key = String(row.assignmentId);
       if (seen.has(key)) continue;
@@ -16504,7 +16546,7 @@ function renderOverview(body) {
         </div>
         <div class="ov-chart-card ov-chart-donut">
           <div class="ov-chart-head">
-            <div class="ov-chart-title">Team check-in</div>
+            <div class="ov-chart-title">Total booked</div>
             <div class="ov-chart-sub" id="ovDonutSub"> · </div>
           </div>
           ${donutChartShellHTML()}
@@ -16809,23 +16851,28 @@ function donutChartShellHTML() {
         <svg class="ov-donut-svg" id="ovDonutSvg" viewBox="0 0 160 160">
           <circle cx="80" cy="80" r="${r}" fill="none" stroke="var(--bg4)" stroke-width="16" id="ovDonutBg"/>
           <circle cx="80" cy="80" r="${r}" fill="none"
-                  stroke="var(--accent)" stroke-width="16" stroke-linecap="round"
+                  stroke="var(--accent)" stroke-width="16" stroke-linecap="butt"
                   stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
                   transform="rotate(-90 80 80)" id="ovDonutArc"/>
+          <circle cx="80" cy="80" r="${r}" fill="none"
+                  stroke="rgba(239, 68, 68, 0.78)" stroke-width="16" stroke-linecap="butt"
+                  stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
+                  transform="rotate(-90 80 80)" id="ovDonutArcCancel"/>
           <circle cx="80" cy="80" r="${r}" fill="transparent" id="ovDonutHover" style="cursor: pointer;"/>
         </svg>
         <div class="ov-donut-center">
-          <div class="ov-donut-pct" id="ovDonutPct">0%</div>
-          <div class="ov-donut-cap">checked in</div>
+          <div class="ov-donut-pct" id="ovDonutPct">0</div>
+          <div class="ov-donut-cap">booked</div>
         </div>
         <div class="ov-donut-tooltip" id="ovDonutTooltip" style="display:none;">
-          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Checked in</div>
-          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">teams</span></div>
+          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Booked</div>
+          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">bookings</span></div>
         </div>
       </div>
       <div class="ov-donut-legend">
-        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendRem"><span class="ov-donut-swatch ov-sw-rem"></span><span>Not checked in</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Completed</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendCancel"><span class="ov-donut-swatch ov-sw-cancel"></span><span>Cancelled</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendOpen"><span class="ov-donut-swatch ov-sw-rem"></span><span>Open</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
       </div>
     </div>
   `;
@@ -16915,12 +16962,12 @@ function updateOverviewMetrics() {
   // 3. Animate the line chart
   animateLineChart(m.series);
 
-  // 4. Donut sub + tween · team check-in (distinct teams, excl. demo)
+  // 4. Donut · Completed and Cancelled of total booked (Open is the rest)
   const donutSub = document.getElementById('ovDonutSub');
   if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} of ${m.progressTotal} teams checked in · excl. demo`
-    : 'No teams with bookings in scope';
-  animateDonutChart(m.completedCount, m.remainingCount);
+    ? `${m.completedCount} completed · ${m.cancelledCount || 0} cancelled · ${m.openCount || 0} open · ${m.progressTotal} booked`
+    : 'No bookings in scope';
+  animateDonutChart(m.completedCount, m.cancelledCount || 0, m.openCount || 0);
 
   // Cache for next animation
   window._ovPrev = m;
@@ -17162,70 +17209,93 @@ function setupLineHover(series, xFor, yFor, padL, padR, W, H, padT, innerH) {
 }
 
 // ----- Donut animation ------------------------------------------------
-function animateDonutChart(completed, remaining) {
+function paintDonutSegment(el, len, offset, C) {
+  if (!el) return;
+  const draw = Math.max(0, len);
+  const gap = Math.max(0, C - draw);
+  el.setAttribute('stroke-dasharray', `${draw.toFixed(2)} ${gap.toFixed(2)}`);
+  el.setAttribute('stroke-dashoffset', (offset || 0).toFixed(2));
+}
+
+function animateDonutChart(completed, cancelled, openCount) {
   const arc = document.getElementById('ovDonutArc');
+  const cancelArc = document.getElementById('ovDonutArcCancel');
   const pctEl = document.getElementById('ovDonutPct');
   const legendDone = document.querySelector('#ovLegendDone .ov-donut-num');
-  const legendRem = document.querySelector('#ovLegendRem .ov-donut-num');
+  const legendCancel = document.querySelector('#ovLegendCancel .ov-donut-num');
+  const legendOpen = document.querySelector('#ovLegendOpen .ov-donut-num');
   if (!arc || !pctEl) return;
 
-  const total = completed + remaining;
-  const pct = total === 0 ? 0 : (completed / total) * 100;
+  const doneN = Number(completed) || 0;
+  const cancelN = Number(cancelled) || 0;
+  const openN = Number(openCount) || 0;
+  const total = doneN + cancelN + openN;
   const r = 58;
   const C = 2 * Math.PI * r;
-  const targetDash = (pct / 100) * C;
+  const doneLen = total === 0 ? 0 : (doneN / total) * C;
+  const cancelLen = total === 0 ? 0 : (cancelN / total) * C;
 
-  // Tween stroke-dasharray + percent text
   if (window._ovDonutRaf) cancelAnimationFrame(window._ovDonutRaf);
   const startDashStr = arc.getAttribute('stroke-dasharray') || '0 0';
-  const startDash = parseFloat(startDashStr.split(' ')[0]) || 0;
-  const startPct = parseFloat(pctEl.textContent) || 0;
+  const startDone = parseFloat(startDashStr.split(' ')[0]) || 0;
+  const startCancelStr = cancelArc ? (cancelArc.getAttribute('stroke-dasharray') || '0 0') : '0 0';
+  const startCancel = parseFloat(startCancelStr.split(' ')[0]) || 0;
+  const startTotal = parseFloat(pctEl.textContent) || 0;
   const t0 = performance.now();
   const duration = 700;
   const ease = (t) => 1 - Math.pow(1 - t, 3);
   const tick = (now) => {
     const t = Math.min(1, (now - t0) / duration);
     const e = ease(t);
-    const dash = startDash + (targetDash - startDash) * e;
-    arc.setAttribute('stroke-dasharray', `${dash.toFixed(2)} ${(C - dash).toFixed(2)}`);
-    const curPct = startPct + (pct - startPct) * e;
-    pctEl.textContent = `${Math.round(curPct)}%`;
+    const doneDash = startDone + (doneLen - startDone) * e;
+    const cancelDash = startCancel + (cancelLen - startCancel) * e;
+    paintDonutSegment(arc, doneDash, 0, C);
+    // Cancelled starts where Completed ends (clockwise from the top).
+    paintDonutSegment(cancelArc, cancelDash, -doneDash, C);
+    const curTotal = startTotal + (total - startTotal) * e;
+    pctEl.textContent = String(Math.round(curTotal));
     if (t < 1) window._ovDonutRaf = requestAnimationFrame(tick);
     else window._ovDonutRaf = null;
   };
   window._ovDonutRaf = requestAnimationFrame(tick);
 
-  if (legendDone) tweenNumber(legendDone, completed);
-  if (legendRem) tweenNumber(legendRem, remaining);
+  if (legendDone) tweenNumber(legendDone, doneN);
+  if (legendCancel) tweenNumber(legendCancel, cancelN);
+  if (legendOpen) tweenNumber(legendOpen, openN);
 
-  // Donut hover
-  setupDonutHover(completed, remaining, total);
+  setupDonutHover(doneN, cancelN, openN, total);
 }
 
-function setupDonutHover(completed, remaining, total) {
+function setupDonutHover(completed, cancelled, openCount, total) {
   const hoverEl = document.getElementById('ovDonutHover');
   const tooltip = document.getElementById('ovDonutTooltip');
   const tooltipTitle = document.getElementById('ovDonutTooltipTitle');
   const tooltipNum = document.getElementById('ovDonutTooltipNum');
   const legendDone = document.getElementById('ovLegendDone');
-  const legendRem = document.getElementById('ovLegendRem');
+  const legendCancel = document.getElementById('ovLegendCancel');
+  const legendOpen = document.getElementById('ovLegendOpen');
   if (!hoverEl || !tooltip) return;
 
   const showTip = (kind) => {
     if (kind === 'done') {
-      tooltipTitle.textContent = 'Checked in';
+      tooltipTitle.textContent = 'Completed';
       tooltipNum.textContent = completed;
+    } else if (kind === 'cancel') {
+      tooltipTitle.textContent = 'Cancelled';
+      tooltipNum.textContent = cancelled;
+    } else if (kind === 'open') {
+      tooltipTitle.textContent = 'Open';
+      tooltipNum.textContent = openCount;
     } else {
-      tooltipTitle.textContent = 'Not checked in';
-      tooltipNum.textContent = remaining;
+      tooltipTitle.textContent = 'Booked';
+      tooltipNum.textContent = total;
     }
     tooltip.style.display = 'block';
   };
   const hideTip = () => { tooltip.style.display = 'none'; };
 
-  // Replace any prior listeners
   ['mouseenter','mouseleave'].forEach(ev => {
-    [hoverEl, legendDone, legendRem].forEach(el => {
+    [hoverEl, legendDone, legendCancel, legendOpen].forEach(el => {
       if (!el) return;
       const key = '_ovDonutH_' + ev;
       if (el[key]) el.removeEventListener(ev, el[key]);
@@ -17238,14 +17308,20 @@ function setupDonutHover(completed, remaining, total) {
     legendDone.addEventListener('mouseenter', legendDone._ovDonutH_mouseenter);
     legendDone.addEventListener('mouseleave', legendDone._ovDonutH_mouseleave);
   }
-  if (legendRem) {
-    legendRem._ovDonutH_mouseenter = () => showTip('rem');
-    legendRem._ovDonutH_mouseleave = hideTip;
-    legendRem.addEventListener('mouseenter', legendRem._ovDonutH_mouseenter);
-    legendRem.addEventListener('mouseleave', legendRem._ovDonutH_mouseleave);
+  if (legendCancel) {
+    legendCancel._ovDonutH_mouseenter = () => showTip('cancel');
+    legendCancel._ovDonutH_mouseleave = hideTip;
+    legendCancel.addEventListener('mouseenter', legendCancel._ovDonutH_mouseenter);
+    legendCancel.addEventListener('mouseleave', legendCancel._ovDonutH_mouseleave);
+  }
+  if (legendOpen) {
+    legendOpen._ovDonutH_mouseenter = () => showTip('open');
+    legendOpen._ovDonutH_mouseleave = hideTip;
+    legendOpen.addEventListener('mouseenter', legendOpen._ovDonutH_mouseenter);
+    legendOpen.addEventListener('mouseleave', legendOpen._ovDonutH_mouseleave);
   }
   if (hoverEl) {
-    hoverEl._ovDonutH_mouseenter = () => showTip('done');
+    hoverEl._ovDonutH_mouseenter = () => showTip('booked');
     hoverEl._ovDonutH_mouseleave = hideTip;
     hoverEl.addEventListener('mouseenter', hoverEl._ovDonutH_mouseenter);
     hoverEl.addEventListener('mouseleave', hoverEl._ovDonutH_mouseleave);
@@ -30457,6 +30533,114 @@ function modAlreadyStruckForSession(orbitId, booking) {
   return false;
 }
 
+// kind=auto on this person's strike log for this assignment + date.
+// Healed stars do not clear the log. Manual strikes do not count here
+// (those hide through resolvedTeams).
+function modStrikeAutoLogMatchesBooking(orbitId, booking) {
+  const key = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
+  if (!key || !booking) return false;
+  const want = (typeof modStrikeSessionAliasKeys === 'function')
+    ? modStrikeSessionAliasKeys(booking) : [];
+  if (!want.length) return false;
+  const store = (typeof loadModStrikeStore === 'function') ? loadModStrikeStore() : null;
+  const rec = store && store.mods && store.mods[key];
+  const log = rec && Array.isArray(rec.log) ? rec.log : [];
+  for (let i = 0; i < log.length; i++) {
+    const entry = log[i];
+    if (!entry || String(entry.kind || '') !== 'auto') continue;
+    const have = (typeof modStrikeStruckKeysFromEntry === 'function')
+      ? modStrikeStruckKeysFromEntry(entry) : {};
+    for (let j = 0; j < want.length; j++) {
+      if (have[want[j]]) return true;
+    }
+  }
+  return false;
+}
+
+function modStrikeCheckpointAutoStampCoversBooking(booking) {
+  if (!booking || typeof loadModStrikeStore !== 'function') return false;
+  const aliases = (typeof modStrikeSessionAliasKeys === 'function')
+    ? modStrikeSessionAliasKeys(booking) : [];
+  if (!aliases.length) return false;
+  const store = loadModStrikeStore();
+  const ck = (store && store.checkpoints) || {};
+  const days = Object.keys(ck);
+  for (let d = 0; d < days.length; d++) {
+    const row = ck[days[d]];
+    const map = row && row.teamAutoStrike;
+    if (!map || typeof map !== 'object') continue;
+    for (let i = 0; i < aliases.length; i++) {
+      if (map[aliases[i]]) return true;
+    }
+  }
+  return false;
+}
+
+function modStrikePrimariesForBooking(booking) {
+  const ids = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const id = String(raw || '').trim();
+    if (!id) return;
+    const k = id.toLowerCase();
+    if (seen.has(k)) return;
+    seen.add(k);
+    ids.push(id);
+  };
+  if (booking && booking.teamId != null && typeof adminState !== 'undefined' && adminState) {
+    const team = (adminState.teams || []).find(t => t && String(t.id) === String(booking.teamId));
+    if (team) (team.primaryIds || []).forEach(add);
+  }
+  if (!ids.length && booking) {
+    (booking.modSnapshots || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
+  }
+  return ids;
+}
+
+// Past 9:00 AM PT, hide the incomplete alert when the auto-strike gate
+// already processed this assignment + session date. That is either the
+// checkpoint teamAutoStrike stamp, or a kind=auto log on every primary.
+// One primary struck and the other not, with no stamp, still shows.
+// Before 9:00 AM this returns false. Skip and Cancel use their own gates.
+// This does not write a strike and does not change stars.
+function modStrikeAutoStrikeClearsIncompleteAlert(booking, nowMs) {
+  if (!booking) return false;
+  const now = nowMs != null ? nowMs : Date.now();
+  if (typeof isPastModStrikeCheckpointHour === 'function' && !isPastModStrikeCheckpointHour(now)) {
+    return false;
+  }
+  if (modStrikeCheckpointAutoStampCoversBooking(booking)) return true;
+  const primaries = modStrikePrimariesForBooking(booking);
+  if (!primaries.length) return false;
+  for (let i = 0; i < primaries.length; i++) {
+    if (!modStrikeAutoLogMatchesBooking(primaries[i], booking)) return false;
+  }
+  return true;
+}
+
+function modStrikeBookingForCheckpointRow(row) {
+  if (!row || row.assignmentId == null || row.assignmentId === '') return null;
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  const hit = list.find(a => a && String(a.id) === String(row.assignmentId));
+  if (hit) return hit;
+  return {
+    id: row.assignmentId,
+    teamId: row.teamId,
+    date: row.sessionDate || '',
+    odScheduleId: row.odScheduleId || '',
+  };
+}
+
+// Incomplete alert row (Overview live status, Performance banner, Flagged
+// today add-on). Skip, manual Strike, and an already-applied auto-strike
+// are not still open.
+function modStrikeCheckpointRowStillAlerts(row, nowMs) {
+  if (!row || !row.flagIncomplete || row.skipped || row.resolved) return false;
+  const booking = modStrikeBookingForCheckpointRow(row);
+  if (booking && modStrikeAutoStrikeClearsIncompleteAlert(booking, nowMs)) return false;
+  return true;
+}
+
 function modStrikeSessionAlreadyMuted(booking) {
   if (!booking) return false;
   const days = (typeof modStrikeCheckpointDaysForBooking === 'function')
@@ -30774,7 +30958,9 @@ function modStrikeCheckpointAttentionActive() {
     : null;
   if (!rep || !Array.isArray(rep.teams)) return false;
   return rep.teams.some(t => {
-    if (!(t.flagIncomplete && !t.skipped && !t.resolved)) return false;
+    if (typeof modStrikeCheckpointRowStillAlerts === 'function') {
+      if (!modStrikeCheckpointRowStillAlerts(t)) return false;
+    } else if (!(t.flagIncomplete && !t.skipped && !t.resolved)) return false;
     return modStrikeCheckpointRowMatchesOverviewFilter(t, rep);
   });
 }
@@ -30893,7 +31079,11 @@ function renderPerfStrikeCheckpointBannerHTML() {
     adminState._modStrikeCheckpointReport = rep;
   }
   if (!rep || !rep.teams || !rep.teams.length) return '';
-  const pending = (rep.teams || []).filter(t => t.flagIncomplete && !t.skipped && !t.resolved);
+  const pending = (rep.teams || []).filter(t => (
+    typeof modStrikeCheckpointRowStillAlerts === 'function'
+      ? modStrikeCheckpointRowStillAlerts(t)
+      : (t.flagIncomplete && !t.skipped && !t.resolved)
+  ));
   // After admin confirms Skip/Strike for every incomplete, hide by default.
   if (!pending.length) return '';
   // Only show when pending rows match the Performance date-range filter.
@@ -30901,7 +31091,10 @@ function renderPerfStrikeCheckpointBannerHTML() {
   if (!inFilter.length) return '';
   const visibleTeams = (rep.teams || []).filter(t => {
     if (t.flagIncomplete && !t.skipped && !t.resolved) {
-      return modStrikeCheckpointRowMatchesPerfDateFilter(t, rep);
+      const still = (typeof modStrikeCheckpointRowStillAlerts === 'function')
+        ? modStrikeCheckpointRowStillAlerts(t)
+        : true;
+      return still && modStrikeCheckpointRowMatchesPerfDateFilter(t, rep);
     }
     // Keep resolved/skipped/completed companions only when their booking is in range
     // so the banner doesn't look stale for out-of-filter dates.
@@ -30912,7 +31105,11 @@ function renderPerfStrikeCheckpointBannerHTML() {
   const skippedCount = visibleTeams.filter(t => t.skipped && !t.completed).length;
   const resolvedCount = visibleTeams.filter(t => t.resolved && t.flagIncomplete && !t.skipped).length;
   const pendingEnd = visibleTeams.filter(t => !t.completed && !t.skipped && !t.resolved && !t.pastSessionEnd).length;
-  const missed = visibleTeams.filter(t => t.flagIncomplete && !t.skipped && !t.resolved).length;
+  const missed = visibleTeams.filter(t => (
+    typeof modStrikeCheckpointRowStillAlerts === 'function'
+      ? modStrikeCheckpointRowStillAlerts(t)
+      : (t.flagIncomplete && !t.skipped && !t.resolved)
+  )).length;
   const gateNote = rep.pastGate
     ? 'After 9:00 AM PT, teams are flagged only once their booked session end time has passed and the session is still not completed. Resolve each incomplete team with Strike or Skip.'
     : 'Checkpoint runs at 9:00 AM PT (not reached yet today). Skip lifts auto-strike for that incomplete session only.';
