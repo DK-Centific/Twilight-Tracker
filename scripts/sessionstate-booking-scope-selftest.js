@@ -63,6 +63,9 @@ const chunks = [
   'parseSessionStateJson',
   'firstStationCompletedStamp',
   'sessionStateRowMatchesAssignment',
+  'invalidateSessionStateAssignmentIndex',
+  'sessionStateAssignmentIndexKeys',
+  'sessionStateAssignmentIndex',
   'sessionStateRowsForAssignment',
   'deriveLatestStatusFromSessionState',
 ];
@@ -70,6 +73,7 @@ const chunks = [
 // assignmentIdsMatch already in twilight before helpers — extract from file
 vm.createContext(ctx);
 vm.runInContext('var _derivedStatusCache = { sourceRef: null, byAsgnId: {} };', ctx);
+vm.runInContext('var _ssAssignIndex = { sourceRef: null, byId: null };', ctx);
 for (const name of chunks) {
   const code = extractFn(name);
   vm.runInContext(code, ctx);

@@ -107,6 +107,7 @@ const ctx = {
 
 vm.createContext(ctx);
 vm.runInContext('var _derivedStatusCache = { sourceRef: null, byAsgnId: {} };', ctx);
+vm.runInContext('var _ssAssignIndex = { sourceRef: null, byId: null };', ctx);
 
 // Shared helpers
 for (const name of [
@@ -119,6 +120,9 @@ for (const name of [
   'parseSessionStateJson',
   'firstStationCompletedStamp',
   'sessionStateRowMatchesAssignment',
+  'invalidateSessionStateAssignmentIndex',
+  'sessionStateAssignmentIndexKeys',
+  'sessionStateAssignmentIndex',
   'sessionStateRowsForAssignment',
   'deriveLatestStatusFromSessionState',
 ]) {

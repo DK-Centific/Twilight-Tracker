@@ -1,6 +1,26 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-25 · Grok · Soft-close HTML comments still count as Done (1.3.091825h)
+**Last updated:** 2026-09-25 · Grok · Performance tab paints no longer freeze (1.3.091825i)
+
+## 2026-09-25 · Admin Performance opens and filters without a long freeze (1.3.091825i)
+
+**Ask:** Performance was very slow to open and to click tiles/filters, especially Done + All time on a long history.
+
+**Cause (measured on 1,600 assignments and 3,200 SessionState rows):**
+- Each classify walked every SessionState row and JSON-parsed the ones whose assignment column did not match. One Today paint did that about 12,240 times (about 39 million parses) and took about 131 seconds. `stripHtmlTags` was only about 69 ms of that.
+- The same paint classified each booking several times (toolbar, tiles, chips).
+- With auto-strike logs on file, Flagged scanned the whole assignment list once per incomplete team (about 3 seconds).
+- SharePoint comment strip ran about 200,000 times per Done + All time click (about half a second). Cached now.
+
+**Fix:** Index SessionState rows once per fetched array. Remember classify / happypath / flagged / cancel / history for one paint only, then clear. Reuse date formatters. Cache stripped comments. During a Performance paint, build one strike-alias index; the 9 AM strike job still uses the old scan. Empty strike store skips the scan. First-open Helios animation stays. Tile clicks stay on the soft fade.
+
+**Version:** **1.3.091825i**. Selftest: `scripts/perf-paint-memo-selftest.js` plus the existing soft-close, past, strike, and panel tests.
+
+**PR:** draft on `cursor/perf-tab-speed-65e7`. Do **not** merge until David says push. No List, SessionState, or OneData writes.
+
+**Verify (David):** Hard refresh → **1.3.091825i**. Admin → Performance. Click **Done**, then **All time**. The list should show without a long freeze. A finished soft-close session should still say Completed. A team that used **Cancel session** should still say Cancelled.
+
+---
 
 ## 2026-09-25 · Soft-close Done works when SharePoint wraps the comment (1.3.091825h)
 
