@@ -16,7 +16,7 @@
 - Flag history shows one line per person for that session.
 - Version **1.3.091825d**. Tip **1.3.091825c** is the open Performance panel PR (#172). Selftest: `scripts/mod-strike-once-per-session-selftest.js` (13 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
 
-**PR:** draft on `cursor/strike-once-per-mod-8dd7`. Do **not** merge. Do not write List/OD/SessionState to heal Venkata or Jashit. When PA adds the star back, keep each person’s strike log so this gate does not take the star again.
+**PR:** draft https://github.com/DK-Centific/Twilight-Tracker/pull/173 on `cursor/strike-once-per-mod-8dd7`. Do **not** merge. Do not write List/OD/SessionState to heal Venkata or Jashit. When PA adds the star back, keep each person’s strike log so this gate does not take the star again.
 
 **Verify (David):** Hard refresh → **1.3.091825d**. This build does not put the missing star back. After Watchdog adds one star, Venkata and Jashit should each show 3 stars and stay at 3 after a refresh. A new incomplete team after 9:00 AM PT should lose one star each, not two.
 
