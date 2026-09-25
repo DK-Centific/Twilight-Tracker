@@ -11,7 +11,7 @@
 - A moderator cancel (Assignment comment starts with `mod-cancel-session`, and/or SessionState says Cancelled) shows **Cancelled** on Performance. It is not Live, Next, or Done. It is not Flagged and it is not a strike. Saved station progress is not turned back into Done. Admin Skip is unchanged. OneData is not written.
 - Version **1.3.091825a**. Selftests: `scripts/perf-past-24h-cancel-selftest.js`, `scripts/perf-past-history-selftest.js`.
 
-**PR:** draft on `cursor/perf-past-24h-cancel-a71e`. Do **not** merge until Watchdog says push (AHP CR + David).
+**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) draft on `cursor/perf-past-24h-cancel-a71e`. Do **not** merge until Watchdog says push (AHP CR + David).
 
 **Verify (David):** Hard refresh → **1.3.091825a**. Admin → Performance. Click **Past**. The small line under Past should say **last 24 hours**. You should see sessions that ended in the last day, not the whole history. Click **All time** to see older ones. Open a team that cancelled a session. The status should say **Cancelled**, not Done or Flagged.
 
