@@ -44,9 +44,9 @@ function extractFn(name) {
 
 console.log('Moderator cancel-session self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091825h',
-  /const APP_VERSION = '1\.3\.091825h'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825h'));
+assert('APP_VERSION 1.3.091825i',
+  /const APP_VERSION = '1\.3\.091825i'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825i'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
