@@ -37,7 +37,7 @@ function sessionKeyFor(username) {
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
 const APP_VERSION = '1.3.091825a';
-const APP_UPDATED_AT = '09/25/2026 08:45';
+const APP_UPDATED_AT = '09/25/2026 08:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -41419,8 +41419,25 @@ async function completeAssignment(asgnId, opts) {
 // Moderator Cancel session. Writes Assignment List through the same
 // fields as cancelAssignmentSilent (status Cancelled, timestamps,
 // terminal lock, existing Assignment POST). OneData is not written.
-// Session progress stays for audit. Skip / strike records are not touched.
+// Checklist progress on this assignment is wiped (actor + co-mod
+// SessionState, and the operator's local stations). Cancel markers
+// stay. Skip / strike records are not touched.
 // Comment starts with mod-cancel-session, never od-sync-soft-close.
+
+// Drop station / scenario / approval progress from one SessionState
+// blob. Identity fields (name, address, equipment) stay. Caller stamps
+// sessionStatus Cancelled after this so the wipe cannot clear the cancel.
+function wipeChecklistProgressForModCancel(parsed) {
+  const out = (parsed && typeof parsed === 'object') ? Object.assign({}, parsed) : {};
+  out.stations = {};
+  out.stationCompletedAt = {};
+  out.sessionCompletedAt = null;
+  out.progressScore = 0;
+  out.progressAt = '';
+  out.progressBy = '';
+  out.approvalGate = {};
+  return out;
+}
 function modCancelSessionComment(actor, iso) {
   const who = String(actor || '').trim() || 'mod';
   return 'mod-cancel-session:' + who + ':' + iso;
@@ -41470,6 +41487,7 @@ function patchStateJsonModCancel(stateJson, iso, actor, comment) {
   let parsed = {};
   try { parsed = stateJson ? JSON.parse(stateJson) : {}; } catch (_) { parsed = {}; }
   if (!parsed || typeof parsed !== 'object') parsed = {};
+  parsed = wipeChecklistProgressForModCancel(parsed);
   parsed.sessionStatus = 'Cancelled';
   parsed.sessionCancelledAt = iso;
   parsed.sessionCancelledBy = actor || '';
@@ -41642,6 +41660,10 @@ async function persistModeratorCancelSession(asgn) {
       if (result && result.ok) wrote++;
     }
     try { if (typeof window !== 'undefined') window._mySessionCarouselIdx = null; } catch (_) {}
+    if (typeof clearOperatorProgressForNewBooking === 'function') {
+      clearOperatorProgressForNewBooking('mod-cancel-session');
+    }
+    try { currentStationKey = null; } catch (_) {}
     if (typeof saveState === 'function') saveState();
     try {
       if (typeof renderMySessionSection === 'function') renderMySessionSection();

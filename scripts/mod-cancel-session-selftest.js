@@ -4,6 +4,7 @@
 /**
  * Moderator Cancel session.
  * After cancel, the overnight pin drops and the next Booked row can bind.
+ * Checklist progress on that assignment is wiped. Cancel markers stay.
  * Cancel is not Done, not Flagged, and not od-sync-soft-close.
  */
 
@@ -63,15 +64,18 @@ assert('pre-check-in still says Confirm Arrival',
 
 const persist = extractFn('persistModeratorCancelSession');
 const patch = extractFn('patchStateJsonModCancel');
+const wipe = extractFn('wipeChecklistProgressForModCancel');
 const commentFn = extractFn('modCancelSessionComment');
 assert('list comment is mod-cancel-session',
   /mod-cancel-session:/.test(commentFn) && persist.indexOf('modCancelSessionComment') >= 0);
 assert('cancel writer does not use od-sync-soft-close',
   persist.indexOf('od-sync-soft-close') < 0 && patch.indexOf('od-sync-soft-close') < 0);
-assert('cancel writer does not complete or wipe progress',
+assert('cancel writer wipes checklist and does not complete',
   persist.indexOf('completeAssignment') < 0
-  && persist.indexOf('clearOperatorProgressForNewBooking') < 0
-  && !/sessionCompletedAt\s*=\s*null/.test(patch)
+  && persist.indexOf('clearOperatorProgressForNewBooking') >= 0
+  && patch.indexOf('wipeChecklistProgressForModCancel') >= 0
+  && /sessionCompletedAt\s*=\s*null/.test(wipe)
+  && /stations\s*=\s*\{\}/.test(wipe)
   && src.indexOf('mod_cancel_session') < 0);
 assert('cancel writer sets sessionStatus Cancelled',
   /sessionStatus = 'Cancelled'/.test(patch));
@@ -244,20 +248,34 @@ function row(date, extra) {
     q.ids.join(','));
 }
 
-const pure = vm.createContext({ console, String, JSON });
-vm.runInContext(commentFn + '\n' + patch, pure);
+const pure = vm.createContext({ console, String, JSON, Object });
+vm.runInContext(commentFn + '\n' + wipe + '\n' + patch, pure);
 const comment = pure.modCancelSessionComment('Narendra-tw', '2026-09-24T22:00:00.000Z');
 assert('comment shape',
   comment === 'mod-cancel-session:Narendra-tw:2026-09-24T22:00:00.000Z', comment);
 const patched = JSON.parse(pure.patchStateJsonModCancel(JSON.stringify({
   sessionStatus: 'station_4_done',
   sessionCompletedAt: '2026-09-24T04:00:00.000Z',
-  stations: { station4: { scenarios: { '01': { status: 'Uploaded' } } } },
+  stationCompletedAt: { station4: '2026-09-24T04:00:00.000Z' },
+  progressScore: 8601,
+  progressAt: '2026-09-24T04:00:00.000Z',
+  progressBy: 'Narendra-tw',
+  approvalGate: { '115|station1': { status: 'Approved' } },
+  stations: { station4: { scenarios: { '01': { status: 'Uploaded' }, '03': { status: 'In Progress' } } } },
+  participantName: 'Jodie',
 }), '2026-09-24T22:00:00.000Z', 'Narendra-tw', comment));
-assert('SS marker keeps audit progress',
+assert('SS marker wipes checklist and keeps cancel',
   patched.sessionStatus === 'Cancelled'
-  && patched.sessionCompletedAt === '2026-09-24T04:00:00.000Z'
-  && patched.stations && patched.stations.station4,
+  && patched.sessionCancelledAt === '2026-09-24T22:00:00.000Z'
+  && patched.sessionCancelledBy === 'Narendra-tw'
+  && patched.cancelComment === comment
+  && patched.sessionCompletedAt == null
+  && patched.stations && Object.keys(patched.stations).length === 0
+  && patched.stationCompletedAt && Object.keys(patched.stationCompletedAt).length === 0
+  && !patched.progressScore
+  && patched.progressAt === ''
+  && patched.approvalGate && Object.keys(patched.approvalGate).length === 0
+  && patched.participantName === 'Jodie',
   JSON.stringify(patched));
 
 function showCtx() {
@@ -306,8 +324,12 @@ async function runAhP() {
   const audit = {
     sessionStatus: 'station_2_done',
     sessionCompletedAt: '2026-09-24T04:00:00.000Z',
-    stations: { station2: { ok: true } },
+    stationCompletedAt: { station2: '2026-09-24T03:00:00.000Z' },
+    progressScore: 400,
+    stations: { station2: { ok: true, scenarios: { '01': { status: 'Uploaded' } } } },
+    approvalGate: { '115|station1': { status: 'Pending' } },
     arrivedAt: '2026-09-24T02:00:00.000Z',
+    participantName: 'Jodie',
   };
   const ssRow = {
     sessionStateId: 'ss_115_Narendra-tw',
@@ -316,6 +338,21 @@ async function runAhP() {
     teamId: 't-narendra',
     stateJson: JSON.stringify(audit),
     sessionStatus: 'station_2_done',
+  };
+  const jodieRow = {
+    sessionStateId: 'ss_115_Jodie-tw',
+    assignmentId: '115',
+    orbitLoginId: 'Jodie-tw',
+    teamId: 't-narendra',
+    stateJson: JSON.stringify({
+      sessionStatus: 'station_1_done',
+      stations: { station1: { scenarios: { '04': { status: 'In Progress' } } } },
+      stationCompletedAt: { station1: '2026-09-24T02:30:00.000Z' },
+      approvalGate: { '115|station1': { status: 'Approved' } },
+      sessionCompletedAt: '2026-09-24T03:30:00.000Z',
+      participantName: 'Satya',
+    }),
+    sessionStatus: 'station_1_done',
   };
   const satya = row('2026-09-23', {
     id: '115', odScheduleId: 'OD-SATYA', teamId: 't-narendra',
@@ -350,11 +387,14 @@ async function runAhP() {
       sessionDate: '2026-09-23',
       sessionStatus: 'station_2_done',
       sessionCompletedAt: audit.sessionCompletedAt,
-      stations: { station2: { ok: true } },
+      stationCompletedAt: { station2: '2026-09-24T03:00:00.000Z' },
+      stations: { station2: { ok: true, scenarios: { '01': { status: 'Uploaded' } } } },
+      approvalGate: { '115|station1': { status: 'Pending' } },
+      _progressScore: 400,
     },
     adminState: {
       assignments: [satya, jodie, amy, other, todayBooked],
-      perfSessionStateRows: [ssRow],
+      perfSessionStateRows: [ssRow, jodieRow],
       modStrikeStore: JSON.parse(JSON.stringify(skipStore)),
       teams: [
         { id: 't-narendra', name: 'Narendra x Satya', primaryIds: ['Narendra-tw', 'Jodie-tw'] },
@@ -409,12 +449,14 @@ async function runAhP() {
     'modCancelSessionComment',
     'modCancelActorOrbit',
     'assignmentsSharingModCancel',
+    'wipeChecklistProgressForModCancel',
     'patchStateJsonModCancel',
     'postSessionStatePayloadDirect',
     'writeModCancelSessionState',
     'writeModCancelAssignmentListRow',
     'persistModeratorCancelSession',
     'assignmentCommentIsModCancel',
+    'clearOperatorProgressForNewBooking',
   ].map(extractFn).join('\n'), ctx);
 
   const skipBefore = JSON.stringify(ctx.adminState.modStrikeStore);
@@ -449,15 +491,40 @@ async function runAhP() {
       });
       return q.ids.indexOf('218') >= 0 && q.ids.indexOf('115') < 0 && q.ids.indexOf('115b') < 0;
     })());
-  assert('1 SessionState progress stays for audit',
-    ctx.state.sessionCompletedAt === audit.sessionCompletedAt
-    && ctx.state.stations && ctx.state.stations.station2 && ctx.state.stations.station2.ok
-    && reasons[0] === 'mod-cancel-session'
-    && ssPosts.some(p => {
-      const parsed = JSON.parse(p.body.stateJson);
-      return parsed.sessionStatus === 'Cancelled'
-        && parsed.sessionCompletedAt === audit.sessionCompletedAt
-        && parsed.stations && parsed.stations.station2;
+  function progressIsReset(parsed) {
+    if (!parsed || parsed.sessionStatus !== 'Cancelled') return false;
+    if (parsed.sessionCompletedAt != null) return false;
+    if (!parsed.sessionCancelledAt || !parsed.cancelComment) return false;
+    if (String(parsed.cancelComment).indexOf('mod-cancel-session:') !== 0) return false;
+    const stations = parsed.stations || {};
+    const stamps = parsed.stationCompletedAt || {};
+    const gate = parsed.approvalGate || {};
+    if (Object.keys(stations).length !== 0) return false;
+    if (Object.keys(stamps).length !== 0) return false;
+    if (Object.keys(gate).length !== 0) return false;
+    if (parsed.progressScore) return false;
+    return true;
+  }
+  const actorPosted = ssPosts.find(p => p.body.orbitLoginId === 'Narendra-tw');
+  const jodiePosted = ssPosts.find(p => p.body.orbitLoginId === 'Jodie-tw');
+  const actorParsed = actorPosted && JSON.parse(actorPosted.body.stateJson);
+  const jodieParsed = jodiePosted && JSON.parse(jodiePosted.body.stateJson);
+  assert('1 SessionState checklist is reset and cancel markers stay',
+    reasons[0] === 'mod-cancel-session'
+    && progressIsReset(actorParsed)
+    && progressIsReset(jodieParsed)
+    && actorParsed.participantName === 'Jodie'
+    && jodieParsed.participantName === 'Satya'
+    && ctx.state.sessionCompletedAt == null
+    && (!ctx.state.stations || !ctx.state.stations.station2)
+    && (!ctx.state.approvalGate || Object.keys(ctx.state.approvalGate).length === 0)
+    && ctx.state.sessionStatus !== 'station_2_done'
+    && !ctx.state._progressScore,
+    JSON.stringify({
+      actor: actorParsed,
+      jodie: jodieParsed,
+      localStations: ctx.state.stations,
+      localStatus: ctx.state.sessionStatus,
     }));
 
   const night = byId('115');

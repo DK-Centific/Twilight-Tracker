@@ -1,5 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · Cancel session wipes checklist (1.3.091825a)
+
+## 2026-09-25 · Cancel session wipes checklist progress (1.3.091825a)
+
+**Ask:** Confirm Cancel must clear leftover station, scenario, and approval progress for that team session. The 1.3.091824e choice to keep SessionState progress "for the record" is overturned. Cancel itself stays.
+
+**Fix:**
+- Confirm still writes every co-mod Assignment row for that schedule: status **Cancelled**, comment `mod-cancel-session:<login>:<time>`, same terminal lock, OneData status unchanged. No Flagged, strike, Completed, or session-done.
+- `wipeChecklistProgressForModCancel` runs inside `patchStateJsonModCancel` before the cancel stamp. Actor and co-mod SessionState rows for that assignmentId are overwritten: `stations` empty, station stamps cleared, `sessionCompletedAt` null, progress score 0, `approvalGate` empty. `sessionStatus` stays **Cancelled**, with `sessionCancelledAt` / `sessionCancelledBy` / `cancelComment`.
+- The person who confirmed also gets `clearOperatorProgressForNewBooking('mod-cancel-session')`, then welcome re-renders. My session binds the next Booked row with a fresh checklist.
+- Name, address, and equipment on the SessionState blob are left in place. Approval Excel rows are not deleted (List + SessionState only).
+- Version **1.3.091825a**. Selftest: `scripts/mod-cancel-session-selftest.js`.
+
+**PR:** draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
+
+**Verify (David):** Hard refresh → **1.3.091825a**. Sign in as a moderator who is already checked in. Press and hold **Cancel session** until the button fills, then tap **Confirm**. My session should move to the next booking with stations not started. The cancelled session should say Cancelled, not Completed. The other moderator on that same session should also see a clean checklist.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Performance Past = last 24 hours, cancelled stays Cancelled (1.3.091825a)
 
 ## 2026-09-25 · Performance Past is the last 24 hours; team cancel stays Cancelled (1.3.091825a)
