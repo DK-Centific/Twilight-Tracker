@@ -2,15 +2,17 @@
 'use strict';
 
 /**
- * Admin Performance panel · past incomplete session (1.3.091825c).
+ * Admin Performance panel · past incomplete session (1.3.091825d).
  *
- * Amanda W Li · Venkata × Jashit · Sep 24 7 PM–2 AM PT.
- * One co-mod is station_2_done (S1 18/18, S2 14/14, S3 3/8, S4 0/4,
- * arrived, no sessionCompletedAt). The other co-mod is blank / Not Started
- * and newer. Booked end has passed, so classify stays scheduled, but the
- * panel must show the richer station list — not "hasn't started".
- * The mini pill can still say In session · St 2.
- * Does not stamp session_done or change Live / Next / Done buckets.
+ * The panel gate is every booking. A past-end session that still
+ * classifies as scheduled shows station progress when any co-mod has
+ * arrived, station_*_done, or a non-empty station map. The empty
+ * "hasn't started" copy is only when there is no progress.
+ *
+ * Two fixtures share that gate:
+ *   - a generic past partial team (not a named production case)
+ *   - Amanda W Li · Venkata × Jashit, the live repro example only
+ * Production code must not branch on either id, team, or name.
  */
 
 const fs = require('fs');
@@ -45,17 +47,27 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Performance panel past-incomplete self-test (1.3.091825c)');
+console.log('Performance panel past-incomplete self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091825c',
-  /const APP_VERSION = '1\.3\.091825c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825c'));
+assert('APP_VERSION 1.3.091825d',
+  /const APP_VERSION = '1\.3\.091825d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825d'));
 
 assert('panel gate is not cls === scheduled alone',
   /function perfPanelStationDetailHTML\(/.test(src)
   && /function perfPanelSessionHasStarted\(/.test(src)
   && /perfPanelStationDetailHTML\(a, cls\)/.test(src)
   && !/if \(cls === 'scheduled'\)/.test(src));
+
+const gateSrc = [
+  'perfLiveStatusIsPartialProgress',
+  'perfNonGeoSessionRowHasStartedWork',
+  'perfPanelSessionHasStarted',
+  'perfPanelStationDetailHTML',
+  'openPerformancePanel',
+].map(extractFn).join('\n');
+assert('production gate is not one team or assignment',
+  !/od_8d6bedbf|Amanda|Venkata|Jashit|jashit|venkata/.test(gateSrc));
 
 const AMANDA_ID = 'od_8d6bedbf-5b81-4779-b828-38d02d6840a4';
 
@@ -153,19 +165,53 @@ const geoOnly = {
 };
 
 const liveById = {};
-function setLive(id, status) {
+function setLive(id, status, name) {
   if (!status) delete liveById[id];
   else liveById[id] = {
     assignmentId: id,
     status,
     lastActive: '2026-09-25T05:40:00.000Z',
     timestamp: '2026-09-25T05:40:00.000Z',
-    moderatorName: 'Venkata',
+    moderatorName: name || 'Mod',
     moderatorMatch: true,
   };
 }
-setLive(AMANDA_ID, 'station_2_done');
-setLive(arrivedOnly.id, 'arrived');
+
+const ANY_ID = 'od_past_partial_any_team';
+const anyTeam = {
+  id: ANY_ID,
+  teamId: 'alpha-beta',
+  teamName: 'Alpha × Beta',
+  date: '2026-09-22',
+  startMin: 18 * 60,
+  endMin: 1 * 60,
+  status: 'Booked',
+  odStatus: 'Scheduled',
+  participantData: { firstName: 'Casey', lastName: 'Nguyen' },
+  modSnapshots: [
+    { orbitLoginId: 'alpha-tw' },
+    { orbitLoginId: 'beta-tw' },
+  ],
+};
+const anyRichState = {
+  sessionStatus: 'station_1_done',
+  arrivedAt: '2026-09-23T03:00:00.000Z',
+  stations: {
+    station1: scenarioMap(5, 18),
+    station2: scenarioMap(0, 14),
+    station3: scenarioMap(0, 8),
+    station4: scenarioMap(0, 4),
+  },
+  stationCompletedAt: { station1: '2026-09-23T04:00:00.000Z' },
+};
+const anyBlankState = {
+  sessionStatus: 'Not Started',
+  stations: { station1: scenarioMap(0, 18) },
+};
+
+setLive(AMANDA_ID, 'station_2_done', 'Venkata');
+setLive(ANY_ID, 'station_1_done', 'Alpha');
+setLive(arrivedOnly.id, 'arrived', 'Mod');
 
 const ctx = {
   console,
@@ -175,9 +221,28 @@ const ctx = {
   Array,
   Set,
   adminState: {
-    assignments: [amanda, neverStarted, arrivedOnly, geoOnly],
-    teams: [{ id: 'venkata-jashit', name: 'Venkata × Jashit', primaryIds: ['venkata-tw', 'jashit-tw'] }],
+    assignments: [anyTeam, amanda, neverStarted, arrivedOnly, geoOnly],
+    teams: [
+      { id: 'alpha-beta', name: 'Alpha × Beta', primaryIds: ['alpha-tw', 'beta-tw'] },
+      { id: 'venkata-jashit', name: 'Venkata × Jashit', primaryIds: ['venkata-tw', 'jashit-tw'] },
+    ],
     perfSessionStateRows: [
+      {
+        sessionStateId: 'ss_' + ANY_ID + '_beta',
+        assignmentId: ANY_ID,
+        orbitLoginId: 'beta-tw',
+        sessionStatus: 'Not Started',
+        lastActive: '2026-09-23T06:00:00.000Z',
+        stateJson: JSON.stringify(anyBlankState),
+      },
+      {
+        sessionStateId: 'ss_' + ANY_ID + '_alpha',
+        assignmentId: ANY_ID,
+        orbitLoginId: 'alpha-tw',
+        sessionStatus: 'station_1_done',
+        lastActive: '2026-09-23T04:10:00.000Z',
+        stateJson: JSON.stringify(anyRichState),
+      },
       {
         sessionStateId: 'ss_' + AMANDA_ID + '_jashit',
         assignmentId: AMANDA_ID,
@@ -280,6 +345,21 @@ vm.runInContext([
 ].map(extractFn).join('\n'), ctx);
 
 const EMPTY = "Session hasn't started yet";
+
+const anyPanel = ctx.perfPanelStationDetailHTML(anyTeam);
+assert('any past partial team classifies scheduled',
+  ctx.classifyBookingForPerf(anyTeam) === 'scheduled',
+  ctx.classifyBookingForPerf(anyTeam));
+assert('any past partial team pill is In session · St 1',
+  ctx.perfLiveStatusDisplay(anyTeam).label === 'In session · St 1');
+assert('any past partial team shows station progress',
+  ctx.perfPanelSessionHasStarted(anyTeam) === true
+  && anyPanel.indexOf(EMPTY) === -1
+  && anyPanel.includes('Station 1')
+  && anyPanel.includes('5/18 complete'));
+assert('any past partial team keeps the richer co-mod',
+  anyPanel.includes('5/18 complete') && !anyPanel.includes('0/18 complete'));
+
 const panel = ctx.perfPanelStationDetailHTML(amanda);
 const pill = ctx.perfLiveStatusDisplay(amanda);
 
@@ -314,9 +394,13 @@ assert('geo-only row does not count as started',
   ctx.perfPanelSessionHasStarted(geoOnly) === false
   && ctx.perfPanelStationDetailHTML(geoOnly).includes(EMPTY));
 
+setLive(ANY_ID, null);
 setLive(AMANDA_ID, null);
-assert('station maps open the panel even when live status is blank',
-  ctx.assignmentPerfSessionStarted(amanda) === false
+assert('station maps open the panel for any team when live status is blank',
+  ctx.assignmentPerfSessionStarted(anyTeam) === false
+  && ctx.perfPanelSessionHasStarted(anyTeam) === true
+  && ctx.perfPanelStationDetailHTML(anyTeam).includes('5/18 complete')
+  && ctx.perfPanelStationDetailHTML(anyTeam).indexOf(EMPTY) === -1
   && ctx.perfPanelSessionHasStarted(amanda) === true
   && ctx.perfPanelStationDetailHTML(amanda).includes('3/8 complete')
   && ctx.perfPanelStationDetailHTML(amanda).indexOf(EMPTY) === -1);

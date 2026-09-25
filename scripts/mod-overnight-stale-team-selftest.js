@@ -45,11 +45,11 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Moderator overnight stale-team self-test (1.3.091825c)');
+console.log('Moderator overnight stale-team self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091825c',
-  /const APP_VERSION = '1\.3\.091825c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825c'));
+assert('APP_VERSION 1.3.091825d',
+  /const APP_VERSION = '1\.3\.091825d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825d'));
 
 const parseCtx = { console, String, parseInt };
 vm.createContext(parseCtx);

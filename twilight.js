@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825c';
-const APP_UPDATED_AT = '09/25/2026 16:40';
+const APP_VERSION = '1.3.091825d';
+const APP_UPDATED_AT = '09/25/2026 16:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15543,6 +15543,8 @@ function perfNonGeoSessionRowHasStartedWork(r) {
 
 // True when this booking has real session work, even if Performance still
 // buckets it as Next / scheduled (past end, not happypath-complete).
+// Applies to every booking. Team name, assignment id, and participant
+// are not consulted.
 function perfPanelSessionHasStarted(a) {
   if (!a) return false;
   if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)) {
@@ -15562,9 +15564,10 @@ function perfPanelSessionHasStarted(a) {
   return false;
 }
 
-// Station body for the performance panel. The empty "hasn't started"
-// copy is only for a session with no check-in and no station rows.
-// Past incomplete work (cls still 'scheduled') still renders the list.
+// Station body for every Performance booking. The empty "hasn't started"
+// copy is only when no co-mod has checked in or recorded station work.
+// A past incomplete session stays classified scheduled and still gets
+// the same station list Live and Completed panels use.
 function perfPanelStationDetailHTML(a, cls) {
   const bucket = (cls !== undefined)
     ? cls
