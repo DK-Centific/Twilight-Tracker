@@ -1,5 +1,26 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · One strike per assignment and date (1.3.091825e)
+
+## 2026-09-25 · One strike per assignment and date, not per team row (1.3.091825e)
+
+**Ask:** Venkata × Jashit lost two stars each for one incomplete session. PA confirmed the logs: each person has two `kind=auto` lines for assignment `od_8d6bedbf` on 2026-09-24 — team 200027 at 9:20:01 AM PT, then team 200040 at 9:20:11 AM PT (List 230/231). The strike was once per team row. It must be once per assignment + date per person. Stars are already healed 2→3 on SessionState 450. Do not write live stars in this change.
+
+**Cause:** The 9 AM job walked each team row. Two List rows for the same assignment used two team ids, so each person was struck twice about 10 seconds apart.
+
+**Fix:**
+- The strike key is assignment + session date + person. Team id and List row are not part of the key.
+- A second team row for that same assignment and date does nothing. A later refresh does nothing if that person’s log already has that assignment and date (including the two lines already on file).
+- A different assignment the same day can still take its own one star.
+- Skip, finished, cancelled, and before 9:00 AM PT are unchanged.
+- Version **1.3.091825e**, rebased on main after #172 merged as **1.3.091825d**. Selftest: `scripts/mod-strike-once-per-session-selftest.js` (16 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
+
+**PR:** draft https://github.com/DK-Centific/Twilight-Tracker/pull/173 on `cursor/strike-once-per-mod-8dd7`. David said push when ready; Watchdog merges after AHP LGTM. Do **not** merge from this branch. Do not write List/OD/SessionState to change stars.
+
+**Verify (David):** Hard refresh → **1.3.091825e**. Venkata and Jashit should already show 3 stars. Refresh again. They should stay at 3. A new unfinished team after 9:00 AM PT should lose one star each, not two.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Performance panel past incomplete, every booking (1.3.091825d)
 
 ## 2026-09-25 · Performance panel shows past incomplete stations for every booking (1.3.091825d)
@@ -15,7 +36,7 @@
 - The richer co-mod still wins the merge. Live / Next / Done filters are unchanged.
 - Version **1.3.091825d**. Selftest: `scripts/perf-panel-past-incomplete-selftest.js` (generic past partial team, plus the Amanda example).
 
-**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
+**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) merged to main as **1.3.091825d**.
 
 **Verify (David):** Hard refresh → **1.3.091825d**. Admin → Performance. Open any team whose session already started, including one from yesterday that is not finished. The panel should list the stations they completed. It should not say the session hasn't started. Venkata × Jashit / Amanda W Li is one example: the small status should still say **In session · St 2**, with Station 1 and Station 2 complete, Station 3 partly done, and Station 4 not started. A booking that was never checked in should still say the session hasn't started.
 
