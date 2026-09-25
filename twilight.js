@@ -37,7 +37,7 @@ function sessionKeyFor(username) {
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
 const APP_VERSION = '1.3.091825d';
-const APP_UPDATED_AT = '09/25/2026 16:50';
+const APP_UPDATED_AT = '09/25/2026 09:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12670,6 +12670,23 @@ function perfModDisplayNameByOrbit(orbitId) {
   return String(orbitId || '');
 }
 
+function flaggedHistorySameSession(row, assignment) {
+  if (!row || !assignment) return false;
+  if (row.assignmentId != null && row.assignmentId !== ''
+      && String(row.assignmentId) === String(assignment.id)) return true;
+  if (typeof modStrikeSessionAliasKeys !== 'function') return false;
+  const want = modStrikeSessionAliasKeys(assignment);
+  const have = [];
+  if (row.assignmentId != null && row.assignmentId !== '') have.push('aid:' + String(row.assignmentId));
+  (Array.isArray(row.sessionAliases) ? row.sessionAliases : []).forEach(k => {
+    if (k) have.push(String(k));
+  });
+  for (let i = 0; i < want.length; i++) {
+    if (have.indexOf(want[i]) >= 0) return true;
+  }
+  return false;
+}
+
 function buildFlaggedHistoryRows() {
   const max = (typeof MOD_STRIKE_MAX_STARS === 'number') ? MOD_STRIKE_MAX_STARS : 4;
   const store = (typeof loadModStrikeStore === 'function') ? loadModStrikeStore() : { mods: {} };
@@ -12731,6 +12748,8 @@ function buildFlaggedHistoryRows() {
       pill,
       otherMods,
       reason: (latest && latest.reason) || '',
+      assignmentId: (latest && latest.assignmentId != null) ? latest.assignmentId : '',
+      sessionAliases: (latest && Array.isArray(latest.sessionAliases)) ? latest.sessionAliases.slice() : [],
     });
   });
 
@@ -12744,8 +12763,9 @@ function buildFlaggedHistoryRows() {
     for (const orbitId of primaries) {
       const key = String(orbitId || '').trim().toLowerCase();
       if (!key) continue;
-      if (rows.some(r => String(r.orbitId).toLowerCase() === key
-          && String(r.teamId) === String(a.teamId))) continue;
+      if (rows.some(r => String(r.orbitId).toLowerCase() === key && (
+        String(r.teamId) === String(a.teamId) || flaggedHistorySameSession(r, a)
+      ))) continue;
       const pill = perfFlaggedStatusPillForOrbit(key);
       // Keep incomplete-session rows even at 4★ — stars stay this
       // moderator's own count (do not invent a team 4/4 warning).
@@ -12764,6 +12784,8 @@ function buildFlaggedHistoryRows() {
         otherMods: primaries.map(String).filter(id => id.toLowerCase() !== key).slice(0, 3),
         reason: 'Incomplete past session end',
         assignmentId: a.id,
+        sessionAliases: (typeof modStrikeSessionAliasKeys === 'function')
+          ? modStrikeSessionAliasKeys(a) : [],
         pending: pill.filter === 'ok',
       });
     }
@@ -29190,15 +29212,15 @@ function mergeModStrikeMods(localMods, remoteMods, mergeOpts) {
     const L = local[k];
     if (!R || typeof R !== 'object') return;
     if (R.stars == null && L && L.stars != null) {
-      out[k] = Object.assign({}, L);
+      out[k] = modStrikeMergeStruckSessionsOnto(Object.assign({}, L), L, R);
       return;
     }
     if (typeof modStrikeShouldKeepLocal === 'function' && modStrikeShouldKeepLocal(L, R, k, mergeOpts)) {
-      out[k] = Object.assign({}, L);
+      out[k] = modStrikeMergeStruckSessionsOnto(Object.assign({}, L), L, R);
       return;
     }
     if (mergeOpts.remoteBlobOlder && !(L && L.stars != null)) return;
-    out[k] = Object.assign({}, L || {}, R);
+    out[k] = modStrikeMergeStruckSessionsOnto(Object.assign({}, L || {}, R), L, R);
   });
   return ensureModStrikeScaleV4OnMods(out, scaleOpts);
 }
@@ -29593,6 +29615,17 @@ function setModStrikeStars(orbitId, stars, entry) {
     updatedAt: touchedAt,
     updatedBy: touchedBy,
   };
+  // Same write as the star change. A later pass can see this even if the
+  // checkpoint teamAutoStrike map was dropped on a cloud round-trip.
+  const struckSessions = (typeof modStrikeUnionStruckSessions === 'function')
+    ? modStrikeUnionStruckSessions(prev.struckSessions, null)
+    : Object.assign({}, (prev.struckSessions && typeof prev.struckSessions === 'object') ? prev.struckSessions : {});
+  if (entry && (entry.kind === 'auto' || entry.kind === 'manual')
+      && typeof modStrikeStruckKeysFromEntry === 'function') {
+    const added = modStrikeStruckKeysFromEntry(entry);
+    Object.keys(added).forEach(k => { if (added[k]) struckSessions[k] = true; });
+  }
+  if (Object.keys(struckSessions).length) rec.struckSessions = struckSessions;
   if (n > 0) rec.deactivated = false;
   if (prev.strikeDeactivated && n > 0) {
     /* cleared in side effect */
@@ -30199,9 +30232,23 @@ function buildModStrikeCheckpointReport(nowMs) {
     const days = modStrikeCheckpointDaysForBooking(booking);
     let skipped = false;
     let resolved = false;
+    // Co-mod List rows share one session. Skip/Strike on either row covers both.
+    const aliasAids = [];
+    const pushAid = (raw) => {
+      const s = raw != null && raw !== '' ? String(raw) : '';
+      if (s && aliasAids.indexOf(s) < 0) aliasAids.push(s);
+    };
+    pushAid(asgnId);
+    if (typeof modStrikeSessionAliasKeys === 'function') {
+      modStrikeSessionAliasKeys(booking).forEach(k => {
+        if (String(k).indexOf('aid:') === 0) pushAid(String(k).slice(4));
+      });
+    }
     for (let i = 0; i < days.length; i++) {
-      if (!skipped && modStrikeCheckpointIsSkipped(days[i], t.id, asgnId)) skipped = true;
-      if (!resolved && modStrikeCheckpointIsResolved(days[i], t.id, asgnId)) resolved = true;
+      for (let j = 0; j < aliasAids.length; j++) {
+        if (!skipped && modStrikeCheckpointIsSkipped(days[i], t.id, aliasAids[j])) skipped = true;
+        if (!resolved && modStrikeCheckpointIsResolved(days[i], t.id, aliasAids[j])) resolved = true;
+      }
     }
     teams.push({
       teamId: t.id,
@@ -30227,6 +30274,193 @@ function buildModStrikeCheckpointReport(nowMs) {
   };
 }
 
+function modStrikeBookingYmd(booking) {
+  const m = (typeof assignmentPerfMaterialize === 'function') ? assignmentPerfMaterialize(booking) : booking;
+  return String((m && m.date) || (booking && booking.date) || '').split('T')[0].trim();
+}
+
+function modStrikeMeaningfulToken(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s || s === 'null' || s === 'undefined' || s === '0') return '';
+  return s;
+}
+
+function modStrikeCrewIds(booking) {
+  const ids = [];
+  const seen = new Set();
+  const add = (raw) => {
+    const id = String(raw || '').trim().toLowerCase();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  ((booking && booking.modSnapshots) || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
+  if (ids.length < 2 && booking) {
+    try {
+      const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+      const team = teams.find(t => t && String(t.id) === String(booking.teamId));
+      if (team) (team.primaryIds || []).forEach(add);
+    } catch (_) {}
+  }
+  ids.sort();
+  return ids;
+}
+
+function modStrikeParticipantToken(booking) {
+  if (!booking) return '';
+  const pd = booking.participantData || {};
+  const raw = booking.participantOrbitId
+    || pd.participantOrbitId
+    || [pd.firstName, pd.lastName].filter(Boolean).join(' ')
+    || booking.participantName
+    || '';
+  return String(raw).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Same crew, same night, same start, same participant. Two List rows for
+// one OD session match. A later session the same day does not.
+function modStrikeCrewSessionKey(booking) {
+  if (!booking) return '';
+  const crew = modStrikeCrewIds(booking);
+  const ymd = modStrikeBookingYmd(booking);
+  if (crew.length < 2 || !ymd) return '';
+  const start = (booking.startMin != null && booking.startMin !== '') ? String(booking.startMin) : '';
+  return 'crew:' + crew.join('|') + '|' + ymd + '|' + start + '|' + modStrikeParticipantToken(booking);
+}
+
+// Every id that means this session for one moderator. Co-mod Assignment
+// rows often have different assignment ids and team ids for one night.
+function modStrikeSessionAliasKeys(booking) {
+  const keys = [];
+  const add = (k) => {
+    const s = String(k || '').trim();
+    if (!s || keys.indexOf(s) >= 0) return;
+    keys.push(s);
+  };
+  if (!booking) return keys;
+  const ymd = modStrikeBookingYmd(booking);
+  const aid = booking.id != null && booking.id !== '' ? String(booking.id).trim() : '';
+  const od = modStrikeMeaningfulToken(booking.odScheduleId);
+  const bg = modStrikeMeaningfulToken(booking.bookingGroupId);
+  if (aid) add('aid:' + aid);
+  if (od) add('od:' + od + (ymd ? '|' + ymd : ''));
+  if (bg) add('bg:' + bg + (ymd ? '|' + ymd : ''));
+  const crewKey = modStrikeCrewSessionKey(booking);
+  if (crewKey) add(crewKey);
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || a.id == null || a.id === '') continue;
+    const aYmd = modStrikeBookingYmd(a);
+    const sameOd = !!(od && modStrikeMeaningfulToken(a.odScheduleId) === od && aYmd === ymd);
+    const sameBg = !!(bg && modStrikeMeaningfulToken(a.bookingGroupId) === bg && aYmd === ymd);
+    const sameCrew = !!(crewKey && modStrikeCrewSessionKey(a) === crewKey);
+    if (sameOd || sameBg || sameCrew) add('aid:' + String(a.id));
+  }
+  return keys;
+}
+
+function modStrikeUnionStruckSessions(a, b) {
+  const out = {};
+  [a, b].forEach(src => {
+    if (!src || typeof src !== 'object') return;
+    Object.keys(src).forEach(k => { if (src[k]) out[String(k)] = true; });
+  });
+  return out;
+}
+
+function modStrikeMergeStruckSessionsOnto(rec, localRec, remoteRec) {
+  if (!rec || typeof rec !== 'object') return rec;
+  const union = modStrikeUnionStruckSessions(
+    modStrikeStruckSessionsFromRecord(localRec),
+    modStrikeStruckSessionsFromRecord(remoteRec)
+  );
+  if (Object.keys(union).length) rec.struckSessions = union;
+  return rec;
+}
+
+function modStrikeStruckKeysFromEntry(entry) {
+  const out = {};
+  if (!entry || typeof entry !== 'object') return out;
+  const kind = String(entry.kind || '');
+  if (kind !== 'auto' && kind !== 'manual') return out;
+  if (Array.isArray(entry.sessionAliases)) {
+    entry.sessionAliases.forEach(k => { if (k) out[String(k)] = true; });
+  }
+  if (entry.assignmentId != null && entry.assignmentId !== '') out['aid:' + String(entry.assignmentId)] = true;
+  const od = modStrikeMeaningfulToken(entry.odScheduleId);
+  const day = entry.sessionDate ? String(entry.sessionDate).split('T')[0] : '';
+  if (od) out['od:' + od + (day ? '|' + day : '')] = true;
+  if (entry.sessionKey) out[String(entry.sessionKey)] = true;
+  return out;
+}
+
+function modStrikeStruckSessionsFromRecord(rec) {
+  const out = modStrikeUnionStruckSessions(rec && rec.struckSessions, null);
+  const log = rec && Array.isArray(rec.log) ? rec.log : [];
+  log.forEach(entry => {
+    const keys = modStrikeStruckKeysFromEntry(entry);
+    Object.keys(keys).forEach(k => { if (keys[k]) out[k] = true; });
+  });
+  return out;
+}
+
+function modAlreadyStruckForSession(orbitId, booking) {
+  const key = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
+  if (!key || !booking) return false;
+  const want = modStrikeSessionAliasKeys(booking);
+  if (!want.length) return false;
+  const store = loadModStrikeStore();
+  const rec = store.mods && store.mods[key];
+  const have = modStrikeStruckSessionsFromRecord(rec);
+  for (let i = 0; i < want.length; i++) {
+    if (have[want[i]]) return true;
+  }
+  return false;
+}
+
+function modStrikeSessionAlreadyMuted(booking) {
+  if (!booking) return false;
+  const days = (typeof modStrikeCheckpointDaysForBooking === 'function')
+    ? modStrikeCheckpointDaysForBooking(booking) : [];
+  const aids = [];
+  const push = (raw) => {
+    const s = raw != null && raw !== '' ? String(raw) : '';
+    if (s && aids.indexOf(s) < 0) aids.push(s);
+  };
+  push(booking.id);
+  modStrikeSessionAliasKeys(booking).forEach(k => {
+    if (String(k).indexOf('aid:') === 0) push(String(k).slice(4));
+  });
+  for (let i = 0; i < days.length; i++) {
+    for (let j = 0; j < aids.length; j++) {
+      if (modStrikeCheckpointIsSkipped(days[i], booking.teamId, aids[j])) return true;
+      if (modStrikeCheckpointIsResolved(days[i], booking.teamId, aids[j])) return true;
+    }
+  }
+  return false;
+}
+
+// Decrement once. The session aliases are stored on this moderator in the
+// same save, so a second co-mod row or a later evaluate is a no-op.
+function applyRecordedSessionStrike(orbitId, booking, entry) {
+  if (!orbitId || !booking) return false;
+  if (modAlreadyStruckForSession(orbitId, booking)) return false;
+  const before = getModStrikeStars(orbitId);
+  if (before <= 0) return false;
+  const ymd = modStrikeBookingYmd(booking);
+  const next = Object.assign({}, entry || {}, {
+    assignmentId: (entry && entry.assignmentId != null && entry.assignmentId !== '')
+      ? entry.assignmentId : booking.id,
+    sessionDate: (entry && entry.sessionDate) || ymd,
+    sessionAliases: modStrikeSessionAliasKeys(booking),
+    odScheduleId: modStrikeMeaningfulToken(booking.odScheduleId)
+      || (entry && entry.odScheduleId) || '',
+  });
+  setModStrikeStars(orbitId, before - 1, next);
+  return true;
+}
+
 function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (!booking || !orbitId) return false;
   const now = nowMs != null ? nowMs : Date.now();
@@ -30236,15 +30470,8 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   // Team-OR: station_4_done / session_done / wrap / full scenarios on any
   // primary completes the assignment. Completed before 9 AM is not a strike.
   if (modStrikeAssignmentEvidence(booking) !== 'incomplete') return false;
-  const days = modStrikeCheckpointDaysForBooking(booking);
-  for (let i = 0; i < days.length; i++) {
-    if (modStrikeCheckpointIsSkipped(days[i], booking.teamId, booking.id)) return false;
-    if (modStrikeCheckpointIsResolved(days[i], booking.teamId, booking.id)) return false;
-  }
-  const before = getModStrikeStars(orbitId);
-  if (before <= 0) return false;
-  setModStrikeStars(orbitId, before - 1, entry);
-  return true;
+  if (modStrikeSessionAlreadyMuted(booking)) return false;
+  return applyRecordedSessionStrike(orbitId, booking, entry);
 }
 
 function maybeRunModStrikeNineAmCheckpoint(opts) {
@@ -30282,8 +30509,22 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
           .find(a => a && String(a.id) === aid)
       : null;
     if (!booking) continue;
+    const aliases = (typeof modStrikeSessionAliasKeys === 'function')
+      ? modStrikeSessionAliasKeys(booking) : [];
+    if (aliases.some(k => ckRow.teamAutoStrike[k])) continue;
     let rowStruck = false;
+    let considered = 0;
+    let already = 0;
+    const seenOrbit = new Set();
     for (const orbitId of row.primaryIds) {
+      const orbitKey = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
+      if (!orbitKey || seenOrbit.has(orbitKey)) continue;
+      seenOrbit.add(orbitKey);
+      considered++;
+      if (typeof modAlreadyStruckForSession === 'function' && modAlreadyStruckForSession(orbitId, booking)) {
+        already++;
+        continue;
+      }
       const did = commitAutoModStrike(orbitId, booking, {
         at: new Date(nowMs).toISOString(),
         kind: 'auto',
@@ -30296,7 +30537,13 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
       struck++;
       rowStruck = true;
     }
-    if (!rowStruck) continue;
+    // Stamp every alias (both co-mod assignment ids, the OD schedule, the
+    // crew night) so the mirror row and a later pass no-op.
+    if (!(rowStruck || (considered > 0 && already === considered))) continue;
+    aliases.forEach(k => {
+      ckRow.teamAutoStrike[k] = true;
+      if (String(k).indexOf('aid:') === 0) ckRow.teamAutoStrike[String(k).slice(4)] = true;
+    });
     if (aid) ckRow.teamAutoStrike[aid] = true;
     if (sessionKey) ckRow.teamAutoStrike[sessionKey] = true;
   }
@@ -30486,12 +30733,19 @@ function syncOverviewLiveStatusStrikeAttention() {
 function modStrikeCheckpointStrikePreviewLines(row) {
   const lines = [];
   const strikable = [];
+  const booking = (row && row.assignmentId != null)
+    ? (((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(row.assignmentId)) || null)
+    : null;
   (row.primaryIds || []).forEach(orbitId => {
     const name = (typeof getModeratorDisplayName === 'function')
       ? getModeratorDisplayName(orbitId)
       : String(orbitId);
     const before = getModStrikeStars(orbitId);
-    if (before <= 0) {
+    if (booking && typeof modAlreadyStruckForSession === 'function'
+        && modAlreadyStruckForSession(orbitId, booking)) {
+      lines.push(`${name} (already struck for this session)`);
+    } else if (before <= 0) {
       lines.push(`${name} (0 stars · no strike)`);
     } else {
       lines.push(`${name} (${before}→${before - 1})`);
@@ -30510,9 +30764,15 @@ async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
 
   const { lines, strikable } = modStrikeCheckpointStrikePreviewLines(row);
   if (!strikable.length) {
+    const already = lines.some(l => String(l).indexOf('already struck') >= 0);
+    if (already && typeof resolveModStrikeCheckpointTeam === 'function') {
+      resolveModStrikeCheckpointTeam(id);
+    }
     await appAlert({
-      title: 'Cannot strike',
-      message: `All moderators on ${row.teamName} already have 0 stars.`,
+      title: already ? 'Already struck' : 'Cannot strike',
+      message: already
+        ? `Each moderator on ${row.teamName} already has one strike for this session.`
+        : `All moderators on ${row.teamName} already have 0 stars.`,
       variant: 'warning',
     });
     return;
@@ -30530,8 +30790,24 @@ async function confirmAndStrikeModStrikeCheckpointTeam(teamId) {
   if (!ok) return;
 
   const results = [];
+  const strikeBooking = (row.assignmentId != null)
+    ? (((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+        .find(a => a && String(a.id) === String(row.assignmentId)) || null)
+    : null;
   for (const item of strikable) {
-    manualModStrike(item.orbitId, `Checkpoint banner · ${row.teamName} incomplete`);
+    const did = (strikeBooking && typeof applyRecordedSessionStrike === 'function')
+      ? applyRecordedSessionStrike(item.orbitId, strikeBooking, {
+          at: new Date().toISOString(),
+          kind: 'manual',
+          reason: `Checkpoint banner · ${row.teamName} incomplete`,
+          teamId: row.teamId,
+          by: (typeof state !== 'undefined' && state && state.username) ? state.username : 'Admin',
+        })
+      : false;
+    if (!did && !(strikeBooking && typeof modAlreadyStruckForSession === 'function'
+        && modAlreadyStruckForSession(item.orbitId, strikeBooking))) {
+      manualModStrike(item.orbitId, `Checkpoint banner · ${row.teamName} incomplete`);
+    }
     const after = getModStrikeStars(item.orbitId);
     results.push(`${item.name}: ${after} star(s) remaining`);
   }

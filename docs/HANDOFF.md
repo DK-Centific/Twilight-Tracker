@@ -1,5 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
+**Last updated:** 2026-09-25 · Grok · One strike per moderator per incomplete session (1.3.091825d)
+
+## 2026-09-25 · One strike per moderator for one incomplete session (1.3.091825d)
+
+**Ask:** Venkata × Jashit lost two stars each for one incomplete session. Each person should lose one star, not two. Do not restore the live stars in this change. Watchdog/PA adds one star back so each shows 3.
+
+**Cause:** One night is stored as two Assignment rows (one per co-mod), often with different assignment ids and team ids. The 9 AM job struck once per row, so each person was struck twice. The “already struck” mark lived on the assignment, not on the person, so a later refresh could strike again if that mark was missing. Flag history also listed the person once per co-mod row.
+
+**Fix:**
+- A person is struck at most once for a session. The session is the shared schedule, the same crew/night/start, or either co-mod assignment id.
+- That mark is saved on the person’s strike record in the same save as the star change. A second pass, the other co-mod row, or a refresh with the checkpoint mark wiped does nothing.
+- A different session the same day can still take its own one star.
+- Skip on either co-mod row blocks the strike for both. Finished, cancelled, and before 9:00 AM PT are unchanged.
+- Flag history shows one line per person for that session.
+- Version **1.3.091825d**. Tip **1.3.091825c** is the open Performance panel PR (#172). Selftest: `scripts/mod-strike-once-per-session-selftest.js` (13 passed). Also `scripts/mod-strike-selftest.js` (118 passed).
+
+**PR:** draft on `cursor/strike-once-per-mod-8dd7`. Do **not** merge. Do not write List/OD/SessionState to heal Venkata or Jashit. When PA adds the star back, keep each person’s strike log so this gate does not take the star again.
+
+**Verify (David):** Hard refresh → **1.3.091825d**. This build does not put the missing star back. After Watchdog adds one star, Venkata and Jashit should each show 3 stars and stay at 3 after a refresh. A new incomplete team after 9:00 AM PT should lose one star each, not two.
+
+---
+
 **Last updated:** 2026-09-25 · Grok · Performance panel past incomplete, every booking (1.3.091825d)
 
 ## 2026-09-25 · Performance panel shows past incomplete stations for every booking (1.3.091825d)
@@ -15,7 +37,7 @@
 - The richer co-mod still wins the merge. Live / Next / Done filters are unchanged.
 - Version **1.3.091825d**. Selftest: `scripts/perf-panel-past-incomplete-selftest.js` (generic past partial team, plus the Amanda example).
 
-**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) draft on `cursor/perf-panel-past-incomplete-1a25`. Do **not** merge until David says push.
+**PR:** [#172](https://github.com/DK-Centific/Twilight-Tracker/pull/172) merged to main as **1.3.091825d**.
 
 **Verify (David):** Hard refresh → **1.3.091825d**. Admin → Performance. Open any team whose session already started, including one from yesterday that is not finished. The panel should list the stations they completed. It should not say the session hasn't started. Venkata × Jashit / Amanda W Li is one example: the small status should still say **In session · St 2**, with Station 1 and Station 2 complete, Station 3 partly done, and Station 4 not started. A booking that was never checked in should still say the session hasn't started.
 
