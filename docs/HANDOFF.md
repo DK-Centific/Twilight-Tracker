@@ -12,7 +12,7 @@
 - A richer stale teammate shell for that same assignment does not win back the checklist. Pending offline worklog rows for that assignment are dropped. A later sync will not write checklist progress back onto the cancelled assignment.
 - Assignment list is unchanged from the prior contract: status Cancelled, comment starts with `mod-cancel-session`, terminal lock, OneData status untouched, address untouched.
 - The person who confirmed also gets a local checklist clear, then welcome re-renders onto the next Booked row.
-- Version **1.3.091825b** (1.3.091825a is claimed by Performance draft #171). Selftest: `scripts/mod-cancel-session-selftest.js`.
+- Version **1.3.091825b**. Performance **1.3.091825a** is already on main (#171 merged). This branch is rebased onto that main. Selftests: `scripts/mod-cancel-session-selftest.js`, `scripts/perf-past-24h-cancel-selftest.js`.
 
 **PR:** [#170](https://github.com/DK-Centific/Twilight-Tracker/pull/170) draft on `cursor/mod-cancel-wipe-progress-4db0`. Watchdog merges only after AHP CR + push. Do **not** merge from this agent.
 
@@ -31,7 +31,7 @@
 - A moderator cancel (Assignment comment starts with `mod-cancel-session`, and/or SessionState says Cancelled) shows **Cancelled** on Performance. It is not Live, Next, or Done. It is not Flagged and it is not a strike. Saved station progress is not turned back into Done. Admin Skip is unchanged. OneData is not written.
 - Version **1.3.091825a**. Selftests: `scripts/perf-past-24h-cancel-selftest.js`, `scripts/perf-past-history-selftest.js`.
 
-**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) draft on `cursor/perf-past-24h-cancel-a71e`. Do **not** merge until Watchdog says push (AHP CR + David).
+**PR:** [#171](https://github.com/DK-Centific/Twilight-Tracker/pull/171) merged to main (`0ccfc3c`).
 
 **Verify (David):** Hard refresh → **1.3.091825a**. Admin → Performance. Click **Past**. The small line under Past should say **last 24 hours**. You should see sessions that ended in the last day, not the whole history. Click **All time** to see older ones. Open a team that cancelled a session. The status should say **Cancelled**, not Done or Flagged.
 
