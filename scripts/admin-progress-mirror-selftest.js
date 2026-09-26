@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.091825m)
+ * Admin progress mirror (1.3.091825n)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -41,13 +41,13 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Admin progress mirror (1.3.091825m)');
+console.log('Admin progress mirror (1.3.091825n)');
 
-assert('APP_VERSION 1.3.091825m',
-  /const APP_VERSION = '1\.3\.091825m'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825m'));
+assert('APP_VERSION 1.3.091825n',
+  /const APP_VERSION = '1\.3\.091825n'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825n'));
 
-const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825m)');
+const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825n)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
 const mirrorSrc = src.slice(mirrorStart, mirrorEnd);
 assert('mirror reuses pick + checklist hydrate and does not switch apps',
@@ -61,9 +61,17 @@ assert('mirror reuses pick + checklist hydrate and does not switch apps',
   && !/switchMasterAdminApp/.test(mirrorSrc));
 assert('home picker and live entry are wired',
   mirrorSrc.includes('railBrandAdmin')
+  && mirrorSrc.includes('railBrandOp')
+  && mirrorSrc.includes('opNavHome')
+  && mirrorSrc.includes('getBoundingClientRect')
   && mirrorSrc.includes('fromLive')
   && src.includes('adminProgressMirrorLiveEntryHTML(bookings)')
   && src.includes("openAdminProgressMirror(btn.getAttribute('data-admin-progress-mirror'), { fromLive: true })"));
+assert('checklist logo still sends a real moderator home',
+  html.includes('id="railBrandOp"')
+  && html.includes('id="opNavHome"')
+  && /id="railBrandOp"[^>]*onclick="showWelcome\(\)"/.test(html)
+  && /id="opNavHome"[^>]*onclick="showWelcome\(\)"/.test(html));
 const triggerSrc = extractFn('triggerSessionStateSync');
 const flushSrc = extractFn('flushSessionStateSync');
 assert('sync is gated while the mirror flag is set',

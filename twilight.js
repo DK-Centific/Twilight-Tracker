@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825m';
-const APP_UPDATED_AT = '09/26/2026 05:00';
+const APP_VERSION = '1.3.091825n';
+const APP_UPDATED_AT = '09/26/2026 05:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15969,7 +15969,7 @@ function closePerformancePanel() {
 }
 
 // =====================================================================
-// Admin progress mirror (1.3.091825m)
+// Admin progress mirror (1.3.091825n)
 // Read-only checklist view for tonight's booked teams. Does not switch
 // into the moderator app. While the flag is set, cloud writes are refused.
 // =====================================================================
@@ -16330,6 +16330,16 @@ function adminProgressMirrorCaptureSnapshot() {
   }
 }
 
+function adminProgressMirrorRewindToSnapshot() {
+  const snap = _adminProgressMirrorSnapshot;
+  if (!snap || typeof state === 'undefined' || !state) return;
+  const flag = state._adminProgressMirror;
+  const keys = Object.keys(state);
+  for (let i = 0; i < keys.length; i++) delete state[keys[i]];
+  Object.assign(state, JSON.parse(JSON.stringify(snap)));
+  if (flag) state._adminProgressMirror = flag;
+}
+
 function adminProgressMirrorRestoreSnapshot() {
   const snap = _adminProgressMirrorSnapshot;
   _adminProgressMirrorSnapshot = null;
@@ -16504,6 +16514,7 @@ async function adminProgressMirrorHydrateChecklist(a, opts) {
     }
   }
   if (!adminProgressMirrorBlocksWrites()) return;
+  adminProgressMirrorRewindToSnapshot();
   const rows = adminProgressMirrorRowsForBooking(a);
   const picked = (typeof pickLatestTeamProgress === 'function')
     ? pickLatestTeamProgress(rows, { assignmentId: a.id })
@@ -16599,9 +16610,35 @@ function adminProgressMirrorRenderPickerList() {
   }).join('');
 }
 
-function openAdminProgressPicker() {
+function adminProgressMirrorPositionPicker(anchor) {
+  const picker = document.getElementById('adminProgressPicker');
+  if (!picker || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+  const rect = anchor.getBoundingClientRect();
+  if (!rect.width && !rect.height) return;
+  const card = picker.querySelector('.admin-progress-picker-card') || picker;
+  const margin = 8;
+  const gap = 10;
+  const width = Math.min(card.offsetWidth || picker.offsetWidth || 320, window.innerWidth - margin * 2);
+  const height = Math.min(card.offsetHeight || picker.offsetHeight || 220, window.innerHeight - margin * 2);
+  const onRight = rect.left > window.innerWidth * 0.5;
+  let left = onRight ? (rect.left - width - gap) : rect.left;
+  let top = onRight ? rect.top : (rect.bottom + gap);
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+  picker.style.left = left + 'px';
+  picker.style.top = top + 'px';
+  picker.style.right = 'auto';
+  picker.style.bottom = 'auto';
+}
+
+function adminProgressMirrorFollowPicker() {
+  const picker = document.getElementById('adminProgressPicker');
+  if (!picker || !picker.classList.contains('open')) return;
+  adminProgressMirrorPositionPicker(picker._anchorEl);
+}
+
+function openAdminProgressPicker(anchor) {
   if (!adminProgressMirrorRoleAllowed()) return false;
-  if (adminProgressMirrorBlocksWrites()) closeAdminProgressMirror();
   const picker = document.getElementById('adminProgressPicker');
   const listEl = document.getElementById('adminProgressPickerList');
   if (!picker || !listEl) return false;
@@ -16612,8 +16649,13 @@ function openAdminProgressPicker() {
   } else {
     adminProgressMirrorRenderPickerList();
   }
+  picker._anchorEl = anchor || picker._anchorEl || document.getElementById('railBrandAdmin') || document.getElementById('railBrandOp');
   picker.classList.add('open');
   picker.setAttribute('aria-hidden', 'false');
+  adminProgressMirrorPositionPicker(picker._anchorEl);
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => adminProgressMirrorFollowPicker());
+  }
   if (!cold && !ssCold) return true;
   const jobs = [];
   if (cold && typeof fetchAssignmentsFromPA === 'function') jobs.push(Promise.resolve(fetchAssignmentsFromPA()));
@@ -16628,49 +16670,60 @@ function openAdminProgressPicker() {
   }
   Promise.all(jobs).then(() => {
     if (!picker.classList.contains('open')) return;
-    if (adminProgressMirrorBlocksWrites()) return;
     adminProgressMirrorRenderPickerList();
+    adminProgressMirrorFollowPicker();
   }).catch(() => {
-    if (picker.classList.contains('open') && !adminProgressMirrorBlocksWrites()) {
+    if (picker.classList.contains('open')) {
       adminProgressMirrorRenderPickerList();
+      adminProgressMirrorFollowPicker();
     }
   });
   return true;
 }
 
-function onAdminHeliosHomeClick(e) {
+function onAdminHeliosHomeClick(e, anchor) {
+  if (!adminProgressMirrorRoleAllowed()) return;
   if (e) {
     e.preventDefault();
     e.stopPropagation();
   }
-  if (!adminProgressMirrorRoleAllowed()) return;
   const picker = document.getElementById('adminProgressPicker');
-  if (adminProgressMirrorBlocksWrites()) {
-    closeAdminProgressMirror();
-    return;
-  }
-  if (picker && picker.classList.contains('open')) {
+  const logo = anchor || (e && e.currentTarget) || null;
+  if (picker && picker.classList.contains('open') && logo && picker._anchorEl === logo) {
     closeAdminProgressPicker();
     return;
   }
-  openAdminProgressPicker();
+  openAdminProgressPicker(logo);
+}
+
+function adminProgressMirrorWireLogo(el) {
+  if (!el || el._adminProgressMirrorWired) return;
+  el._adminProgressMirrorWired = true;
+  el.addEventListener('click', (e) => {
+    if (!adminProgressMirrorRoleAllowed()) return;
+    onAdminHeliosHomeClick(e, el);
+  }, true);
 }
 
 function wireAdminProgressMirrorChrome() {
   if (typeof adminProgressMirrorInstallFetchGuard === 'function') adminProgressMirrorInstallFetchGuard();
-  const home = document.getElementById('railBrandAdmin');
-  if (home && !home._adminProgressMirrorWired) {
-    home._adminProgressMirrorWired = true;
-    home.addEventListener('click', onAdminHeliosHomeClick);
-  }
+  adminProgressMirrorWireLogo(document.getElementById('railBrandAdmin'));
+  adminProgressMirrorWireLogo(document.getElementById('adminNavHome'));
+  adminProgressMirrorWireLogo(document.getElementById('railBrandOp'));
+  adminProgressMirrorWireLogo(document.getElementById('opNavHome'));
   const navHome = document.getElementById('adminNavHome');
-  if (navHome && !navHome._adminProgressMirrorWired) {
-    navHome._adminProgressMirrorWired = true;
-    navHome.addEventListener('click', onAdminHeliosHomeClick);
+  if (navHome && !navHome._adminProgressMirrorKey) {
+    navHome._adminProgressMirrorKey = true;
     navHome.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;
-      onAdminHeliosHomeClick(e);
+      if (!adminProgressMirrorRoleAllowed()) return;
+      onAdminHeliosHomeClick(e, navHome);
     });
+  }
+  if (!wireAdminProgressMirrorChrome._follow) {
+    wireAdminProgressMirrorChrome._follow = true;
+    window.addEventListener('resize', adminProgressMirrorFollowPicker);
+    window.addEventListener('scroll', adminProgressMirrorFollowPicker, true);
   }
   const closeBtn = document.getElementById('adminProgressMirrorClose');
   if (closeBtn && !closeBtn._adminProgressMirrorWired) {
@@ -16701,7 +16754,7 @@ function wireAdminProgressMirrorChrome() {
       if (!adminProgressMirrorBlocksWrites()) return;
       const t = e.target;
       if (!t || !t.closest) return;
-      if (t.closest('#adminProgressMirrorBarClose, .station-item, #sidebarToggle, .menu-toggle')) return;
+      if (t.closest('#adminProgressMirrorBarClose, #railBrandOp, #opNavHome, #adminProgressPicker, .station-item, #sidebarToggle, .menu-toggle')) return;
       if (t.closest('button, input, textarea, select, a, [contenteditable]')) {
         e.preventDefault();
         e.stopPropagation();

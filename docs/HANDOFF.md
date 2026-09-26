@@ -1,6 +1,21 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Admin checklist mirror includes Live teams (1.3.091825m)
+**Last updated:** 2026-09-26 · Grok · Tonight's teams sits next to the Helios logo (1.3.091825n)
+
+## 2026-09-26 · Tonight's teams opens beside the Helios logo (1.3.091825n)
+
+**Ask:** The team list felt disconnected from the logo. David wants it to pop out next to the Helios logo in Admin and again while the checklist is open.
+
+**What changed on PR #180:**
+- Clicking the Helios logo in Admin (right-rail logo, or the top logo on a phone) opens **Tonight's teams** beside that logo. Click the same logo again to close it.
+- While the checklist mirror is open, the checklist Helios logo does the same. A real moderator’s logo still opens the welcome screen.
+- Choosing a team still fills the checklist. **Close** still returns to Admin. Saves stay blocked.
+
+**Version:** **1.3.091825n**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825n**. Sign in as Admin. Click the logo on the right. **Tonight's teams** should sit right next to that logo. Click a team. On the checklist, click the logo on the right again. The same list should sit next to that logo. Click **Close** to return to Admin.
 
 ## 2026-09-26 · Home lists Live teams and opens the checklist (1.3.091825m)
 
