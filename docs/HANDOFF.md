@@ -1,6 +1,23 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Day Summary day tile is In progress kits only (1.3.091825k)
+**Last updated:** 2026-09-26 · Grok · Admin read-only team progress mirror (1.3.091825l)
+
+## 2026-09-26 · Admin Home and Performance Live open a read-only progress mirror (1.3.091825l)
+
+**Ask:** Admins (including Master Admin) need a Panic-style panel to see a live or tonight team’s checklist without using Master Switch. Switch puts the admin into the moderator app and can write that team’s SessionState. This must not do that.
+
+**What shipped (branch only, not on main):**
+- Admin Home (right-rail logo, and the top logo on a phone) opens **Tonight's teams** for the current Pacific session day, using the same 9 AM gate as Performance. Booked and Rescheduled stay. Cancelled, soft-close, moderator cancel, Demo, Unassigned, Admin Skip, and remote/geo shells stay out.
+- Performance → **Live** shows **View progress** on that booking. If it is no longer Live, the button does not open an empty Live view: a finished session opens the read-only Done view; anything else shows “This session is closed.”
+- The overlay banner is `You are now seeing {team} progress made at {time} PT`, plus the moderator whose checklist won when one exists. Station list reuses the Performance read-only station view. No pencils, sync, cancel, approve, or merge.
+- While the overlay is open, cloud writes are refused (SessionState, Assignment, strikes, approval, panic, TeamLog, Worklog, and the other save paths). Closing it returns to Admin and does not save the mirrored checklist as the admin’s own session.
+- Reviewer and Moderator cannot open it. Moderator Home still goes to the welcome screen.
+
+**Version:** **1.3.091825l**. Selftest: `scripts/admin-progress-mirror-selftest.js`. Related day-summary, soft-close, paint-memo, strike, and cancel selftests were re-pinned to this tip and passed.
+
+**PR:** draft on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push. No Power Automate flow changes. No List, SessionState, or OneData heals.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825l** (this build is on the pull request, not the live site, until it is merged). On your computer, open the PR branch with a local server. Sign in as Admin. Click the logo on the right. You should see **Tonight's teams**. Click a team. You should see the sentence starting **You are now seeing** and a station list, or **No progress yet**. Close it. You should still be on Admin. Then open **Performance**, click **Live**, and click **View progress**.
 
 ## 2026-09-26 · Day Summary first tile is In progress kits only (1.3.091825k)
 

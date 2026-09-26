@@ -13092,6 +13092,32 @@ button.perf-stat-chip.scheduled.active {
   gap: 6px 8px;
   min-width: 0;
 }
+.perf-progress-mirror-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.perf-progress-mirror-btn {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #1c1a14;
+  background: var(--accent, #E0B15A);
+  border-radius: 999px;
+  padding: 6px 12px;
+  line-height: 1.2;
+  box-shadow: 2px 2px 6px var(--neu-dark, rgba(0,0,0,0.18));
+}
+.perf-progress-mirror-btn:hover { filter: brightness(1.05); }
+.perf-progress-mirror-btn:focus-visible {
+  outline: 2px solid var(--accent, #E0B15A);
+  outline-offset: 2px;
+}
 .perf-booking-status-wrap {
   display: inline-flex;
   align-items: center;
@@ -19511,7 +19537,7 @@ button.perf-stat-chip.scheduled.active {
           <path d="M3 5h12M3 9h12M3 13h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
         </svg>
       </button>
-      <div class="brand">
+      <div class="brand" id="adminNavHome" title="Home" role="button" tabindex="0" aria-label="Home">
         <div class="brand-mark" role="img" aria-label="Centific"></div>
         <div>
           <div class="brand-text">Centific Data Collection</div>
@@ -19573,7 +19599,7 @@ button.perf-stat-chip.scheduled.active {
        Refresh relocates into the action group and the menu into the bottom
        group via setupNavRails(); hidden on mobile (actions re-dock to nav). -->
   <div class="helios-rail" id="adminRail">
-    <button class="rail-brand" id="railBrandAdmin" type="button" title="Centific" aria-label="Centific">
+    <button class="rail-brand" id="railBrandAdmin" type="button" title="Home" aria-label="Home">
       <span class="brand-mark" role="img" aria-label="Centific"><img class="brand-mark-master-gif" src="assets/master-admin-brand.gif?v=af" alt="" hidden></span>
     </button>
     <div class="rail-group" id="adminRailBooking">
@@ -19912,7 +19938,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091825k" defer></script>
+<script src="twilight.js?v=twilight-1.3.091825l" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
@@ -21247,6 +21273,164 @@ body.is-reviewer #panicFab,
      Soft red circle → menu: Comm / Troubleshooting / Emergency.
      Sits outside #app so it survives renderApp() rebuilds.
      ============================================================ -->
+<div id="adminProgressPicker" class="admin-progress-picker" aria-hidden="true">
+  <div class="admin-progress-picker-card">
+    <div class="admin-progress-picker-head">Tonight's teams</div>
+    <div id="adminProgressPickerList" class="admin-progress-picker-list" role="menu"></div>
+  </div>
+</div>
+<div id="adminProgressMirror" class="admin-progress-mirror" aria-hidden="true">
+  <div class="admin-progress-mirror-modal" role="dialog" aria-modal="true" aria-labelledby="adminProgressMirrorBanner">
+    <div class="admin-progress-mirror-head">
+      <p id="adminProgressMirrorBanner" class="admin-progress-mirror-banner"></p>
+      <button type="button" class="admin-progress-mirror-close" id="adminProgressMirrorClose" aria-label="Close">×</button>
+    </div>
+    <div id="adminProgressMirrorBody" class="admin-progress-mirror-body"></div>
+  </div>
+</div>
+<style id="admin-progress-mirror-style">
+.admin-progress-picker {
+  position: fixed;
+  right: 96px;
+  bottom: 22px;
+  z-index: 5400;
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.admin-progress-picker.open { display: flex; pointer-events: auto; }
+.admin-progress-picker-card {
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--card-bg, #F3F0E9);
+  color: var(--text, #242420);
+  box-shadow: 18px 18px 44px var(--neu-dark, rgba(0,0,0,0.35)), -10px -10px 28px var(--neu-light, rgba(255,255,255,0.45));
+  opacity: 0;
+  transform: translateY(10px) scale(0.96);
+}
+.admin-progress-picker.open .admin-progress-picker-card {
+  animation: panicEscPopIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 1;
+  transform: none;
+}
+.admin-progress-picker-head {
+  padding: 16px 18px 8px;
+  font-family: var(--font-serif, 'Crimson Pro', serif);
+  font-size: 22px;
+  font-weight: 400;
+}
+.admin-progress-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 14px 16px;
+  overflow-y: auto;
+}
+.admin-progress-picker.open .admin-progress-opt {
+  animation: panicOptPop 0.34s cubic-bezier(0.23, 1, 0.32, 1) backwards;
+}
+.admin-progress-picker.open .admin-progress-opt:nth-child(1) { animation-delay: 0.03s; }
+.admin-progress-picker.open .admin-progress-opt:nth-child(2) { animation-delay: 0.08s; }
+.admin-progress-picker.open .admin-progress-opt:nth-child(3) { animation-delay: 0.13s; }
+.admin-progress-picker.open .admin-progress-opt:nth-child(4) { animation-delay: 0.18s; }
+.admin-progress-picker.open .admin-progress-opt:nth-child(5) { animation-delay: 0.23s; }
+.admin-progress-picker.open .admin-progress-opt:nth-child(n+6) { animation-delay: 0.28s; }
+.admin-progress-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-family: inherit;
+  color: var(--text, #242420);
+  background: var(--bg, #E4EBE3);
+  box-shadow: 5px 5px 12px var(--neu-dark, rgba(0,0,0,0.20)), -5px -5px 12px var(--neu-light, rgba(255,255,255,0.7));
+}
+.admin-progress-opt:hover { transform: translateX(-3px); }
+.admin-progress-opt-name { font-weight: 650; font-size: 14.5px; }
+.admin-progress-opt-sub { font-size: 12px; color: var(--text3, #6A7066); }
+.admin-progress-empty {
+  font-size: 13.5px;
+  color: var(--text2, #6A7066);
+  padding: 8px 6px 12px;
+}
+.admin-progress-mirror {
+  position: fixed;
+  inset: 0;
+  z-index: 6100;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0,0,0,0.45);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.admin-progress-mirror.open { display: flex; }
+.admin-progress-mirror.open .admin-progress-mirror-modal {
+  animation: panicEscPopIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.admin-progress-mirror-modal {
+  width: min(720px, 100%);
+  max-height: min(86vh, calc(100dvh - 24px));
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg, #F3F0E9);
+  color: var(--text, #242420);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 18px 18px 44px var(--neu-dark, rgba(0,0,0,0.35)), -18px -18px 44px var(--neu-light, rgba(255,255,255,0.6));
+}
+.admin-progress-mirror-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 18px 14px 22px;
+  border-bottom: 1px solid var(--border, rgba(0,0,0,0.08));
+}
+.admin-progress-mirror-banner {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.admin-progress-mirror-close {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: var(--bg4, #D0D8CD);
+  color: var(--text, #242420);
+  font-size: 15px;
+  line-height: 1;
+}
+.admin-progress-mirror-body {
+  padding: 16px 22px 28px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.admin-progress-mirror-body .perf-empty { padding: 12px 0; }
+#adminNavHome { cursor: pointer; }
+@media (max-width: 760px) {
+  .admin-progress-picker { right: 16px; left: 16px; bottom: 88px; align-items: stretch; }
+  .admin-progress-picker-card { width: 100%; }
+}
+</style>
 <div id="panicFab" class="panic-fab">
   <div class="panic-menu" id="panicMenu" role="menu" aria-hidden="true">
     <button class="panic-opt" type="button" data-panic="comm" role="menuitem">
