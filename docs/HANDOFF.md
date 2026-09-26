@@ -10,9 +10,9 @@
 
 **Fix:** If Performance already classifies the booking as Done, the ring counts Completed. That includes soft-close plus happypath. A true Cancel session, a hard cancel, and a soft-close that never finished stay Cancelled. Open is total booked minus Completed minus Cancelled. Demo and Unassigned stay out. No List, SessionState, or OneData writes.
 
-**Version:** **1.3.091825j**. Selftest: `scripts/overview-donut-demo-selftest.js`.
+**Version:** **1.3.091825j**. Selftests: `scripts/overview-donut-demo-selftest.js` and the donut checks in `scripts/perf-soft-close-done-selftest.js` (real Performance Done rule, including the HTML-wrapped comment).
 
-**PR:** draft on `cursor/overview-donut-soft-close-f94a`. Do **not** merge until David says push.
+**PR:** draft [#178](https://github.com/DK-Centific/Twilight-Tracker/pull/178) on `cursor/overview-donut-soft-close-f94a`. Do **not** merge until David says push.
 
 **Verify (David):** Hard refresh → **1.3.091825j**. Admin → Overview. The ring on the right should still say **Total booked**, with Completed, Cancelled, and Open. A finished soft-close team (for example REBECCA Young) should add to **Completed**, not Cancelled. A team that used **Cancel session** should add to **Cancelled**. A booking that is still open should add to **Open**.
 

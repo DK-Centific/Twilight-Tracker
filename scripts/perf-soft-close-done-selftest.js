@@ -384,6 +384,32 @@ assert('mod-cancel still surfaces on the team list',
 assert('mod-cancel is not a strike incomplete',
   ctx.modStrikeAssignmentEvidence(modCancel) === 'cancelled');
 
+vm.runInContext(src.slice(
+  src.indexOf('function assignmentIsDemoBooking'),
+  src.indexOf('function overviewAssignmentIsPerfLive')
+), ctx);
+assert('donut uses the real Done rule for soft-close happypath',
+  ctx.overviewAssignmentIsCompletedForDonut(rebecca) === true
+  && ctx.overviewAssignmentIsCancelledForDonut(rebecca) === false
+  && ctx.overviewAssignmentIsCompletedForDonut(rebeccaHtml) === true
+  && ctx.overviewAssignmentIsCancelledForDonut(rebeccaHtml) === false);
+assert('donut keeps unfinished soft-close and mod-cancel as Cancelled',
+  ctx.overviewAssignmentIsCancelledForDonut(patrick) === true
+  && ctx.overviewAssignmentIsCompletedForDonut(patrick) === false
+  && ctx.overviewAssignmentIsCancelledForDonut(modCancel) === true
+  && ctx.overviewAssignmentIsCompletedForDonut(modCancel) === false
+  && ctx.overviewAssignmentIsCancelledForDonut(modCancelHtml) === true
+  && ctx.overviewAssignmentIsCancelledForDonut(adminCancel) === true);
+const donutRows = [rebecca, rebeccaHtml, patrick, modCancel, modCancelHtml, adminCancel, stillBooked, unassigned];
+const donut = ctx.computeOverviewDonutCounts(donutRows);
+assert('donut open is booked minus completed minus cancelled',
+  donut.completedCount === 2
+  && donut.cancelledCount === 4
+  && donut.openCount === 1
+  && donut.progressTotal === 7
+  && donut.openCount === donut.progressTotal - donut.completedCount - donut.cancelledCount,
+  JSON.stringify(donut));
+
 const historyIds = ctx.perfHistoryAssignments().map(a => String(a.id));
 assert('admin cancel without soft-close stays out of history',
   historyIds.indexOf(adminCancel.id) < 0, historyIds.join(','));
