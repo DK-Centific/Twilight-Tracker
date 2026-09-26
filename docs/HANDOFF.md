@@ -12,7 +12,7 @@
 
 **Version:** **1.3.091825o**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
 
-**PR:** draft on `cursor/admin-progress-mirror-hydrate-a363`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#181](https://github.com/DK-Centific/Twilight-Tracker/pull/181) on `cursor/admin-progress-mirror-hydrate-a363`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091825o**. Sign in as Admin. Click the logo on the right. Click a Tonight's team. You should see a line starting **You are now seeing** and that team's stations. Click **Close**. You should be back on Admin. Refresh the page. Your own Admin session should still be yours, not the team's.
 
