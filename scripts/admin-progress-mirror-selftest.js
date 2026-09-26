@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.091825n)
+ * Admin progress mirror (1.3.091825o)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -41,13 +41,13 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Admin progress mirror (1.3.091825n)');
+console.log('Admin progress mirror (1.3.091825o)');
 
-assert('APP_VERSION 1.3.091825n',
-  /const APP_VERSION = '1\.3\.091825n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825n'));
+assert('APP_VERSION 1.3.091825o',
+  /const APP_VERSION = '1\.3\.091825o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825o'));
 
-const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825n)');
+const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825o)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
 const mirrorSrc = src.slice(mirrorStart, mirrorEnd);
 assert('mirror reuses pick + checklist hydrate and does not switch apps',
@@ -86,10 +86,27 @@ assert('sync is gated while the mirror flag is set',
 const mergeSrc = extractFn('mergeTeammateState');
 assert('checklist hydrate is local-only while the mirror flag blocks a real sync',
   mergeSrc.includes('allowMirror')
+  && mergeSrc.includes('replaceChecklist')
   && mergeSrc.includes('adminProgressMirrorBlocksWrites')
+  && mergeSrc.indexOf('scrubSessionStateProgressToBooking') < mergeSrc.indexOf('scrubSyncableStateForOpenBooking')
   && mergeSrc.indexOf('if (opts.allowMirror) return;') < mergeSrc.indexOf('flushSessionStateSync()')
   && extractFn('getActiveOperatorAssignment').includes('adminProgressMirrorBlocksWrites')
   && extractFn('saveState').includes('_adminProgressMirrorSnapshot'));
+const forceStart = src.indexOf('window.forceTeammateSync = async function forceTeammateSync');
+const forceSrc = src.slice(forceStart, src.indexOf('function validateLakituUrl', forceStart));
+assert('Sync returns before merge or save while the mirror is open',
+  forceSrc.includes('adminProgressMirrorBlocksWrites')
+  && forceSrc.indexOf('adminProgressMirrorBlocksWrites') < forceSrc.indexOf('mergeTeammateState(')
+  && forceSrc.indexOf('return null;') < forceSrc.indexOf('mergeTeammateState(')
+  && forceSrc.indexOf('adminProgressMirrorBlocksWrites') < forceSrc.indexOf('saveState()'));
+const nameSync = extractFn('syncBookedParticipantName');
+assert('entry bar does not clear checklist progress while the mirror is open',
+  nameSync.includes('adminProgressMirrorBlocksWrites')
+  && nameSync.indexOf('adminProgressMirrorBlocksWrites') < nameSync.indexOf('clearOperatorProgressForNewBooking'));
+assert('hydrate replaces the admin checklist with the picked team',
+  mirrorSrc.includes('replaceChecklist: true')
+  && mirrorSrc.includes('assignment: a')
+  && !mirrorSrc.includes('scoreAfterScrub'));
 
 const TODAY = '2026-09-26';
 const YDAY = '2026-09-25';
@@ -311,6 +328,69 @@ ctx.adminProgressMirrorDropPendingFlushes();
 ctx.state._adminProgressMirror = null;
 assert('write gate is closed after the flag is cleared',
   ctx.adminProgressMirrorBlocksWrites() === false);
+
+ctx.scrubOpenCalled = false;
+ctx.scrubSyncableStateForOpenBooking = function () {
+  ctx.scrubOpenCalled = true;
+  return { stations: {} };
+};
+ctx.scrubSessionStateProgressToBooking = function (parsed) {
+  return Object.assign({}, parsed);
+};
+ctx.adminProgressMirrorResetChecklistFields = null;
+vm.runInContext(extractFn('adminProgressMirrorResetChecklistFields'), ctx);
+vm.runInContext(extractFn('mergeTeammateState'), ctx);
+ctx.state = {
+  appView: 'admin',
+  isAdmin: true,
+  username: 'Admin-Twilight',
+  theme: 'dark',
+  stations: { station1: { scenarios: { '01': { status: 'Uploaded', notes: 'admin' } } } },
+  equipment: { cam: true },
+  _progressScore: 500,
+  _lastSeenActiveAsgnId: 'od_admin_own',
+  sessionDate: TODAY,
+  _adminProgressMirror: { open: true, assignmentId: ASGN },
+};
+ctx.mergeTeammateState({
+  stations: { station2: { scenarios: { '03': { status: 'Uploaded', notes: 'comod' } } } },
+  equipment: { mic: true },
+  arrivedAt: '2026-09-26T03:00:00.000Z',
+  progressAt: '2026-09-26T04:00:00.000Z',
+  progressScore: 100,
+  progressBy: 'mod-a',
+}, {
+  allowMirror: true,
+  replaceChecklist: true,
+  assignment: { id: ASGN, date: TODAY },
+});
+const st1 = ctx.state.stations.station1;
+const st2 = ctx.state.stations.station2;
+assert('mirror replace drops the admin checklist and keeps the co-mod station',
+  ctx.scrubOpenCalled === false
+  && (!st1 || !st1.scenarios || !st1.scenarios['01'] || st1.scenarios['01'].status !== 'Uploaded')
+  && st2 && st2.scenarios['03'].status === 'Uploaded'
+  && ctx.state.arrivedAt === '2026-09-26T03:00:00.000Z'
+  && ctx.state.username === 'Admin-Twilight'
+  && ctx.state._adminProgressMirror && ctx.state._adminProgressMirror.open === true);
+ctx.flushCalled = false;
+ctx.flushSessionStateSync = function () { ctx.flushCalled = true; };
+ctx.mergeTeammateState({ stations: { station1: { scenarios: { '01': { status: 'Uploaded' } } } } }, { allowMirror: true });
+assert('mirror hydrate does not flush SessionState', ctx.flushCalled === false);
+
+ctx.state.stations = { station1: { scenarios: { '01': { status: 'Uploaded', notes: 'keep' } } } };
+ctx.state._lastSeenActiveAsgnId = 'od_admin_own';
+ctx.getActiveOperatorAssignment = function () {
+  return { id: ASGN, date: TODAY, participantData: { firstName: 'Ada', lastName: 'Mod' } };
+};
+ctx.resolveBookedParticipantName = function () { return 'Ada Mod'; };
+vm.runInContext(extractFn('syncBookedParticipantName'), ctx);
+ctx.syncBookedParticipantName();
+assert('painting the entry bar does not wipe the co-mod checklist',
+  ctx.state.stations.station1.scenarios['01'].status === 'Uploaded'
+  && ctx.state.stations.station1.scenarios['01'].notes === 'keep'
+  && ctx.state._lastSeenActiveAsgnId === ASGN
+  && ctx.state.participantName === 'Ada Mod');
 
 if (failed) {
   console.error('\n' + failed + ' admin progress mirror checks failed');

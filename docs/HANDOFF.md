@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Tonight's teams sits next to the Helios logo (1.3.091825n)
+**Last updated:** 2026-09-26 · Grok · Admin checklist mirror shows co-mod progress (1.3.091825o)
+
+## 2026-09-26 · Grok · Admin checklist mirror shows co-mod progress (1.3.091825o)
+
+**Ask:** Live tip **1.3.091825n** (merged PR #180) opened Tonight's teams, but picking a team did not show that team's latest checklist. David saw an empty, stale, or his own Admin checklist instead of the co-moderator's SessionState progress.
+
+**Cause:** Picking a team opened the checklist, then filled it from the admin's own saved session. The merge kept the admin's richer rows. A scrub looked at the admin's booking and could wipe stations. Painting the checklist could then clear the fill because it looked like a new booking. Sync itself also kept going while the mirror was open, so the write gate blocked the merge and a save still ran.
+
+**Fix:** Choosing a team replaces the checklist with that team's latest SessionState, scrubbed only to that booking's Pacific date. The entry bar does not clear progress while the mirror is open. Sync returns immediately while the mirror is open. Saves stay blocked. Close still restores Admin.
+
+**Version:** **1.3.091825o**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft on `cursor/admin-progress-mirror-hydrate-a363`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091825o**. Sign in as Admin. Click the logo on the right. Click a Tonight's team. You should see a line starting **You are now seeing** and that team's stations. Click **Close**. You should be back on Admin. Refresh the page. Your own Admin session should still be yours, not the team's.
 
 ## 2026-09-26 · Tonight's teams opens beside the Helios logo (1.3.091825n)
 
