@@ -15,7 +15,7 @@
 
 **Version:** **1.3.091825l**. Selftest: `scripts/admin-progress-mirror-selftest.js`. Related day-summary, soft-close, paint-memo, strike, and cancel selftests were re-pinned to this tip and passed.
 
-**PR:** draft on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push. No Power Automate flow changes. No List, SessionState, or OneData heals.
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push. No Power Automate flow changes. No List, SessionState, or OneData heals.
 
 **Verify (David):** Hard refresh until the corner says **1.3.091825l** (this build is on the pull request, not the live site, until it is merged). On your computer, open the PR branch with a local server. Sign in as Admin. Click the logo on the right. You should see **Tonight's teams**. Click a team. You should see the sentence starting **You are now seeing** and a station list, or **No progress yet**. Close it. You should still be on Admin. Then open **Performance**, click **Live**, and click **View progress**.
 
