@@ -45,11 +45,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Performance soft-close Done carve-out (1.3.091825n)');
+console.log('Performance soft-close Done carve-out (1.3.091825o)');
 
-assert('APP_VERSION 1.3.091825n',
-  /const APP_VERSION = '1\.3\.091825n'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825n'));
+assert('APP_VERSION 1.3.091825o',
+  /const APP_VERSION = '1\.3\.091825o'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825o'));
 assert('soft-close and mod-cancel plain-text the comment before the marker',
   /function assignmentCommentIsOdSoftClose/.test(src)
   && /od-sync-soft-close/.test(extractFn('assignmentCommentIsOdSoftClose'))

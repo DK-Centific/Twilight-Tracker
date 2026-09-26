@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825n';
-const APP_UPDATED_AT = '09/26/2026 05:20';
+const APP_VERSION = '1.3.091825o';
+const APP_UPDATED_AT = '09/26/2026 06:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -628,6 +628,15 @@ function sessionDateConflictsWithAssignment(sd, asgnDate, today) {
 
 function syncSessionDateFromActiveAssignment(asgn) {
   if (typeof state === 'undefined' || !state) return false;
+  // The progress mirror paints another team's date. That is not a booking
+  // swipe, so it must not wipe the checklist that was just filled in.
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    const mirrored = asgn || ((typeof getActiveOperatorAssignment === 'function')
+      ? getActiveOperatorAssignment() : null);
+    const mirrorYmd = mirrored && mirrored.date ? String(mirrored.date).trim().slice(0, 10) : '';
+    if (mirrorYmd) state.sessionDate = mirrorYmd;
+    return false;
+  }
   const session = asgn || ((typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment()
     : ((typeof getOperatorAssignment === 'function') ? getOperatorAssignment() : null));
@@ -10664,6 +10673,14 @@ if (typeof window !== 'undefined') {
   // Returns the resolved result object or null. Reports everything to
   // console so user can see exactly what happened.
   window.forceTeammateSync = async function forceTeammateSync() {
+    // While an admin is only looking at a team's checklist, Sync must not
+    // merge or flush. The write gate inside mergeTeammateState already
+    // refuses the overlay, which left this function running save/flush
+    // against the admin's own session. Stop here.
+    if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+      console.warn('[Twilight] forceTeammateSync skipped while the admin progress mirror is open');
+      return null;
+    }
     console.group('[Twilight] forceTeammateSync · running with all gates bypassed');
     const prevDiag = window._teammateDiag;
     window._teammateDiag = true;
@@ -15969,7 +15986,7 @@ function closePerformancePanel() {
 }
 
 // =====================================================================
-// Admin progress mirror (1.3.091825n)
+// Admin progress mirror (1.3.091825o)
 // Read-only checklist view for tonight's booked teams. Does not switch
 // into the moderator app. While the flag is set, cloud writes are refused.
 // =====================================================================
@@ -16233,9 +16250,57 @@ function adminProgressMirrorRowsForBooking(a) {
     if (!r) return false;
     if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function' && isGeoPresenceOrRemoteSessionStateRow(r)) return false;
     const parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : null;
-    if (a.date && typeof sessionStateProgressForeignToBooking === 'function'
-        && sessionStateProgressForeignToBooking(parsed, a.date)) return false;
+    const booked = String((a && a.date) || '').trim().slice(0, 10);
+    if (booked && parsed && typeof sessionStateProgressForeignToBooking === 'function'
+        && sessionStateProgressForeignToBooking(parsed, booked)) return false;
     return true;
+  });
+}
+
+// Drop the admin's own checklist so a co-mod snapshot can replace it.
+// Does not touch login, theme, or the mirror flag.
+function adminProgressMirrorResetChecklistFields() {
+  if (typeof state === 'undefined' || !state) return;
+  state.stations = {};
+  state.stationCompletedAt = {};
+  state.arrivedAt = '';
+  state.suppressAutoArrival = false;
+  state.sessionCompletedAt = null;
+  state.sessionStatus = '';
+  state.officeCheckedInAt = '';
+  state.officeCheckedOutAt = '';
+  state._progressScore = 0;
+  state._progressAt = '';
+  state._progressBy = '';
+  state.recordLakituUrl = '';
+  state.participantId = '';
+  state.calGuideAck = null;
+  if (state.equipment && typeof state.equipment === 'object') {
+    Object.keys(state.equipment).forEach(k => { state.equipment[k] = false; });
+  }
+}
+
+// Catalog rows the co-mod blob does not mention still need a shell,
+// or the station page throws when it reads a missing scenario.
+function adminProgressMirrorEnsureStationShells() {
+  if (typeof state === 'undefined' || !state) return;
+  if (!state.stations || typeof state.stations !== 'object') state.stations = {};
+  const stations = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)) ? STATIONS : [];
+  stations.forEach(st => {
+    if (!st || !st.key) return;
+    if (!state.stations[st.key]) state.stations[st.key] = { cameras: {}, scenarios: {} };
+    const sd = state.stations[st.key];
+    if (!sd.cameras || typeof sd.cameras !== 'object') sd.cameras = {};
+    if (!sd.scenarios || typeof sd.scenarios !== 'object') sd.scenarios = {};
+    (st.scenarios || []).forEach(sc => {
+      if (!sc || sc.num == null) return;
+      if (!sd.scenarios[sc.num] || typeof sd.scenarios[sc.num] !== 'object') {
+        sd.scenarios[sc.num] = {
+          status: 'Not Started', notes: '', iterations: 0,
+          iter: sc.iter || 1, rig1Completed: false, rig2Completed: false,
+        };
+      }
+    });
   });
 }
 
@@ -16500,8 +16565,12 @@ async function adminProgressMirrorHydrateChecklist(a, opts) {
   opts = opts || {};
   if (!a || !adminProgressMirrorBlocksWrites()) return;
   if (!opts.skipFetch && typeof fetchSessionStateRows === 'function') {
-    const hasCache = typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows);
-    if (!hasCache) {
+    const rowsNow = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+      ? adminState.perfSessionStateRows : null;
+    const fetchedAt = (typeof adminState !== 'undefined' && adminState && adminState._perfSSFetchedAt) || 0;
+    const ttl = (typeof PERF_SS_CACHE_TTL_MS === 'number') ? PERF_SS_CACHE_TTL_MS : 30000;
+    const fresh = !!(rowsNow && rowsNow.length && (Date.now() - fetchedAt) < ttl);
+    if (!fresh) {
       try {
         const fetched = await fetchSessionStateRows();
         if (!adminProgressMirrorBlocksWrites()) return;
@@ -16520,12 +16589,21 @@ async function adminProgressMirrorHydrateChecklist(a, opts) {
     ? pickLatestTeamProgress(rows, { assignmentId: a.id })
     : null;
   const hasWork = adminProgressMirrorHasChecklistWork(rows);
-  if (picked && picked.syncableState && typeof mergeTeammateState === 'function') {
-    const scrubbed = (typeof scoreAfterScrub === 'function')
-      ? scoreAfterScrub(picked.syncableState).scrubbed
-      : picked.syncableState;
-    mergeTeammateState(scrubbed, { allowMirror: true });
+  if (typeof state !== 'undefined' && state) {
+    state._lastSeenActiveAsgnId = String(a.id);
+    const ymd = String(a.date || '').trim().slice(0, 10);
+    if (ymd) state.sessionDate = ymd;
   }
+  if (picked && picked.syncableState && typeof mergeTeammateState === 'function') {
+    mergeTeammateState(picked.syncableState, {
+      allowMirror: true,
+      replaceChecklist: true,
+      assignment: a,
+    });
+  } else if (typeof adminProgressMirrorResetChecklistFields === 'function') {
+    adminProgressMirrorResetChecklistFields();
+  }
+  adminProgressMirrorEnsureStationShells();
   adminProgressMirrorSetBanner(a, picked, !hasWork);
   try { currentStationKey = adminProgressMirrorFirstStationKey(); } catch (_) {}
   if (typeof renderApp === 'function') {
@@ -47211,20 +47289,34 @@ function mergeTeammateState(syncableState, opts) {
   // A cancelled checklist wipe must not overlay the next Booked session,
   // and must not be treated as an empty cloud row to heal from.
   if (typeof sessionStateBlobIsModCancelWipe === 'function'
-      && sessionStateBlobIsModCancelWipe(syncableState)) return;
+      && sessionStateBlobIsModCancelWipe(syncableState)) {
+    if (opts.allowMirror && opts.replaceChecklist) {
+      adminProgressMirrorResetChecklistFields();
+    }
+    return;
+  }
   try {
-    const live = (typeof getActiveOperatorAssignment === 'function')
-      ? getActiveOperatorAssignment()
-      : ((typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null);
-    if (live && typeof sessionStateRehydrateBlockedForModCancel === 'function'
-        && sessionStateRehydrateBlockedForModCancel(live.id)) return;
+    const live = opts.assignment
+      || ((typeof getActiveOperatorAssignment === 'function')
+        ? getActiveOperatorAssignment()
+        : ((typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null));
+    const blockId = (opts.allowMirror && opts.assignment) ? opts.assignment.id : (live && live.id);
+    if (blockId && typeof sessionStateRehydrateBlockedForModCancel === 'function'
+        && sessionStateRehydrateBlockedForModCancel(blockId)) return;
   } catch (_) {}
-  // Drop prior-day / foreign station progress before overlay so a teammate
-  // or stale SS row cannot re-attach yesterday (or pre-9AM) work onto
-  // today's moderator Booking/Session flow.
-  if (typeof scrubSyncableStateForOpenBooking === 'function') {
+  // Moderator sync scrubs against the open booking. The admin mirror must
+  // scrub against the team that was picked. The open-booking scrub uses
+  // the admin's own session and zeros a co-mod map that does not match it.
+  if (opts.allowMirror && opts.assignment && opts.assignment.date
+      && typeof scrubSessionStateProgressToBooking === 'function') {
+    const booked = String(opts.assignment.date).trim().slice(0, 10);
+    syncableState = scrubSessionStateProgressToBooking(Object.assign({}, syncableState), booked);
+  } else if (typeof scrubSyncableStateForOpenBooking === 'function') {
     syncableState = scrubSyncableStateForOpenBooking(syncableState);
   }
+  // Admin mirror replaces the checklist. Soft-merge would keep the admin's
+  // own Uploaded rows when they outrank the co-mod snapshot.
+  if (opts.replaceChecklist) adminProgressMirrorResetChecklistFields();
   // Overlay each syncable field. Keep our identity fields untouched.
   if (syncableState.participantId)      state.participantId      = syncableState.participantId;
   if (syncableState.participantName)    state.participantName    = syncableState.participantName;
@@ -55660,6 +55752,14 @@ function syncBookedParticipantName() {
   const asgn = (typeof getActiveOperatorAssignment === 'function')
     ? getActiveOperatorAssignment()
     : (typeof getOperatorAssignment === 'function' ? getOperatorAssignment() : null);
+  // Opening a team's checklist changes the active booking id. The entry
+  // bar must not treat that as a swipe and clear the co-mod progress.
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    if (asgn && asgn.id != null) state._lastSeenActiveAsgnId = String(asgn.id);
+    const mirrorName = resolveBookedParticipantName();
+    if (mirrorName) state.participantName = mirrorName;
+    return;
+  }
   const asgnId = asgn ? asgn.id : null;
   const last = state._lastSeenActiveAsgnId || null;
   const explicit = !!_operatorBookingNavExplicit;
