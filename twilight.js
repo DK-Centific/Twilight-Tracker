@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825l';
-const APP_UPDATED_AT = '09/26/2026 04:20';
+const APP_VERSION = '1.3.091825m';
+const APP_UPDATED_AT = '09/26/2026 05:00';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -695,7 +695,13 @@ function saveState() {
       const mirror = state && state._adminProgressMirror;
       if (mirror) delete state._adminProgressMirror;
       try {
-        localStorage.setItem(key, JSON.stringify(state));
+        // While the checklist mirror is open, state holds the team's
+        // snapshot. Persist the admin's pre-mirror copy so a reload
+        // cannot boot that checklist as the admin's own claim.
+        const frozen = (typeof _adminProgressMirrorSnapshot !== 'undefined' && _adminProgressMirrorSnapshot)
+          ? _adminProgressMirrorSnapshot
+          : state;
+        localStorage.setItem(key, JSON.stringify(frozen));
       } finally {
         if (mirror && state) state._adminProgressMirror = mirror;
       }
@@ -15963,11 +15969,12 @@ function closePerformancePanel() {
 }
 
 // =====================================================================
-// Admin progress mirror (1.3.091825l)
+// Admin progress mirror (1.3.091825m)
 // Read-only checklist view for tonight's booked teams. Does not switch
 // into the moderator app. While the flag is set, cloud writes are refused.
 // =====================================================================
 let _adminProgressMirrorPoll = null;
+let _adminProgressMirrorSnapshot = null;
 
 function adminProgressMirrorBlocksWrites() {
   try {
@@ -16116,6 +16123,39 @@ function adminProgressMirrorIsSkippedNight(a, opts) {
   return false;
 }
 
+function adminProgressMirrorIsClosedOut(a, opts) {
+  opts = opts || {};
+  if (!a) return true;
+  const st = String(a.status || '').trim();
+  if (st === 'Cancelled' || st === 'Unassigned' || st === 'Completed') return true;
+  if (typeof opts.isDemo === 'function') {
+    if (opts.isDemo(a)) return true;
+  } else if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return true;
+  if (typeof opts.isSoftClose === 'function') {
+    if (opts.isSoftClose(a)) return true;
+  } else if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) return true;
+  if (typeof assignmentCommentIsOdSoftClose === 'function' && assignmentCommentIsOdSoftClose(a.comment)) return true;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
+  if (adminProgressMirrorIsSkippedNight(a, opts)) return true;
+  return false;
+}
+
+function adminProgressMirrorIsLiveTonight(a, opts) {
+  opts = opts || {};
+  if (!a) return false;
+  if (typeof opts.isLive === 'function') return !!opts.isLive(a);
+  try {
+    if (typeof classifyBookingForPerf === 'function' && classifyBookingForPerf(a) === 'inprogress') return true;
+  } catch (_) {}
+  try {
+    if (typeof overviewAssignmentIsPerfLive === 'function' && overviewAssignmentIsPerfLive(a)) return true;
+  } catch (_) {}
+  try {
+    if (typeof assignmentPerfSessionStarted === 'function' && assignmentPerfSessionStarted(a)) return true;
+  } catch (_) {}
+  return false;
+}
+
 function adminProgressMirrorBookingEligible(a, opts) {
   opts = opts || {};
   if (!a || a.id == null || String(a.id).trim() === '') return false;
@@ -16124,17 +16164,10 @@ function adminProgressMirrorBookingEligible(a, opts) {
   if (id.toLowerCase().indexOf('asgn_remote_') === 0) return false;
   if (id.toLowerCase().indexOf('geo_presence_') === 0) return false;
   if (a.teamId == null || String(a.teamId).trim() === '') return false;
-  if (!adminProgressMirrorStatusIsBookedOrRescheduled(a)) return false;
-  if (typeof opts.isDemo === 'function') {
-    if (opts.isDemo(a)) return false;
-  } else if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
-  if (typeof opts.isSoftClose === 'function') {
-    if (opts.isSoftClose(a)) return false;
-  } else if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) return false;
-  if (typeof assignmentCommentIsOdSoftClose === 'function' && assignmentCommentIsOdSoftClose(a.comment)) return false;
-  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
-  if (adminProgressMirrorIsSkippedNight(a, opts)) return false;
-  return true;
+  if (adminProgressMirrorIsClosedOut(a, opts)) return false;
+  if (adminProgressMirrorStatusIsBookedOrRescheduled(a)) return true;
+  if (adminProgressMirrorIsLiveTonight(a, opts)) return true;
+  return false;
 }
 
 function adminProgressMirrorOnSessionDay(a, today, yesterday, gateOpen, nowMs, opts) {
@@ -16286,12 +16319,35 @@ function closeAdminProgressPicker() {
   picker.setAttribute('aria-hidden', 'true');
 }
 
+function adminProgressMirrorCaptureSnapshot() {
+  if (_adminProgressMirrorSnapshot) return;
+  try {
+    const clone = JSON.parse(JSON.stringify(state));
+    if (clone) delete clone._adminProgressMirror;
+    _adminProgressMirrorSnapshot = clone;
+  } catch (_) {
+    _adminProgressMirrorSnapshot = null;
+  }
+}
+
+function adminProgressMirrorRestoreSnapshot() {
+  const snap = _adminProgressMirrorSnapshot;
+  _adminProgressMirrorSnapshot = null;
+  if (!snap || typeof state === 'undefined' || !state) return;
+  const keys = Object.keys(state);
+  for (let i = 0; i < keys.length; i++) delete state[keys[i]];
+  Object.assign(state, snap);
+  state._adminProgressMirror = null;
+}
+
 function closeAdminProgressMirror() {
   adminProgressMirrorStopPoll();
   adminProgressMirrorDropPendingFlushes();
+  adminProgressMirrorRestoreSnapshot();
   try {
     if (typeof state !== 'undefined' && state) state._adminProgressMirror = null;
   } catch (_) {}
+  try { currentStationKey = null; } catch (_) {}
   const overlay = document.getElementById('adminProgressMirror');
   if (overlay) {
     overlay.classList.remove('open');
@@ -16299,6 +16355,15 @@ function closeAdminProgressMirror() {
   }
   const body = document.getElementById('adminProgressMirrorBody');
   if (body) body.innerHTML = '';
+  const bar = document.getElementById('adminProgressMirrorBar');
+  if (bar) bar.hidden = true;
+  const app = document.getElementById('app');
+  const admin = document.getElementById('adminApp');
+  if (app) {
+    app.classList.remove('is-admin-progress-mirror');
+    app.style.display = 'none';
+  }
+  if (admin) admin.classList.add('active');
 }
 
 async function adminProgressMirrorRefreshRows() {
@@ -16313,7 +16378,14 @@ async function adminProgressMirrorRefreshRows() {
       adminState._perfSSOk = true;
     }
   } catch (_) {}
-  if (adminProgressMirrorBlocksWrites()) adminProgressMirrorPaint();
+  if (!adminProgressMirrorBlocksWrites()) return;
+  const flag = state && state._adminProgressMirror;
+  if (flag && flag.checklist) {
+    const a = adminProgressMirrorFindAssignment(flag.assignmentId);
+    if (a) adminProgressMirrorHydrateChecklist(a, { skipFetch: true });
+    return;
+  }
+  adminProgressMirrorPaint();
 }
 
 function adminProgressMirrorPaint() {
@@ -16353,6 +16425,103 @@ function adminProgressMirrorStartPoll() {
   }, 20000);
 }
 
+function adminProgressMirrorEnsureBar() {
+  let bar = document.getElementById('adminProgressMirrorBar');
+  if (bar) return bar;
+  const app = document.getElementById('app');
+  if (!app) return null;
+  bar = document.createElement('div');
+  bar.id = 'adminProgressMirrorBar';
+  bar.className = 'admin-progress-mirror-bar';
+  bar.hidden = true;
+  bar.innerHTML = '<span id="adminProgressMirrorBarText" class="admin-progress-mirror-bar-text"></span>'
+    + '<button type="button" id="adminProgressMirrorBarClose">Close</button>';
+  app.insertBefore(bar, app.firstChild);
+  const btn = bar.querySelector('#adminProgressMirrorBarClose');
+  if (btn) btn.addEventListener('click', () => closeAdminProgressMirror());
+  return bar;
+}
+
+function adminProgressMirrorSetBanner(a, picked, empty) {
+  const bar = adminProgressMirrorEnsureBar();
+  const textEl = document.getElementById('adminProgressMirrorBarText');
+  let text = adminProgressMirrorBannerText(a, picked);
+  if (empty) text += ' · No progress yet';
+  if (textEl) textEl.textContent = text;
+  if (bar) bar.hidden = false;
+  const overlayBanner = document.getElementById('adminProgressMirrorBanner');
+  if (overlayBanner) overlayBanner.textContent = text;
+}
+
+function adminProgressMirrorFirstStationKey() {
+  const stations = (typeof STATIONS !== 'undefined' && Array.isArray(STATIONS)) ? STATIONS : [];
+  const data = (typeof state !== 'undefined' && state && state.stations) ? state.stations : {};
+  for (let i = 0; i < stations.length; i++) {
+    const key = stations[i].key;
+    const st = data[key];
+    if (!st || !st.scenarios) continue;
+    const nums = Object.keys(st.scenarios);
+    for (let j = 0; j < nums.length; j++) {
+      const row = st.scenarios[nums[j]];
+      if (!row) continue;
+      if ((row.status && row.status !== 'Not Started') || (row.iterations || 0) > 0) return key;
+    }
+  }
+  return stations.length ? stations[0].key : null;
+}
+
+function adminProgressMirrorShowChecklistShell() {
+  const app = document.getElementById('app');
+  const admin = document.getElementById('adminApp');
+  if (admin) admin.classList.remove('active');
+  if (app) {
+    app.style.display = 'block';
+    app.classList.add('is-admin-progress-mirror');
+  }
+  const overlay = document.getElementById('adminProgressMirror');
+  if (overlay) {
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+  adminProgressMirrorEnsureBar();
+}
+
+async function adminProgressMirrorHydrateChecklist(a, opts) {
+  opts = opts || {};
+  if (!a || !adminProgressMirrorBlocksWrites()) return;
+  if (!opts.skipFetch && typeof fetchSessionStateRows === 'function') {
+    const hasCache = typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows);
+    if (!hasCache) {
+      try {
+        const fetched = await fetchSessionStateRows();
+        if (!adminProgressMirrorBlocksWrites()) return;
+        if (Array.isArray(fetched) && typeof adminState !== 'undefined' && adminState) {
+          adminState.perfSessionStateRows = fetched;
+          adminState._perfSSFetchedAt = Date.now();
+          adminState._perfSSOk = true;
+        }
+      } catch (_) {}
+    }
+  }
+  if (!adminProgressMirrorBlocksWrites()) return;
+  const rows = adminProgressMirrorRowsForBooking(a);
+  const picked = (typeof pickLatestTeamProgress === 'function')
+    ? pickLatestTeamProgress(rows, { assignmentId: a.id })
+    : null;
+  const hasWork = adminProgressMirrorHasChecklistWork(rows);
+  if (picked && picked.syncableState && typeof mergeTeammateState === 'function') {
+    const scrubbed = (typeof scoreAfterScrub === 'function')
+      ? scoreAfterScrub(picked.syncableState).scrubbed
+      : picked.syncableState;
+    mergeTeammateState(scrubbed, { allowMirror: true });
+  }
+  adminProgressMirrorSetBanner(a, picked, !hasWork);
+  try { currentStationKey = adminProgressMirrorFirstStationKey(); } catch (_) {}
+  if (typeof renderApp === 'function') {
+    try { renderApp(); } catch (e) { console.warn('[Twilight] checklist mirror render failed', e); }
+  }
+}
+
 function openAdminProgressMirror(assignmentId, opts) {
   opts = opts || {};
   if (!adminProgressMirrorRoleAllowed()) {
@@ -16380,25 +16549,54 @@ function openAdminProgressMirror(assignmentId, opts) {
       assignmentId: String(a.id),
       fromLive: !!opts.fromLive,
       done: !!opts.done,
+      checklist: true,
     };
   }
   adminProgressMirrorDropPendingFlushes();
-  const overlay = document.getElementById('adminProgressMirror');
-  const banner = document.getElementById('adminProgressMirrorBanner');
-  const body = document.getElementById('adminProgressMirrorBody');
-  if (banner) banner.textContent = adminProgressMirrorBannerText(a, null);
-  if (body) body.innerHTML = '<div class="perf-empty">Loading station data…</div>';
-  if (overlay) {
-    overlay.classList.add('open');
-    overlay.setAttribute('aria-hidden', 'false');
-  }
-  const closeBtn = document.getElementById('adminProgressMirrorClose');
-  if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
-  const hasCache = typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows);
-  if (hasCache) adminProgressMirrorPaint();
-  adminProgressMirrorRefreshRows();
+  adminProgressMirrorCaptureSnapshot();
+  adminProgressMirrorShowChecklistShell();
+  adminProgressMirrorSetBanner(a, null, false);
+  adminProgressMirrorHydrateChecklist(a);
   adminProgressMirrorStartPoll();
   return true;
+}
+
+function adminProgressMirrorAssignmentsCold() {
+  if (typeof adminState === 'undefined' || !adminState) return true;
+  if (!adminState._asgnLoaded) return true;
+  return !Array.isArray(adminState.assignments) || adminState.assignments.length === 0;
+}
+
+function adminProgressMirrorSessionRowsCold() {
+  return typeof adminState === 'undefined' || !adminState || !Array.isArray(adminState.perfSessionStateRows);
+}
+
+function adminProgressMirrorRenderPickerList() {
+  const listEl = document.getElementById('adminProgressPickerList');
+  if (!listEl) return;
+  const assignments = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  const teams = adminProgressMirrorTonightBookings(assignments);
+  if (!teams.length) {
+    listEl.innerHTML = '<div class="admin-progress-empty">No teams booked tonight.</div>';
+    return;
+  }
+  listEl.innerHTML = teams.map((a, i) => {
+    const name = adminProgressMirrorTeamName(a);
+    const who = (typeof perfSessionTitle === 'function') ? perfSessionTitle(a) : '';
+    let statusLabel = a.status || '';
+    try {
+      if (typeof classifyBookingForPerf === 'function' && classifyBookingForPerf(a) === 'inprogress') {
+        statusLabel = 'Live';
+      }
+    } catch (_) {}
+    const sub = [who, statusLabel].filter(Boolean).join(' · ');
+    return '<button type="button" class="admin-progress-opt" role="menuitem" data-admin-progress-pick="'
+      + escapeHTML(String(a.id)) + '" style="animation-delay:' + (0.03 + i * 0.045) + 's">'
+      + '<span class="admin-progress-opt-name">' + escapeHTML(name) + '</span>'
+      + (sub ? '<span class="admin-progress-opt-sub">' + escapeHTML(sub) + '</span>' : '')
+      + '</button>';
+  }).join('');
 }
 
 function openAdminProgressPicker() {
@@ -16407,25 +16605,36 @@ function openAdminProgressPicker() {
   const picker = document.getElementById('adminProgressPicker');
   const listEl = document.getElementById('adminProgressPickerList');
   if (!picker || !listEl) return false;
-  const assignments = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
-    ? adminState.assignments : [];
-  const teams = adminProgressMirrorTonightBookings(assignments);
-  if (!teams.length) {
-    listEl.innerHTML = '<div class="admin-progress-empty">No teams booked tonight.</div>';
+  const cold = adminProgressMirrorAssignmentsCold();
+  const ssCold = adminProgressMirrorSessionRowsCold();
+  if (cold) {
+    listEl.innerHTML = '<div class="admin-progress-empty">Loading tonight\'s teams…</div>';
   } else {
-    listEl.innerHTML = teams.map((a, i) => {
-      const name = adminProgressMirrorTeamName(a);
-      const who = (typeof perfSessionTitle === 'function') ? perfSessionTitle(a) : '';
-      const sub = [who, a.status || ''].filter(Boolean).join(' · ');
-      return '<button type="button" class="admin-progress-opt" role="menuitem" data-admin-progress-pick="'
-        + escapeHTML(String(a.id)) + '" style="animation-delay:' + (0.03 + i * 0.045) + 's">'
-        + '<span class="admin-progress-opt-name">' + escapeHTML(name) + '</span>'
-        + (sub ? '<span class="admin-progress-opt-sub">' + escapeHTML(sub) + '</span>' : '')
-        + '</button>';
-    }).join('');
+    adminProgressMirrorRenderPickerList();
   }
   picker.classList.add('open');
   picker.setAttribute('aria-hidden', 'false');
+  if (!cold && !ssCold) return true;
+  const jobs = [];
+  if (cold && typeof fetchAssignmentsFromPA === 'function') jobs.push(Promise.resolve(fetchAssignmentsFromPA()));
+  if (ssCold && typeof fetchSessionStateRows === 'function') {
+    jobs.push(Promise.resolve(fetchSessionStateRows()).then(rows => {
+      if (Array.isArray(rows) && typeof adminState !== 'undefined' && adminState) {
+        adminState.perfSessionStateRows = rows;
+        adminState._perfSSFetchedAt = Date.now();
+        adminState._perfSSOk = true;
+      }
+    }));
+  }
+  Promise.all(jobs).then(() => {
+    if (!picker.classList.contains('open')) return;
+    if (adminProgressMirrorBlocksWrites()) return;
+    adminProgressMirrorRenderPickerList();
+  }).catch(() => {
+    if (picker.classList.contains('open') && !adminProgressMirrorBlocksWrites()) {
+      adminProgressMirrorRenderPickerList();
+    }
+  });
   return true;
 }
 
@@ -16484,6 +16693,20 @@ function wireAdminProgressMirrorChrome() {
       e.preventDefault();
       openAdminProgressMirror(btn.getAttribute('data-admin-progress-pick'));
     });
+  }
+  const app = document.getElementById('app');
+  if (app && !app._adminProgressMirrorGuardClick) {
+    app._adminProgressMirrorGuardClick = true;
+    app.addEventListener('click', (e) => {
+      if (!adminProgressMirrorBlocksWrites()) return;
+      const t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('#adminProgressMirrorBarClose, .station-item, #sidebarToggle, .menu-toggle')) return;
+      if (t.closest('button, input, textarea, select, a, [contenteditable]')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
   if (!wireAdminProgressMirrorChrome._esc) {
     wireAdminProgressMirrorChrome._esc = true;
@@ -46926,8 +47149,11 @@ function formatTeamSyncCompleteToast(result, syncableState) {
 // info, equipment, stations). Triggers an immediate cloud write so
 // the merged state becomes visible to other teammates without waiting
 // for debounce.
-function mergeTeammateState(syncableState) {
-  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) return;
+function mergeTeammateState(syncableState, opts) {
+  opts = opts || {};
+  // Normal teammate sync must not run while the admin mirror is open.
+  // allowMirror is the local-only hydrate used to paint the checklist.
+  if (!opts.allowMirror && typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) return;
   if (!syncableState || typeof syncableState !== 'object') return;
   // A cancelled checklist wipe must not overlay the next Booked session,
   // and must not be treated as an empty cloud row to heal from.
@@ -47058,6 +47284,7 @@ function mergeTeammateState(syncableState) {
     state._progressAt = syncableState.progressAt || new Date().toISOString();
     state._progressBy = syncableState.progressBy || state._progressBy || '';
   }
+  if (opts.allowMirror) return;
   saveState();
   // Immediate cloud-flush so the teammate's view picks this up on
   // their next poll (no debounce wait). Fire-and-forget.
@@ -52200,6 +52427,7 @@ let _lastCalGuideStationKey = null;
 function maybeAutoShowCalGuide(stationKey) {
   // Mod app only · admin has a different navigation model.
   if (!state || !state.username) return;
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) return;
   // Once the mod confirms the acknowledgment button (state.calGuideAck set),
   // the guide never auto-opens again this session.
   if (typeof isCalGuideAcknowledged === 'function' && isCalGuideAcknowledged()) {
@@ -53881,6 +54109,15 @@ function getOperatorAssignment() {
 // next produces a clean unlocked state for the new session · and never carries
 // over locked/submitted state from the previous one.
 function getActiveOperatorAssignment() {
+  try {
+    if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+      const id = state && state._adminProgressMirror && state._adminProgressMirror.assignmentId;
+      if (id && typeof adminProgressMirrorFindAssignment === 'function') {
+        const mirrored = adminProgressMirrorFindAssignment(id);
+        if (mirrored) return mirrored;
+      }
+    }
+  } catch (_) {}
   // CANONICAL CAROUSEL LIST · see getOperatorCarouselAssignments().
   // CRITICAL (1.3.061526): this MUST index the exact same list the My Session
   // carousel renders. Previously this indexed the UNFILTERED getOperatorAssignments()

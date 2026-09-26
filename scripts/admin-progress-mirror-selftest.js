@@ -2,8 +2,8 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.091825l)
- * Home picker keeps tonight's Booked/Rescheduled teams and drops
+ * Admin progress mirror (1.3.091825m)
+ * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
  * The write gate blocks SessionState sync while the mirror flag is set.
@@ -41,18 +41,21 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Admin progress mirror (1.3.091825l)');
+console.log('Admin progress mirror (1.3.091825m)');
 
-assert('APP_VERSION 1.3.091825l',
-  /const APP_VERSION = '1\.3\.091825l'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825l'));
+assert('APP_VERSION 1.3.091825m',
+  /const APP_VERSION = '1\.3\.091825m'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825m'));
 
-const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825l)');
+const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825m)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
 const mirrorSrc = src.slice(mirrorStart, mirrorEnd);
-assert('mirror reuses pick + station list and does not switch apps',
+assert('mirror reuses pick + checklist hydrate and does not switch apps',
   mirrorSrc.includes('pickLatestTeamProgress')
-  && mirrorSrc.includes('renderPerfStationListHTML')
+  && mirrorSrc.includes('mergeTeammateState')
+  && mirrorSrc.includes('allowMirror: true')
+  && mirrorSrc.includes('fetchAssignmentsFromPA')
+  && mirrorSrc.includes('_adminProgressMirrorSnapshot')
   && mirrorSrc.includes('You are now seeing ')
   && mirrorSrc.includes('No progress yet')
   && !/switchMasterAdminApp/.test(mirrorSrc));
@@ -72,6 +75,13 @@ assert('sync is gated while the mirror flag is set',
   && extractFn('postSessionStatePayloadDirect').includes('admin-progress-mirror')
   && extractFn('writePanicLog').includes('admin-progress-mirror')
   && extractFn('maybeRunModStrikeNineAmCheckpoint').includes('admin-progress-mirror'));
+const mergeSrc = extractFn('mergeTeammateState');
+assert('checklist hydrate is local-only while the mirror flag blocks a real sync',
+  mergeSrc.includes('allowMirror')
+  && mergeSrc.includes('adminProgressMirrorBlocksWrites')
+  && mergeSrc.indexOf('if (opts.allowMirror) return;') < mergeSrc.indexOf('flushSessionStateSync()')
+  && extractFn('getActiveOperatorAssignment').includes('adminProgressMirrorBlocksWrites')
+  && extractFn('saveState').includes('_adminProgressMirrorSnapshot'));
 
 const TODAY = '2026-09-26';
 const YDAY = '2026-09-25';
@@ -124,6 +134,9 @@ const ctx = {
     return !!(r && String(r.assignmentId || '') === String(id));
   },
   assignmentIdsMatch(a, b) { return String(a || '') === String(b || ''); },
+  classifyBookingForPerf(a) { return (a && a._cls) || null; },
+  overviewAssignmentIsPerfLive(a) { return !!(a && a._cls === 'inprogress'); },
+  assignmentPerfSessionStarted(a) { return !!(a && a._arrived); },
   buildAssignmentTeamMap() { return {}; },
   sessionStateRowTeamId() { return ''; },
   parseLastActiveMs(v) {
@@ -148,6 +161,8 @@ for (const name of [
   'adminProgressMirrorTeamName',
   'adminProgressMirrorStatusIsBookedOrRescheduled',
   'adminProgressMirrorIsSkippedNight',
+  'adminProgressMirrorIsClosedOut',
+  'adminProgressMirrorIsLiveTonight',
   'adminProgressMirrorBookingEligible',
   'adminProgressMirrorOnSessionDay',
   'adminProgressMirrorTonightBookings',
@@ -192,13 +207,18 @@ const tonight = ctx.adminProgressMirrorTonightBookings([
   booked('asgn_remote_shell', { teamId: 14 }),
   booked('od_unassigned', { status: 'Unassigned' }),
   booked('od_notified', { status: 'Notified' }),
+  booked('od_live_status', { status: 'In Progress', _cls: 'inprogress', teamId: 15 }),
+  booked('od_arrived', { status: 'Arrived', _arrived: true, teamId: 16 }),
+  booked('od_cancel_live', { status: 'Cancelled', _cls: 'inprogress', teamId: 17 }),
   booked('od_skip', { _skip: true }),
   booked('od_old', { date: '2026-09-20', _days: ['2026-09-20'], teamId: 30 }),
 ], { today: TODAY, gateOpen: true, nowMs: NOW });
 
 const ids = tonight.map(a => a.id);
-assert('tonight keeps booked and rescheduled, one row per assignment',
+assert('tonight keeps booked, rescheduled, and live kits, one row per assignment',
   ids.indexOf('od_live') >= 0 && ids.indexOf('od_resched') >= 0
+  && ids.indexOf('od_live_status') >= 0
+  && ids.indexOf('od_arrived') >= 0
   && ids.filter(id => id === 'od_live').length === 1
   && ids.indexOf('od_same_team_b') >= 0);
 assert('picker drops cancelled, soft-close, mod-cancel, demo, orphan, remote, skip',
@@ -210,6 +230,7 @@ assert('picker drops cancelled, soft-close, mod-cancel, demo, orphan, remote, sk
   && ids.indexOf('od_orphan') < 0
   && ids.indexOf('asgn_remote_shell') < 0
   && ids.indexOf('od_unassigned') < 0
+  && ids.indexOf('od_cancel_live') < 0
   && ids.indexOf('od_notified') < 0
   && ids.indexOf('od_skip') < 0
   && ids.indexOf('od_old') < 0);

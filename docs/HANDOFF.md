@@ -1,6 +1,21 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Admin read-only team progress mirror (1.3.091825l)
+**Last updated:** 2026-09-26 · Grok · Admin checklist mirror includes Live teams (1.3.091825m)
+
+## 2026-09-26 · Home lists Live teams and opens the checklist (1.3.091825m)
+
+**Ask:** The Helios logo list was dropping teams after check-in, because it only kept Assignment status Booked or Rescheduled. David also asked to open the real checklist the way Sync from teammate does, still with no cloud save.
+
+**What changed on PR #180:**
+- **Tonight's teams** includes Booked, Rescheduled, and Performance Live (checked in / in session) for the Pacific session day. Cancelled, soft-close, moderator cancel, Demo, Unassigned, and Admin Skip stay off the list. If the booking list is empty when Home opens, it loads assignments first.
+- Choosing a team (Home or **View progress**) opens the moderator checklist with that team’s latest checklist filled in, and a banner: `You are now seeing {team} progress made at {time} PT`. Close puts Admin back and does not save that checklist as the admin’s session.
+- Saves stay blocked the whole time. This does not use Master Switch.
+
+**Version:** **1.3.091825m**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825m**. Sign in as Admin. Click the logo on the right. Tonight’s booked teams and Live teams should both be listed (a Live team says **Live**). Click a team. You should see the checklist and a line starting **You are now seeing**. Click **Close**. You should be back on Admin.
 
 ## 2026-09-26 · Admin Home and Performance Live open a read-only progress mirror (1.3.091825l)
 

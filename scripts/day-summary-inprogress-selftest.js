@@ -25,11 +25,11 @@ function sliceBetween(startMarker, endMarker) {
   return src.slice(begin, end);
 }
 
-console.log('Day Summary in-progress kits (1.3.091825l)');
+console.log('Day Summary in-progress kits (1.3.091825m)');
 
-assert('APP_VERSION 1.3.091825l',
-  /const APP_VERSION = '1\.3\.091825l'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825l'));
+assert('APP_VERSION 1.3.091825m',
+  /const APP_VERSION = '1\.3\.091825m'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825m'));
 
 const tileSrc = sliceBetween('function daySummaryKitIsInProgress', 'function renderCalendarMonthHTML');
 assert('day tile label is In progress and has no Claimed breakdown',
