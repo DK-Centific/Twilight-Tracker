@@ -1,6 +1,53 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Day Summary day tile is In progress kits only (1.3.091825k)
+**Last updated:** 2026-09-26 · Grok · Tonight's teams sits next to the Helios logo (1.3.091825n)
+
+## 2026-09-26 · Tonight's teams opens beside the Helios logo (1.3.091825n)
+
+**Ask:** The team list felt disconnected from the logo. David wants it to pop out next to the Helios logo in Admin and again while the checklist is open.
+
+**What changed on PR #180:**
+- Clicking the Helios logo in Admin (right-rail logo, or the top logo on a phone) opens **Tonight's teams** beside that logo. Click the same logo again to close it.
+- While the checklist mirror is open, the checklist Helios logo does the same. A real moderator’s logo still opens the welcome screen.
+- Choosing a team still fills the checklist. **Close** still returns to Admin. Saves stay blocked.
+
+**Version:** **1.3.091825n**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825n**. Sign in as Admin. Click the logo on the right. **Tonight's teams** should sit right next to that logo. Click a team. On the checklist, click the logo on the right again. The same list should sit next to that logo. Click **Close** to return to Admin.
+
+## 2026-09-26 · Home lists Live teams and opens the checklist (1.3.091825m)
+
+**Ask:** The Helios logo list was dropping teams after check-in, because it only kept Assignment status Booked or Rescheduled. David also asked to open the real checklist the way Sync from teammate does, still with no cloud save.
+
+**What changed on PR #180:**
+- **Tonight's teams** includes Booked, Rescheduled, and Performance Live (checked in / in session) for the Pacific session day. Cancelled, soft-close, moderator cancel, Demo, Unassigned, and Admin Skip stay off the list. If the booking list is empty when Home opens, it loads assignments first.
+- Choosing a team (Home or **View progress**) opens the moderator checklist with that team’s latest checklist filled in, and a banner: `You are now seeing {team} progress made at {time} PT`. Close puts Admin back and does not save that checklist as the admin’s session.
+- Saves stay blocked the whole time. This does not use Master Switch.
+
+**Version:** **1.3.091825m**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825m**. Sign in as Admin. Click the logo on the right. Tonight’s booked teams and Live teams should both be listed (a Live team says **Live**). Click a team. You should see the checklist and a line starting **You are now seeing**. Click **Close**. You should be back on Admin.
+
+## 2026-09-26 · Admin Home and Performance Live open a read-only progress mirror (1.3.091825l)
+
+**Ask:** Admins (including Master Admin) need a Panic-style panel to see a live or tonight team’s checklist without using Master Switch. Switch puts the admin into the moderator app and can write that team’s SessionState. This must not do that.
+
+**What shipped (branch only, not on main):**
+- Admin Home (right-rail logo, and the top logo on a phone) opens **Tonight's teams** for the current Pacific session day, using the same 9 AM gate as Performance. Booked and Rescheduled stay. Cancelled, soft-close, moderator cancel, Demo, Unassigned, Admin Skip, and remote/geo shells stay out.
+- Performance → **Live** shows **View progress** on that booking. If it is no longer Live, the button does not open an empty Live view: a finished session opens the read-only Done view; anything else shows “This session is closed.”
+- The overlay banner is `You are now seeing {team} progress made at {time} PT`, plus the moderator whose checklist won when one exists. Station list reuses the Performance read-only station view. No pencils, sync, cancel, approve, or merge.
+- While the overlay is open, cloud writes are refused (SessionState, Assignment, strikes, approval, panic, TeamLog, Worklog, and the other save paths). Closing it returns to Admin and does not save the mirrored checklist as the admin’s own session.
+- Reviewer and Moderator cannot open it. Moderator Home still goes to the welcome screen.
+
+**Version:** **1.3.091825l**. Selftest: `scripts/admin-progress-mirror-selftest.js`. Related day-summary, soft-close, paint-memo, strike, and cancel selftests were re-pinned to this tip and passed.
+
+**PR:** draft [#180](https://github.com/DK-Centific/Twilight-Tracker/pull/180) on `cursor/admin-progress-mirror-09c3`. Do **not** merge until David says push. No Power Automate flow changes. No List, SessionState, or OneData heals.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825l** (this build is on the pull request, not the live site, until it is merged). On your computer, open the PR branch with a local server. Sign in as Admin. Click the logo on the right. You should see **Tonight's teams**. Click a team. You should see the sentence starting **You are now seeing** and a station list, or **No progress yet**. Close it. You should still be on Admin. Then open **Performance**, click **Live**, and click **View progress**.
 
 ## 2026-09-26 · Day Summary first tile is In progress kits only (1.3.091825k)
 
