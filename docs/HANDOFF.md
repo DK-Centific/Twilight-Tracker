@@ -1,6 +1,27 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Overview donut counts finished soft-close as Completed (1.3.091825j)
+**Last updated:** 2026-09-26 · Grok · Day Summary day tile is In progress kits only (1.3.091825k)
+
+## 2026-09-26 · Day Summary first tile is In progress kits only (1.3.091825k)
+
+**Ask:** On Admin Calendar **Day** view, the first summary tile said **Booked today** and counted every Booked or Notified kit. David asked for that tile to say **In progress** and to show only kits that are actually in progress. There was no user-facing label **Claimed** in the app.
+
+**Predicate:** A kit counts on that tile only when all of these are true:
+1. One assignment id (duplicate rows for the same id count once).
+2. Not a demo booking.
+3. Performance already classifies it as Live (`classifyBookingForPerf === 'inprogress'`): checked in, still in the live window, and not Completed, Cancelled, Unassigned, moderator-cancel, soft-close, or Done.
+4. The start date is that day, or the booked window overlaps that Pacific day (an overnight kit dated yesterday still counts this morning).
+5. The calendar team filter, when one is on.
+
+Booked-but-not-started and Notified do not count. Clicking the tile lists the same kits. Week and month still say **Booked** (Booked + Notified). The other day tiles (Notified, Completed, Teams fully available) are unchanged. No List, SessionState, or OneData writes. Overview donut, soft-close Done, paint memos, and strike/cancel are untouched.
+
+**Version:** **1.3.091825k**. Selftest: `scripts/day-summary-inprogress-selftest.js`.
+
+**PR:** draft [#179](https://github.com/DK-Centific/Twilight-Tracker/pull/179) on `cursor/day-summary-in-progress-c5f7`. Do **not** merge until Watchdog finishes AHP. David already said once fixed, push — Watchdog pushes live after that review.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091825k**. Admin → Calendar → Day. The first tile should say **In progress** and the number should be only kits currently in session. A booked kit that has not started, a finished kit, and a cancelled kit should not add to that number. Week view should still say **Booked this week**.
+
+---
 
 ## 2026-09-26 · Overview Team Check-in donut matches Performance Done (1.3.091825j)
 

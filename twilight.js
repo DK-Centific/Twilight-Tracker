@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825j';
-const APP_UPDATED_AT = '09/26/2026 01:10';
+const APP_VERSION = '1.3.091825k';
+const APP_UPDATED_AT = '09/26/2026 02:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -35501,12 +35501,54 @@ function renderTeamGridHTML(days) {
   `;
 }
 
-// Scope-aware stat tiles. Renders a row of count pills (Booked, Completed,
-// Available days) that are dynamically scoped to whatever date range
-// the calendar is currently showing · day, week, or month. The "days"
-// array passed in defines the scope: 1 day for day view, 7 for week,
+// Day Summary "In progress" — one kit is one assignment id (co-mod
+// rows are already grouped). Counts only when Performance already
+// classifies the booking as Live (`classifyBookingForPerf ===
+// 'inprogress'`): checked in (arrived or a station, not wrap-up),
+// still inside the live window, and not Completed, Cancelled,
+// Unassigned, moderator-cancel, soft-close, or Done. Not-started
+// Booked / Notified rows are not included. Demo bookings are left
+// out. The kit must sit on the selected day: start date inside the
+// scope, or (single day) the booked window overlaps that Pacific
+// day so an overnight kit dated yesterday still counts today.
+function daySummaryKitIsInProgress(a, scopeStart, scopeEnd) {
+  if (!a || a.id == null || a.id === '') return false;
+  if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  if (typeof classifyBookingForPerf !== 'function') return false;
+  if (classifyBookingForPerf(a) !== 'inprogress') return false;
+  const start = String(scopeStart || '');
+  const end = String(scopeEnd || start);
+  if (a.date && start && String(a.date) >= start && String(a.date) <= end) return true;
+  if (start && start === end && typeof perfBookingOverlapsPacificDay === 'function') {
+    return !!perfBookingOverlapsPacificDay(a, start);
+  }
+  return false;
+}
+
+function daySummaryInProgressKitCount(assignments, scopeStart, scopeEnd, teamId) {
+  const seen = new Set();
+  let n = 0;
+  const filterOn = teamId != null && teamId !== '';
+  for (const a of (assignments || [])) {
+    if (!a) continue;
+    if (filterOn && String(a.teamId) !== String(teamId)) continue;
+    if (!daySummaryKitIsInProgress(a, scopeStart, scopeEnd)) continue;
+    const key = String(a.id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    n++;
+  }
+  return n;
+}
+
+// Scope-aware stat tiles. Renders a row of count pills scoped to
+// whatever date range the calendar is showing · day, week, or month.
+// The "days" array defines the scope: 1 day for day view, 7 for week,
 // 35–42 for month. List view skips this (its own header already shows
 // upcoming/past counts).
+//
+// Day view's first tile is In progress (live kits only). Week and
+// month keep Booked (Booked + Notified), which is the pipeline count.
 //
 // Why three tiles instead of more:
 //   - BOOKED captures the workload pipeline · what's coming up in this
@@ -35537,6 +35579,9 @@ function renderCalendarStatTilesHTML(view, days) {
     return true;
   });
   const bookedCount    = inScope.filter(a => a.status === 'Booked' || a.status === 'Notified').length;
+  const inProgressCount = (view === 'day')
+    ? daySummaryInProgressKitCount(adminState.assignments || [], scopeStart, scopeEnd, filterId)
+    : 0;
   const completedCount = inScope.filter(a => a.status === 'Completed').length;
   // Email-status breakdown: of the active bookings (Booked + Notified),
   // how many have already had their confirmation email sent (status =
@@ -35621,7 +35666,9 @@ function renderCalendarStatTilesHTML(view, days) {
   };
   return `
     <div class="cal-stat-tiles" data-view="${view}">
-      ${tile('booked',    bookedCount,    `Booked ${scopeLabel}`,                                                                'booked')}
+      ${view === 'day'
+        ? tile('inprogress', inProgressCount, 'In progress', 'inprogress')
+        : tile('booked',    bookedCount,    `Booked ${scopeLabel}`, 'booked')}
       ${tile('notified',  notifiedCount,  `Notified${pendingNotifyCount > 0 ? ` · <span class="cal-stat-tile-sub">${pendingNotifyCount} pending</span>` : ''}`, 'notified')}
       ${tile('completed', completedCount, `Completed ${scopeLabel}`,                                                              'completed')}
       <!-- Available tile is NOT drillable · it's a capacity signal
@@ -35827,29 +35874,37 @@ function openCalendarDrillModal(spec) {
   // very next click on the stat tile shows the updated state.
   const all = adminState.assignments || [];
   const matching = all.filter(a => {
-    if (!a || !a.date) return false;
-    if (spec.scopeStart && a.date < spec.scopeStart) return false;
-    if (spec.scopeEnd   && a.date > spec.scopeEnd)   return false;
-    // Status filter · accepts a single status string. We treat the
-    // tile labels as the canonical names:
-    //   'booked'    → status === 'Booked'
-    //   'notified'  → status === 'Notified'
-    //   'completed' → status === 'Completed'
-    // No special handling for cancelled here since the stat tiles
-    // don't expose it as a drill target (would be confusing ·
-    // cancelled bookings aren't "work to do").
-    if (spec.statusFilter) {
-      const want = spec.statusFilter.toLowerCase();
-      const have = (a.status || 'Booked').toLowerCase();
-      if (want === 'booked' && have !== 'booked')       return false;
-      if (want === 'notified' && have !== 'notified')   return false;
-      if (want === 'completed' && have !== 'completed') return false;
+    if (!a) return false;
+    const want = spec.statusFilter ? String(spec.statusFilter).toLowerCase() : '';
+    // In progress uses the same kit predicate as the Day tile,
+    // including overnight overlap. The start-date window alone would
+    // drop a kit dated yesterday that is still live this morning.
+    if (want === 'inprogress') {
+      if (!daySummaryKitIsInProgress(a, spec.scopeStart, spec.scopeEnd)) return false;
     } else {
-      // No status filter (team chip case) · exclude terminal statuses
-      // so the team chip drill shows ACTIVE work for that team.
-      // Including Cancelled here would surface stale rows that admin
-      // already moved past.
-      if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+      if (!a.date) return false;
+      if (spec.scopeStart && a.date < spec.scopeStart) return false;
+      if (spec.scopeEnd   && a.date > spec.scopeEnd)   return false;
+      // Status filter · accepts a single status string. We treat the
+      // tile labels as the canonical names:
+      //   'booked'    → status === 'Booked'
+      //   'notified'  → status === 'Notified'
+      //   'completed' → status === 'Completed'
+      // No special handling for cancelled here since the stat tiles
+      // don't expose it as a drill target (would be confusing ·
+      // cancelled bookings aren't "work to do").
+      if (spec.statusFilter) {
+        const have = (a.status || 'Booked').toLowerCase();
+        if (want === 'booked' && have !== 'booked')       return false;
+        if (want === 'notified' && have !== 'notified')   return false;
+        if (want === 'completed' && have !== 'completed') return false;
+      } else {
+        // No status filter (team chip case) · exclude terminal statuses
+        // so the team chip drill shows ACTIVE work for that team.
+        // Including Cancelled here would surface stale rows that admin
+        // already moved past.
+        if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+      }
     }
     if (spec.teamFilter) {
       // Coerce both sides to string before comparing. spec.teamFilter
@@ -36075,7 +36130,9 @@ function setupCalendarDrillListeners(body) {
       // status, names the scope (today / this week / this month) so
       // admin can confirm what they're looking at without parsing
       // the dates.
-      const titleStatus = statusKey.charAt(0).toUpperCase() + statusKey.slice(1);
+      const titleStatus = statusKey === 'inprogress'
+        ? 'In progress'
+        : (statusKey.charAt(0).toUpperCase() + statusKey.slice(1));
       const scopeLabel = view === 'day'   ? 'today'
                        : view === 'week'  ? 'this week'
                        : view === 'month' ? 'this month'
