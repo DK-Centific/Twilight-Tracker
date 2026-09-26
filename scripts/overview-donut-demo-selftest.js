@@ -4,6 +4,9 @@
 /**
  * Overview donut: total booked = Completed + Cancelled + Open.
  * Demo and Unassigned are out. Not checked-in is not a slice.
+ * Soft-close + happypath (Performance Done) is Completed.
+ * Hard cancel, mod-cancel, and unfinished soft-close are Cancelled.
+ * Open = booked − completed − cancelled.
  */
 
 const fs = require('fs');
@@ -32,11 +35,16 @@ const ctx = {
     ],
   },
   isTerminalStatus: s => s === 'Cancelled' || s === 'Unassigned',
-  assignmentCommentIsModCancel: (c) => String(c || '').trim().indexOf('mod-cancel-session') === 0,
+  assignmentCommentIsModCancel: (c) => String(c || '').replace(/<[^>]+>/g, ' ').indexOf('mod-cancel-session') >= 0,
   classifyBookingForPerf: (a) => {
-    if (!a || a.status === 'Cancelled' || a.status === 'Unassigned') return null;
-    if (String(a.comment || '').indexOf('mod-cancel-session') === 0) return null;
+    if (!a || a.status === 'Unassigned') return null;
+    const plain = String(a.comment || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (plain.indexOf('mod-cancel-session') >= 0) return null;
+    const soft = a.status === 'Cancelled' && plain.indexOf('od-sync-soft-close') >= 0;
+    if (!soft && a.status === 'Cancelled') return null;
     if (a.status === 'Completed' || a.id === 'wrap-only' || a.id === 'happypath') return 'completed';
+    if (soft && (a.id === 'soft-happy' || a.id === 'soft-happy-html')) return 'completed';
+    if (soft) return null;
     if (a.id === 'live-1') return 'inprogress';
     return 'scheduled';
   },
@@ -84,23 +92,64 @@ const testing = { id: 't1', teamId: '99', status: 'Booked', participantName: 'Fo
 const live = { id: 'live-1', teamId: '100', status: 'Booked', participantName: 'Sam Lee' };
 const unassigned = { id: 'u1', teamId: '100', status: 'Unassigned' };
 const happypath = { id: 'happypath', teamId: '100', status: 'Booked', participantName: 'Ada' };
+const softHappy = {
+  id: 'soft-happy',
+  teamId: '99',
+  status: 'Cancelled',
+  comment: 'od-sync-soft-close',
+  participantName: 'REBECCA Young',
+};
+const softHappyHtml = {
+  id: 'soft-happy-html',
+  teamId: '99',
+  status: 'Cancelled',
+  comment: '<div class="ExternalClassAABC6FCFB38B4C1CBA91962FD918F19B">od-sync-soft-close</div>',
+  participantName: 'lisa payne',
+};
+const softIncomplete = {
+  id: 'soft-incomplete',
+  teamId: '99',
+  status: 'Cancelled',
+  comment: 'od-sync-soft-close',
+  participantName: 'Patrick Steffens',
+};
+
+const cancelFn = sliceBetween('function overviewAssignmentIsCancelledForDonut', 'function overviewAssignmentIsCompletedForDonut');
+const doneCheckAt = cancelFn.indexOf("classifyBookingForPerf(a) === 'completed'");
+const rawCancelAt = cancelFn.indexOf("a.status === 'Cancelled'");
+assert('donut asks Performance Done before raw List Cancelled',
+  doneCheckAt >= 0 && rawCancelAt > doneCheckAt);
 
 assert('demo team booking is demo', ctx.assignmentIsDemoBooking(demo));
 assert('for testing name is demo', ctx.assignmentIsDemoBooking(testing));
 assert('real booking is not demo', !ctx.assignmentIsDemoBooking(realDone));
 assert('mod-cancel comment is cancelled for the donut', ctx.overviewAssignmentIsCancelledForDonut(modCancel));
-assert('status Cancelled is cancelled for the donut', ctx.overviewAssignmentIsCancelledForDonut(cancelled));
+assert('hard List Cancelled is cancelled for the donut', ctx.overviewAssignmentIsCancelledForDonut(cancelled));
+assert('soft-close plus happypath is Completed, not Cancelled',
+  !ctx.overviewAssignmentIsCancelledForDonut(softHappy)
+  && ctx.overviewAssignmentIsCompletedForDonut(softHappy));
+assert('HTML-wrapped soft-close plus happypath is Completed',
+  !ctx.overviewAssignmentIsCancelledForDonut(softHappyHtml)
+  && ctx.overviewAssignmentIsCompletedForDonut(softHappyHtml));
+assert('soft-close without happypath stays Cancelled',
+  ctx.overviewAssignmentIsCancelledForDonut(softIncomplete)
+  && !ctx.overviewAssignmentIsCompletedForDonut(softIncomplete));
 assert('cancel wins over a Completed status on the same row',
   ctx.overviewAssignmentIsCancelledForDonut({ id: 'both', status: 'Completed', comment: 'mod-cancel-session:x' })
   && !ctx.overviewAssignmentIsCompletedForDonut({ id: 'both', status: 'Completed', comment: 'mod-cancel-session:x' }));
 
-const list = [demo, cancelled, modCancel, realDone, realOpen, wrapOnly, testing, live, unassigned, happypath];
+const list = [
+  demo, cancelled, modCancel, realDone, realOpen, wrapOnly, testing, live, unassigned, happypath,
+  softHappy, softHappyHtml, softIncomplete,
+];
 const counts = ctx.computeOverviewDonutCounts(list);
 
-assert('demo and Unassigned are outside total booked', counts.progressTotal === 7);
-assert('completed is Completed status plus Performance Done', counts.completedCount === 3);
-assert('cancelled is status Cancelled plus mod-cancel-session', counts.cancelledCount === 2);
+assert('demo and Unassigned are outside total booked', counts.progressTotal === 10);
+assert('completed includes soft-close plus happypath', counts.completedCount === 5);
+assert('cancelled is hard cancel, mod-cancel, and unfinished soft-close', counts.cancelledCount === 3);
 assert('open is live and not-started bookings', counts.openCount === 2);
+assert('open is booked minus completed minus cancelled',
+  counts.openCount === counts.progressTotal - counts.completedCount - counts.cancelledCount);
 assert('slices sum to total booked',
   counts.completedCount + counts.cancelledCount + counts.openCount === counts.progressTotal);
 assert('not-checked-in is not the opposing count',

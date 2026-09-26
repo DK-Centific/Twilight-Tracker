@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-25 · Grok · Performance tab paints no longer freeze (1.3.091825i)
+**Last updated:** 2026-09-26 · Grok · Overview donut counts finished soft-close as Completed (1.3.091825j)
+
+## 2026-09-26 · Overview Team Check-in donut matches Performance Done (1.3.091825j)
+
+**Ask:** The Overview ring (Total booked) was still wrong after soft-close. Finished soft-close sessions should count as Completed, the same way Performance Done already does. A real Cancel session should stay Cancelled.
+
+**Cause:** The ring decided Cancelled from raw List status `Cancelled` before it asked Performance. Overnight soft-close writes that status plus `od-sync-soft-close` (SharePoint may wrap it in HTML). Performance already treats soft-close plus a finished happypath as Done. The ring never got that far, so those teams inflated Cancelled and were missing from Completed. Checked-in versus not-checked-in was already gone in 1.3.091825f.
+
+**Fix:** If Performance already classifies the booking as Done, the ring counts Completed. That includes soft-close plus happypath. A true Cancel session, a hard cancel, and a soft-close that never finished stay Cancelled. Open is total booked minus Completed minus Cancelled. Demo and Unassigned stay out. No List, SessionState, or OneData writes.
+
+**Version:** **1.3.091825j**. Selftest: `scripts/overview-donut-demo-selftest.js`.
+
+**PR:** draft on `cursor/overview-donut-soft-close-f94a`. Do **not** merge until David says push.
+
+**Verify (David):** Hard refresh → **1.3.091825j**. Admin → Overview. The ring on the right should still say **Total booked**, with Completed, Cancelled, and Open. A finished soft-close team (for example REBECCA Young) should add to **Completed**, not Cancelled. A team that used **Cancel session** should add to **Cancelled**. A booking that is still open should add to **Open**.
+
+---
 
 ## 2026-09-25 · Admin Performance opens and filters without a long freeze (1.3.091825i)
 

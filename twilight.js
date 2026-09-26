@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825i';
-const APP_UPDATED_AT = '09/25/2026 23:15';
+const APP_VERSION = '1.3.091825j';
+const APP_UPDATED_AT = '09/26/2026 01:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -9949,9 +9949,18 @@ function overviewAssignmentHasTeamCheckIn(a) {
 }
 
 // Donut cancel uses the same signals as Performance Cancelled
-// (status Cancelled, mod-cancel-session comment, SessionState Cancelled).
+// (mod-cancel-session, SessionState Cancelled, hard List Cancelled).
+// Performance Done wins first. Overnight soft-close leaves List
+// status Cancelled with od-sync-soft-close; when the team happypath
+// already classifies as Done, that row is Completed, not Cancelled.
+// Soft-close without that Done result stays Cancelled. A true
+// Cancel session never classifies as Done, so it stays Cancelled.
 function overviewAssignmentIsCancelledForDonut(a) {
   if (!a) return false;
+  if (typeof classifyBookingForPerf === 'function'
+      && classifyBookingForPerf(a) === 'completed') {
+    return false;
+  }
   if (a.status === 'Cancelled') return true;
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return true;
@@ -9961,7 +9970,8 @@ function overviewAssignmentIsCancelledForDonut(a) {
 }
 
 // Completed uses the Performance Done rule (Assignment Completed, or
-// classifyBookingForPerf === 'completed'). Cancel wins if both apply.
+// classifyBookingForPerf === 'completed', including soft-close +
+// happypath). A true cancel still wins when classify is not Done.
 function overviewAssignmentIsCompletedForDonut(a) {
   if (!a || overviewAssignmentIsCancelledForDonut(a)) return false;
   if (a.status === 'Completed') return true;

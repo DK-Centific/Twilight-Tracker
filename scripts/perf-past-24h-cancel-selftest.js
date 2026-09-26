@@ -43,9 +43,9 @@ function extractFn(name) {
 
 console.log('Performance past-24h + cancel status self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091825i',
-  /const APP_VERSION = '1\.3\.091825i'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825i'));
+assert('APP_VERSION 1.3.091825j',
+  /const APP_VERSION = '1\.3\.091825j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091825j'));
 assert('Past window is 24 hours on booked session end',
   /const PERF_PAST_WINDOW_MS = 24 \* 60 \* 60 \* 1000/.test(src)
   && /assignmentBookingSessionEndMs/.test(extractFn('perfDateInRange')));
