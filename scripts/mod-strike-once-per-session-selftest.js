@@ -29,9 +29,9 @@ function assert(name, cond, detail) {
 
 console.log('One strike per moderator per incomplete session');
 
-assert('version 1.3.091825o',
-  /const APP_VERSION = '1\.3\.091825o'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825o'));
+assert('version 1.3.091826a',
+  /const APP_VERSION = '1\.3\.091826a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091826a'));
 
 const sliceStart = src.indexOf('function ymd(d)');
 const sliceEnd = src.indexOf('function fmtTimeOfDay(min)', sliceStart);
@@ -103,7 +103,7 @@ function sessionRow(id, orbit) {
     assignmentId: id,
     orbitLoginId: orbit,
     sessionStatus: 'station_2_done',
-    sessionDate: '2026-09-24',
+    sessionDate: '2026-09-25',
     stateJson: '{}',
   };
 }
@@ -116,19 +116,19 @@ function venkataFixture() {
   ];
   ctx.adminState.assignments = [
     {
-      id: 'list-169', teamId: 't-venkata', date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: OD,
+      id: 'list-169', teamId: 't-venkata', date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: OD,
       participantData: { firstName: 'Seth', lastName: 'Schnurman' },
       modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
     },
     {
-      id: 'list-170', teamId: 't-jashit', date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: OD,
+      id: 'list-170', teamId: 't-jashit', date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: OD,
       participantData: { firstName: 'Seth', lastName: 'Schnurman' },
       modSnapshots: [{ orbitLoginId: 'Jashit-tw' }, { orbitLoginId: 'Venkata-tw' }],
     },
     {
-      id: 'list-other', teamId: 't-other', date: '2026-09-24', status: 'Booked',
+      id: 'list-other', teamId: 't-other', date: '2026-09-25', status: 'Booked',
       startMin: 8 * 60, endMin: 9 * 60, odScheduleId: OTHER,
       participantData: { firstName: 'Other', lastName: 'Night' },
       modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
@@ -201,14 +201,14 @@ function onlySeth() {
   ];
   ctx.adminState.assignments = [
     {
-      id: 'list-169', teamId: 't-venkata', date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: OD,
+      id: 'list-169', teamId: 't-venkata', date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: OD,
       participantData: { firstName: 'Seth' },
       modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
     },
     {
-      id: 'list-170', teamId: 't-jashit', date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: OD,
+      id: 'list-170', teamId: 't-jashit', date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: OD,
       participantData: { firstName: 'Seth' },
       modSnapshots: [{ orbitLoginId: 'Jashit-tw' }, { orbitLoginId: 'Venkata-tw' }],
     },
@@ -223,9 +223,9 @@ function onlySeth() {
 }
 
 onlySeth();
-const deadline = ctx.assignmentAutoStrikeDeadlineMs(ctx.adminState.assignments[0]);
-ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: deadline - 60 * 1000 });
-ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: deadline - 1000 });
+const beforeGate = ctx.pacificWallClockToMs('2026-09-25', 8 * 60 + 50);
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: beforeGate });
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: beforeGate });
 assert('before 9:00 AM PT neither co-mod row strikes',
   ctx.getModStrikeStars('Venkata-tw') === 4 && ctx.getModStrikeStars('Jashit-tw') === 4);
 
@@ -237,7 +237,7 @@ assert('completed session does not strike',
   ctx.getModStrikeStars('Venkata-tw') === 4 && ctx.getModStrikeStars('Jashit-tw') === 4);
 
 onlySeth();
-ctx.adminState.assignments.forEach(a => { a.status = 'Cancelled'; a.comment = 'mod-cancel-session:Venkata-tw:2026-09-24T20:00:00Z'; });
+ctx.adminState.assignments.forEach(a => { a.status = 'Cancelled'; a.comment = 'mod-cancel-session:Venkata-tw:2026-09-25T20:00:00Z'; });
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now });
 assert('cancelled session does not strike',
   ctx.getModStrikeStars('Venkata-tw') === 4 && ctx.getModStrikeStars('Jashit-tw') === 4);
@@ -267,7 +267,7 @@ assert('flag history lists each moderator once for the co-mod rows',
 assert('flag history stars are that moderator’s count',
   histV[0] && histV[0].stars === 3 && histJ[0] && histJ[0].stars === 3);
 
-// PA 2026-09-25: same assignment od_8d6bedbf, sessionDate 2026-09-24,
+// PA 2026-09-25: same assignment od_8d6bedbf, sessionDate 2026-09-25,
 // two List rows / team ids (200027 then 200040). Key is assignment + date.
 const PA_OD = 'od_8d6bedbf';
 function paRows() {
@@ -277,13 +277,13 @@ function paRows() {
   ];
   ctx.adminState.assignments = [
     {
-      id: 'list-230', assignmentId: PA_OD, teamId: 200027, date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: PA_OD,
+      id: 'list-230', assignmentId: PA_OD, teamId: 200027, date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: PA_OD,
       modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
     },
     {
-      id: 'list-231', assignmentId: PA_OD, teamId: 200040, date: '2026-09-24', status: 'Booked',
-      startMin: 19 * 60, endMin: 2 * 60, odScheduleId: PA_OD,
+      id: 'list-231', assignmentId: PA_OD, teamId: 200040, date: '2026-09-25', status: 'Booked',
+      startMin: 6 * 60, endMin: 8 * 60, odScheduleId: PA_OD,
       modSnapshots: [{ orbitLoginId: 'Venkata-tw' }, { orbitLoginId: 'Jashit-tw' }],
     },
   ];
@@ -302,7 +302,7 @@ function healedAuto(teamId, at) {
     reason: '9 AM checkpoint',
     teamId: teamId,
     assignmentId: PA_OD,
-    sessionDate: '2026-09-24',
+    sessionDate: '2026-09-25',
   };
 }
 function healedRec() {
@@ -340,7 +340,7 @@ const paV = autoLogs('Venkata-tw');
 const paJ = autoLogs('Jashit-tw');
 const paStore = ctx.loadModStrikeStore();
 const paMark = (paStore.checkpoints['2026-09-25'] || {}).teamAutoStrike || {};
-const paKey = 'asgn:' + PA_OD + '|2026-09-24';
+const paKey = 'asgn:' + PA_OD + '|2026-09-25';
 assert('two team ids for one assignment take one star each',
   ctx.getModStrikeStars('Venkata-tw') === 3 && ctx.getModStrikeStars('Jashit-tw') === 3
   && paV.length === 1 && paJ.length === 1,

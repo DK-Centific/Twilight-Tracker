@@ -23,9 +23,9 @@ function assert(name, cond, detail) {
 
 console.log('Moderator strike self-test');
 
-assert('version bump 091825n',
-  /const APP_VERSION = '1\.3\.091825o'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091825o'));
+assert('version bump 091826a',
+  /const APP_VERSION = '1\.3\.091826a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091826a'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -813,16 +813,11 @@ ctx.saveModStrikeStore({
   lastWriter: 'Admin-Twilight',
 });
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 });
-assert('after 9 AM an incomplete team is strike eligible',
-  ctx.getModStrikeStars('a-orbit') === 3 && ctx.getModStrikeStars('b-orbit') === 3);
-const struckStore = ctx.loadModStrikeStore();
-const autoMark = struckStore.checkpoints['2026-09-17'] || {};
-assert('auto-strike is scoped to assignmentId and session date',
-  !!(autoMark.teamAutoStrike && autoMark.teamAutoStrike.asgn1 && autoMark.teamAutoStrike['asgn1|2026-09-16'])
-  && !autoMark.teamAutoStrike.t1);
+assert('session dated before today PT is not re-struck at the next 9 AM',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 5 * 60 * 1000 });
-assert('same session is not struck twice',
-  ctx.getModStrikeStars('a-orbit') === 3 && ctx.getModStrikeStars('b-orbit') === 3);
+assert('a past session is not struck on a later pass',
+  ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
