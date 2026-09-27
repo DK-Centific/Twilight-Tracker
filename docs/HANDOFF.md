@@ -12,7 +12,7 @@
 
 **Version:** **1.3.091826a**. Selftest: `scripts/mod-strike-forward-gate-selftest.js`. Also strike, once-per-session, incomplete-alert, soft-close, and cancel selftests.
 
-**PR:** draft on `cursor/am-strike-forward-gate-8684`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#182](https://github.com/DK-Centific/Twilight-Tracker/pull/182) on `cursor/am-strike-forward-gate-8684`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091826a**. The six sessions Power Automate already marked skipped should stay at 4 stars after a refresh. A session from a previous day should not lose a star at 9:00 AM. A session dated today that already ended and is still unfinished can lose one star per person after 9:00 AM Pacific.
 
