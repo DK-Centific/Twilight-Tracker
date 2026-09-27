@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091825o';
-const APP_UPDATED_AT = '09/26/2026 06:15';
+const APP_VERSION = '1.3.091826b';
+const APP_UPDATED_AT = '09/27/2026 06:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -31394,6 +31394,12 @@ function modStrikeAssignmentEvidence(a) {
       if (classifyBookingForPerf(a) === 'completed') return 'complete';
     } catch (_) {}
   }
+  // Any co-mod station_4_done / session_done / sessionCompletedAt on this
+  // session date closes the strike, including when the row is stored under
+  // the OneData assignment id rather than the List row id.
+  if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) {
+    return 'complete';
+  }
   if (!modStrikeSessionStateReady()) return 'unknown';
   const all = adminState.perfSessionStateRows;
   if (all.length >= 256) {
@@ -31436,7 +31442,12 @@ function buildModStrikeCheckpointReport(nowMs) {
       if (s && aliasAids.indexOf(s) < 0) aliasAids.push(s);
     };
     pushAid(asgnId);
-    if (typeof modStrikeSessionAliasKeys === 'function') {
+    pushAid(booking.assignmentId);
+    pushAid(booking.odScheduleId);
+    if (typeof modStrikeCanonicalAssignmentId === 'function') pushAid(modStrikeCanonicalAssignmentId(booking));
+    if (typeof modStrikeMuteIdList === 'function') {
+      modStrikeMuteIdList(booking).forEach(pushAid);
+    } else if (typeof modStrikeSessionAliasKeys === 'function') {
       modStrikeSessionAliasKeys(booking).forEach(k => {
         if (String(k).indexOf('aid:') === 0) pushAid(String(k).slice(4));
       });
@@ -31446,6 +31457,13 @@ function buildModStrikeCheckpointReport(nowMs) {
         if (!skipped && modStrikeCheckpointIsSkipped(days[i], t.id, aliasAids[j])) skipped = true;
         if (!resolved && modStrikeCheckpointIsResolved(days[i], t.id, aliasAids[j])) resolved = true;
       }
+    }
+    // PA stamps skipped/resolved on the checkpoint day under the OneData
+    // assignment id. That key has to count even when this report's day
+    // list would have looked up the List row id instead.
+    if (typeof modStrikeAssignmentMutedBySkipOrResolve === 'function') {
+      if (!skipped && modStrikeAssignmentMutedBySkipOrResolve(booking, 'skippedTeams')) skipped = true;
+      if (!resolved && modStrikeAssignmentMutedBySkipOrResolve(booking, 'resolvedTeams')) resolved = true;
     }
     teams.push({
       teamId: t.id,
@@ -31874,14 +31892,284 @@ function applyRecordedSessionStrike(orbitId, booking, entry) {
   return true;
 }
 
+// Ids that mean this session in the strikes skipped/resolved maps.
+// List row id, explicit assignmentId, and the OneData schedule id.
+function modStrikeMuteIdList(booking) {
+  const ids = [];
+  const add = (raw) => {
+    const t = String(raw == null ? '' : raw).trim();
+    if (!t || t === 'null' || t === 'undefined' || t === '0') return;
+    if (ids.indexOf(t) >= 0) return;
+    ids.push(t);
+  };
+  if (!booking) return ids;
+  add(booking.id);
+  add(booking.assignmentId);
+  add(booking.odScheduleId);
+  if (typeof modStrikeCanonicalAssignmentId === 'function') add(modStrikeCanonicalAssignmentId(booking));
+  if (typeof modStrikeSessionAliasKeys === 'function') {
+    modStrikeSessionAliasKeys(booking).forEach(k => {
+      const s = String(k || '');
+      if (s.indexOf('aid:') === 0) add(s.slice(4));
+      else if (s.indexOf('od:') === 0) add(s.slice(3).split('|')[0]);
+      else if (s.indexOf('asgn:') === 0) {
+        const body = s.slice(5);
+        const pipe = body.lastIndexOf('|');
+        add(pipe >= 0 ? body.slice(0, pipe) : body);
+      }
+    });
+  }
+  return ids;
+}
+
+// True when this assignment id is in skippedTeams or resolvedTeams on any
+// checkpoint day. A past Skip/Strike must not be re-opened because the
+// List row id and the OneData id differ.
+function modStrikeAssignmentMutedBySkipOrResolve(booking, field) {
+  if (!booking || typeof loadModStrikeStore !== 'function') return false;
+  const store = loadModStrikeStore();
+  const ck = (store && store.checkpoints) || {};
+  const ids = modStrikeMuteIdList(booking);
+  const aliasKeys = (typeof modStrikeSessionAliasKeys === 'function')
+    ? modStrikeSessionAliasKeys(booking) : [];
+  const fields = field ? [field] : ['skippedTeams', 'resolvedTeams'];
+  const days = Object.keys(ck);
+  for (let d = 0; d < days.length; d++) {
+    const row = ck[days[d]];
+    if (!row) continue;
+    for (let f = 0; f < fields.length; f++) {
+      const map = row[fields[f]];
+      if (!map || typeof map !== 'object') continue;
+      for (let i = 0; i < ids.length; i++) {
+        if (map[ids[i]]) return true;
+      }
+      for (let i = 0; i < aliasKeys.length; i++) {
+        if (map[aliasKeys[i]]) return true;
+      }
+    }
+  }
+  if (!field && typeof modStrikeSessionAlreadyMuted === 'function' && modStrikeSessionAlreadyMuted(booking)) {
+    return true;
+  }
+  return false;
+}
+
+function modStrikeSessionStateRowsForBooking(booking) {
+  const all = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  if (!all.length || !booking) return [];
+  const ids = {};
+  modStrikeMuteIdList(booking).forEach(id => { ids[String(id).toLowerCase()] = true; });
+  const out = [];
+  for (let i = 0; i < all.length; i++) {
+    const r = all[i];
+    if (!r) continue;
+    const cands = [r.assignmentId, r.AssignmentId, r.odScheduleId, r.OdScheduleId];
+    let hit = false;
+    for (let c = 0; c < cands.length; c++) {
+      const v = cands[c];
+      if (v == null || String(v).trim() === '') continue;
+      if (ids[String(v).trim().toLowerCase()]) { hit = true; break; }
+    }
+    if (hit) out.push(r);
+  }
+  return out;
+}
+
+function modStrikeParseRowJson(row) {
+  if (!row) return {};
+  if (typeof parseSessionStateJson === 'function') {
+    try {
+      const parsed = parseSessionStateJson(row);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+  }
+  const raw = row.stateJson;
+  if (raw && typeof raw === 'object') return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (_) {}
+  }
+  return {};
+}
+
+// Team complete for the strike gate: any co-mod on THIS session date has
+// station_4_done, session_done, or sessionCompletedAt. A stamp from an
+// earlier sessionDate is prior-day bleed and does not close tonight.
+function modStrikeCoModStatusBlocksStrike(booking) {
+  if (!booking) return false;
+  const ymd = (typeof modStrikeBookingYmd === 'function') ? modStrikeBookingYmd(booking) : '';
+  const rows = modStrikeSessionStateRowsForBooking(booking);
+  if (!rows.length) return false;
+  let primaries = [];
+  if (typeof modStrikePrimariesForBooking === 'function') {
+    primaries = modStrikePrimariesForBooking(booking).map(id => String(id).toLowerCase());
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const parsed = modStrikeParseRowJson(row);
+    const sd = String(
+      (parsed && parsed.sessionDate) || row.sessionDate || row.SessionDate || ''
+    ).split('T')[0].trim();
+    if (sd && ymd && sd !== ymd) continue;
+    const who = String(
+      row.orbitLoginId || row.OrbitLoginId || (parsed && parsed.orbitLoginId) || ''
+    ).trim().toLowerCase();
+    if (primaries.length && who && primaries.indexOf(who) < 0) continue;
+    const st = String(
+      (parsed && parsed.sessionStatus) || row.sessionStatus || row.SessionStatus || ''
+    ).trim().toLowerCase();
+    if (st === 'station_4_done' || st === 'session_done' || st === 'office_checkout') return true;
+    const doneAt = (parsed && parsed.sessionCompletedAt) || row.sessionCompletedAt || row.SessionCompletedAt;
+    if (doneAt) return true;
+  }
+  return false;
+}
+
+// Who may be considered for a new auto-strike.
+// Older than yesterday stays frozen (the Sep 25 re-hits on ancient rows).
+// Yesterday is the 9:00 AM PT catch-up, only once today's gate is open.
+// Today is eligible only after that same gate. Tomorrow and later are
+// watched and do not lose a star before their own day.
+function modStrikeForwardAutoStrikeEligible(booking, nowMs) {
+  const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
+  const sessionDate = (typeof modStrikeBookingYmd === 'function') ? modStrikeBookingYmd(booking) : '';
+  if (!today || !sessionDate) return false;
+  if (sessionDate > today) return true;
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour(nowMs);
+  if (sessionDate === today) return gateOpen;
+  const yesterday = (typeof addDaysToYmd === 'function') ? addDaysToYmd(today, -1) : '';
+  if (yesterday && sessionDate === yesterday) return gateOpen;
+  return false;
+}
+
+function modStrikeForwardCandidateBookings(nowMs) {
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || a.id == null || a.id === '') continue;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') continue;
+    if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) continue;
+    if (typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) continue;
+    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) continue;
+    if (!modStrikeForwardAutoStrikeEligible(a, nowMs)) continue;
+    out.push(a);
+  }
+  return out;
+}
+
+function modStrikeStampAutoStrike(ckRow, aliases, asgnKey, aid, sessionKey) {
+  if (!ckRow) return;
+  if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
+  (aliases || []).forEach(k => {
+    ckRow.teamAutoStrike[k] = true;
+    if (String(k).indexOf('aid:') === 0) ckRow.teamAutoStrike[String(k).slice(4)] = true;
+  });
+  if (asgnKey) ckRow.teamAutoStrike[asgnKey] = true;
+  if (aid) ckRow.teamAutoStrike[aid] = true;
+  if (sessionKey) ckRow.teamAutoStrike[sessionKey] = true;
+}
+
+// One pass for one booking. Returns how many stars were removed.
+function modStrikeAttemptAutoStrike(booking, primaryIds, nowMs, ckRow, reason) {
+  if (!booking || !ckRow) return 0;
+  const ymd = modStrikeBookingYmd(booking);
+  const aid = booking.id != null && booking.id !== '' ? String(booking.id) : '';
+  const sessionKey = aid && ymd ? (aid + '|' + ymd) : '';
+  const asgnKey = (typeof modStrikeAssignmentDateKey === 'function')
+    ? modStrikeAssignmentDateKey(modStrikeCanonicalAssignmentId(booking), ymd) : '';
+  if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
+  if (asgnKey && ckRow.teamAutoStrike[asgnKey]) return 0;
+  if ((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey])) return 0;
+  const aliases = (typeof modStrikeSessionAliasKeys === 'function') ? modStrikeSessionAliasKeys(booking) : [];
+  if (aliases.some(k => ckRow.teamAutoStrike[k])) return 0;
+  let struck = 0;
+  let rowStruck = false;
+  let considered = 0;
+  let already = 0;
+  const seenOrbit = new Set();
+  const ids = primaryIds || [];
+  for (let i = 0; i < ids.length; i++) {
+    const orbitId = ids[i];
+    const orbitKey = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
+    if (!orbitKey || seenOrbit.has(orbitKey)) continue;
+    seenOrbit.add(orbitKey);
+    considered++;
+    if (typeof modAlreadyStruckForSession === 'function' && modAlreadyStruckForSession(orbitId, booking)) {
+      already++;
+      continue;
+    }
+    const did = commitAutoModStrike(orbitId, booking, {
+      at: new Date(nowMs).toISOString(),
+      kind: 'auto',
+      reason: reason || (`9 AM checkpoint · session ${ymd} not completed`),
+      teamId: booking.teamId,
+      assignmentId: booking.id,
+      sessionDate: ymd,
+    }, nowMs);
+    if (!did) continue;
+    struck++;
+    rowStruck = true;
+  }
+  if (rowStruck || (considered > 0 && already === considered)) {
+    modStrikeStampAutoStrike(ckRow, aliases, asgnKey, aid, sessionKey);
+  }
+  return struck;
+}
+
+function modStrikeApplyForwardAutoStrikes(nowMs, ckRow) {
+  if (!ckRow) return 0;
+  const bookings = modStrikeForwardCandidateBookings(nowMs);
+  let struck = 0;
+  for (let i = 0; i < bookings.length; i++) {
+    const booking = bookings[i];
+    if (typeof modStrikeAssignmentEvidence === 'function' && modStrikeAssignmentEvidence(booking) !== 'incomplete') continue;
+    if (modStrikeAssignmentMutedBySkipOrResolve(booking)) continue;
+    if (typeof isPastAssignmentSessionEnd === 'function' && !isPastAssignmentSessionEnd(booking, nowMs)) continue;
+    const ymd = modStrikeBookingYmd(booking);
+    const primaries = (typeof modStrikePrimariesForBooking === 'function')
+      ? modStrikePrimariesForBooking(booking) : [];
+    let teamName = '';
+    try {
+      const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+      const team = teams.find(t => t && String(t.id) === String(booking.teamId));
+      if (team && team.name) teamName = team.name;
+    } catch (_) {}
+    struck += modStrikeAttemptAutoStrike(
+      booking,
+      primaries,
+      nowMs,
+      ckRow,
+      `9 AM checkpoint · ${teamName || 'Team'} session ${ymd} not completed`
+    );
+  }
+  return struck;
+}
+
 function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (!booking || !orbitId) return false;
   const now = nowMs != null ? nowMs : Date.now();
   if (!isPastModStrikeCheckpointHour(now)) return false;
+  // Older than yesterday is frozen. Yesterday catch-up and today both
+  // wait for the 9 AM gate. Tomorrow-forward is watched, not struck early.
+  if (!modStrikeForwardAutoStrikeEligible(booking, now)) return false;
+  if (modStrikeAssignmentMutedBySkipOrResolve(booking)) return false;
   const deadline = assignmentAutoStrikeDeadlineMs(booking);
-  if (!Number.isFinite(deadline) || now < deadline) return false;
-  // Team-OR: station_4_done / session_done / wrap / full scenarios on any
-  // primary completes the assignment. Completed before 9 AM is not a strike.
+  const morningAfterOpen = Number.isFinite(deadline) && now >= deadline;
+  const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
+  const sessionDate = modStrikeBookingYmd(booking);
+  // Today: after 9:00 AM PT and after the booked end.
+  // Yesterday: morningAfterOpen is 9:00 AM PT today (the catch-up).
+  const sameDayDeadlineOpen = sessionDate === today
+    && (typeof isPastAssignmentSessionEnd === 'function')
+    && isPastAssignmentSessionEnd(booking, now);
+  if (!morningAfterOpen && !sameDayDeadlineOpen) return false;
+  // Team-OR: station_4_done / session_done / sessionCompletedAt on any
+  // co-mod completes the assignment. Cancelled and soft-close stay out.
   if (modStrikeAssignmentEvidence(booking) !== 'incomplete') return false;
   if (modStrikeSessionAlreadyMuted(booking)) return false;
   return applyRecordedSessionStrike(orbitId, booking, entry);
@@ -31905,68 +32193,38 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   const todayPst = getPSTDateString();
   const store = loadModStrikeStore();
   const ck = store.checkpoints[todayPst];
-  if (ck && ck.applied) return report;
+  // applied closes yesterday's batch only. A session dated today can
+  // still become due later, after its booked end.
+  const yesterdayClosed = !!(ck && ck.applied);
 
   if (!store.checkpoints[todayPst]) store.checkpoints[todayPst] = { applied: false };
   const ckRow = store.checkpoints[todayPst];
   if (!ckRow.teamAutoStrike || typeof ckRow.teamAutoStrike !== 'object') ckRow.teamAutoStrike = {};
   let struck = 0;
-  for (const row of report.teams) {
-    if (row.completed || row.skipped || row.resolved) continue;
-    if (row.evidence !== 'incomplete') continue;
-    if (!row.pastSessionEnd || !row.strikeGateOpen) continue;
-    const aid = row.assignmentId != null && row.assignmentId !== '' ? String(row.assignmentId) : '';
-    const ymd = String(row.sessionDate || report.yesterday || '');
-    const sessionKey = aid ? (aid + '|' + ymd) : '';
-    const booking = aid
-      ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
-          .find(a => a && String(a.id) === aid)
-      : null;
-    if (!booking) continue;
-    const asgnKey = (typeof modStrikeAssignmentDateKey === 'function')
-      ? modStrikeAssignmentDateKey(modStrikeCanonicalAssignmentId(booking), ymd) : '';
-    // Same assignment + date is one strike, even when the other List row
-    // has a different teamId. Do not key this gate by teamId.
-    if (asgnKey && ckRow.teamAutoStrike[asgnKey]) continue;
-    if ((aid && ckRow.teamAutoStrike[aid]) || (sessionKey && ckRow.teamAutoStrike[sessionKey])) continue;
-    const aliases = (typeof modStrikeSessionAliasKeys === 'function')
-      ? modStrikeSessionAliasKeys(booking) : [];
-    if (aliases.some(k => ckRow.teamAutoStrike[k])) continue;
-    let rowStruck = false;
-    let considered = 0;
-    let already = 0;
-    const seenOrbit = new Set();
-    for (const orbitId of row.primaryIds) {
-      const orbitKey = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
-      if (!orbitKey || seenOrbit.has(orbitKey)) continue;
-      seenOrbit.add(orbitKey);
-      considered++;
-      if (typeof modAlreadyStruckForSession === 'function' && modAlreadyStruckForSession(orbitId, booking)) {
-        already++;
-        continue;
-      }
-      const did = commitAutoModStrike(orbitId, booking, {
-        at: new Date(nowMs).toISOString(),
-        kind: 'auto',
-        reason: `9 AM checkpoint · ${row.teamName} session ${report.yesterday} not completed`,
-        teamId: row.teamId,
-        assignmentId: row.assignmentId,
-        sessionDate: row.sessionDate || report.yesterday,
-      }, nowMs);
-      if (!did) continue;
-      struck++;
-      rowStruck = true;
+  if (!yesterdayClosed) {
+    for (const row of report.teams) {
+      if (row.completed || row.skipped || row.resolved) continue;
+      if (row.evidence !== 'incomplete') continue;
+      if (!row.pastSessionEnd || !row.strikeGateOpen) continue;
+      const aid = row.assignmentId != null && row.assignmentId !== '' ? String(row.assignmentId) : '';
+      const booking = aid
+        ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
+            .find(a => a && String(a.id) === aid)
+        : null;
+      if (!booking) continue;
+      // Older than yesterday is refused inside commitAutoModStrike.
+      // Yesterday stays eligible here once today's 9 AM gate is open.
+      struck += modStrikeAttemptAutoStrike(
+        booking,
+        row.primaryIds,
+        nowMs,
+        ckRow,
+        `9 AM checkpoint · ${row.teamName} session ${report.yesterday} not completed`
+      );
     }
-    // Stamp every alias (both co-mod assignment ids, the OD schedule, the
-    // crew night) so the mirror row and a later pass no-op.
-    if (!(rowStruck || (considered > 0 && already === considered))) continue;
-    aliases.forEach(k => {
-      ckRow.teamAutoStrike[k] = true;
-      if (String(k).indexOf('aid:') === 0) ckRow.teamAutoStrike[String(k).slice(4)] = true;
-    });
-    if (asgnKey) ckRow.teamAutoStrike[asgnKey] = true;
-    if (aid) ckRow.teamAutoStrike[aid] = true;
-    if (sessionKey) ckRow.teamAutoStrike[sessionKey] = true;
+  }
+  if (typeof modStrikeApplyForwardAutoStrikes === 'function') {
+    struck += modStrikeApplyForwardAutoStrikes(nowMs, ckRow);
   }
   const allResolved = report.teams.every(t => {
     if (t.completed || t.skipped || t.resolved) return true;
@@ -32036,20 +32294,39 @@ function stampModStrikeCheckpointOccurrence(field, teamId, assignmentId, booking
   return key;
 }
 
+// Banner subject is yesterday. If that team has no yesterday row, Skip
+// still has to stick on the forward booking the 9 AM job can strike.
+function modStrikeCheckpointBookingForTeam(teamId) {
+  const id = String(teamId || '').trim();
+  const rep = (typeof buildModStrikeCheckpointReport === 'function')
+    ? buildModStrikeCheckpointReport() : null;
+  const row = rep && Array.isArray(rep.teams)
+    ? rep.teams.find(t => t && String(t.teamId) === id) : null;
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  if (row && row.assignmentId != null && row.assignmentId !== '') {
+    const booking = list.find(a => a && String(a.id) === String(row.assignmentId)) || null;
+    return { assignmentId: row.assignmentId, booking: booking };
+  }
+  const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
+  let hit = null;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || String(a.teamId) !== id) continue;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') continue;
+    const ymd = String(a.date || '').split('T')[0];
+    if (today && ymd && ymd < today) continue;
+    if (!hit || String(a.date || '') < String(hit.date || '')) hit = a;
+  }
+  if (!hit) return { assignmentId: '', booking: null };
+  return { assignmentId: hit.id, booking: hit };
+}
+
 function skipModStrikeCheckpointTeam(teamId) {
   const id = String(teamId || '').trim();
   if (!id) return;
-  const rep = (typeof buildModStrikeCheckpointReport === 'function')
-    ? buildModStrikeCheckpointReport()
-    : null;
-  const row = rep && Array.isArray(rep.teams)
-    ? rep.teams.find(t => String(t.teamId) === id)
-    : null;
-  const asgnId = row && row.assignmentId != null ? row.assignmentId : '';
-  const booking = asgnId
-    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
-        .find(a => a && String(a.id) === String(asgnId))
-    : null;
+  const subject = modStrikeCheckpointBookingForTeam(id);
+  const asgnId = subject.assignmentId != null ? subject.assignmentId : '';
+  const booking = subject.booking || null;
   stampModStrikeCheckpointOccurrence('skippedTeams', id, asgnId, booking);
   // Also stamp resolved so Overview glow + flag list treat Skip like Strike.
   stampModStrikeCheckpointOccurrence('resolvedTeams', id, asgnId, booking);
@@ -32066,17 +32343,11 @@ function skipModStrikeCheckpointTeam(teamId) {
 function resolveModStrikeCheckpointTeam(teamId) {
   const id = String(teamId || '').trim();
   if (!id) return;
-  const rep = (typeof buildModStrikeCheckpointReport === 'function')
-    ? buildModStrikeCheckpointReport()
-    : null;
-  const row = rep && Array.isArray(rep.teams)
-    ? rep.teams.find(t => String(t.teamId) === id)
-    : null;
-  const asgnId = row && row.assignmentId != null ? row.assignmentId : '';
-  const booking = asgnId
-    ? ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
-        .find(a => a && String(a.id) === String(asgnId))
-    : null;
+  const subject = (typeof modStrikeCheckpointBookingForTeam === 'function')
+    ? modStrikeCheckpointBookingForTeam(id)
+    : { assignmentId: '', booking: null };
+  const asgnId = subject.assignmentId != null ? subject.assignmentId : '';
+  const booking = subject.booking || null;
   stampModStrikeCheckpointOccurrence('resolvedTeams', id, asgnId, booking);
   if (typeof flushPersistModeratorStrikesSetting === 'function') {
     flushPersistModeratorStrikesSetting();

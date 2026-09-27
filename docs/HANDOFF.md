@@ -1,6 +1,32 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-26 · Grok · Admin checklist mirror shows co-mod progress (1.3.091825o)
+**Last updated:** 2026-09-27 · Grok · 9 AM catch-up restored for yesterday only (1.3.091826b)
+
+## 2026-09-27 · Grok · Yesterday 9 AM catch-up restored (1.3.091826b)
+
+**Ask:** David reviewed **1.3.091826a** and asked to put back the next-morning catch-up for a truly unfinished session from yesterday. Keep every other guard. Do not merge until AHP re-reviews.
+
+**Fix:** At 9:00 AM Pacific today, a session dated yesterday can take one automatic star per person if it is still unfinished. Skipped, resolved, already struck, cancelled, moderator cancel, soft-close Done, and a co-moderator finish on that same date still block it. A session older than yesterday never gets a new automatic strike. A session dated today still waits until after 9:00 AM and after its booked end. Tomorrow and later are watched and do not lose a star early.
+
+**Version:** **1.3.091826b**. Selftest: `scripts/mod-strike-forward-gate-selftest.js` (25 passed). Strike selftest 118 passed. Once-per-session 16 passed.
+
+**PR:** draft [#182](https://github.com/DK-Centific/Twilight-Tracker/pull/182) on `cursor/am-strike-forward-gate-8684`. Do **not** merge until AHP re-reviews. Not on the live site until then.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091826b**. A last-night team that truly did not finish can lose one star at 9:00 AM Pacific. A skipped or finished team should stay at 4. A session from two or more days ago should not lose a star.
+
+## 2026-09-27 · Grok · 9 AM auto-strike forward gate (1.3.091826a)
+
+**Ask:** Stop false-positive 9 AM auto-strikes. Sep 25 Narendra×Amy and Adidela×Jashit were struck even though Power Automate had marked those assignment ids skipped and resolved on SessionState 450 (stars stay 4/4). Older nights were marked the same way and must never be struck again. No OneData writes. No Power Automate flow changes.
+
+**Cause:** At 9:00 AM Pacific the next morning, a past unfinished row was still eligible for a new automatic strike. Skip/resolved was stored under the OneData id (`od_…`). The strike check often looked up the list row id, so the skip did not stick. A co-moderator finish saved on that OneData id (`station_4_done`, `session_done`, or `sessionCompletedAt`) could also be missed, so the team still looked unfinished.
+
+**Fix:** A session dated before today Pacific is never given a new automatic strike. An assignment id in the skipped or resolved set (list id or `od_…`, any checkpoint day) is never re-struck. If either co-moderator has `station_4_done`, `session_done`, or `sessionCompletedAt` on that session date, the team is not auto-struck. A new automatic strike can only land on a session dated today, after 9:00 AM Pacific, and only after the booked end has passed and the team is still unfinished. Tomorrow and later are watched and do not lose a star early. Cancelled, moderator cancel, and soft-close-as-Done stay out. One star per person per session. Admin Skip still sticks, including on a today booking when there is no yesterday row.
+
+**Version:** **1.3.091826a**. Selftest: `scripts/mod-strike-forward-gate-selftest.js`. Also strike, once-per-session, incomplete-alert, soft-close, and cancel selftests.
+
+**PR:** draft [#182](https://github.com/DK-Centific/Twilight-Tracker/pull/182) on `cursor/am-strike-forward-gate-8684`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091826a**. The six sessions Power Automate already marked skipped should stay at 4 stars after a refresh. A session from a previous day should not lose a star at 9:00 AM. A session dated today that already ended and is still unfinished can lose one star per person after 9:00 AM Pacific.
 
 ## 2026-09-26 · Grok · Admin checklist mirror shows co-mod progress (1.3.091825o)
 
