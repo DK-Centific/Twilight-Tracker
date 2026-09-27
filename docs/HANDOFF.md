@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-27 · Grok · 9 AM auto-strike forward gate (1.3.091826a)
+**Last updated:** 2026-09-27 · Grok · 9 AM catch-up restored for yesterday only (1.3.091826b)
+
+## 2026-09-27 · Grok · Yesterday 9 AM catch-up restored (1.3.091826b)
+
+**Ask:** David reviewed **1.3.091826a** and asked to put back the next-morning catch-up for a truly unfinished session from yesterday. Keep every other guard. Do not merge until AHP re-reviews.
+
+**Fix:** At 9:00 AM Pacific today, a session dated yesterday can take one automatic star per person if it is still unfinished. Skipped, resolved, already struck, cancelled, moderator cancel, soft-close Done, and a co-moderator finish on that same date still block it. A session older than yesterday never gets a new automatic strike. A session dated today still waits until after 9:00 AM and after its booked end. Tomorrow and later are watched and do not lose a star early.
+
+**Version:** **1.3.091826b**. Selftest: `scripts/mod-strike-forward-gate-selftest.js` (25 passed). Strike selftest 118 passed. Once-per-session 16 passed.
+
+**PR:** draft [#182](https://github.com/DK-Centific/Twilight-Tracker/pull/182) on `cursor/am-strike-forward-gate-8684`. Do **not** merge until AHP re-reviews. Not on the live site until then.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091826b**. A last-night team that truly did not finish can lose one star at 9:00 AM Pacific. A skipped or finished team should stay at 4. A session from two or more days ago should not lose a star.
 
 ## 2026-09-27 · Grok · 9 AM auto-strike forward gate (1.3.091826a)
 

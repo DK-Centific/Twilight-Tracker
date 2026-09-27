@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091826a';
-const APP_UPDATED_AT = '09/27/2026 02:50';
+const APP_VERSION = '1.3.091826b';
+const APP_UPDATED_AT = '09/27/2026 06:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -32028,16 +32028,22 @@ function modStrikeCoModStatusBlocksStrike(booking) {
   return false;
 }
 
-// New auto-strikes only. A sessionDate before today PT is frozen.
-// Today is eligible only after the 9:00 AM PT gate. Tomorrow and later
-// are in the forward set (they still do not lose a star before they end).
+// Who may be considered for a new auto-strike.
+// Older than yesterday stays frozen (the Sep 25 re-hits on ancient rows).
+// Yesterday is the 9:00 AM PT catch-up, only once today's gate is open.
+// Today is eligible only after that same gate. Tomorrow and later are
+// watched and do not lose a star before their own day.
 function modStrikeForwardAutoStrikeEligible(booking, nowMs) {
   const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
   const sessionDate = (typeof modStrikeBookingYmd === 'function') ? modStrikeBookingYmd(booking) : '';
   if (!today || !sessionDate) return false;
-  if (sessionDate < today) return false;
   if (sessionDate > today) return true;
-  return (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour(nowMs);
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour(nowMs);
+  if (sessionDate === today) return gateOpen;
+  const yesterday = (typeof addDaysToYmd === 'function') ? addDaysToYmd(today, -1) : '';
+  if (yesterday && sessionDate === yesterday) return gateOpen;
+  return false;
 }
 
 function modStrikeForwardCandidateBookings(nowMs) {
@@ -32148,16 +32154,16 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (!booking || !orbitId) return false;
   const now = nowMs != null ? nowMs : Date.now();
   if (!isPastModStrikeCheckpointHour(now)) return false;
-  // Past session dates are frozen. Today waits for the 9 AM gate.
-  // Tomorrow-forward is eligible to be considered, not to lose a star early.
+  // Older than yesterday is frozen. Yesterday catch-up and today both
+  // wait for the 9 AM gate. Tomorrow-forward is watched, not struck early.
   if (!modStrikeForwardAutoStrikeEligible(booking, now)) return false;
   if (modStrikeAssignmentMutedBySkipOrResolve(booking)) return false;
   const deadline = assignmentAutoStrikeDeadlineMs(booking);
   const morningAfterOpen = Number.isFinite(deadline) && now >= deadline;
   const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
   const sessionDate = modStrikeBookingYmd(booking);
-  // Same calendar day: the star lands only after 9:00 AM PT and after the
-  // booked end. Waiting until the next morning would freeze the date first.
+  // Today: after 9:00 AM PT and after the booked end.
+  // Yesterday: morningAfterOpen is 9:00 AM PT today (the catch-up).
   const sameDayDeadlineOpen = sessionDate === today
     && (typeof isPastAssignmentSessionEnd === 'function')
     && isPastAssignmentSessionEnd(booking, now);
@@ -32206,7 +32212,8 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
             .find(a => a && String(a.id) === aid)
         : null;
       if (!booking) continue;
-      // sessionDate before today is frozen inside commitAutoModStrike.
+      // Older than yesterday is refused inside commitAutoModStrike.
+      // Yesterday stays eligible here once today's 9 AM gate is open.
       struck += modStrikeAttemptAutoStrike(
         booking,
         row.primaryIds,

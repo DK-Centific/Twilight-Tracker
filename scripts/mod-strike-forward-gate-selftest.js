@@ -2,11 +2,10 @@
 'use strict';
 
 /**
- * 9 AM auto-strike forward gate (1.3.091826a).
- * Past session dates and skipped/resolved assignment ids are never re-struck.
- * Team complete (station_4_done / session_done / sessionCompletedAt) blocks.
- * New strikes: today after the 9 AM PT gate, once the booked end has passed,
- * or a later date that is only watched until its own day.
+ * 9 AM auto-strike forward gate (1.3.091826b).
+ * Older than yesterday is never auto-struck. Yesterday unfinished catch-up
+ * runs at today's 9:00 AM PT. Skipped, resolved, and team-complete still block.
+ * Today strikes after the gate and after the booked end. Tomorrow is watch-only.
  */
 
 const fs = require('fs');
@@ -31,9 +30,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM auto-strike forward gate');
 
-assert('version 1.3.091826a',
-  /const APP_VERSION = '1\.3\.091826a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091826a'));
+assert('version 1.3.091826b',
+  /const APP_VERSION = '1\.3\.091826b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091826b'));
 assert('forward gate helpers exist',
   /function modStrikeForwardAutoStrikeEligible/.test(src)
   && /function modStrikeAssignmentMutedBySkipOrResolve/.test(src)
@@ -96,6 +95,7 @@ vm.runInContext(block, ctx);
 
 const TODAY = '2026-09-26';
 const YESTERDAY = '2026-09-25';
+const OLDER = '2026-09-24';
 const TOMORROW = '2026-09-27';
 const afterGate = ctx.pacificWallClockToMs(TODAY, 10 * 60);
 const beforeGate = ctx.pacificWallClockToMs(TODAY, 8 * 60 + 30);
@@ -149,12 +149,22 @@ function row(opts) {
 }
 
 const past = booking({ date: YESTERDAY, id: '200015' });
+const older = booking({
+  id: 'ancient',
+  date: OLDER,
+  assignmentId: 'od_ancient',
+  odScheduleId: 'od_ancient',
+});
 const todayEarly = booking({ date: TODAY });
 const todayLate = booking({ date: TODAY, startMin: 18 * 60, endMin: 21 * 60 });
 const tomorrow = booking({ id: 'fut', date: TOMORROW, assignmentId: 'od_future', odScheduleId: 'od_future' });
 
-assert('sessionDate before today PT is not eligible',
-  ctx.modStrikeForwardAutoStrikeEligible(past, afterGate) === false);
+assert('sessionDate before yesterday is not eligible',
+  ctx.modStrikeForwardAutoStrikeEligible(older, afterGate) === false);
+assert('yesterday before the 9 AM gate is not eligible',
+  ctx.modStrikeForwardAutoStrikeEligible(past, beforeGate) === false);
+assert('yesterday after the 9 AM gate is eligible',
+  ctx.modStrikeForwardAutoStrikeEligible(past, afterGate) === true);
 assert('today before the 9 AM gate is not eligible',
   ctx.modStrikeForwardAutoStrikeEligible(todayEarly, beforeGate) === false);
 assert('today after the 9 AM gate is eligible',
@@ -163,12 +173,40 @@ assert('tomorrow-forward is eligible',
   ctx.modStrikeForwardAutoStrikeEligible(tomorrow, afterGate) === true
   && ctx.modStrikeForwardAutoStrikeEligible(tomorrow, beforeGate) === true);
 
-reset([past], [row({ sessionDate: YESTERDAY, sessionStatus: 'station_2_done' })]);
+reset([older], [row({
+  assignmentId: 'od_ancient',
+  sessionDate: OLDER,
+  sessionStatus: 'station_2_done',
+})]);
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate + 60000 });
-assert('sessionDate before today PT never re-strikes',
+assert('sessionDate before yesterday never auto-strikes',
   stars().n === 4 && stars().a === 4,
   JSON.stringify(stars()));
+
+reset([past], [row({ sessionDate: YESTERDAY, sessionStatus: 'station_2_done' })]);
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: beforeGate });
+assert('yesterday before 9 AM does not catch up',
+  stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate + 60000 });
+assert('yesterday unfinished at today 9 AM strikes once',
+  stars().n === 3 && stars().a === 3,
+  JSON.stringify(stars()));
+
+reset(
+  [past],
+  [row({ sessionDate: YESTERDAY, sessionStatus: 'station_2_done' })],
+  { '2026-09-26': { applied: false, skippedTeams: { od_6a8daffa: true }, resolvedTeams: { od_6a8daffa: true } } }
+);
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
+assert('yesterday skipped/resolved does not catch up',
+  stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
+
+reset([past], [row({ sessionDate: YESTERDAY, sessionStatus: 'station_4_done' })]);
+ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
+assert('yesterday team-complete does not catch up',
+  stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
 
 const healedIds = [
   'od_6a8daffa',
