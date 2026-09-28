@@ -14,7 +14,7 @@
 
 **Version:** **1.3.091827a**. Selftest: `scripts/overview-history-retain-selftest.js`. Also donut, soft-close, past-24h, past-history, day-summary, and incomplete-alert.
 
-**PR:** draft on `cursor/overview-history-retain-0abe`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#183](https://github.com/DK-Centific/Twilight-Tracker/pull/183) on `cursor/overview-history-retain-0abe`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091827a**. Sign in as Admin. Open **Overview**. Leave the filter on **All time** (Filters at the top, if it is closed). The ring should say **Total booked**, with Completed, Cancelled, and Open, and the total should include older finished and cancelled sessions, not only tonight. A finished soft-close team should add to **Completed**. A team that used **Cancel session** should add to **Cancelled**. Then open **Performance**. **Past** should still say **last 24 hours**. **All time** should show the older sessions again.
 
