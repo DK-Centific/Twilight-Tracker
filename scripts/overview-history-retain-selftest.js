@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview / Performance history after List hygiene (1.3.091827a).
+ * Overview / Performance history after List hygiene (1.3.091827b).
  *
  * List may drop older rows (reschedule hard-delete of leftover
  * non-Cancelled, or a short read). The donut and Performance history
@@ -105,11 +105,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview history retain self-test (1.3.091827a)');
+console.log('Overview history retain self-test (1.3.091827b)');
 
-assert('APP_VERSION 1.3.091827a',
-  src.includes("const APP_VERSION = '1.3.091827a'")
-  && html.includes('twilight.js?v=twilight-1.3.091827a'));
+assert('APP_VERSION 1.3.091827b',
+  src.includes("const APP_VERSION = '1.3.091827b'")
+  && html.includes('twilight.js?v=twilight-1.3.091827b'));
 
 const rememberAt = src.indexOf('rememberAssignmentHistory([].concat(local.assignments');
 const dropAt = src.indexOf('Dropped ${droppedStale} stale local assignment');
@@ -167,6 +167,8 @@ ctx.adminState.perfSessionStateRows = [{
   stateJson: { sessionStatus: 'session_done', sessionCompletedAt: '2026-09-16T05:00:00Z', sessionDate: '2026-09-15' },
 }];
 const combined = ctx.assignmentsWithRetainedHistory(ctx.adminState.assignments);
+const combinedAgain = ctx.assignmentsWithRetainedHistory(ctx.adminState.assignments);
+assert('retained history is reused until List or SessionState changes', combinedAgain === combined);
 const ids = combined.map(a => a.id);
 assert('live list alone is tonight, combined puts past facts back',
   ids.filter(id => String(id).indexOf('tonight-') === 0).length === 4
@@ -248,6 +250,7 @@ ctx.adminState.perfSessionStateRows = [
   },
 ];
 const fromSs = ctx.assignmentsWithRetainedHistory(ctx.adminState.assignments);
+assert('clearing the ledger rebuilds history from SessionState', fromSs !== combined);
 const ssIds = fromSs.map(a => a.id);
 assert('SessionState restores a finished session the List no longer has',
   ssIds.indexOf('ss-done') >= 0 && fromSs.find(a => a.id === 'ss-done').status === 'Completed');

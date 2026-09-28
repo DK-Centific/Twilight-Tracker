@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-28 · Grok · Overview booked history survives List hygiene (1.3.091827a)
+**Last updated:** 2026-09-28 · Grok · Performance tab clicks stay snappy (1.3.091827b)
+
+## 2026-09-28 · Grok · Performance tab loads and filters faster (1.3.091827b)
+
+**Ask:** Admin Performance felt slow to open and laggy when clicking filters. Keep Past as the last 24 hours, soft-close as Done/Completed, Cancelled with no strike, one strike per moderator, the first-open Helios animation, and calm tile fades. Client only. Do not merge until David says push.
+
+**Cause:** Keeping Completed and Cancelled history (1.3.091827a) rebuilt that remembered list once per team on every paint. Each rebuild re-read the saved history and walked every SessionState row. On a large set that was about 10–12 seconds per click. Filter clicks also replaced the whole Performance page, and each search or refresh added another click listener on the tile list. A clock bug at 11 PM Pacific made “Today” treat a month of old sessions as still open.
+
+**Fix:** The remembered list is built once and reused until the live list, SessionState, or saved history actually changes. Done/cancel answers are kept for the next filter click. Status and date clicks update the numbers and the tile list and leave the top bar in place. Flagged, Custom dates, Teams/Mods, and grid/list still rebuild the page once. The tile-list click listener is attached once. “Today” uses a corrected Pacific clock so late evening no longer pulls in old sessions. First open still plays the Helios entrance. Later clicks use the short calm fade.
+
+**Measured (large fake set: 80 teams, 1600 assignments, 3200 SessionState rows):** Today first open about 0.2s. Past about 0.05s. All time the first time about 2.4s (each old booking is scored once). The next All time, Done, Past, or Today click is about 0.05–0.07s. Before this, every click was about 10–12s.
+
+**Version:** **1.3.091827b**. Selftests: overview history retain, paint memo, calm motion, past 24h, past history (7pm–11pm is four hours), soft-close, Live/Next/Done, overnight, strikes, incomplete alert, admin mirror, panel, day summary, live-status flicker.
+
+**PR:** draft on `cursor/perf-tab-snappy-456d`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091827b**. Sign in as Admin. Open **Performance**. The first open can still take a moment on All time. Then click **Past**, **Today**, **All time**, and **Done**. Those clicks should feel immediate. The top tiles should stay put and only the list underneath should change, with a short fade. Cancelled sessions should still have no strike. A finished soft-close should still say Completed.
 
 ## 2026-09-28 · Grok · Overview Completed/Cancelled keep past sessions (1.3.091827a)
 

@@ -24,11 +24,11 @@ function sliceFn(startMark, endMark) {
   return src.slice(i, j);
 }
 
-console.log('Performance calm motion self-test (1.3.091827a)');
+console.log('Performance calm motion self-test (1.3.091827b)');
 
-assert('APP_VERSION 1.3.091827a',
-  /const APP_VERSION = '1\.3\.091827a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091827a'));
+assert('APP_VERSION 1.3.091827b',
+  /const APP_VERSION = '1\.3\.091827b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091827b'));
 
 const perfFn = sliceFn('function renderPerformance(body, opts)', 'function renderPerfTilesHTML');
 const incidentFn = sliceFn('function renderIncidentReport', 'function renderIncidentTilesHTML');
@@ -68,6 +68,19 @@ assert('filter fade does not re-enter status tiles or toolbar',
 assert('search uses soft play, not a tile restagger',
   (src.match(/perfPlayMotion\(body, 'soft'\)/g) || []).length >= 2
   && !/classList\.add\('perf-restagger'\)/.test(src));
+assert('filter clicks keep the toolbar and swap the result list',
+  src.includes('function paintPerfFilterResults(body)')
+  && src.includes('function perfResultsShapeKey()')
+  && src.includes('paintPerfFilterResults(host)')
+  && src.includes('grid.innerHTML = html')
+  && src.includes('applyPerfStatusTileCounts(perfStatusToolbarCounts())')
+  && src.includes("perfPlayMotion(body, 'soft')"));
+const wireFn = sliceFn('function wirePerfTileGrid(grid)', 'function wirePerfTileBody');
+assert('drill clicks bind once; new tiles still get toggle listeners',
+  wireFn.includes("grid.querySelectorAll('.perf-tile')")
+  && wireFn.indexOf("grid.querySelectorAll('.perf-tile')")
+    < wireFn.indexOf('if (grid._perfDrillWired) return;')
+  && wireFn.includes('grid._perfDrillWired = true;'));
 
 if (failed) {
   console.error(failed + ' failed');

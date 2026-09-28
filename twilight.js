@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091827a';
-const APP_UPDATED_AT = '09/28/2026 03:20';
+const APP_VERSION = '1.3.091827b';
+const APP_UPDATED_AT = '09/28/2026 04:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -567,14 +567,20 @@ function getPSTDateString() {
   try {
     // 'en-CA' produces YYYY-MM-DD format directly via formatToParts.
     // Building this formatter is expensive. Performance calls "today"
-    // once per booking on a large history, so keep one formatter.
+    // once per booking on a large history, so keep one formatter and
+    // reuse the string for the current second.
     if (!getPSTDateString._fmt) {
       getPSTDateString._fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/Los_Angeles',
         year: 'numeric', month: '2-digit', day: '2-digit',
       });
     }
-    return getPSTDateString._fmt.format(new Date());
+    const bucket = Math.floor(Date.now() / 1000);
+    if (getPSTDateString._bucket === bucket && getPSTDateString._val) return getPSTDateString._val;
+    const val = getPSTDateString._fmt.format(new Date());
+    getPSTDateString._bucket = bucket;
+    getPSTDateString._val = val;
+    return val;
   } catch (e) {
     // Fallback: local timezone. Better than crashing · most users are
     // in PST anyway, the function only matters at the day boundary.
@@ -10058,6 +10064,24 @@ function overviewAssignmentIsPerfLive(a) {
 const ASGN_HISTORY_LEDGER_KEY = 'centific_orbit_asgn_history_v1';
 const ASGN_HISTORY_LEDGER_MAX = 1500;
 
+// Parsed ledger and the live+history list. Filter clicks used to
+// rebuild both once per team (localStorage parse + every SessionState
+// row). Same inputs return the same array. A new List, a new
+// SessionState array, or a changed ledger string builds again.
+let _asgnHistoryLedgerCache = { raw: undefined, rows: null };
+let _retainedAsgnCache = null;
+let _retainedFast = null;
+
+function perfClearRetainedFast() {
+  _retainedFast = null;
+}
+
+function assignmentHistoryLedgerRaw() {
+  const store = assignmentHistoryStorage();
+  if (!store) return null;
+  try { return store.getItem(ASGN_HISTORY_LEDGER_KEY); } catch (_) { return null; }
+}
+
 function assignmentHistoryStorage() {
   try {
     if (typeof localStorage !== 'undefined' && localStorage
@@ -10069,15 +10093,20 @@ function assignmentHistoryStorage() {
 }
 
 function loadAssignmentHistoryLedger() {
-  const store = assignmentHistoryStorage();
-  if (!store) return [];
-  try {
-    const raw = store.getItem(ASGN_HISTORY_LEDGER_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    const rows = Array.isArray(parsed) ? parsed : (parsed && parsed.rows);
-    return Array.isArray(rows) ? rows.filter(a => a && a.id != null && String(a.id) !== '') : [];
-  } catch (_) { return []; }
+  const raw = assignmentHistoryLedgerRaw();
+  if (_asgnHistoryLedgerCache.rows && _asgnHistoryLedgerCache.raw === raw) {
+    return _asgnHistoryLedgerCache.rows;
+  }
+  let rows = [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const list = Array.isArray(parsed) ? parsed : (parsed && parsed.rows);
+      rows = Array.isArray(list) ? list.filter(a => a && a.id != null && String(a.id) !== '') : [];
+    } catch (_) { rows = []; }
+  }
+  _asgnHistoryLedgerCache = { raw: raw, rows: rows };
+  return rows;
 }
 
 function saveAssignmentHistoryLedger(rows) {
@@ -10317,9 +10346,37 @@ function retainedOverviewHistoryAssignments(liveList) {
 
 function assignmentsWithRetainedHistory(liveList) {
   const live = Array.isArray(liveList) ? liveList : [];
+  if (typeof _perfMemoDepth !== 'undefined' && _perfMemoDepth > 0
+      && _retainedFast && _retainedFast.liveRef === live) {
+    return _retainedFast.list;
+  }
+  const ss = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : null;
+  const raw = assignmentHistoryLedgerRaw();
+  const ssLen = ss ? ss.length : -1;
+  const hit = _retainedAsgnCache;
+  if (hit && hit.liveRef === live && hit.liveLen === live.length
+      && hit.ssRef === ss && hit.ssLen === ssLen
+      && hit.ledgerRaw === raw) {
+    if (typeof _perfMemoDepth !== 'undefined' && _perfMemoDepth > 0) {
+      _retainedFast = { liveRef: live, list: hit.list };
+    }
+    return hit.list;
+  }
   const extra = retainedOverviewHistoryAssignments(live);
-  if (!extra.length) return live;
-  return live.concat(extra);
+  const list = extra.length ? live.concat(extra) : live;
+  _retainedAsgnCache = {
+    liveRef: live,
+    liveLen: live.length,
+    ssRef: ss,
+    ssLen: ssLen,
+    ledgerRaw: raw,
+    list: list,
+  };
+  if (typeof _perfMemoDepth !== 'undefined' && _perfMemoDepth > 0) {
+    _retainedFast = { liveRef: live, list: list };
+  }
+  return list;
 }
 
 // Pure function: filters + raw state -> metrics object
@@ -12151,9 +12208,15 @@ function assignmentSessionStateSaysCancelled(a) {
 // Moderator Cancel session on this booking. Admin cancel (status
 // Cancelled without this comment and without SessionState Cancelled)
 // stays out of the Performance list. Live / Next / Done stay null.
+function perfBookingFactKey(a) {
+  return String(a.id) + '\n' + String(a.status || '') + '\n' + String(a.comment || '') + '\n'
+    + String(a.date || '') + '\n' + String(a.startMin == null ? '' : a.startMin) + '\n'
+    + String(a.endMin == null ? '' : a.endMin);
+}
+
 function perfAssignmentIsTeamCancelled(a) {
   const _map = (typeof _perfCancelMemo !== 'undefined') ? _perfCancelMemo : null;
-  const _key = (_map && a && a.id != null) ? String(a.id) : '';
+  const _key = (_map && a && a.id != null) ? perfBookingFactKey(a) : '';
   if (_key && _map.has(_key)) return _map.get(_key);
   let result = false;
   if (a) {
@@ -12178,18 +12241,46 @@ let _perfHistoryMemo = null;
 let _perfHistoryByTeam = null;
 let _perfAliasMemo = null;
 let _perfAliasIndex = null;
+let _perfCancelledScan = null;
+// Happypath and cancel answers survive the next filter click. They do
+// not depend on the clock. Classify and Flagged do, so those maps are
+// emptied every paint. A new List or SessionState array drops the stores.
+let _perfHappyStore = null;
+let _perfCancelStore = null;
+let _perfFactWatch = { ss: null, ssLen: -2, asg: null, asgLen: -2 };
+
+function perfFactInputsChanged() {
+  const ss = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : null;
+  const asg = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : null;
+  const ssLen = ss ? ss.length : -1;
+  const asgLen = asg ? asg.length : -1;
+  if (_perfFactWatch.ss === ss && _perfFactWatch.ssLen === ssLen
+      && _perfFactWatch.asg === asg && _perfFactWatch.asgLen === asgLen) {
+    return false;
+  }
+  _perfFactWatch = { ss: ss, ssLen: ssLen, asg: asg, asgLen: asgLen };
+  return true;
+}
 
 function perfMemoBegin() {
   if (_perfMemoDepth > 0) { _perfMemoDepth++; return; }
   _perfMemoDepth = 1;
+  if (perfFactInputsChanged() || !_perfHappyStore || !_perfCancelStore) {
+    _perfHappyStore = new Map();
+    _perfCancelStore = new Map();
+  }
   _perfClassifyMemo = new Map();
-  _perfHappyMemo = new Map();
+  _perfHappyMemo = _perfHappyStore;
   _perfFlagMemo = new Map();
-  _perfCancelMemo = new Map();
+  _perfCancelMemo = _perfCancelStore;
   _perfHistoryMemo = null;
   _perfHistoryByTeam = null;
   _perfAliasMemo = new Map();
   _perfAliasIndex = null;
+  _perfCancelledScan = null;
+  if (typeof perfClearRetainedFast === 'function') perfClearRetainedFast();
 }
 
 function perfMemoEnd() {
@@ -12204,6 +12295,8 @@ function perfMemoEnd() {
   _perfHistoryByTeam = null;
   _perfAliasMemo = null;
   _perfAliasIndex = null;
+  _perfCancelledScan = null;
+  if (typeof perfClearRetainedFast === 'function') perfClearRetainedFast();
 }
 
 function classifyBookingForPerf(a) {
@@ -12221,6 +12314,22 @@ function classifyBookingForPerf(a) {
   if (a.status === 'Unassigned') return remember(null);
   if (!softClose && a.status === 'Cancelled') return remember(null);
   if (!softClose && typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return remember(null);
+  // List Completed is Done. Team-cancel already returned above, including
+  // a SessionState Cancelled row, so this does not need another status walk.
+  if (a.status === 'Completed') return remember('completed');
+  // Past sessions only need the team happypath. Skip the live-status
+  // walk until a session might still be in its window.
+  const pastEnd = (typeof isPastAssignmentSessionEnd === 'function')
+    && isPastAssignmentSessionEnd(a);
+  const teamDone = (typeof isAssignmentTeamHappypathComplete === 'function')
+    && isAssignmentTeamHappypathComplete(a);
+  if (teamDone && pastEnd) return remember('completed');
+  // Booked end has passed and the team did not finish. Not Live.
+  // Team-cancel already returned above, so this is Next (or hidden soft-close).
+  if (pastEnd) {
+    if (softClose) return remember(null);
+    return remember('scheduled');
+  }
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
   // -----------------------------------------
   // Prefer the moderator's live session progress over the static
@@ -12246,22 +12355,14 @@ function classifyBookingForPerf(a) {
     ? getLatestStatusForAssignment(a.id)
     : null;
   if (live && String(live.status || '').toLowerCase() === 'cancelled') return remember(null);
-  const pastEnd = (typeof isPastAssignmentSessionEnd === 'function')
-    && isPastAssignmentSessionEnd(a);
   const inLiveWindow = (typeof assignmentInPerfLiveWindow === 'function')
     ? assignmentInPerfLiveWindow(a)
     : false;
-  // Completed · admin marked it Completed, or a primary co-mod's
-  // happypath (session_done / station_4_done / full scenarios).
-  // station_4_done counts after booked end. session_done counts as
-  // soon as that primary reaches it. A backup or a prior-day row does
-  // not finish the team.
-  if (a.status === 'Completed') return remember('completed');
-  const teamDone = (typeof isAssignmentTeamHappypathComplete === 'function')
-    && isAssignmentTeamHappypathComplete(a);
+  // session_done / office_checkout finish the team even before booked end.
+  // station_4_done / full scenarios already returned above when past end.
   if (teamDone) {
     const liveStatus = live ? String(live.status || '').toLowerCase() : '';
-    if (liveStatus === 'session_done' || liveStatus === 'office_checkout' || pastEnd) {
+    if (liveStatus === 'session_done' || liveStatus === 'office_checkout') {
       return remember('completed');
     }
   }
@@ -12940,7 +13041,7 @@ function assignmentHasSessionDoneStamp(a) {
 // The other co-mod can be short or have an empty SessionState.
 function isAssignmentTeamHappypathComplete(a) {
   const _map = (typeof _perfHappyMemo !== 'undefined') ? _perfHappyMemo : null;
-  const _key = (_map && a && a.id != null) ? String(a.id) : '';
+  const _key = (_map && a && a.id != null) ? perfBookingFactKey(a) : '';
   const remember = (v) => { if (_map && _key) _map.set(_key, v); return v; };
   if (_key && _map.has(_key)) return _map.get(_key);
   if (!a) return remember(false);
@@ -13636,6 +13737,66 @@ function markPerfChoice(root, attr, value) {
   }
 }
 
+// Shell pieces that force a full rebuild (Flagged, Custom dates, Teams/Mods, grid/list).
+// Status and date pills that keep this key only swap the result list.
+function perfResultsShapeKey() {
+  const section = (adminState && adminState.perfSection) || 'sessions';
+  const scope = (adminState && adminState.perfStatusScope) || 'all';
+  const range = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((adminState && adminState.perfDateRange) || 'today');
+  const layout = (adminState && adminState.perfListLayout) || 'grid';
+  const view = (adminState && adminState.perfView) || 'teams';
+  const shell = scope === 'flagged' ? 'flagged' : 'sessions';
+  const custom = (shell === 'sessions' && range === 'custom') ? 'custom' : 'plain';
+  return [section, shell, custom, view, layout].join('|');
+}
+
+// Filter / date clicks. Keep the toolbar mounted and replace the result
+// list. A shape change (Flagged, Custom, Teams/Mods, layout) still
+// rebuilds the shell once.
+function paintPerfFilterResults(body) {
+  const shape = (typeof perfResultsShapeKey === 'function') ? perfResultsShapeKey() : '';
+  const grid = body && body.querySelector ? body.querySelector('#perfTileGrid') : null;
+  const sameShell = !!(body && body.dataset && grid && shape
+    && body.dataset.perfShape === shape
+    && (adminState.perfStatusScope || 'all') !== 'flagged'
+    && (adminState.perfSection || 'sessions') !== 'incidents');
+  if (!sameShell) {
+    renderPerformance(body, { interactive: true });
+    return;
+  }
+  if (typeof perfMemoBegin === 'function') perfMemoBegin();
+  try {
+    const view = adminState.perfView || 'teams';
+    const search = (adminState.perfSearch || '').trim().toLowerCase();
+    const y = (typeof window !== 'undefined') ? (window.scrollY || 0) : 0;
+    const html = renderPerfTilesHTML(view, search);
+    grid.dataset.tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
+    const openIds = Array.from(grid.querySelectorAll('details[open][data-tile-id]'))
+      .map(el => el.getAttribute('data-tile-id'));
+    grid.innerHTML = html;
+    for (let i = 0; i < openIds.length; i++) {
+      const el = grid.querySelector('[data-tile-id="' + openIds[i] + '"]');
+      if (el) el.open = true;
+    }
+    wirePerfTileGrid(grid);
+    if (typeof perfStatusToolbarCounts === 'function' && typeof applyPerfStatusTileCounts === 'function') {
+      applyPerfStatusTileCounts(perfStatusToolbarCounts());
+    }
+    if (typeof perfLiveContentSig === 'function') {
+      try { body.dataset.perfLiveSig = perfLiveContentSig(); } catch (_) {}
+    }
+    if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, y);
+    if (typeof perfPlayMotion === 'function') {
+      if (typeof perfConsumeMotionKind === 'function') perfConsumeMotionKind();
+      perfPlayMotion(body, 'soft');
+    }
+  } finally {
+    if (typeof perfMemoEnd === 'function') perfMemoEnd();
+  }
+}
+
 // Filter / tile / date clicks. One frame later, rebuild results only.
 // Skips directory fetches and the SessionState hydrate that used to
 // render the tile list two more times after every click.
@@ -13650,6 +13811,8 @@ function schedulePerfInteractiveRepaint(body) {
     if (!host) return;
     if ((adminState.perfSection || 'sessions') === 'incidents') {
       renderIncidentReport(host, { interactive: true });
+    } else if (typeof paintPerfFilterResults === 'function') {
+      paintPerfFilterResults(host);
     } else {
       renderPerformance(host, { interactive: true });
     }
@@ -13892,7 +14055,7 @@ function perfStatusToolbarCounts() {
         const orbitId = perfModId(m);
         if (!orbitId) continue;
         const list = (typeof perfModAssignmentsForSource === 'function')
-          ? perfModAssignmentsForSource(orbitId, source)
+          ? perfModAssignmentsForSource(orbitId, source, { dateFirst: true })
           : perfModBookings(orbitId);
         for (const a of list) countAssignment(a, allowed);
       }
@@ -13900,7 +14063,7 @@ function perfStatusToolbarCounts() {
       for (const t of (adminState.teams || [])) {
         if (!t) continue;
         const list = (typeof perfTeamAssignmentsForSource === 'function')
-          ? perfTeamAssignmentsForSource(t.id, source)
+          ? perfTeamAssignmentsForSource(t.id, source, { dateFirst: true })
           : perfTeamBookings(t.id);
         for (const a of list) countAssignment(a, allowed);
       }
@@ -13919,20 +14082,8 @@ function perfStatusToolbarCounts() {
   return { all, completed, inprogress, scheduled, flagged };
 }
 
-function refreshPerfStatusTilesInPlace() {
-  const openedMemo = (typeof perfMemoBegin === 'function');
-  if (openedMemo) perfMemoBegin();
-  try {
-  if (typeof adminState !== 'undefined' && adminState && adminState.tab === 'overview'
-      && document.getElementById('ovLiveStatusList')
-      && typeof computeOverviewMetrics === 'function'
-      && typeof renderOverviewLiveStatusList === 'function') {
-    try {
-      renderOverviewLiveStatusList(computeOverviewMetrics().liveTeamSnapshots || []);
-    } catch (_) {}
-  }
-  if (typeof perfStatusToolbarCounts !== 'function') return;
-  const counts = perfStatusToolbarCounts();
+function applyPerfStatusTileCounts(counts) {
+  if (!counts || typeof document === 'undefined' || !document.querySelectorAll) return;
   document.querySelectorAll('[data-perf-status-scope]').forEach(btn => {
     const key = btn.dataset.perfStatusScope;
     const numEl = btn.querySelector('.perf-status-tile-num');
@@ -13953,6 +14104,22 @@ function refreshPerfStatusTilesInPlace() {
       btn.classList.toggle('has-attention', n > 0);
     }
   });
+}
+
+function refreshPerfStatusTilesInPlace() {
+  const openedMemo = (typeof perfMemoBegin === 'function');
+  if (openedMemo) perfMemoBegin();
+  try {
+  if (typeof adminState !== 'undefined' && adminState && adminState.tab === 'overview'
+      && document.getElementById('ovLiveStatusList')
+      && typeof computeOverviewMetrics === 'function'
+      && typeof renderOverviewLiveStatusList === 'function') {
+    try {
+      renderOverviewLiveStatusList(computeOverviewMetrics().liveTeamSnapshots || []);
+    } catch (_) {}
+  }
+  if (typeof perfStatusToolbarCounts !== 'function') return;
+  applyPerfStatusTileCounts(perfStatusToolbarCounts());
   } finally {
     if (openedMemo && typeof perfMemoEnd === 'function') perfMemoEnd();
   }
@@ -13997,10 +14164,28 @@ function perfTeamBookingCandidates(teamId) {
   const floorYmd = (todayStr && typeof addDaysToYmd === 'function')
     ? addDaysToYmd(todayStr, -1)
     : todayStr;
-  const raw = (adminState.assignments || []).filter(a =>
-    a && String(a.teamId) === String(teamId)
-    && a.status !== 'Cancelled' && a.status !== 'Unassigned'
-  );
+  const allLive = (adminState && adminState.assignments) || [];
+  if (perfTeamBookingCandidates._ref !== allLive || perfTeamBookingCandidates._len !== allLive.length) {
+    const byTeam = new Map();
+    for (let i = 0; i < allLive.length; i++) {
+      const row = allLive[i];
+      if (!row) continue;
+      const k = String(row.teamId);
+      let bucket = byTeam.get(k);
+      if (!bucket) { bucket = []; byTeam.set(k, bucket); }
+      bucket.push(row);
+    }
+    perfTeamBookingCandidates._ref = allLive;
+    perfTeamBookingCandidates._len = allLive.length;
+    perfTeamBookingCandidates._byTeam = byTeam;
+  }
+  const bucket = (perfTeamBookingCandidates._byTeam && perfTeamBookingCandidates._byTeam.get(String(teamId))) || [];
+  const raw = [];
+  for (let i = 0; i < bucket.length; i++) {
+    const row = bucket[i];
+    if (!row || row.status === 'Cancelled' || row.status === 'Unassigned') continue;
+    raw.push(row);
+  }
   const out = [];
   const seen = new Set();
   const consider = (asgn) => {
@@ -14136,13 +14321,22 @@ function perfTeamHistoryBookings(teamId) {
   return perfHistoryAssignments().filter(a => String(a.teamId) === String(teamId));
 }
 
-function perfTeamAssignmentsForSource(teamId, source) {
+function perfTeamAssignmentsForSource(teamId, source, opts) {
   const list = source === 'history'
     ? perfTeamHistoryBookings(teamId)
     : perfTeamBookingCandidates(teamId);
-  const visible = list.filter(a =>
-    (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a))
-    || classifyBookingForPerf(a));
+  const dateFirst = !!(opts && opts.dateFirst);
+  const range = dateFirst
+    ? ((typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : 'today')
+    : 'all';
+  const visible = [];
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a) continue;
+    if (dateFirst && range !== 'all' && typeof perfDateInRange === 'function' && !perfDateInRange(a, range)) continue;
+    if ((typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a))
+        || classifyBookingForPerf(a)) visible.push(a);
+  }
   return perfMergeTeamCancelledBookings(visible, a => String(a.teamId) === String(teamId));
 }
 
@@ -14177,13 +14371,25 @@ function perfModMatchedAssignments(modOrbitId) {
   });
 }
 
-function perfModAssignmentsForSource(modOrbitId, source) {
-  return perfModMatchedAssignments(modOrbitId).filter(a => {
-    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return true;
-    if (!classifyBookingForPerf(a)) return false;
-    if (source === 'history') return true;
-    return perfAssignmentVisibleInAdminQueue(a);
-  });
+function perfModAssignmentsForSource(modOrbitId, source, opts) {
+  const dateFirst = !!(opts && opts.dateFirst);
+  const range = dateFirst
+    ? ((typeof perfActiveDateRange === 'function') ? perfActiveDateRange() : 'today')
+    : 'all';
+  const matched = perfModMatchedAssignments(modOrbitId);
+  const visible = [];
+  for (let i = 0; i < matched.length; i++) {
+    const a = matched[i];
+    if (!a) continue;
+    if (dateFirst && range !== 'all' && typeof perfDateInRange === 'function' && !perfDateInRange(a, range)) continue;
+    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) {
+      visible.push(a);
+      continue;
+    }
+    if (!classifyBookingForPerf(a)) continue;
+    if (source === 'history' || perfAssignmentVisibleInAdminQueue(a)) visible.push(a);
+  }
+  return visible;
 }
 
 // Status Cancelled rows are dropped from the live queue and from history.
@@ -14198,11 +14404,29 @@ function perfMergeTeamCancelledBookings(list, pred) {
   const all = (typeof assignmentsWithRetainedHistory === 'function')
     ? assignmentsWithRetainedHistory(live)
     : live;
-  for (let i = 0; i < all.length; i++) {
-    const a = all[i];
+  // One paint merges once per team. Scan Cancelled rows once, then
+  // each team only walks that short list.
+  let scan = all;
+  let prefiltered = false;
+  if (typeof _perfMemoDepth !== 'undefined' && _perfMemoDepth > 0) {
+    if (!_perfCancelledScan || _perfCancelledScan.all !== all) {
+      const rows = [];
+      for (let i = 0; i < all.length; i++) {
+        const a = all[i];
+        if (!a || a.id == null) continue;
+        if (typeof perfAssignmentIsTeamCancelled !== 'function' || !perfAssignmentIsTeamCancelled(a)) continue;
+        rows.push(a);
+      }
+      _perfCancelledScan = { all: all, rows: rows };
+    }
+    scan = _perfCancelledScan.rows;
+    prefiltered = true;
+  }
+  for (let i = 0; i < scan.length; i++) {
+    const a = scan[i];
     if (!a || a.id == null || seen.has(String(a.id))) continue;
     if (pred && !pred(a)) continue;
-    if (typeof perfAssignmentIsTeamCancelled !== 'function' || !perfAssignmentIsTeamCancelled(a)) continue;
+    if (!prefiltered && (typeof perfAssignmentIsTeamCancelled !== 'function' || !perfAssignmentIsTeamCancelled(a))) continue;
     seen.add(String(a.id));
     out.push(a);
   }
@@ -14211,11 +14435,11 @@ function perfMergeTeamCancelledBookings(list, pred) {
 
 // All bookings for a team · used in team-tile expansion.
 function perfTeamBookings(teamId) {
-  return perfTeamAssignmentsForSource(teamId, perfUsesHistoryBookings() ? 'history' : 'queue');
+  return perfTeamAssignmentsForSource(teamId, perfUsesHistoryBookings() ? 'history' : 'queue', { dateFirst: true });
 }
 
 function perfModBookings(modOrbitId) {
-  return perfModAssignmentsForSource(modOrbitId, perfUsesHistoryBookings() ? 'history' : 'queue');
+  return perfModAssignmentsForSource(modOrbitId, perfUsesHistoryBookings() ? 'history' : 'queue', { dateFirst: true });
 }
 
 // Sort comparator factory. spec: { key: 'date'|'status', dir: 'asc'|'desc' }
@@ -15082,6 +15306,9 @@ function renderPerformance(body, opts) {
   if (body && typeof perfLiveContentSig === 'function') {
     try { body.dataset.perfLiveSig = perfLiveContentSig(); } catch (_) {}
   }
+  if (body && body.dataset && typeof perfResultsShapeKey === 'function') {
+    body.dataset.perfShape = perfResultsShapeKey();
+  }
 
   // Deep-link focus: expand + scroll to team tile when Overview Live row clicked
   if (adminState.perfFocusTeamId && statusScope !== 'flagged') {
@@ -15883,6 +16110,10 @@ function wirePerfTileGrid(grid) {
   // on click. We stopPropagation so a drill click doesn't accidentally
   // collapse the tile admin is trying to filter, and preventDefault to
   // be doubly safe across browser quirks.
+  //
+  // The grid element survives filter clicks and live polls. Bind once.
+  if (grid._perfDrillWired) return;
+  grid._perfDrillWired = true;
   grid.addEventListener('click', e => {
     // Drill chip click · toggle the per-tile status filter.
     const chip = e.target.closest('[data-perf-drill]');
@@ -31446,8 +31677,14 @@ function teamBookingOnDateForStrike(teamId, ymd) {
 function pacificWallClockToMs(ymd, minutesFromMidnight) {
   const d = String(ymd || '').trim();
   const totalMin = Number(minutesFromMidnight) || 0;
+  const cacheKey = d + '|' + totalMin;
+  if (!pacificWallClockToMs._cache) pacificWallClockToMs._cache = new Map();
+  if (pacificWallClockToMs._cache.has(cacheKey)) return pacificWallClockToMs._cache.get(cacheKey);
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
-  if (!m) return NaN;
+  if (!m) {
+    pacificWallClockToMs._cache.set(cacheKey, NaN);
+    return NaN;
+  }
   const y = Number(m[1]);
   const mo = Number(m[2]);
   const day = Number(m[3]);
@@ -31470,11 +31707,16 @@ function pacificWallClockToMs(ymd, minutesFromMidnight) {
     let ph = Number((parts.find(p => p.type === 'hour') || {}).value);
     if (ph === 24) ph = 0;
     const pmin = Number((parts.find(p => p.type === 'minute') || {}).value);
-    if (py === y && pm === mo && pd === day && ph === hour && pmin === minute) return utc;
-    const dayDelta = Math.round((Date.UTC(py, pm - 1, pd) - Date.UTC(y, mo - 1, day)) / 86400000);
-    const deltaMin = (hour * 60 + minute) - (ph * 60 + pmin) + dayDelta * 1440;
-    utc += deltaMin * 60000;
+    if (py === y && pm === mo && pd === day && ph === hour && pmin === minute) break;
+    // Shift by the wall-clock gap. Adding a raw day count here ran away
+    // for late evening hours (23:00 became weeks later), so Today treated
+    // a month of sessions as still open.
+    const delta = Date.UTC(y, mo - 1, day, hour, minute, 0, 0) - Date.UTC(py, pm - 1, pd, ph, pmin, 0, 0);
+    if (!delta) break;
+    utc += delta;
   }
+  if (pacificWallClockToMs._cache.size > 5000) pacificWallClockToMs._cache.clear();
+  pacificWallClockToMs._cache.set(cacheKey, utc);
   return utc;
 }
 
@@ -46624,6 +46866,10 @@ function sessionStateRowTeamId(r, asgnTeamMap) {
 
 function parseSessionStateJson(r) {
   if (!r) return {};
+  const srcJson = r.stateJson;
+  if (!parseSessionStateJson._cache) parseSessionStateJson._cache = new WeakMap();
+  const cached = (typeof srcJson === 'string') ? parseSessionStateJson._cache.get(r) : null;
+  if (cached && cached.src === srcJson) return cached.parsed;
   let parsed = {};
   try {
     parsed = (typeof r.stateJson === 'string') ? JSON.parse(r.stateJson || '{}') : (r.stateJson || {});
@@ -46637,6 +46883,7 @@ function parseSessionStateJson(r) {
   } catch (_) { parsed = {}; }
   const g = (typeof lastGeoFromSessionRow === 'function') ? lastGeoFromSessionRow(r, parsed) : parsed.lastGeo;
   if (g && !parsed.lastGeo) parsed.lastGeo = g;
+  if (typeof srcJson === 'string') parseSessionStateJson._cache.set(r, { src: srcJson, parsed: parsed });
   return parsed;
 }
 

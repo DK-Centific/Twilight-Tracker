@@ -47,9 +47,9 @@ function extractFn(name) {
 
 console.log('Moderator overnight stale-team self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.091827a',
-  /const APP_VERSION = '1\.3\.091827a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091827a'));
+assert('APP_VERSION 1.3.091827b',
+  /const APP_VERSION = '1\.3\.091827b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091827b'));
 
 const parseCtx = { console, String, parseInt };
 vm.createContext(parseCtx);
