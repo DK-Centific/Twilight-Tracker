@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091826b';
-const APP_UPDATED_AT = '09/27/2026 06:40';
+const APP_VERSION = '1.3.091827a';
+const APP_UPDATED_AT = '09/28/2026 03:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10049,6 +10049,279 @@ function overviewAssignmentIsPerfLive(a) {
     && classifyBookingForPerf(a) === 'inprogress';
 }
 
+// Assignment List is allowed to drop old rows (reschedule hard-deletes
+// leftover non-Cancelled rows for an odScheduleId; a short read can omit
+// older pages). Overview and Performance history must not treat that as
+// "no past bookings." Terminal facts (Completed, Cancelled, soft-close,
+// mod-cancel) are remembered here. Open Booked leftovers are not — those
+// are the rows the hard-delete is supposed to remove.
+const ASGN_HISTORY_LEDGER_KEY = 'centific_orbit_asgn_history_v1';
+const ASGN_HISTORY_LEDGER_MAX = 1500;
+
+function assignmentHistoryStorage() {
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage
+        && typeof localStorage.getItem === 'function') {
+      return localStorage;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function loadAssignmentHistoryLedger() {
+  const store = assignmentHistoryStorage();
+  if (!store) return [];
+  try {
+    const raw = store.getItem(ASGN_HISTORY_LEDGER_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const rows = Array.isArray(parsed) ? parsed : (parsed && parsed.rows);
+    return Array.isArray(rows) ? rows.filter(a => a && a.id != null && String(a.id) !== '') : [];
+  } catch (_) { return []; }
+}
+
+function saveAssignmentHistoryLedger(rows) {
+  const store = assignmentHistoryStorage();
+  if (!store) return;
+  try {
+    store.setItem(ASGN_HISTORY_LEDGER_KEY, JSON.stringify({
+      v: 1,
+      rows: Array.isArray(rows) ? rows : [],
+    }));
+  } catch (_) {}
+}
+
+function assignmentIsOverviewHistoryFact(a) {
+  if (!a || a.id == null || String(a.id) === '') return false;
+  // Synthesized SessionState shells are computed, not stored again.
+  if (a._historySynthetic === true) return false;
+  if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  if (a.status === 'Unassigned') return false;
+  if (a.status === 'Completed' || a.status === 'Cancelled') return true;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
+  if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) return true;
+  return false;
+}
+
+function assignmentHistorySnapshot(a) {
+  const pd = a.participantData && typeof a.participantData === 'object' ? {
+    firstName: a.participantData.firstName || '',
+    lastName: a.participantData.lastName || '',
+  } : null;
+  const mods = Array.isArray(a.modSnapshots) ? a.modSnapshots.map(s => ({
+    orbitLoginId: (s && (s.orbitLoginId || s.orbitId)) || '',
+    firstName: (s && s.firstName) || '',
+    lastName: (s && s.lastName) || '',
+  })).filter(s => s.orbitLoginId) : [];
+  return {
+    id: a.id,
+    teamId: a.teamId != null ? a.teamId : null,
+    teamName: a.teamName || '',
+    date: a.date || '',
+    startMin: a.startMin || 0,
+    endMin: a.endMin || 0,
+    status: a.status || '',
+    comment: a.comment || '',
+    odScheduleId: a.odScheduleId || '',
+    bookingGroupId: a.bookingGroupId || '',
+    assignmentId: a.assignmentId || '',
+    participantName: a.participantName || '',
+    participantData: pd,
+    modSnapshots: mods,
+    source: a.source || '',
+    savedAt: a.savedAt || '',
+    _historyRetained: true,
+  };
+}
+
+function rememberAssignmentHistory(assignments) {
+  const incoming = Array.isArray(assignments) ? assignments : [];
+  const facts = [];
+  for (let i = 0; i < incoming.length; i++) {
+    if (!assignmentIsOverviewHistoryFact(incoming[i])) continue;
+    facts.push(assignmentHistorySnapshot(incoming[i]));
+  }
+  if (!facts.length) return loadAssignmentHistoryLedger();
+  const byId = new Map();
+  loadAssignmentHistoryLedger().forEach(row => {
+    if (row && row.id != null) byId.set(String(row.id), row);
+  });
+  facts.forEach(row => byId.set(String(row.id), row));
+  let merged = [...byId.values()];
+  if (merged.length > ASGN_HISTORY_LEDGER_MAX) {
+    merged.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+    merged = merged.slice(0, ASGN_HISTORY_LEDGER_MAX);
+  }
+  saveAssignmentHistoryLedger(merged);
+  return merged;
+}
+
+function assignmentHistoryCoverKey(v) {
+  return String(v == null ? '' : v).trim().toLowerCase();
+}
+
+function assignmentHistoryCoverSet(list) {
+  const set = new Set();
+  const add = (v) => {
+    const k = assignmentHistoryCoverKey(v);
+    if (k) set.add(k);
+  };
+  (list || []).forEach(a => {
+    if (!a) return;
+    add(a.id);
+    add(a.assignmentId);
+    add(a.odScheduleId);
+    if (a.odScheduleId) add('od_' + String(a.odScheduleId).trim());
+    const team = a.teamId != null && String(a.teamId) !== '' ? String(a.teamId).toLowerCase() : '';
+    const day = String(a.date || '').slice(0, 10);
+    if (team && /^\d{4}-\d{2}-\d{2}$/.test(day)) set.add('teamday:' + team + '|' + day);
+  });
+  return set;
+}
+
+function assignmentHistoryRowCovered(row, cover) {
+  if (!row || !cover) return false;
+  const id = assignmentHistoryCoverKey(row.id);
+  if (id && cover.has(id)) return true;
+  const od = assignmentHistoryCoverKey(row.odScheduleId);
+  if (od && (cover.has(od) || cover.has(assignmentHistoryCoverKey('od_' + String(row.odScheduleId).trim())))) return true;
+  const aid = assignmentHistoryCoverKey(row.assignmentId);
+  if (aid && cover.has(aid)) return true;
+  const team = row.teamId != null && String(row.teamId) !== '' ? String(row.teamId).toLowerCase() : '';
+  const day = String(row.date || '').slice(0, 10);
+  if (team && /^\d{4}-\d{2}-\d{2}$/.test(day) && cover.has('teamday:' + team + '|' + day)) return true;
+  return false;
+}
+
+function sessionStateHistoryGroups(rows) {
+  const groups = new Map();
+  (rows || []).forEach(r => {
+    if (!r) return;
+    const sid = String(r.sessionStateId || '').toLowerCase();
+    if (sid.indexOf('app_setting') >= 0) return;
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) return;
+    const id = (typeof sessionStateRowResolvedAssignmentId === 'function')
+      ? String(sessionStateRowResolvedAssignmentId(r) || '').trim()
+      : String(r.assignmentId || '').trim();
+    if (!id || id.toLowerCase().indexOf('app_setting') >= 0) return;
+    if (typeof isGeoPresenceOrRemoteAssignmentId === 'function'
+        && isGeoPresenceOrRemoteAssignmentId(id)) return;
+    const key = id.toLowerCase();
+    let bucket = groups.get(key);
+    if (!bucket) { bucket = { id: id, rows: [] }; groups.set(key, bucket); }
+    bucket.rows.push(r);
+  });
+  return groups;
+}
+
+function sessionStateHistoryYmd(rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    let parsed = {};
+    try {
+      parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : {};
+    } catch (_) { parsed = {}; }
+    if (parsed && parsed.type === 'appSetting') continue;
+    const sd = String((parsed && parsed.sessionDate) || (r && r.sessionDate) || '').trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(sd)) return sd;
+    const stamp = (parsed && parsed.sessionCompletedAt) || (r && r.lastActive) || '';
+    if (stamp && typeof pstYmdFromTimestamp === 'function') {
+      const y = String(pstYmdFromTimestamp(stamp) || '');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(y)) return y;
+    }
+  }
+  return '';
+}
+
+function sessionStateHistoryOutcome(rows) {
+  let cancelled = false;
+  let completed = false;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (typeof sessionStateRowSaysCancelled === 'function' && sessionStateRowSaysCancelled(r)) {
+      cancelled = true;
+      continue;
+    }
+    let parsed = {};
+    try {
+      parsed = (typeof parseSessionStateJson === 'function') ? parseSessionStateJson(r) : {};
+    } catch (_) { parsed = {}; }
+    if (typeof sessionStateParsedIsHappypathComplete === 'function'
+        && sessionStateParsedIsHappypathComplete(parsed, r)) {
+      completed = true;
+    }
+  }
+  // SessionState Cancelled is a real cancel (including a mod-cancel wipe).
+  // It wins over a leftover session_done. Soft-close does not mark
+  // SessionState Cancelled, so a finished soft-close stays Completed.
+  if (cancelled) return 'cancelled';
+  if (completed) return 'completed';
+  return '';
+}
+
+function sessionStateHistoryAssignment(group) {
+  const rows = group.rows || [];
+  const outcome = sessionStateHistoryOutcome(rows);
+  if (outcome !== 'cancelled' && outcome !== 'completed') return null;
+  let teamId = null;
+  let orbit = '';
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (teamId == null && r && r.teamId != null && String(r.teamId) !== '') teamId = r.teamId;
+    if (!orbit && r && r.orbitLoginId) orbit = String(r.orbitLoginId);
+  }
+  return {
+    id: group.id,
+    teamId: teamId,
+    teamName: '',
+    date: sessionStateHistoryYmd(rows),
+    startMin: 19 * 60,
+    endMin: 23 * 60,
+    status: outcome === 'cancelled' ? 'Cancelled' : 'Completed',
+    comment: outcome === 'cancelled' ? 'mod-cancel-session' : '',
+    odScheduleId: '',
+    bookingGroupId: '',
+    modSnapshots: orbit ? [{ orbitLoginId: orbit }] : [],
+    _historyRetained: true,
+    _historySynthetic: true,
+  };
+}
+
+function sessionStateRetainedHistory(cover) {
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  const out = [];
+  sessionStateHistoryGroups(rows).forEach(group => {
+    const row = sessionStateHistoryAssignment(group);
+    if (!row) return;
+    if (assignmentHistoryRowCovered(row, cover)) return;
+    out.push(row);
+  });
+  return out;
+}
+
+function retainedOverviewHistoryAssignments(liveList) {
+  const live = Array.isArray(liveList) ? liveList : [];
+  const cover = assignmentHistoryCoverSet(live);
+  const out = [];
+  loadAssignmentHistoryLedger().forEach(row => {
+    if (!assignmentIsOverviewHistoryFact(row)) return;
+    if (assignmentHistoryRowCovered(row, cover)) return;
+    out.push(row);
+    assignmentHistoryCoverSet([row]).forEach(k => cover.add(k));
+  });
+  sessionStateRetainedHistory(cover).forEach(row => out.push(row));
+  return out;
+}
+
+function assignmentsWithRetainedHistory(liveList) {
+  const live = Array.isArray(liveList) ? liveList : [];
+  const extra = retainedOverviewHistoryAssignments(live);
+  if (!extra.length) return live;
+  return live.concat(extra);
+}
+
 // Pure function: filters + raw state -> metrics object
 function computeOverviewMetrics() {
   const f = adminState.overview;
@@ -10058,7 +10331,13 @@ function computeOverviewMetrics() {
   const allMods = adminState.moderators || [];
   const allParts = adminState.participants || [];
   const allTeams = adminState.teams || [];
-  const allAsgns = adminState.assignments || [];
+  const liveAsgns = adminState.assignments || [];
+  // Donut, bookings tile, and the day line use retained Completed /
+  // Cancelled history. Live teams still classify through the same list;
+  // a retained terminal row is not in progress.
+  const allAsgns = (typeof assignmentsWithRetainedHistory === 'function')
+    ? assignmentsWithRetainedHistory(liveAsgns)
+    : liveAsgns;
   const cache = (typeof loadWorklogCache === 'function') ? loadWorklogCache() : [];
 
   // ----- Apply team + moderator filters
@@ -13819,8 +14098,11 @@ function perfUsesHistoryBookings() {
 
 function perfHistoryAssignments() {
   if (typeof _perfHistoryMemo !== 'undefined' && _perfHistoryMemo) return _perfHistoryMemo;
-  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+  const live = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
     ? adminState.assignments : [];
+  const list = (typeof assignmentsWithRetainedHistory === 'function')
+    ? assignmentsWithRetainedHistory(live)
+    : live;
   // Booked / Rescheduled / Scheduled stay in. odStatus is not a hide rule.
   // Soft-close Cancelled stays in so Done can read happypath. Unassigned
   // and every other Cancelled (mod-cancel, admin cancel) stay out.
@@ -13866,7 +14148,11 @@ function perfTeamAssignmentsForSource(teamId, source) {
 
 function perfModMatchedAssignments(modOrbitId) {
   const lc = String(modOrbitId || '').toLowerCase();
-  return (adminState.assignments || []).filter(a => {
+  const live = adminState.assignments || [];
+  const source = (typeof assignmentsWithRetainedHistory === 'function')
+    ? assignmentsWithRetainedHistory(live)
+    : live;
+  return source.filter(a => {
     if (!a) return false;
     // A booking counts for a mod if EITHER:
     //   (1) they were captured on it at booking time (modSnapshots) · keeps
@@ -13907,8 +14193,11 @@ function perfMergeTeamCancelledBookings(list, pred) {
   const out = Array.isArray(list) ? list.slice() : [];
   const seen = new Set();
   out.forEach(a => { if (a && a.id != null) seen.add(String(a.id)); });
-  const all = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+  const live = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
     ? adminState.assignments : [];
+  const all = (typeof assignmentsWithRetainedHistory === 'function')
+    ? assignmentsWithRetainedHistory(live)
+    : live;
   for (let i = 0; i < all.length; i++) {
     const a = all[i];
     if (!a || a.id == null || seen.has(String(a.id))) continue;
@@ -28474,6 +28763,9 @@ function saveAssignmentData() {
     // teams would leak into localStorage on every save (e.g. when another
     // booking saves while a different pending team is in memory).
     const persistTeams = (adminState.teams || []).filter(t => !t._pending);
+    if (typeof rememberAssignmentHistory === 'function') {
+      try { rememberAssignmentHistory(adminState.assignments); } catch (_) {}
+    }
     localStorage.setItem(ASGN_STORAGE_KEY, JSON.stringify({
       teams: persistTeams,
       assignments: adminState.assignments,
@@ -29065,6 +29357,14 @@ async function fetchAssignmentsFromPA() {
   // because localStorage keeps them around. The user's "previously logged
   // assignment appears" bug was exactly this.
   const local = loadAssignmentData();
+  // Snapshot Completed / Cancelled (including soft-close and mod-cancel)
+  // before the stale-drop below. A later List read that omits those rows
+  // must not erase Overview / Performance history.
+  if (typeof rememberAssignmentHistory === 'function') {
+    try {
+      rememberAssignmentHistory([].concat(local.assignments || [], remoteAssignments || []));
+    } catch (_) {}
+  }
   const remoteIds = new Set(remoteAssignments.map(a => a.id));
   const remoteById = new Map(remoteAssignments.map(a => [a.id, a]));
   const localOnly = (local.assignments || []).filter(a =>

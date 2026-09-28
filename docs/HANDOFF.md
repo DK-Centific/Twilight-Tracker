@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-27 · Grok · 9 AM catch-up restored for yesterday only (1.3.091826b)
+**Last updated:** 2026-09-28 · Grok · Overview booked history survives List hygiene (1.3.091827a)
+
+## 2026-09-28 · Grok · Overview Completed/Cancelled keep past sessions (1.3.091827a)
+
+**Ask:** After Power Automate cleaned today’s Assignment List, Overview Team Check-in showed about **4 Completed and 0 Cancelled** and past totals disappeared. Soft-close stays Completed when the team finished. A real Cancel stays Cancelled. Performance **Past** stays the last 24 hours. Do not write List, SessionState, or OneData. Do not merge until David says push.
+
+**Cause:** The ring and Performance history only count Assignment rows still in memory. Each List read throws away any previously saved row the new read does not return. Cleaning today’s rows (and the reschedule rule that hard-deletes leftover non-Cancelled rows) therefore erased older Completed and Cancelled from the browser. The ring was not switched to “Today” — **All time** was already the default. It was only counting what the cleaned list still had. SessionState still knew which missing sessions were finished or cancelled, and the ring never asked it.
+
+**Fix:** Before that drop, Completed, Cancelled, soft-close, and moderator-cancel rows are remembered in this browser. Open Booked leftovers are not put back. Overview (All time / week / month / today) and Performance history (All time, This week, Custom, Done, and Past) add those remembered rows, plus a SessionState row for a missing assignment that is clearly finished or clearly cancelled. A finished soft-close counts as Completed. A cancel counts as Cancelled. Past is still only sessions whose booked end is inside the last 24 hours. The live Today queue, My session, and strikes still use the live list only.
+
+**Not recovered:** An unfinished soft-close that was deleted from the List before this browser ever saved it, and that SessionState does not mark cancelled, cannot be rebuilt. If SessionState itself only returns the newest page, older nights past that page stay missing. The calendar grid still draws the live List, so a deleted past day can look empty there even when the ring counts it.
+
+**Version:** **1.3.091827a**. Selftest: `scripts/overview-history-retain-selftest.js`. Also donut, soft-close, past-24h, past-history, day-summary, and incomplete-alert.
+
+**PR:** draft on `cursor/overview-history-retain-0abe`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091827a**. Sign in as Admin. Open **Overview**. Leave the filter on **All time** (Filters at the top, if it is closed). The ring should say **Total booked**, with Completed, Cancelled, and Open, and the total should include older finished and cancelled sessions, not only tonight. A finished soft-close team should add to **Completed**. A team that used **Cancel session** should add to **Cancelled**. Then open **Performance**. **Past** should still say **last 24 hours**. **All time** should show the older sessions again.
 
 ## 2026-09-27 · Grok · Yesterday 9 AM catch-up restored (1.3.091826b)
 
