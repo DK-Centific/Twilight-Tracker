@@ -14,7 +14,7 @@
 
 **Version:** **1.3.091827b**. Selftests: overview history retain, paint memo, calm motion, past 24h, past history (7pm–11pm is four hours), soft-close, Live/Next/Done, overnight, strikes, incomplete alert, admin mirror, panel, day summary, live-status flicker.
 
-**PR:** draft on `cursor/perf-tab-snappy-456d`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#184](https://github.com/DK-Centific/Twilight-Tracker/pull/184) on `cursor/perf-tab-snappy-456d`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091827b**. Sign in as Admin. Open **Performance**. The first open can still take a moment on All time. Then click **Past**, **Today**, **All time**, and **Done**. Those clicks should feel immediate. The top tiles should stay put and only the list underneath should change, with a short fade. Cancelled sessions should still have no strike. A finished soft-close should still say Completed.
 
