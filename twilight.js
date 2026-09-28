@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091827b';
-const APP_UPDATED_AT = '09/28/2026 04:50';
+const APP_VERSION = '1.3.091827c';
+const APP_UPDATED_AT = '09/28/2026 05:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12270,6 +12270,8 @@ function perfMemoBegin() {
   if (perfFactInputsChanged() || !_perfHappyStore || !_perfCancelStore) {
     _perfHappyStore = new Map();
     _perfCancelStore = new Map();
+    if (adminState) adminState._perfHistoryReady = false;
+    if (typeof perfDropResultCache === 'function') perfDropResultCache();
   }
   _perfClassifyMemo = new Map();
   _perfHappyMemo = _perfHappyStore;
@@ -13752,9 +13754,171 @@ function perfResultsShapeKey() {
   return [section, shell, custom, view, layout].join('|');
 }
 
+// Painted tile HTML for the current filters. A repeat click swaps this
+// string. It is dropped when the live list or SessionState changes.
+let _perfResultCache = null;
+let _perfClassifyJob = 0;
+
+function perfDropResultCache() {
+  _perfResultCache = null;
+}
+
+function perfResultCacheBucket() {
+  const ss = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : null;
+  const asg = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : null;
+  let raw = null;
+  try {
+    raw = (typeof assignmentHistoryLedgerRaw === 'function') ? assignmentHistoryLedgerRaw() : null;
+  } catch (_) { raw = null; }
+  const ssLen = ss ? ss.length : -1;
+  const asgLen = asg ? asg.length : -1;
+  const hit = _perfResultCache;
+  if (hit && hit.ss === ss && hit.ssLen === ssLen && hit.asg === asg && hit.asgLen === asgLen && hit.raw === raw) {
+    return hit;
+  }
+  const bucket = { ss: ss, ssLen: ssLen, asg: asg, asgLen: asgLen, raw: raw, map: new Map() };
+  _perfResultCache = bucket;
+  return bucket;
+}
+
+function perfResultCacheKey() {
+  const a = (typeof adminState !== 'undefined' && adminState) ? adminState : {};
+  const range = (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : (a.perfDateRange || 'today');
+  return [
+    a.perfSection || 'sessions',
+    a.perfStatusScope || 'all',
+    range,
+    a.perfCustomStart || '',
+    a.perfCustomEnd || '',
+    a.perfView || 'teams',
+    a.perfListLayout || 'grid',
+    String(a.perfSearch || '').trim().toLowerCase(),
+    a.perfFocusTeamId != null ? String(a.perfFocusTeamId) : '',
+  ].join('|');
+}
+
+function perfHistoryRowsForWarm() {
+  const live = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  if (typeof assignmentsWithRetainedHistory === 'function') return assignmentsWithRetainedHistory(live);
+  return live;
+}
+
+function perfActiveRangeKey() {
+  return (typeof perfActiveDateRange === 'function')
+    ? perfActiveDateRange()
+    : ((typeof adminState !== 'undefined' && adminState && adminState.perfDateRange) || 'today');
+}
+
+function perfRowsForClickSlice() {
+  const rows = perfHistoryRowsForWarm();
+  const range = perfActiveRangeKey();
+  if (!rows || range === 'all' || typeof perfDateInRange !== 'function') return rows || [];
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (perfDateInRange(rows[i], range)) out.push(rows[i]);
+  }
+  return out;
+}
+
+function perfClickShouldSlice() {
+  if (typeof adminState !== 'undefined' && adminState && adminState._perfHistoryReady) return false;
+  const range = perfActiveRangeKey();
+  if (range === 'today') return false;
+  const rows = perfHistoryRowsForWarm();
+  return !!(rows && rows.length > 48);
+}
+
+function perfCancelClassifyJob() {
+  _perfClassifyJob++;
+}
+
+// Score history a few milliseconds at a time so a click can paint
+// before the full list is walked. A newer click cancels this job.
+function perfStartClassifyJob(rows, done) {
+  const token = ++_perfClassifyJob;
+  const list = rows || [];
+  let i = 0;
+  const step = () => {
+    if (token !== _perfClassifyJob) return;
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (typeof perfMemoBegin === 'function') perfMemoBegin();
+    try {
+      while (i < list.length) {
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        if (now - t0 > 12) break;
+        if (typeof classifyBookingForPerf === 'function') {
+          try { classifyBookingForPerf(list[i]); } catch (_) {}
+        }
+        i++;
+      }
+    } finally {
+      if (typeof perfMemoEnd === 'function') perfMemoEnd();
+    }
+    if (token !== _perfClassifyJob) return;
+    if (i < list.length) setTimeout(step, 0);
+    else if (typeof done === 'function') done();
+  };
+  setTimeout(step, 0);
+  return token;
+}
+
+function perfScheduleHistoryWarm() {
+  if (typeof adminState === 'undefined' || !adminState || adminState._perfWarmArmed) return;
+  adminState._perfWarmArmed = true;
+  const start = () => {
+    if (adminState) adminState._perfWarmArmed = false;
+    if (!adminState || adminState.tab !== 'performance') return;
+    if ((adminState.perfSection || 'sessions') !== 'sessions') return;
+    const rows = perfHistoryRowsForWarm();
+    if (!rows || rows.length < 48) return;
+    perfStartClassifyJob(rows, () => {
+      if (adminState) adminState._perfHistoryReady = true;
+    });
+  };
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(start, { timeout: 500 });
+  else setTimeout(start, 120);
+}
+
+function capturePerfFilterSnapshot() {
+  if (typeof perfMemoBegin === 'function') perfMemoBegin();
+  try {
+    const view = (adminState && adminState.perfView) || 'teams';
+    const search = String((adminState && adminState.perfSearch) || '').trim().toLowerCase();
+    const html = (typeof renderPerfTilesHTML === 'function') ? renderPerfTilesHTML(view, search) : '';
+    const counts = (typeof perfStatusToolbarCounts === 'function') ? perfStatusToolbarCounts() : null;
+    return { html: html, counts: counts };
+  } finally {
+    if (typeof perfMemoEnd === 'function') perfMemoEnd();
+  }
+}
+
+function applyPerfFilterSnapshot(body, grid, snap) {
+  if (!grid || !snap) return;
+  const y = (typeof window !== 'undefined') ? (window.scrollY || 0) : 0;
+  const html = snap.html || '';
+  grid.dataset.tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
+  const openIds = Array.from(grid.querySelectorAll('details[open][data-tile-id]'))
+    .map(el => el.getAttribute('data-tile-id'));
+  grid.innerHTML = html;
+  grid.removeAttribute('aria-busy');
+  for (let i = 0; i < openIds.length; i++) {
+    const el = grid.querySelector('[data-tile-id="' + openIds[i] + '"]');
+    if (el) el.open = true;
+  }
+  if (typeof wirePerfTileGrid === 'function') wirePerfTileGrid(grid);
+  if (snap.counts && typeof applyPerfStatusTileCounts === 'function') {
+    applyPerfStatusTileCounts(snap.counts);
+  }
+  if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, y);
+}
+
 // Filter / date clicks. Keep the toolbar mounted and replace the result
-// list. A shape change (Flagged, Custom, Teams/Mods, layout) still
-// rebuilds the shell once.
+// list. A repeat of the same filters reuses the last list. A shape
+// change (Flagged, Custom, Teams/Mods, layout) still rebuilds the shell.
 function paintPerfFilterResults(body) {
   const shape = (typeof perfResultsShapeKey === 'function') ? perfResultsShapeKey() : '';
   const grid = body && body.querySelector ? body.querySelector('#perfTileGrid') : null;
@@ -13766,57 +13930,59 @@ function paintPerfFilterResults(body) {
     renderPerformance(body, { interactive: true });
     return;
   }
-  if (typeof perfMemoBegin === 'function') perfMemoBegin();
-  try {
-    const view = adminState.perfView || 'teams';
-    const search = (adminState.perfSearch || '').trim().toLowerCase();
-    const y = (typeof window !== 'undefined') ? (window.scrollY || 0) : 0;
-    const html = renderPerfTilesHTML(view, search);
-    grid.dataset.tileSig = String(html.length) + ':' + (html.match(/data-tile-id="/g) || []).length;
-    const openIds = Array.from(grid.querySelectorAll('details[open][data-tile-id]'))
-      .map(el => el.getAttribute('data-tile-id'));
-    grid.innerHTML = html;
-    for (let i = 0; i < openIds.length; i++) {
-      const el = grid.querySelector('[data-tile-id="' + openIds[i] + '"]');
-      if (el) el.open = true;
-    }
-    wirePerfTileGrid(grid);
-    if (typeof perfStatusToolbarCounts === 'function' && typeof applyPerfStatusTileCounts === 'function') {
-      applyPerfStatusTileCounts(perfStatusToolbarCounts());
-    }
-    if (typeof perfLiveContentSig === 'function') {
-      try { body.dataset.perfLiveSig = perfLiveContentSig(); } catch (_) {}
-    }
-    if (typeof window !== 'undefined' && window.scrollTo) window.scrollTo(0, y);
-    if (typeof perfPlayMotion === 'function') {
-      if (typeof perfConsumeMotionKind === 'function') perfConsumeMotionKind();
-      perfPlayMotion(body, 'soft');
-    }
-  } finally {
-    if (typeof perfMemoEnd === 'function') perfMemoEnd();
+  const key = perfResultCacheKey();
+  const bucket = perfResultCacheBucket();
+  const cached = bucket.map.get(key);
+  if (cached) {
+    applyPerfFilterSnapshot(body, grid, cached);
+    return;
   }
+  const finish = () => {
+    if (typeof adminState === 'undefined' || !adminState || adminState.tab !== 'performance') return;
+    if (perfResultCacheKey() !== key) return;
+    const snap = capturePerfFilterSnapshot();
+    perfResultCacheBucket().map.set(key, snap);
+    const liveGrid = body && body.querySelector ? body.querySelector('#perfTileGrid') : grid;
+    if (liveGrid) applyPerfFilterSnapshot(body, liveGrid, snap);
+  };
+  if (perfClickShouldSlice()) {
+    if (grid) grid.setAttribute('aria-busy', 'true');
+    perfStartClassifyJob(perfRowsForClickSlice(), () => {
+      if (adminState && perfActiveRangeKey() === 'all') adminState._perfHistoryReady = true;
+      finish();
+    });
+    return;
+  }
+  finish();
 }
 
-// Filter / tile / date clicks. One frame later, rebuild results only.
-// Skips directory fetches and the SessionState hydrate that used to
-// render the tile list two more times after every click.
+// Filter / tile / date clicks. The pressed pill is painted first.
+// requestAnimationFrame runs before that paint, so the list rebuild
+// is the timer after it — never inside the click or the animation frame.
 function schedulePerfInteractiveRepaint(body) {
   if (typeof adminState === 'undefined' || !adminState) return;
   adminState._perfRepaintBody = body || null;
-  if (adminState._perfRepaintRaf) return;
-  adminState._perfRepaintRaf = requestAnimationFrame(() => {
-    adminState._perfRepaintRaf = 0;
-    if (!adminState || adminState.tab !== 'performance') return;
-    const host = adminState._perfRepaintBody || document.getElementById('adminTabBody');
-    if (!host) return;
-    if ((adminState.perfSection || 'sessions') === 'incidents') {
-      renderIncidentReport(host, { interactive: true });
-    } else if (typeof paintPerfFilterResults === 'function') {
-      paintPerfFilterResults(host);
-    } else {
-      renderPerformance(host, { interactive: true });
-    }
-  });
+  adminState._perfPaintGen = (adminState._perfPaintGen || 0) + 1;
+  perfCancelClassifyJob();
+  if (adminState._perfRepaintArmed) return;
+  adminState._perfRepaintArmed = true;
+  const arm = () => {
+    setTimeout(() => {
+      if (adminState) adminState._perfRepaintArmed = false;
+      if (!adminState || adminState.tab !== 'performance') return;
+      const host = adminState._perfRepaintBody || document.getElementById('adminTabBody');
+      if (!host) return;
+      if ((adminState.perfSection || 'sessions') === 'incidents') {
+        renderIncidentReport(host, { interactive: true });
+      } else if (typeof paintPerfFilterResults === 'function') {
+        paintPerfFilterResults(host);
+      } else {
+        renderPerformance(host, { interactive: true });
+      }
+    }, 0);
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(arm);
+  else arm();
 }
 
 function perfApplyDetailEnter(el) {
@@ -14672,6 +14838,7 @@ function refreshPerfLiveDataInPlaceBody(opts) {
     }
     return false;
   }
+  if (typeof perfDropResultCache === 'function') perfDropResultCache();
   if (host && sig) host.dataset.perfLiveSig = sig;
 
   // Flagged history: patch body only — never remount shell (keeps fhEntered, no re-stagger).
@@ -14931,16 +15098,14 @@ function renderIncidentReport(body, opts) {
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       adminState.perfSearch = e.target.value;
-      if (adminState._perfSearchRaf) cancelAnimationFrame(adminState._perfSearchRaf);
-      adminState._perfSearchRaf = requestAnimationFrame(() => {
-        adminState._perfSearchRaf = 0;
+      if (adminState._perfSearchTimer) clearTimeout(adminState._perfSearchTimer);
+      adminState._perfSearchTimer = setTimeout(() => {
+        adminState._perfSearchTimer = 0;
         const grid = document.getElementById('perfTileGrid');
         if (!grid) return;
         grid.innerHTML = renderIncidentTilesHTML();
         wireIncidentTileGrid(grid);
-        // Search: short results fade. Do not replay the first-paint stagger.
-        if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
-      });
+      }, 0);
     });
   }
   const cStart = body.querySelector('#perfCustomStart');
@@ -15364,19 +15529,9 @@ function renderPerformance(body, opts) {
   if (searchInput) {
     searchInput.addEventListener('input', e => {
       adminState.perfSearch = e.target.value;
-      // Re-render ONLY the tile grid (not the whole tab) · keeps the
-      // input focused and the cursor in place as admin types.
-      // One frame so a burst of keystrokes does not stack full tile builds.
-      if (adminState._perfSearchRaf) cancelAnimationFrame(adminState._perfSearchRaf);
-      adminState._perfSearchRaf = requestAnimationFrame(() => {
-        adminState._perfSearchRaf = 0;
-        const grid = document.getElementById('perfTileGrid');
-        if (!grid) return;
-        const q = (adminState.perfSearch || '').trim().toLowerCase();
-        grid.innerHTML = renderPerfTilesHTML(adminState.perfView, q);
-        wirePerfTileGrid(grid);
-        if (typeof perfPlayMotion === 'function') perfPlayMotion(body, 'soft');
-      });
+      // Press stays in the box. The list follows after the browser
+      // paints, and a repeat of the same text reuses the last list.
+      if (typeof schedulePerfInteractiveRepaint === 'function') schedulePerfInteractiveRepaint(body);
     });
   }
   // Custom date-range inputs · commit on 'change' (fires when the picker
@@ -15427,6 +15582,7 @@ function renderPerformance(body, opts) {
   } finally {
     if (typeof perfMemoEnd === 'function') perfMemoEnd();
   }
+  if (!interactive && typeof perfScheduleHistoryWarm === 'function') perfScheduleHistoryWarm();
 }
 
 function renderPerfTilesHTML(view, search) {
@@ -28698,8 +28854,10 @@ function wirePerfSectionTabs(body) {
       if (!next || next === adminState.perfSection) return;
       adminState.perfSection = next;
       if (next === 'incidents') adminState.incidentScope = adminState.incidentScope || 'all';
+      if (typeof markPerfChoice === 'function') markPerfChoice(body, 'data-perf-section', next);
       if (typeof perfQueueMotion === 'function') perfQueueMotion('crossfade');
-      renderPerformance(body);
+      if (typeof schedulePerfInteractiveRepaint === 'function') schedulePerfInteractiveRepaint(body);
+      else renderPerformance(body);
       // Helios crossfade replaces the older generic subtab fade for Perf.
       if (typeof perfPlayMotion !== 'function' && typeof playAdminSubtabEnter === 'function') {
         playAdminSubtabEnter();

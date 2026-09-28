@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-28 · Grok · Performance tab clicks stay snappy (1.3.091827b)
+**Last updated:** 2026-09-28 · Grok · Performance clicks paint before the list (1.3.091827c)
+
+## 2026-09-28 · Grok · Performance clicks respond before the list rebuilds (1.3.091827c)
+
+**Ask:** On live **1.3.091827a**, Performance clicks still feel late. The press should show immediately. The list must not freeze the page, and the fade must not hide the results. David authorized this to be ready to merge. Do not merge from this session.
+
+**Cause:** The pressed pill was updated in the same turn as the full history walk, so the screen could not show the press until that walk finished. The results fade also started from invisible and lasted 160ms, so the new list stayed hidden after the click.
+
+**Fix:** The pill turns on immediately. The list updates on the next beat, after the browser has painted the press. A repeated Past, Today, All time, or Done click reuses the list it already built. The first heavy All time walk is split into short slices so the page stays responsive. After Performance opens, history is scored in the background. The results fade is 50ms and stays visible. The first open still uses the Helios entrance.
+
+**Version:** **1.3.091827c**. Selftests: calm motion, history retain, paint memo, past 24h, past history, soft-close, Live/Next/Done, strikes, incomplete alert, mirror, panel, day summary.
+
+**PR:** [#184](https://github.com/DK-Centific/Twilight-Tracker/pull/184) on `cursor/perf-tab-snappy-456d`. Ready to merge. Not on the live site until it is merged.
+
+**Verify (David):** After this is merged, hard refresh the live site until the corner says **1.3.091827c**. Sign in as Admin. Open **Performance**. Click **Past**, **Today**, **All time**, and **Done**. The button you pressed should highlight at once. The list underneath follows. Click the same one again and it should swap immediately. A finished soft-close still says Completed. Cancelled still has no strike.
 
 ## 2026-09-28 · Grok · Performance tab loads and filters faster (1.3.091827b)
 

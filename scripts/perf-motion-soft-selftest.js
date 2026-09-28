@@ -24,11 +24,11 @@ function sliceFn(startMark, endMark) {
   return src.slice(i, j);
 }
 
-console.log('Performance calm motion self-test (1.3.091827b)');
+console.log('Performance calm motion self-test (1.3.091827c)');
 
-assert('APP_VERSION 1.3.091827b',
-  /const APP_VERSION = '1\.3\.091827b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091827b'));
+assert('APP_VERSION 1.3.091827c',
+  /const APP_VERSION = '1\.3\.091827c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091827c'));
 
 const perfFn = sliceFn('function renderPerformance(body, opts)', 'function renderPerfTilesHTML');
 const incidentFn = sliceFn('function renderIncidentReport', 'function renderIncidentTilesHTML');
@@ -53,28 +53,39 @@ assert('first paint still defaults to Helios enter',
   && html.includes('.fh-shell.fh-enter'));
 assert('opening Flagged skips the outer shell fade',
   /kind === 'enter' \|\| kind === 'soft' \|\| kind === 'crossfade'\)\) kind = 'none'/.test(perfFn));
-assert('soft fade is opacity-only and 160ms',
+assert('filter fade stays visible and is 50ms',
   html.includes('@keyframes perfSoftIn')
-  && /@keyframes perfSoftIn \{[^}]*from \{ opacity: 0; \}[^}]*to\s+\{\s*opacity: 1; \}/.test(html)
-  && html.includes('animation: perfSoftIn 0.16s')
+  && /@keyframes perfSoftIn \{[^}]*from \{ opacity: 0\.94; \}[^}]*to\s+\{\s*opacity: 1; \}/.test(html)
+  && html.includes('animation: perfSoftIn 0.05s')
   && html.includes('.fh-body.fh-soft')
-  && html.includes('animation: fhFade 0.16s'));
+  && html.includes('animation: fhFade 0.05s')
+  && !html.includes('animation: perfSoftIn 0.16s')
+  && !html.includes('animation: fhFade 0.16s'));
 assert('filter fade does not re-enter status tiles or toolbar',
   !/perf-soft > \.perf-status-tiles/.test(html)
   && !/perf-crossfade > \.perf-status-tiles/.test(html)
   && !/perf-crossfade > \.perf-toolbar/.test(html)
   && !/fh-restagger/.test(html)
   && !/\.perf-restagger > #perfTileGrid > \.perf-tile/.test(html));
-assert('search uses soft play, not a tile restagger',
-  (src.match(/perfPlayMotion\(body, 'soft'\)/g) || []).length >= 2
-  && !/classList\.add\('perf-restagger'\)/.test(src));
+assert('search does not hide the list behind a fade',
+  !/classList\.add\('perf-restagger'\)/.test(src)
+  && src.includes('schedulePerfInteractiveRepaint(body)'));
 assert('filter clicks keep the toolbar and swap the result list',
   src.includes('function paintPerfFilterResults(body)')
   && src.includes('function perfResultsShapeKey()')
   && src.includes('paintPerfFilterResults(host)')
   && src.includes('grid.innerHTML = html')
-  && src.includes('applyPerfStatusTileCounts(perfStatusToolbarCounts())')
-  && src.includes("perfPlayMotion(body, 'soft')"));
+  && src.includes('applyPerfStatusTileCounts(snap.counts)'));
+const schedFn = sliceFn('function schedulePerfInteractiveRepaint(body)', 'function perfApplyDetailEnter');
+assert('pressed pill paints before the list rebuild',
+  schedFn.includes('requestAnimationFrame(arm)')
+  && schedFn.includes('setTimeout(')
+  && schedFn.indexOf('setTimeout(') < schedFn.indexOf('requestAnimationFrame(arm)')
+  && src.includes('The pressed pill is painted first'));
+assert('repeat filter reuses the last list',
+  src.includes('function perfResultCacheKey()')
+  && src.includes('bucket.map.get(key)')
+  && src.includes('function perfClickShouldSlice()'));
 const wireFn = sliceFn('function wirePerfTileGrid(grid)', 'function wirePerfTileBody');
 assert('drill clicks bind once; new tiles still get toggle listeners',
   wireFn.includes("grid.querySelectorAll('.perf-tile')")
