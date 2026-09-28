@@ -220,6 +220,11 @@ function idsOf(list) {
   return (list || []).map(a => String(a.id));
 }
 
+const eveStart = ctx.pacificWallClockToMs('2026-09-23', 19 * 60);
+const eveEnd = ctx.pacificWallClockToMs('2026-09-23', 23 * 60);
+assert('a 7pm–11pm booking ends four hours later',
+  eveEnd - eveStart === 4 * 60 * 60 * 1000, String(eveEnd - eveStart));
+
 function setPerf(range, scope) {
   ctx.adminState.perfDateRange = range;
   ctx.adminState.perfStatusScope = scope;
