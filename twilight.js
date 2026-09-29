@@ -36,7 +36,7 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091827c';
+const APP_VERSION = '1.3.091828a';
 const APP_UPDATED_AT = '09/28/2026 05:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
@@ -31819,16 +31819,75 @@ function isPastModStrikeCheckpointHour(nowMs) {
 
 function teamBookingOnDateForStrike(teamId, ymd) {
   if (teamId == null || teamId === '' || !ymd) return null;
-  const rows = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || [])
-    .filter(a => a && String(a.teamId) === String(teamId) && String(a.date) === String(ymd));
-  for (const a of rows) {
+  const list = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || []);
+  const teams = ((typeof adminState !== 'undefined' && adminState && adminState.teams) || []);
+  const team = teams.find(t => t && String(t.id) === String(teamId)) || null;
+  const primarySet = new Set(
+    ((team && team.primaryIds) || []).map(id => String(id || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const candidates = [];
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || String(a.date || '') !== String(ymd)) continue;
     if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
     if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) continue;
     if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) continue;
     if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) continue;
-    return a;
+    const tidMatch = a.teamId != null && a.teamId !== '' && String(a.teamId) === String(teamId);
+    let crewMatch = false;
+    if (!tidMatch && primarySet.size) {
+      const snaps = ((a.modSnapshots) || [])
+        .map(s => String((s && (s.orbitLoginId || s.orbitId)) || '').trim().toLowerCase())
+        .filter(Boolean);
+      if (snaps.length) {
+        let hit = 0;
+        primarySet.forEach(id => { if (snaps.indexOf(id) >= 0) hit++; });
+        // Live OD row may have teamId null after rebind; match the crew.
+        crewMatch = hit === primarySet.size;
+      }
+    }
+    if (!tidMatch && !crewMatch) continue;
+    candidates.push(a);
   }
-  return null;
+  if (!candidates.length) return null;
+  if (candidates.length === 1) return candidates[0];
+  // Prefer team-complete / live progress over a deleted-reassign ghost
+  // (Venkata×Rohith Sep 27: stale Ryan aid beat Manish until this pick).
+  let best = candidates[0];
+  let bestScore = -1e9;
+  for (let i = 0; i < candidates.length; i++) {
+    const a = candidates[i];
+    let score = 0;
+    try {
+      if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) score += 1000;
+      else if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) score += 900;
+      else if (typeof modStrikeAssignmentEvidence === 'function') {
+        const ev = modStrikeAssignmentEvidence(a);
+        if (ev === 'complete') score += 1000;
+        else if (ev === 'incomplete') score -= 50;
+      }
+    } catch (_) {}
+    const snaps = (a.modSnapshots || []).length;
+    score += Math.min(20, snaps * 5);
+    if (a.teamId != null && a.teamId !== '' && String(a.teamId) === String(teamId)) score += 10;
+    // Deprioritize schedules that also appear on another team's later booking
+    // (reassigned away from this crew) when a sibling candidate remains.
+    try {
+      const od = String(a.odScheduleId || '').trim();
+      if (od) {
+        const foreign = list.some(b => b && b !== a
+          && String(b.odScheduleId || '') === od
+          && b.teamId != null && String(b.teamId) !== String(teamId)
+          && b.status !== 'Cancelled' && b.status !== 'Unassigned');
+        if (foreign) score -= 400;
+      }
+    } catch (_) {}
+    if (score > bestScore) {
+      bestScore = score;
+      best = a;
+    }
+  }
+  return best;
 }
 
 // Wall-clock instant (epoch ms) for a PST calendar date + minutes from midnight.
@@ -32492,12 +32551,23 @@ function modStrikePrimariesForBooking(booking) {
     seen.add(k);
     ids.push(id);
   };
+  // Prefer the booking's own co-mod snapshots. A wrong teamId must not
+  // pull an unrelated team's primaries onto this assignment (Matthew was
+  // auto-struck for Venkata×Rohith / Manish aid od_466726cb).
+  const snapIds = [];
+  if (booking) {
+    (booking.modSnapshots || []).forEach(s => {
+      const id = s && (s.orbitLoginId || s.orbitId);
+      if (id) snapIds.push(String(id).trim());
+    });
+  }
+  if (snapIds.length) {
+    snapIds.forEach(add);
+    return ids;
+  }
   if (booking && booking.teamId != null && typeof adminState !== 'undefined' && adminState) {
     const team = (adminState.teams || []).find(t => t && String(t.id) === String(booking.teamId));
     if (team) (team.primaryIds || []).forEach(add);
-  }
-  if (!ids.length && booking) {
-    (booking.modSnapshots || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
   }
   return ids;
 }
@@ -32775,8 +32845,53 @@ function modStrikeStampAutoStrike(ckRow, aliases, asgnKey, aid, sessionKey) {
 }
 
 // One pass for one booking. Returns how many stars were removed.
+
+// Same crew, same session night: any team-complete booking blocks auto-strike
+// on a stale/deleted sibling (Ryan ghost vs Manish live for Venkata×Rohith).
+function modStrikeCrewNightAlreadyComplete(booking) {
+  if (!booking) return false;
+  const ymd = (typeof modStrikeBookingYmd === 'function') ? modStrikeBookingYmd(booking) : '';
+  if (!ymd) return false;
+  const crewKey = (typeof modStrikeCrewSessionKey === 'function') ? modStrikeCrewSessionKey(booking) : '';
+  const crewIds = (typeof modStrikeCrewIds === 'function') ? modStrikeCrewIds(booking) : [];
+  const list = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || []);
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || a === booking) continue;
+    if (String(a.date || '') !== String(ymd)) continue;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
+    let sameCrew = false;
+    if (crewKey && typeof modStrikeCrewSessionKey === 'function') {
+      // Participant token differs across reassign; compare orbit crew only.
+      const otherIds = (typeof modStrikeCrewIds === 'function') ? modStrikeCrewIds(a) : [];
+      if (crewIds.length >= 2 && otherIds.length >= 2
+        && crewIds.length === otherIds.length
+        && crewIds.every((id, idx) => id === otherIds[idx])) {
+        sameCrew = true;
+      }
+    }
+    if (!sameCrew && booking.teamId != null && a.teamId != null
+      && String(booking.teamId) === String(a.teamId)) {
+      sameCrew = true;
+    }
+    if (!sameCrew) continue;
+    try {
+      if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) return true;
+      if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) return true;
+      if (typeof modStrikeAssignmentEvidence === 'function' && modStrikeAssignmentEvidence(a) === 'complete') return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
 function modStrikeAttemptAutoStrike(booking, primaryIds, nowMs, ckRow, reason) {
   if (!booking || !ckRow) return 0;
+  // Team=Session · if THIS booking or any same-crew same-night sibling is
+  // happypath complete, do not auto-strike (covers deleted-reassign ghosts).
+  try {
+    if (typeof modStrikeAssignmentEvidence === 'function' && modStrikeAssignmentEvidence(booking) === 'complete') return 0;
+    if (typeof modStrikeCrewNightAlreadyComplete === 'function' && modStrikeCrewNightAlreadyComplete(booking)) return 0;
+  } catch (_) {}
   const ymd = modStrikeBookingYmd(booking);
   const aid = booking.id != null && booking.id !== '' ? String(booking.id) : '';
   const sessionKey = aid && ymd ? (aid + '|' + ymd) : '';
