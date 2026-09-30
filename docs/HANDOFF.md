@@ -12,7 +12,9 @@
 
 **Version:** **1.3.091830a**. Selftest: `scripts/overview-sunset-weather-selftest.js`. Helios weather selftest still passes.
 
-**PR:** draft on `cursor/overview-sunset-weather-d979`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#187](https://github.com/DK-Centific/Twilight-Tracker/pull/187) on `cursor/overview-sunset-weather-d979`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked in the browser (local):** Corner said **1.3.091830a**. At about 2:11 PM PT the clock line had **SUNSET 6:49 PM** directly under it. The top right of the picture said **TONIGHT 58° CLOUD** (the 6 PM forecast). Booking still said **TODAY 60° CLEAR** (the live reading). Phone width kept the sunset under the clock and the chip in the top right, with no overlap.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091830a**. Sign in as Admin. Open **Overview**. Under the clock (the line that ends in **PT**) you should see **SUNSET** and a time. In the top right of that same picture you should see **TONIGHT**, a colored dot, a temperature, and a short word (Clear, Cloud, or Rain). Open **Booking**. The weather next to Choose timeslot should look the same as before.
 
