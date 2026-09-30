@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091828a';
-const APP_UPDATED_AT = '09/28/2026 05:15';
+const APP_VERSION = '1.3.091830a';
+const APP_UPDATED_AT = '09/30/2026 14:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -17928,6 +17928,134 @@ function overviewHeliosPhase(alt) {
   return 'sunset';
 }
 
+// Accept a Date from this page or from a test realm. A cross-realm Date
+// fails `instanceof Date` and must be read through getTime().
+function overviewCoerceDate(at) {
+  if (at == null || at === '') return new Date();
+  const n = (typeof at.getTime === 'function') ? Number(at.getTime()) : new Date(at).getTime();
+  return Number.isFinite(n) ? new Date(n) : new Date();
+}
+
+// Pacific wall-clock parts. Sunset and "tonight" use the same
+// America/Los_Angeles rules as the rest of Twilight, not the laptop zone.
+function overviewPacificParts(date) {
+  const fmt = overviewPacificParts._fmt || (overviewPacificParts._fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }));
+  const o = { year: '', month: '', day: '', hour: '', minute: '', second: '' };
+  fmt.formatToParts(overviewCoerceDate(date)).forEach(p => {
+    if (p.type !== 'literal') o[p.type] = p.value;
+  });
+  return o;
+}
+
+function overviewPacificYmd(date) {
+  const p = overviewPacificParts(date);
+  return p.year + '-' + p.month + '-' + p.day;
+}
+
+// UTC millis for a Pacific wall time. Afternoon sunset never lands on the
+// DST gap, and two correction passes settle the offset.
+function overviewPacificWallMs(y, m, d, h, min) {
+  let utc = Date.UTC(y, m - 1, d, h, min, 0);
+  for (let i = 0; i < 3; i++) {
+    const parts = overviewPacificParts(new Date(utc));
+    const asUTC = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour), Number(parts.minute), Number(parts.second)
+    );
+    utc += Date.UTC(y, m - 1, d, h, min, 0) - asUTC;
+  }
+  return utc;
+}
+
+// Today's sunset at HQ. The Open-Meteo payload Booking already fetches
+// does not include a sunset field. This walks the same solar altitude
+// the orb already uses (OVERVIEW_SUNSET_ALT_DEG, −0.83°) and matches
+// Open-Meteo sunset for Bellevue on 2026-09-30 (6:49 PM PT).
+function overviewSunsetDate(at) {
+  const now = overviewCoerceDate(at);
+  const p = overviewPacificParts(now);
+  const y = Number(p.year);
+  const m = Number(p.month);
+  const d = Number(p.day);
+  if (!y || !m || !d) return null;
+  let lo = overviewPacificWallMs(y, m, d, 14, 0);
+  let hi = overviewPacificWallMs(y, m, d, 22, 30);
+  const altLo = overviewSolarAltitudeDeg(new Date(lo));
+  const altHi = overviewSolarAltitudeDeg(new Date(hi));
+  if (!(altLo > OVERVIEW_SUNSET_ALT_DEG && altHi < OVERVIEW_SUNSET_ALT_DEG)) return null;
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2;
+    if (overviewSolarAltitudeDeg(new Date(mid)) > OVERVIEW_SUNSET_ALT_DEG) lo = mid;
+    else hi = mid;
+  }
+  return new Date(hi);
+}
+
+function overviewSunsetLabel(at) {
+  const when = overviewSunsetDate(at);
+  if (!when) return 'Sunset —';
+  const fmt = overviewSunsetLabel._fmt || (overviewSunsetLabel._fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hour: 'numeric',
+    minute: '2-digit',
+  }));
+  return 'Sunset ' + fmt.format(when);
+}
+
+// Tonight's HQ snapshot from the same forecast Booking uses.
+// Before the sunset hour, use that hour's forecast. Once that hour has
+// started, use the live current reading so the chip tracks Booking.
+function heliosTonightSnapshot(cache, at) {
+  if (!cache) return null;
+  const now = overviewCoerceDate(at);
+  const todayStr = overviewPacificYmd(now);
+  const sunset = overviewSunsetDate(now);
+  let targetHour = 20;
+  if (sunset) {
+    const sh = Number(overviewPacificParts(sunset).hour);
+    if (Number.isFinite(sh)) targetHour = Math.max(16, Math.min(22, sh));
+  }
+  const nowHour = Number(overviewPacificParts(now).hour);
+  const live = Number.isFinite(nowHour) && nowHour >= targetHour
+    && Number.isFinite(cache.currentTempF) && cache.currentKind;
+  if (live) {
+    return { tempF: cache.currentTempF, kind: cache.currentKind, dateStr: todayStr, source: 'current', hour: targetHour };
+  }
+  const hours = (cache.hours || []).filter(h => String(h.time).slice(0, 10) === todayStr);
+  const key = String(targetHour).padStart(2, '0');
+  let pick = hours.find(h => String(h.time).slice(11, 13) === key);
+  if (!pick) {
+    let best = null;
+    let bestDist = 99;
+    hours.forEach(h => {
+      const hh = Number(String(h.time).slice(11, 13));
+      if (!Number.isFinite(hh) || hh < 16 || hh > 23) return;
+      const dist = Math.abs(hh - targetHour);
+      if (dist < bestDist) { best = h; bestDist = dist; }
+    });
+    pick = best;
+  }
+  if (pick && Number.isFinite(pick.tempF)) {
+    const kind = heliosWeatherKindFromCode(pick.code);
+    if (kind) {
+      return { tempF: pick.tempF, kind, dateStr: todayStr, source: 'tonight', hour: targetHour };
+    }
+  }
+  if (Number.isFinite(cache.currentTempF) && cache.currentKind) {
+    return { tempF: cache.currentTempF, kind: cache.currentKind, dateStr: todayStr, source: 'current', hour: targetHour };
+  }
+  return null;
+}
+
 function applyOverviewHeliosWeather(kind) {
   const well = document.getElementById('ovVizWell');
   const orb = document.getElementById('ovSolarOrb');
@@ -17973,7 +18101,7 @@ function paintOverviewHeliosClock() {
   const tempEl = document.querySelector('#ovVizTemp [data-ov-temp], #ovVizAlt [data-ov-alt]');
   const tempCEl = document.querySelector('#ovVizTemp [data-ov-temp-c]');
   const orb = document.getElementById('ovSolarOrb');
-  if (!dateEl && !timeEl && !orb && !tempEl) return;
+  if (!dateEl && !timeEl && !orb && !tempEl && !document.getElementById('ovVizSunset')) return;
   const dateFmt = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Los_Angeles',
     weekday: 'long',
@@ -17988,6 +18116,12 @@ function paintOverviewHeliosClock() {
   });
   if (dateEl) dateEl.textContent = dateFmt.format(now);
   if (timeEl) timeEl.textContent = timeFmt.format(now) + ' PT';
+  const sunsetEl = document.getElementById('ovVizSunset');
+  if (sunsetEl) {
+    const sunsetLabel = overviewSunsetLabel(now);
+    if (sunsetEl.textContent !== sunsetLabel) sunsetEl.textContent = sunsetLabel;
+  }
+  paintOverviewTonightWeather({ skipFetch: true });
   if (tempEl) {
     tempEl.textContent = Number.isFinite(_ovTempF) ? String(Math.round(_ovTempF)) : '—';
   }
@@ -18125,6 +18259,71 @@ function paintBookingHeliosWeather(opts) {
         paintBookingHeliosWeather({ skipFetch: true });
       }
     });
+  }
+}
+
+let _ovWxChipTimer = null;
+
+// Overview chip · same dot + temp + Clear/Cloud/Rain words as Booking.
+// Tonight's hour comes from heliosTonightSnapshot. A failed fetch leaves
+// the pending chip in place and does not clear the viz stage.
+function paintOverviewTonightWeather(opts) {
+  opts = opts || {};
+  const el = document.getElementById('ovVizWx');
+  if (!el) return;
+  const now = new Date();
+  const snap = heliosTonightSnapshot(_heliosWxPayload, now);
+  const whenEl = el.querySelector('.bk-optimal-when');
+  const tempEl = el.querySelector('.bk-optimal-temp');
+  const condEl = el.querySelector('.bk-optimal-cond');
+  const kind = snap && snap.kind;
+  const temp = snap && snap.tempF;
+  const phase = overviewHeliosPhase(overviewSolarAltitudeDeg(now));
+  const nightChip = phase === 'night';
+  const wxClass = nightChip ? 'night' : (kind || '');
+  const key = [
+    'tonight',
+    Number.isFinite(temp) ? Math.round(temp) : '—',
+    kind || '',
+    nightChip ? 'night' : '',
+  ].join('|');
+
+  const apply = () => {
+    el.classList.toggle('is-clear', wxClass === 'clear');
+    el.classList.toggle('is-cloudy', wxClass === 'cloudy');
+    el.classList.toggle('is-rain', wxClass === 'rain');
+    el.classList.toggle('is-night', wxClass === 'night');
+    el.classList.toggle('is-pending', !kind);
+    if (whenEl) whenEl.textContent = 'Tonight';
+    if (tempEl) tempEl.textContent = Number.isFinite(temp) ? (Math.round(temp) + '°') : '—';
+    if (condEl) condEl.textContent = kind ? heliosWeatherWord(kind) : '';
+    const label = [
+      'Tonight',
+      Number.isFinite(temp) ? (Math.round(temp) + '°') : '',
+      kind ? heliosWeatherWord(kind) : 'weather unavailable',
+    ].filter(Boolean).join(' ');
+    el.title = 'HQ weather · ' + label;
+    el.dataset.wxKey = key;
+  };
+
+  if (el.dataset.wxKey === key) return;
+
+  const reduce = typeof bookingPrefersReducedMotion === 'function' && bookingPrefersReducedMotion();
+  const canFade = !reduce && !!el.dataset.wxKey && !opts.skipFetch;
+  if (_ovWxChipTimer) {
+    clearTimeout(_ovWxChipTimer);
+    _ovWxChipTimer = null;
+    el.classList.remove('is-fading');
+  }
+  if (canFade) {
+    el.classList.add('is-fading');
+    _ovWxChipTimer = setTimeout(() => {
+      _ovWxChipTimer = null;
+      apply();
+      el.classList.remove('is-fading');
+    }, 250);
+  } else {
+    apply();
   }
 }
 
@@ -18446,6 +18645,16 @@ function refreshModDropdown() {
 function overviewVizStageHTML() {
   return `
     <div class="ov-viz-stage" id="ovVizContainer">
+      <div class="ov-viz-weather" id="ovVizWeather">
+        <span class="bk-optimal is-pending" id="ovVizWx" role="status" aria-live="polite" title="HQ weather">
+          <span class="bk-optimal-dot" aria-hidden="true"></span>
+          <span class="bk-optimal-copy">
+            <span class="bk-optimal-when">Tonight</span>
+            <span class="bk-optimal-temp">—</span>
+            <span class="bk-optimal-cond"></span>
+          </span>
+        </span>
+      </div>
       <div class="ov-viz-well is-day" id="ovVizWell" data-ov-phase="day">
         <div class="ov-viz-sky" id="ovVizSky" data-ov-phase="day" aria-hidden="true"></div>
         <div class="ov-viz-hinge ov-viz-hinge-left"></div>
@@ -18463,6 +18672,7 @@ function overviewVizStageHTML() {
             <span class="ov-viz-celsius"><span data-ov-temp-c>—</span><span class="ov-viz-unit">°C</span></span>
           </div>
           <div class="ov-viz-time" id="ovVizTime"></div>
+          <div class="ov-viz-sunset" id="ovVizSunset">Sunset —</div>
         </div>
         <div class="ov-viz-horizon" aria-hidden="true"></div>
       </div>
