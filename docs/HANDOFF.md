@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-28 · Grok · Performance clicks paint before the list (1.3.091827c)
+**Last updated:** 2026-09-30 · Grok · Overview sunset + tonight weather (1.3.091830a)
+
+## 2026-09-30 · Grok · Overview sunset under the clock, tonight weather on the stage (1.3.091830a)
+
+**Ask:** On Admin Overview, show sunset under the current time, and show tonight’s weather in the top right of the viz stage, using the same weather Booking already uses. Do not merge.
+
+**Sunset:** The Booking forecast does not include a sunset field. The stage already knows HQ (Bellevue) solar altitude. Sunset is the moment that altitude crosses −0.83° on the current Pacific day. That matches Open-Meteo for 30 Sep 2026 (6:49 PM PT). It paints immediately. A failed weather fetch does not clear it.
+
+**Weather:** Same Open-Meteo call Booking uses (no second provider). The chip is the Booking chip (dot + Tonight + temp + Clear/Cloud/Rain). Before the sunset hour it shows that hour’s forecast. Once that hour has started it shows the live reading, the same way Booking’s today chip does. If the fetch fails, the chip stays on Tonight — and the stage does not blank. Booking’s own chip is unchanged.
+
+**Version:** **1.3.091830a**. Selftest: `scripts/overview-sunset-weather-selftest.js`. Helios weather selftest still passes.
+
+**PR:** draft on `cursor/overview-sunset-weather-d979`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091830a**. Sign in as Admin. Open **Overview**. Under the clock (the line that ends in **PT**) you should see **SUNSET** and a time. In the top right of that same picture you should see **TONIGHT**, a colored dot, a temperature, and a short word (Clear, Cloud, or Rain). Open **Booking**. The weather next to Choose timeslot should look the same as before.
 
 ## 2026-09-28 · Grok · Performance clicks respond before the list rebuilds (1.3.091827c)
 
