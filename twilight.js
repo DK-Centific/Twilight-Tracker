@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091828a';
-const APP_UPDATED_AT = '09/28/2026 05:15';
+const APP_VERSION = '1.3.091830a';
+const APP_UPDATED_AT = '09/30/2026 15:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1952,21 +1952,22 @@ function mySessionDrawerHTML() {
 // (request: "only leave the Lakitu Session in each acc-inner"). Editing
 // happens in the drawer; this just surfaces the current value per station.
 function resolveLakituSessionHref() {
-  // Mod-pasted session URL wins over Admin-assigned project URL.
-  const pasted = (state && state.participantId) ? String(state.participantId).trim() : '';
-  if (pasted) {
-    const pasteOk = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(pasted))
-      || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(pasted));
-    if (pasteOk && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(pasted)) return pasted;
-  }
+  // Recorded popup URL wins, then a mod-pasted session URL.
+  // Assigned project / catalog links are the fallback only.
   const record = (state && state.recordLakituUrl) ? String(state.recordLakituUrl).trim() : '';
-  if (record) {
-    const recOk = (typeof isValidLakituUrl === 'function' && isValidLakituUrl(record))
-      || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(record));
-    if (recOk && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(record)) return record;
+  const pasted = (state && state.participantId) ? String(state.participantId).trim() : '';
+  const safe = (url) => !!(url && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(url));
+  const session = (url) => !!(url && typeof isValidLakituUrl === 'function' && isValidLakituUrl(url));
+  if (session(record) && safe(record)) return record;
+  if (session(pasted) && safe(pasted)) return pasted;
+  if (record && typeof isSubmitLakituUrl === 'function' && isSubmitLakituUrl(record) && safe(record)) return record;
+  if (pasted) {
+    const pasteOk = session(pasted)
+      || (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(pasted));
+    if (pasteOk && safe(pasted)) return pasted;
   }
   const assigned = (typeof getAssignedLakituUrl === 'function') ? getAssignedLakituUrl() : '';
-  if (assigned && typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(assigned)) return assigned;
+  if (assigned && safe(assigned)) return assigned;
   return '';
 }
 
@@ -3668,6 +3669,7 @@ function stepScenarioFlow(dir) {
   if (nextNum === _scenarioFlowFocusNum) return;
   _scenarioFlowFromNum = curNum;
   _scenarioFlowFocusNum = nextNum;
+  if (typeof noteScenarioFlowLakituPrompt === 'function') noteScenarioFlowLakituPrompt(stationKey, nextNum);
   snapScenarioFlowToFocus('smooth', { fromNum: curNum });
 }
 
@@ -3686,6 +3688,9 @@ function onScenarioFlowScroll() {
     const num = nearestScenarioFlowNum();
     if (num && num !== _scenarioFlowFocusNum) {
       _scenarioFlowFocusNum = num;
+      if (typeof noteScenarioFlowLakituPrompt === 'function') {
+        noteScenarioFlowLakituPrompt(root && root.dataset.station, num);
+      }
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
     }
     const vp = document.getElementById('scenarioFlowViewport');
@@ -3729,6 +3734,9 @@ function bindScenarioFlow() {
         if (!num || num === _scenarioFlowFocusNum) return;
         _scenarioFlowFromNum = _scenarioFlowFocusNum;
         _scenarioFlowFocusNum = num;
+        if (typeof noteScenarioFlowLakituPrompt === 'function') {
+          noteScenarioFlowLakituPrompt(root.dataset.station || '', num);
+        }
         snapScenarioFlowToFocus('smooth', { fromNum: _scenarioFlowFromNum });
       });
     });
@@ -3755,6 +3763,9 @@ function bindScenarioFlow() {
     const restoreScroll = (adv.scroll != null) ? adv.scroll : _scenarioFlowSavedScroll;
     _scenarioFlowStationKey = stationKey;
     _scenarioFlowFocusNum = nextOpenScenarioNumAfter(stationKey, doneNum) || doneNum;
+    if (typeof noteScenarioFlowLakituPrompt === 'function') {
+      noteScenarioFlowLakituPrompt(stationKey, _scenarioFlowFocusNum);
+    }
     _scenarioFlowFromNum = fromNum;
     scenarioFlowBeginProgrammatic(root);
     requestAnimationFrame(() => {
@@ -3789,8 +3800,14 @@ function bindScenarioFlow() {
     const st = STATIONS.find(s => s.key === stationKey);
     const data = st && state.stations ? state.stations[st.key] : null;
     _scenarioFlowFocusNum = firstOpenScenarioNum(st, data);
+    if (typeof noteScenarioFlowLakituPrompt === 'function') {
+      noteScenarioFlowLakituPrompt(stationKey, _scenarioFlowFocusNum);
+    }
   } else {
     _scenarioFlowStationKey = stationKey;
+    if (typeof noteScenarioFlowLakituPrompt === 'function') {
+      noteScenarioFlowLakituPrompt(stationKey, _scenarioFlowFocusNum);
+    }
   }
 
   scenarioFlowBeginProgrammatic(root);
@@ -4644,6 +4661,13 @@ ${scenarioStatusButtonsHTML(station, sd, sc.num, sc.id)}
   if (typeof decorateApprovalGate === 'function') decorateApprovalGate(c, station);
   bindScenarioFlow();
   if (typeof bindScenarioStationTilePencils === 'function') bindScenarioStationTilePencils(c);
+  // Desktop station table starts at scenario 1. Phone cover-flow prompts
+  // from noteScenarioFlowLakituPrompt when that first tile is focused.
+  if (station && station.key === 'station1'
+      && !(typeof isScenarioFlowMode === 'function' && isScenarioFlowMode())
+      && typeof maybeOfferStation1LakituUrl === 'function') {
+    maybeOfferStation1LakituUrl(station.key, station1OpeningScenarioNum());
+  }
 }
 
 /* =====================================================================
@@ -6705,6 +6729,98 @@ function bindLakituInfoPopover(idPrefix, root) {
   };
 }
 
+let _station1LakituOfferKey = '';
+let _station1LakituPrompting = false;
+
+function station1OpeningScenarioNum() {
+  try {
+    const list = (typeof STATIONS !== 'undefined') ? STATIONS : null;
+    const st = list && list.find(s => s && s.key === 'station1');
+    if (st && Array.isArray(st.scenarios) && st.scenarios[0] && st.scenarios[0].num != null) {
+      return String(st.scenarios[0].num);
+    }
+  } catch (_) {}
+  return '01';
+}
+
+function isStation1OpeningScenario(stationKey, scenarioNum) {
+  return String(stationKey || '') === 'station1'
+    && String(scenarioNum || '') === station1OpeningScenarioNum();
+}
+
+function station1LakituOfferKey() {
+  let id = '';
+  try {
+    if (typeof _gateAsgnId === 'function') id = String(_gateAsgnId() || '');
+  } catch (_) {}
+  return (id || 'none') + '|station1|' + station1OpeningScenarioNum();
+}
+
+// Popup paste (recordLakituUrl) or a strict mod-pasted session URL.
+// An auto-bound project / catalog link in participantId does not count.
+function recordedSessionLakituUrl(src) {
+  const s = src || ((typeof state !== 'undefined') ? state : null);
+  if (!s) return '';
+  const record = String(s.recordLakituUrl || '').trim();
+  if (record && typeof isSubmitLakituUrl === 'function' && isSubmitLakituUrl(record)) return record;
+  const pasted = String(s.participantId || '').trim();
+  if (pasted && typeof isValidLakituUrl === 'function' && isValidLakituUrl(pasted)) return pasted;
+  return '';
+}
+
+function hasRecordedSessionLakituUrl(src) {
+  return !!recordedSessionLakituUrl(src);
+}
+
+function shouldOfferStation1LakituPrompt(stationKey, scenarioNum) {
+  if (!isStation1OpeningScenario(stationKey, scenarioNum)) return false;
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) return false;
+  if (hasRecordedSessionLakituUrl()) return false;
+  if (_station1LakituPrompting) return false;
+  if (_station1LakituOfferKey && _station1LakituOfferKey === station1LakituOfferKey()) return false;
+  return true;
+}
+
+function approvalGateNeedsLakituPrompt(stationKey) {
+  return String(stationKey || '') === 'station1' && !hasRecordedSessionLakituUrl();
+}
+
+function applyRecordedLakituUrl(url) {
+  const v = String(url || '').trim();
+  if (!v || typeof state === 'undefined' || !state) return '';
+  state.recordLakituUrl = v;
+  const cur = String(state.participantId || '').trim();
+  const curIsSession = typeof isValidLakituUrl === 'function' && isValidLakituUrl(cur);
+  if (!curIsSession) state.participantId = v;
+  if (typeof saveState === 'function') saveState();
+  if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+  return v;
+}
+
+async function maybeOfferStation1LakituUrl(stationKey, scenarioNum) {
+  if (!shouldOfferStation1LakituPrompt(stationKey, scenarioNum)) return;
+  if (typeof document === 'undefined' || !document.body || typeof promptStation1LakituUrl !== 'function') return;
+  const key = station1LakituOfferKey();
+  _station1LakituOfferKey = key;
+  _station1LakituPrompting = true;
+  let url = null;
+  try {
+    url = await promptStation1LakituUrl();
+  } catch (_) {
+    url = null;
+  } finally {
+    _station1LakituPrompting = false;
+  }
+  if (!url) return;
+  if (hasRecordedSessionLakituUrl()) return;
+  applyRecordedLakituUrl(url);
+  if (typeof renderApp === 'function') renderApp();
+}
+
+function noteScenarioFlowLakituPrompt(stationKey, num) {
+  maybeOfferStation1LakituUrl(stationKey, num);
+}
+
 function promptStation1LakituUrl() {
   return new Promise((resolve) => {
     let overlay = document.getElementById('apprLakituSubmitOverlay');
@@ -6779,12 +6895,12 @@ async function beginApprovalSubmit(stationKey, resubmit) {
     return null;
   }
   let lakituUrl = '';
-  if (stationKey === 'station1') {
+  if (approvalGateNeedsLakituPrompt(stationKey)) {
     lakituUrl = await promptStation1LakituUrl();
     if (!lakituUrl) return;
-    state.recordLakituUrl = lakituUrl;
-    saveState();
-    if (typeof triggerSessionStateSync === 'function') triggerSessionStateSync();
+    applyRecordedLakituUrl(lakituUrl);
+  } else if (stationKey === 'station1') {
+    lakituUrl = recordedSessionLakituUrl();
   }
   return submitApprovalFromStation(stationKey, resubmit, lakituUrl);
 }
@@ -10803,6 +10919,46 @@ function buildLakituUrl(orbitId) {
 // know the moderator pasted it."
 let _lakituUrlCache = { sourceRef: null, byAsgnId: {} };
 const _lakituUrlDiagLogged = new Set();  // dedup diagnostic console.log per asgnId per page-life
+
+// Session URL the moderator recorded (popup / recordLakituUrl), or a
+// strict session paste. Project and catalog links are not "recorded".
+function pickRecordedSessionLakituUrl(parsed) {
+  if (!parsed || typeof parsed !== 'object') return '';
+  const record = String(parsed.recordLakituUrl || '').trim();
+  if (record) {
+    if (typeof isSubmitLakituUrl === 'function' && isSubmitLakituUrl(record)) return record;
+    if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(record)) return record;
+  }
+  const pasted = String(parsed.participantId || '').trim();
+  if (pasted && typeof isValidLakituUrl === 'function' && isValidLakituUrl(pasted)) return pasted;
+  return '';
+}
+
+function recordedSessionLakituForAssignment(asgnId) {
+  if (!asgnId) return '';
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows
+    : null;
+  if (!rows || !rows.length) return '';
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(asgnId, rows).slice()
+    : rows.filter(r => r && String(r.assignmentId || '') === String(asgnId));
+  matching.sort((a, b) => {
+    const pa = (typeof parseLastActiveMs === 'function') ? parseLastActiveMs(a && a.lastActive) : 0;
+    const pb = (typeof parseLastActiveMs === 'function') ? parseLastActiveMs(b && b.lastActive) : 0;
+    return pb - pa;
+  });
+  for (let i = 0; i < matching.length; i++) {
+    const r = matching[i];
+    const parsed = (typeof parseSessionStateJson === 'function')
+      ? parseSessionStateJson(r)
+      : (() => { try { return JSON.parse((r && r.stateJson) || '{}'); } catch (_) { return {}; } })();
+    const url = pickRecordedSessionLakituUrl(parsed);
+    if (url) return url;
+  }
+  return '';
+}
+
 function getLakituUrlForAssignment(asgnId) {
   if (!asgnId) return '';
   const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
@@ -10820,6 +10976,12 @@ function getLakituUrlForAssignment(asgnId) {
   }
   if (Object.prototype.hasOwnProperty.call(_lakituUrlCache.byAsgnId, asgnId)) {
     return _lakituUrlCache.byAsgnId[asgnId];
+  }
+
+  const recordedFirst = String(recordedSessionLakituForAssignment(asgnId) || '').trim();
+  if (recordedFirst) {
+    _lakituUrlCache.byAsgnId[asgnId] = recordedFirst;
+    return recordedFirst;
   }
 
   // Build comparison keys once. The exact form is the row's
@@ -11156,6 +11318,8 @@ function renderPerfLakituPillHTML(a, cls, variant) {
   if (!showLakitu) {
     return '';
   }
+  // getLakituUrlForAssignment prefers the recorded session URL, then
+  // falls through to a project link stored on SessionState.
   let url = getLakituUrlForAssignment(a && a.id);
   if (!url && a) {
     const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
@@ -19553,10 +19717,20 @@ function resolveApprovalRingUrl(appr) {
   return fallbackUrl;
 }
 
-// Prefer the request's submitted / review Lakitu URL; otherwise the
-// Admin-assigned / TeamLog project URL; otherwise the sessions list
-// so Approval always has a Lakitu opener.
+// Prefer the moderator's recorded session URL, then the request's
+// submitted Lakitu URL, then the assigned project, then the sessions
+// list so Approval always has a Lakitu opener.
 function resolveApprovalLakituUrl(appr) {
+  const recordedId = appr && (appr.assignment_id || appr.assignmentId);
+  if (recordedId && typeof recordedSessionLakituForAssignment === 'function') {
+    const recorded = String(recordedSessionLakituForAssignment(recordedId) || '').trim();
+    if (recorded) {
+      if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(recorded)) {
+        return (typeof lakituReviewUrl === 'function') ? lakituReviewUrl(recorded) : recorded;
+      }
+      if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(recorded)) return recorded;
+    }
+  }
   const raw = (appr && appr.lakitu_url != null) ? String(appr.lakitu_url).trim() : '';
   if (raw) {
     if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(raw)) {
