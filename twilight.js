@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091830a';
-const APP_UPDATED_AT = '09/30/2026 14:05';
+const APP_VERSION = '1.3.091830b';
+const APP_UPDATED_AT = '09/30/2026 14:25';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -18645,17 +18645,17 @@ function refreshModDropdown() {
 function overviewVizStageHTML() {
   return `
     <div class="ov-viz-stage" id="ovVizContainer">
-      <div class="ov-viz-weather" id="ovVizWeather">
-        <span class="bk-optimal is-pending" id="ovVizWx" role="status" aria-live="polite" title="HQ weather">
-          <span class="bk-optimal-dot" aria-hidden="true"></span>
-          <span class="bk-optimal-copy">
-            <span class="bk-optimal-when">Tonight</span>
-            <span class="bk-optimal-temp">—</span>
-            <span class="bk-optimal-cond"></span>
-          </span>
-        </span>
-      </div>
       <div class="ov-viz-well is-day" id="ovVizWell" data-ov-phase="day">
+        <div class="ov-viz-weather" id="ovVizWeather">
+          <span class="bk-optimal is-pending" id="ovVizWx" role="status" aria-live="polite" title="HQ weather">
+            <span class="bk-optimal-dot" aria-hidden="true"></span>
+            <span class="bk-optimal-copy">
+              <span class="bk-optimal-when">Tonight</span>
+              <span class="bk-optimal-temp">—</span>
+              <span class="bk-optimal-cond"></span>
+            </span>
+          </span>
+        </div>
         <div class="ov-viz-sky" id="ovVizSky" data-ov-phase="day" aria-hidden="true"></div>
         <div class="ov-viz-hinge ov-viz-hinge-left"></div>
         <div class="ov-viz-hinge ov-viz-hinge-right"></div>
