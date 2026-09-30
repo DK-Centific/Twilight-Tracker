@@ -10,7 +10,7 @@
 
 **Version:** **1.3.091830b**. Selftest: `scripts/overview-sunset-weather-selftest.js`.
 
-**PR:** draft [#187](https://github.com/DK-Centific/Twilight-Tracker/pull/187) on `cursor/overview-sunset-weather-d979`. Do **not** merge until David says push.
+**PR:** draft [#188](https://github.com/DK-Centific/Twilight-Tracker/pull/188) on `cursor/overview-sunset-weather-d979`. Rebased onto main after #187 (1.3.091830a) was squash-merged. Do **not** merge until David says push.
 
 **Checked in the browser:** Corner said **1.3.091830b**. The well was day and clear. The Tonight chip’s top was 1px below the well’s top edge, on desktop and on a phone width. Booking was not changed.
 
