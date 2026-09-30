@@ -10,7 +10,7 @@
 
 **Version:** **1.3.091830a**. Selftest: `scripts/lakitu-session-url-prompt-selftest.js`.
 
-**PR:** draft on `cursor/lakitu-url-station1-popup-1d92`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#186](https://github.com/DK-Centific/Twilight-Tracker/pull/186) on `cursor/lakitu-url-station1-popup-1d92`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091830a**. Sign in as a moderator with a booked session that has no Lakitu session URL yet. Open **Station 1**. The **Lakitu session URL** box should appear on Scenario 1. Click **Cancel**. You should still be able to work Scenario 1. When you tap **Submit for review**, the same box should appear again if you never pasted a URL. Paste the session URL and submit it. Then sign in as Admin. Open **Performance** for that team and use **Lakitu**. Open **Approval** and use **Open Lakitu**. Both should open the URL the moderator pasted, not only the assigned project link.
 
