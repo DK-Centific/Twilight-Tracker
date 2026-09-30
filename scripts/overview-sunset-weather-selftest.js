@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin Overview sunset line + tonight weather chip (1.3.091830a).
+ * Admin Overview sunset line + tonight weather chip (1.3.091830b).
  * Sunset is the HQ solar altitude crossing −0.83° in America/Los_Angeles.
  * Tonight's chip reads the same Open-Meteo payload Booking already uses.
  */
@@ -24,11 +24,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview sunset + tonight weather (1.3.091830a)');
+console.log('Overview sunset + tonight weather (1.3.091830b)');
 
-assert('APP_VERSION 1.3.091830a',
-  /const APP_VERSION = '1\.3\.091830a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091830a'));
+assert('APP_VERSION 1.3.091830b',
+  /const APP_VERSION = '1\.3\.091830b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091830b'));
 
 const start = src.indexOf('const OVERVIEW_HQ_LAT');
 const end = src.indexOf('function applyOverviewHeliosWeather');
@@ -90,6 +90,10 @@ assert('Booking paint does not use the tonight helper',
 
 assert('sunset and weather styles exist',
   html.includes('.ov-viz-sunset') && html.includes('.ov-viz-weather'));
+assert('chip sits 1px under the stage frame inside the well',
+  html.includes('.ov-viz-weather {\n  position: absolute;\n  top: 1px;')
+  && stage.indexOf('id="ovVizWeather"') > stage.indexOf('id="ovVizWell"')
+  && stage.indexOf('id="ovVizWeather"') < stage.indexOf('id="ovVizSky"'));
 
 console.log(failed ? '\n' + failed + ' failed' : '\n' + 'passed');
 process.exit(failed ? 1 : 0);

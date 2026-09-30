@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-30 · Grok · Overview sunset + tonight weather (1.3.091830a)
+**Last updated:** 2026-09-30 · Grok · Tonight chip sits inside the Overview well (1.3.091830b)
+
+## 2026-09-30 · Grok · Tonight weather sits inside the Overview well (1.3.091830b)
+
+**Ask:** David liked 1.3.091830a. Move the Tonight chip 1px below the outer frame of the Overview picture so it belongs inside the well. CSS only, plus the markup move that makes that placement stick. Do not merge. Booking weather stays as it is.
+
+**Fix:** The chip was pinned to the outer stage, so it sat on the frame above the well. It now lives inside the well, 1px under that frame, and far enough from the rounded corner that the pill is not cut off. Day, sunset, and night all use the same spot.
+
+**Version:** **1.3.091830b**. Selftest: `scripts/overview-sunset-weather-selftest.js`.
+
+**PR:** draft [#188](https://github.com/DK-Centific/Twilight-Tracker/pull/188) on `cursor/overview-sunset-weather-d979`. Rebased onto main after #187 (1.3.091830a) was squash-merged. Do **not** merge until David says push.
+
+**Checked in the browser:** Corner said **1.3.091830b**. The well was day and clear. The Tonight chip’s top was 1px below the well’s top edge, on desktop and on a phone width. Booking was not changed.
+
+**Verify (David):** Hard refresh until the corner says **1.3.091830b**. Admin → Overview. The Tonight chip should sit just inside the picture, under the outer frame, not on the frame itself. Open Booking. The weather next to Choose timeslot should look the same as before.
 
 ## 2026-09-30 · Grok · Overview sunset under the clock, tonight weather on the stage (1.3.091830a)
 

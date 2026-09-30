@@ -16143,12 +16143,14 @@ button.perf-stat-chip.scheduled.active {
   opacity: 0.8;
   line-height: 1.25;
 }
+/* Inside the well, 1px under the stage frame. Right inset clears the
+   well corner so the chip is not clipped onto the frame. */
 .ov-viz-weather {
   position: absolute;
-  top: clamp(10px, 2.6cqh, 16px);
-  right: clamp(12px, 2.4cqi, 18px);
+  top: 1px;
+  right: 28px;
   z-index: 6;
-  max-width: calc(100% - 24px);
+  max-width: calc(100% - 48px);
 }
 .ov-viz-weather .bk-optimal {
   --bk-ease: cubic-bezier(0.23, 1, 0.32, 1);
@@ -16156,8 +16158,8 @@ button.perf-stat-chip.scheduled.active {
   --bk-text: var(--text, #242420);
   background: color-mix(in srgb, var(--bg, #1A1C1E) 88%, transparent);
 }
-.ov-viz-stage:has(.ov-viz-well.is-sunset) .ov-viz-weather .bk-optimal,
-.ov-viz-stage:has(.ov-viz-well.is-night) .ov-viz-weather .bk-optimal {
+.ov-viz-well.is-sunset .ov-viz-weather .bk-optimal,
+.ov-viz-well.is-night .ov-viz-weather .bk-optimal {
   --bk-text: #F3E6C0;
   background: rgba(12, 10, 14, 0.5);
 }
@@ -16674,7 +16676,6 @@ button.perf-stat-chip.scheduled.active {
   .ov-helios-row .ov-viz-label { margin-bottom: 12px; }
   .ov-helios-row .ov-viz-time { margin-top: 16px; }
   .ov-helios-row .ov-viz-sunset { margin-top: 4px; font-size: 11px; letter-spacing: 0.08em; }
-  .ov-viz-weather { top: 8px; right: 8px; }
   .ov-viz-weather .bk-optimal { padding: 4px 8px 4px 6px; font-size: 9px; }
   .ov-metrics-pane.ov-stats {
     height: auto;
@@ -19974,7 +19975,7 @@ button.perf-stat-chip.scheduled.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.091830a" defer></script>
+<script src="twilight.js?v=twilight-1.3.091830b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */

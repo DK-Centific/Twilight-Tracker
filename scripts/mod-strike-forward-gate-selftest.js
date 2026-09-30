@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 9 AM auto-strike forward gate (1.3.091830a).
+ * 9 AM auto-strike forward gate (1.3.091830b).
  * Older than yesterday is never auto-struck. Yesterday unfinished catch-up
  * runs at today's 9:00 AM PT. Skipped, resolved, and team-complete still block.
  * Today strikes after the gate and after the booked end. Tomorrow is watch-only.
@@ -30,9 +30,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM auto-strike forward gate');
 
-assert('version 1.3.091830a',
-  /const APP_VERSION = '1\.3\.091828a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091830a'));
+assert('version 1.3.091830b',
+  /const APP_VERSION = '1\.3\.091830b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.091830b'));
 assert('forward gate helpers exist',
   /function modStrikeForwardAutoStrikeEligible/.test(src)
   && /function modStrikeAssignmentMutedBySkipOrResolve/.test(src)
