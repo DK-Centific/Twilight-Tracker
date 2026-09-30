@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-28 · Grok · Performance clicks paint before the list (1.3.091827c)
+**Last updated:** 2026-09-30 · Grok · Lakitu session URL at Station 1 (1.3.091830a)
+
+## 2026-09-30 · Grok · Lakitu session URL when Station 1 starts (1.3.091830a)
+
+**Ask:** When a moderator, or an Admin using the checklist, starts Station 1 at Scenario 1, show the existing Lakitu URL popup if this team session does not already have a recorded session URL. Skipping it must not block Station 1 work. Show the same popup again at the Approval gate if the URL is still missing. Admin Performance, and Approval for Reviewer and Admin, should open that recorded URL. An assigned project link is only the fallback. Do not merge until David says push.
+
+**Fix:** Starting Station 1 on Scenario 1 opens the same Lakitu session URL popup used at submit. Cancel leaves Station 1 usable and does not ask again on that scenario. Submit for review asks once more if the URL is still empty, and still will not send the review without one. The saved URL is `recordLakituUrl`. Open Lakitu, Performance, and Approval use that recorded session URL first. A mod-pasted session URL still beats an assigned project link. The read-only Tonight's teams mirror does not show the popup and does not save.
+
+**Version:** **1.3.091830a**. Selftest: `scripts/lakitu-session-url-prompt-selftest.js`.
+
+**PR:** draft [#186](https://github.com/DK-Centific/Twilight-Tracker/pull/186) on `cursor/lakitu-url-station1-popup-1d92`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.091830a**. Sign in as a moderator with a booked session that has no Lakitu session URL yet. Open **Station 1**. The **Lakitu session URL** box should appear on Scenario 1. Click **Cancel**. You should still be able to work Scenario 1. When you tap **Submit for review**, the same box should appear again if you never pasted a URL. Paste the session URL and submit it. Then sign in as Admin. Open **Performance** for that team and use **Lakitu**. Open **Approval** and use **Open Lakitu**. Both should open the URL the moderator pasted, not only the assigned project link.
 
 ## 2026-09-28 · Grok · Performance clicks respond before the list rebuilds (1.3.091827c)
 
