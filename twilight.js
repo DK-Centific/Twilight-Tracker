@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100101a';
-const APP_UPDATED_AT = '10/01/2026 08:30';
+const APP_VERSION = '1.3.100101b';
+const APP_UPDATED_AT = '10/01/2026 09:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -33771,6 +33771,38 @@ function renderPerfStrikeCheckpointBannerHTML() {
 
 let _modStrikeActionBusyKey = '';
 let _modStrikeBusyClearTimer = null;
+let _modStrikeConfirmPendingKey = '';
+
+function modStrikeConfirmSubject(orbitId) {
+  const id = String(orbitId || '').trim();
+  if (typeof getModeratorDisplayName === 'function') {
+    const shown = String(getModeratorDisplayName(orbitId) || '').trim();
+    if (shown && shown !== '·' && shown.toLowerCase() !== id.toLowerCase()) return shown;
+  }
+  return id;
+}
+
+// Admin Strike and Reset stars share the same dialog as other destructive
+// admin actions. Cancel (and a missing dialog) must not change stars.
+async function confirmAdminModStrikeAction(action, orbitId) {
+  if (action !== 'strike' && action !== 'reset') return true;
+  if (typeof appConfirm !== 'function') return false;
+  const who = modStrikeConfirmSubject(orbitId);
+  const isStrike = action === 'strike';
+  return !!(await appConfirm({
+    title: isStrike
+      ? 'Are you sure you want to strike?'
+      : 'Are you sure you want to reset the stars?',
+    message: who
+      ? (isStrike
+        ? (who + ' will lose 1 star.')
+        : (who + ' will go back to ' + MOD_STRIKE_MAX_STARS + ' stars.'))
+      : (isStrike ? 'This removes 1 star.' : 'This restores the stars.'),
+    confirmLabel: 'Confirm',
+    cancelLabel: 'Cancel',
+    variant: 'danger',
+  }));
+}
 
 function modStrikeOrbitBusyKey(orbitId) {
   return modStrikeOrbitKey(orbitId);
@@ -33798,7 +33830,7 @@ function modStrikeEndAction(orbitId) {
 }
 
 
-function handleModStrikeActionClick(e, btn) {
+async function handleModStrikeActionClick(e, btn) {
   e.preventDefault();
   e.stopPropagation();
   const orbitId = btn.getAttribute('data-mod-orbit') || '';
@@ -33808,6 +33840,7 @@ function handleModStrikeActionClick(e, btn) {
   if (!orbitBusy) return;
   if (action === 'reset') modStrikeEndAction(orbitId);
   else if (_modStrikeActionBusyKey === orbitBusy) return;
+  if ((action === 'strike' || action === 'reset') && _modStrikeConfirmPendingKey) return;
   const host = btn.closest('.mod-card, tr, .perf-tile, .mod-asgn-row, .team-mod-chip');
 
   const release = () => { modStrikeEndAction(orbitId); };
@@ -33815,6 +33848,20 @@ function handleModStrikeActionClick(e, btn) {
   if (action === 'final-chance') {
     if (typeof grantModStrikeFinalChance === 'function') grantModStrikeFinalChance(orbitId);
     return;
+  }
+
+  if (action === 'strike' || action === 'reset') {
+    _modStrikeConfirmPendingKey = orbitBusy;
+    let ok = false;
+    try {
+      ok = await confirmAdminModStrikeAction(action, orbitId);
+    } catch (_) {
+      ok = false;
+    } finally {
+      if (_modStrikeConfirmPendingKey === orbitBusy) _modStrikeConfirmPendingKey = '';
+    }
+    if (!ok) return;
+    if (action !== 'reset' && _modStrikeActionBusyKey === orbitBusy) return;
   }
 
   if (action === 'strike') {

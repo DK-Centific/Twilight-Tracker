@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 console.log('Moderator strike self-test');
 
 assert('version bump 091828a',
-  /const APP_VERSION = '1\.3\.100101a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100101a'));
+  /const APP_VERSION = '1\.3\.100101b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100101b'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -154,6 +154,14 @@ assert('strike delegation + eligibility',
   && /function modStrikeEligible/.test(src)
   && /function modStrikeBeginAction/.test(src)
   && /function renderTeamModChipHTML/.test(src));
+assert('admin strike and reset confirm before they run',
+  /async function confirmAdminModStrikeAction/.test(src)
+  && /Are you sure you want to strike\?/.test(src)
+  && /Are you sure you want to reset the stars\?/.test(src)
+  && /confirmLabel: 'Confirm'/.test(src)
+  && /cancelLabel: 'Cancel'/.test(src)
+  && /await confirmAdminModStrikeAction\(action, orbitId\)/.test(src)
+  && /if \(!ok\) return;/.test(src));
 assert('moderator strike warnings',
   /function modStrikeWarningMessage/.test(src)
   && /function syncModStrikeModeratorChrome/.test(src)
@@ -824,5 +832,72 @@ ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 5 * 60 * 1
 assert('same yesterday session is not struck twice',
   ctx.getModStrikeStars('a-orbit') === 3 && ctx.getModStrikeStars('b-orbit') === 3);
 
-console.log(`\n${passed} passed, ${failed} failed`);
-process.exit(failed ? 1 : 0);
+function strikeClickBtn(action, orbit) {
+  return {
+    getAttribute(name) {
+      if (name === 'data-mod-orbit') return orbit;
+      if (name === 'data-mod-strike') return action;
+      return '';
+    },
+    closest() { return null; },
+  };
+}
+const strikeClickEv = { preventDefault() {}, stopPropagation() {} };
+
+(async function runAdminStrikeConfirmGate() {
+  ctx.requestAnimationFrame = (fn) => { if (typeof fn === 'function') fn(); return 0; };
+  ctx._confirmCalls = [];
+  ctx._confirmResult = false;
+  ctx.appConfirm = async (opts) => {
+    ctx._confirmCalls.push(opts);
+    return ctx._confirmResult;
+  };
+  ctx.resetModStrikeStars('david-tw');
+  assert('david-tw starts at 4 before confirm gate', ctx.getModStrikeStars('david-tw') === 4);
+
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('reset', 'david-tw'));
+  assert('cancel reset leaves stars', ctx.getModStrikeStars('david-tw') === 4);
+  assert('reset confirm copy',
+    ctx._confirmCalls.length === 1
+    && ctx._confirmCalls[0].title === 'Are you sure you want to reset the stars?'
+    && ctx._confirmCalls[0].confirmLabel === 'Confirm'
+    && ctx._confirmCalls[0].cancelLabel === 'Cancel'
+    && String(ctx._confirmCalls[0].message).indexOf('david-tw') >= 0);
+
+  ctx._confirmCalls = [];
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('strike', 'david-tw'));
+  assert('cancel strike leaves stars', ctx.getModStrikeStars('david-tw') === 4);
+  assert('strike confirm copy',
+    ctx._confirmCalls.length === 1
+    && ctx._confirmCalls[0].title === 'Are you sure you want to strike?'
+    && ctx._confirmCalls[0].confirmLabel === 'Confirm'
+    && ctx._confirmCalls[0].cancelLabel === 'Cancel'
+    && String(ctx._confirmCalls[0].message).indexOf('david-tw') >= 0);
+
+  ctx._confirmResult = true;
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('strike', 'david-tw'));
+  assert('confirm strike removes one star', ctx.getModStrikeStars('david-tw') === 3);
+
+  ctx._confirmCalls = [];
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('final-chance', 'david-tw'));
+  assert('final chance does not open the strike confirm', ctx._confirmCalls.length === 0);
+
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('reset', 'david-tw'));
+  assert('confirm reset restores four stars', ctx.getModStrikeStars('david-tw') === 4);
+
+  let releaseConfirm;
+  const gate = new Promise((resolve) => { releaseConfirm = resolve; });
+  ctx.appConfirm = () => gate.then(() => true);
+  const firstClick = ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('strike', 'david-tw'));
+  await ctx.handleModStrikeActionClick(strikeClickEv, strikeClickBtn('reset', 'david-tw'));
+  assert('a second click while the confirm is open does nothing', ctx.getModStrikeStars('david-tw') === 4);
+  releaseConfirm();
+  await firstClick;
+  assert('the open confirm still strikes once', ctx.getModStrikeStars('david-tw') === 3);
+
+  console.log(`\n${passed} passed, ${failed} failed`);
+  process.exit(failed ? 1 : 0);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
