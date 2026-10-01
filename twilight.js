@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100101b';
-const APP_UPDATED_AT = '10/01/2026 09:15';
+const APP_VERSION = '1.3.100101c';
+const APP_UPDATED_AT = '10/01/2026 09:55';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -32468,9 +32468,9 @@ function modStrikeCheckpointDaysForBooking(booking) {
 // booking (completion may have fallen off the read). Never auto-strike unknown.
 function modStrikeAssignmentEvidence(a) {
   if (!a) return 'unknown';
-  // Soft-close + happypath is finished, so it is not an incomplete strike.
-  // Soft-close without happypath stays cancelled (not invented Completed,
-  // and not a new incomplete). Other Cancelled rows stay cancelled.
+  // Soft-close + happypath / either co-mod finish is Completed, so it is
+  // not an incomplete strike. Soft-close without that finish stays
+  // cancelled (not invented Completed, and not a new incomplete).
   if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) {
     if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) {
       return 'complete';
@@ -32480,6 +32480,9 @@ function modStrikeAssignmentEvidence(a) {
         return 'complete';
       }
     } catch (_) {}
+    if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) {
+      return 'complete';
+    }
     return 'cancelled';
   }
   if (a.status === 'Cancelled') return 'cancelled';
@@ -33106,9 +33109,22 @@ function modStrikeParseRowJson(row) {
   return {};
 }
 
-// Team complete for the strike gate: any co-mod on THIS session date has
-// station_4_done, session_done, or sessionCompletedAt. A stamp from an
-// earlier sessionDate is prior-day bleed and does not close tonight.
+// Booking day, or the next morning when an overnight session wraps after
+// midnight. Anything earlier is prior-day bleed and must not close tonight.
+function modStrikeCoModSessionDateOk(sd, ymd) {
+  const day = String(sd || '').split('T')[0].trim();
+  const booked = String(ymd || '').split('T')[0].trim();
+  if (!day || !booked) return true;
+  if (day === booked) return true;
+  const next = (typeof addDaysToYmd === 'function') ? addDaysToYmd(booked, 1) : '';
+  return !!(next && day === next);
+}
+
+// Team complete for the strike gate. Either co-mod is enough:
+// happypath (sessionStateCountsAsTeamComplete), station_4_done,
+// session_done / office_checkout, sessionCompletedAt, Station4 stamp,
+// or a Completed / soft-close Completed status. One co-mod still
+// mid-session does not keep the team incomplete.
 function modStrikeCoModStatusBlocksStrike(booking) {
   if (!booking) return false;
   const ymd = (typeof modStrikeBookingYmd === 'function') ? modStrikeBookingYmd(booking) : '';
@@ -33118,13 +33134,15 @@ function modStrikeCoModStatusBlocksStrike(booking) {
   if (typeof modStrikePrimariesForBooking === 'function') {
     primaries = modStrikePrimariesForBooking(booking).map(id => String(id).toLowerCase());
   }
+  const helper = (typeof sessionStateCountsAsTeamComplete === 'function')
+    ? sessionStateCountsAsTeamComplete : null;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const parsed = modStrikeParseRowJson(row);
     const sd = String(
       (parsed && parsed.sessionDate) || row.sessionDate || row.SessionDate || ''
     ).split('T')[0].trim();
-    if (sd && ymd && sd !== ymd) continue;
+    if (!modStrikeCoModSessionDateOk(sd, ymd)) continue;
     const who = String(
       row.orbitLoginId || row.OrbitLoginId || (parsed && parsed.orbitLoginId) || ''
     ).trim().toLowerCase();
@@ -33132,9 +33150,27 @@ function modStrikeCoModStatusBlocksStrike(booking) {
     const st = String(
       (parsed && parsed.sessionStatus) || row.sessionStatus || row.SessionStatus || ''
     ).trim().toLowerCase();
+    if (st === 'cancelled') continue;
+    if (st === 'completed') return true;
+    // Full app: the happypath helper is the authority (it also rejects
+    // foreign stamps when sessionDate was rewritten). Do not fall
+    // through to the raw status string after it says no.
+    if (helper) {
+      try { if (helper(parsed, row, ymd)) return true; } catch (_) {}
+      continue;
+    }
     if (st === 'station_4_done' || st === 'session_done' || st === 'office_checkout') return true;
     const doneAt = (parsed && parsed.sessionCompletedAt) || row.sessionCompletedAt || row.SessionCompletedAt;
     if (doneAt) return true;
+    const sca = (parsed && parsed.stationCompletedAt) || row.stationCompletedAt || null;
+    if (sca && (sca.Station4 || sca.station4)) return true;
+    if (typeof sessionStateAllStationsHappypath === 'function' && sessionStateAllStationsHappypath(parsed)) {
+      return true;
+    }
+    if (typeof sessionStateParsedIsHappypathComplete === 'function'
+        && sessionStateParsedIsHappypathComplete(parsed, row)) {
+      return true;
+    }
   }
   return false;
 }
@@ -33200,7 +33236,13 @@ function modStrikeCrewNightAlreadyComplete(booking) {
     const a = list[i];
     if (!a || a === booking) continue;
     if (String(a.date || '') !== String(ymd)) continue;
-    if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
+    if (a.status === 'Unassigned') continue;
+    // Soft-close writes List status Cancelled. When that row is the
+    // finished session, it still completes the night. A true cancel does not.
+    if (a.status === 'Cancelled') {
+      const soft = (typeof assignmentIsOdSoftClose === 'function') && assignmentIsOdSoftClose(a);
+      if (!soft) continue;
+    }
     let sameCrew = false;
     if (crewKey && typeof modStrikeCrewSessionKey === 'function') {
       // Participant token differs across reassign; compare orbit crew only.
@@ -33324,8 +33366,12 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
     && (typeof isPastAssignmentSessionEnd === 'function')
     && isPastAssignmentSessionEnd(booking, now);
   if (!morningAfterOpen && !sameDayDeadlineOpen) return false;
-  // Team-OR: station_4_done / session_done / sessionCompletedAt on any
-  // co-mod completes the assignment. Cancelled and soft-close stay out.
+  // Team-OR: happypath, station_4_done, session_done, sessionCompletedAt,
+  // or soft-close Completed on any co-mod completes the assignment.
+  // A same-crew soft-close sibling counts. A true cancel stays out.
+  if (typeof modStrikeCrewNightAlreadyComplete === 'function' && modStrikeCrewNightAlreadyComplete(booking)) {
+    return false;
+  }
   if (modStrikeAssignmentEvidence(booking) !== 'incomplete') return false;
   if (modStrikeSessionAlreadyMuted(booking)) return false;
   return applyRecordedSessionStrike(orbitId, booking, entry);
