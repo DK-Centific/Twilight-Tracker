@@ -12,7 +12,7 @@
 
 **Version:** **1.3.100101c**. Selftest: `scripts/mod-strike-team-complete-gate-selftest.js` (21 passed). Forward gate, ghost, once-per-session, strike, incomplete alert, soft-close, cancel, and progress mirror also passed.
 
-**PR:** draft on `cursor/nine-am-complete-gate-fcaa`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#191](https://github.com/DK-Centific/Twilight-Tracker/pull/191) on `cursor/nine-am-complete-gate-fcaa`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100101c**. A team that already finished (Completed, or soft-close that shows Completed, or station 4 done on either person) should stay at 4 stars after 9:00 AM Pacific. A team that truly did not finish can still lose one star at 9:00 AM. Skip still keeps that team at 4.
 
