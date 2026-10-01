@@ -10,7 +10,7 @@
 
 **Version:** **1.3.100101a**. Selftest: `scripts/mod-cancel-session-selftest.js`. Booking queue, overnight, soft-close, and strike-gate tests still pass.
 
-**PR:** draft on `cursor/cancel-until-9am-12e1`. Do **not** merge until David says push.
+**PR:** draft [#189](https://github.com/DK-Centific/Twilight-Tracker/pull/189) on `cursor/cancel-until-9am-12e1`. Do **not** merge until David says push. Not on the live site until then.
 
 **Checked:** Corner would say **1.3.100101a**. Before 9:00 AM PT, an unfinished last night with only a guide acknowledgment shows **Cancel session**. After 9:00 AM that button is gone. A finished night does not show it. A checked-in session dated today still shows it.
 
