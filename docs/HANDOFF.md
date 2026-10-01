@@ -10,7 +10,7 @@
 
 **Version:** **1.3.100101b**. Selftest: `scripts/mod-strike-selftest.js` (129 passed). Related version pins were moved to this tip and those selftests passed.
 
-**PR:** draft on `cursor/admin-strike-reset-confirm-fbec`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#190](https://github.com/DK-Centific/Twilight-Tracker/pull/190) on `cursor/admin-strike-reset-confirm-fbec`. Do **not** merge until David says push. Not on the live site until then.
 
 **Checked:** The strike selftest cancels Reset and Strike and leaves david-tw at 4 stars, then Confirm Strike drops one star and Confirm Reset puts 4 back. A second click while the dialog is open does nothing. No browser click-through on the login screen.
 
