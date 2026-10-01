@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-01 · Grok · Confirm before Admin Strike and Reset stars (1.3.100101b)
+**Last updated:** 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
+
+## 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
+
+**Ask:** Do not take a star at 9:00 AM when the team session is already finished. Completed, soft-close Completed, and a finish on either co-mod must stay at 4 stars. Skip and Resolve stay as they are. Do not write anyone’s stars. Power Automate is already putting the four false-strike moderators back to 4. Do not merge until David says push.
+
+**Fix:** The 9:00 AM check now treats the team as finished when either co-mod has a real finish: happypath, station 4 done, session done, a completion time, or Completed. A finish stamped the next morning still counts for that overnight. An older night’s station 4 does not. A soft-close row that is actually finished also covers a leftover Booked row for the same crew that night. An unfinished soft-close does not. Skip and Resolve still block a new automatic star. One star per person per unfinished session. Strike and Reset confirms are unchanged.
+
+**Not done:** No star restore, no migration, no SharePoint write.
+
+**Version:** **1.3.100101c**. Selftest: `scripts/mod-strike-team-complete-gate-selftest.js` (21 passed). Forward gate, ghost, once-per-session, strike, incomplete alert, soft-close, cancel, and progress mirror also passed.
+
+**PR:** draft on `cursor/nine-am-complete-gate-fcaa`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100101c**. A team that already finished (Completed, or soft-close that shows Completed, or station 4 done on either person) should stay at 4 stars after 9:00 AM Pacific. A team that truly did not finish can still lose one star at 9:00 AM. Skip still keeps that team at 4.
 
 ## 2026-10-01 · Grok · Confirm before Admin Strike and Reset stars (1.3.100101b)
 
