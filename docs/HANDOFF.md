@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-01 · Grok · Cancel session stays up until 9:00 AM PT for an unfinished night (1.3.100101a)
+**Last updated:** 2026-10-01 · Grok · Confirm before Admin Strike and Reset stars (1.3.100101b)
+
+## 2026-10-01 · Grok · Confirm before Admin Strike and Reset stars (1.3.100101b)
+
+**Ask:** Admin-Twilight Reset cleared david-tw’s stars by accident. Add a confirm before Strike and before Reset stars. Do not restore anyone’s stars. Do not change strike rules. Do not merge until David says push.
+
+**Fix:** Strike and Reset on a moderator (Moderators list and the star overlay on Performance, teams, and assignment rows) open the same confirm dialog the rest of Admin already uses. Strike asks “Are you sure you want to strike?” Reset asks “Are you sure you want to reset the stars?” Confirm runs the old action. Cancel closes the dialog and leaves stars as they are. Final Chance is unchanged. The yesterday checkpoint Strike button already had its own confirm. Turning a deactivated moderator back on still resets that ladder, with no extra dialog.
+
+**Version:** **1.3.100101b**. Selftest: `scripts/mod-strike-selftest.js` (129 passed). Related version pins were moved to this tip and those selftests passed.
+
+**PR:** draft [#190](https://github.com/DK-Centific/Twilight-Tracker/pull/190) on `cursor/admin-strike-reset-confirm-fbec`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** The strike selftest cancels Reset and Strike and leaves david-tw at 4 stars, then Confirm Strike drops one star and Confirm Reset puts 4 back. A second click while the dialog is open does nothing. No browser click-through on the login screen.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100101b**. Sign in as Admin. Open **Moderators** or **Performance**. Click **Strike** on a person. You should see “Are you sure you want to strike?” with **Confirm** and **Cancel**. **Cancel** leaves their stars alone. **Confirm** removes one star, the same as before. Click **Reset**. You should see “Are you sure you want to reset the stars?” **Cancel** does nothing. **Confirm** puts the stars back to 4.
 
 ## 2026-10-01 · Grok · Cancel session until 9:00 AM PT (1.3.100101a)
 
