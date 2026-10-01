@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.091830b';
-const APP_UPDATED_AT = '09/30/2026 14:25';
+const APP_VERSION = '1.3.100101a';
+const APP_UPDATED_AT = '10/01/2026 08:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1460,14 +1460,124 @@ function operatorArrivedForCancelSession(asgn) {
   return true;
 }
 
+// 9:00 AM America/Los_Angeles on the morning after the booking date.
+// Same clock as the booking-queue / auto-strike checkpoint
+// (isPastModStrikeCheckpointHour → pacificWallClockToMs). A session
+// dated today stays inside the window until tomorrow's gate. A prior
+// night stays inside only until today's 9:00 AM. Older than yesterday
+// is already past that gate.
+function modCancelMorningGateStillOpen(asgn, nowMs) {
+  const booked = String((asgn && asgn.date) || '').split('T')[0];
+  let today = '';
+  try {
+    if (typeof getPSTDateString === 'function') today = String(getPSTDateString() || '').split('T')[0];
+  } catch (_) { today = ''; }
+  if (!booked || !today) return true;
+  if (booked >= today) return true;
+  let yesterday = '';
+  try {
+    if (typeof addDaysToYmd === 'function') yesterday = String(addDaysToYmd(today, -1) || '');
+  } catch (_) { yesterday = ''; }
+  if (yesterday && booked < yesterday) return false;
+  try {
+    if (typeof isPastModStrikeCheckpointHour === 'function') {
+      return !isPastModStrikeCheckpointHour(nowMs);
+    }
+  } catch (_) {}
+  return true;
+}
+
+function cancelWorklogStatusIsOpenStart(status) {
+  const s = String(status || '').trim();
+  if (!s || s === 'session_done' || s === 'office_checkout' || s === 'Cancelled') return false;
+  // Guide ack overwrites the one worklog row and is not in
+  // WORKLOG_STATUS_ORDER, so statusOrderIdx is -1 and the arrived
+  // check never sees it. It is still a started, unfinished session.
+  if (s === 'cal_guide_acknowledged') return true;
+  const arrivedIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('arrived') : -1;
+  const doneIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('session_done') : -1;
+  const idx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(s) : -1;
+  return arrivedIdx >= 0 && idx >= arrivedIdx && (doneIdx < 0 || idx < doneIdx);
+}
+
+function operatorCalGuideAckForCancelSession(asgn) {
+  if (!asgn || typeof state === 'undefined' || !state || !state.calGuideAck) return false;
+  const ack = state.calGuideAck;
+  if (!ack || typeof ack !== 'object') return false;
+  const stamp = ack.acknowledgedAt || ack.at || '';
+  const booked = String(asgn.date || '').trim();
+  const sd = String(state.sessionDate || '').trim();
+  if (stamp && typeof sessionStateStampBelongsToAssignment === 'function') {
+    try { return !!sessionStateStampBelongsToAssignment(stamp, asgn); } catch (_) {}
+  }
+  if (booked && sd && sd !== booked) return false;
+  return true;
+}
+
+function worklogCacheHasOpenCancelStart(asgn) {
+  if (!asgn || asgn.id == null || typeof loadWorklogCache !== 'function') return false;
+  let cache = [];
+  try { cache = loadWorklogCache() || []; } catch (_) { return false; }
+  const id = String(asgn.id);
+  for (let i = 0; i < cache.length; i++) {
+    const row = cache[i];
+    if (!row) continue;
+    if (row.assignmentId !== asgn.id && String(row.assignmentId) !== id) continue;
+    if (cancelWorklogStatusIsOpenStart(row.status)) return true;
+  }
+  return false;
+}
+
+function sessionStateCalGuideAckForCancel(asgn) {
+  if (!asgn || asgn.id == null) return false;
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : null;
+  if (!rows || !rows.length) return false;
+  const matching = (typeof sessionStateRowsForAssignment === 'function')
+    ? sessionStateRowsForAssignment(asgn.id, rows)
+    : rows.filter(r => r && String(r.assignmentId || '') === String(asgn.id));
+  const booked = String(asgn.date || '').trim();
+  for (let i = 0; i < matching.length; i++) {
+    let parsed = null;
+    try {
+      parsed = (typeof parseSessionStateJson === 'function')
+        ? parseSessionStateJson(matching[i])
+        : JSON.parse((matching[i] && matching[i].stateJson) || '{}');
+    } catch (_) { parsed = null; }
+    const ack = parsed && parsed.calGuideAck;
+    if (!ack || typeof ack !== 'object') continue;
+    const stamp = ack.acknowledgedAt || ack.at || '';
+    if (stamp && typeof sessionStateStampBelongsToAssignment === 'function') {
+      try {
+        if (sessionStateStampBelongsToAssignment(stamp, asgn)) return true;
+        continue;
+      } catch (_) {}
+    }
+    const sd = String((parsed && parsed.sessionDate) || '').trim();
+    if (!booked || !sd || sd === booked) return true;
+  }
+  return false;
+}
+
+function assignmentHasOpenCancelStart(asgn, myStatus, teamStatus) {
+  if (cancelWorklogStatusIsOpenStart(myStatus) || cancelWorklogStatusIsOpenStart(teamStatus)) return true;
+  if (operatorArrivedForCancelSession(asgn)) return true;
+  if (operatorCalGuideAckForCancelSession(asgn)) return true;
+  if (worklogCacheHasOpenCancelStart(asgn)) return true;
+  if (sessionStateCalGuideAckForCancel(asgn)) return true;
+  return false;
+}
+
 function assignmentShowsCancelSession(asgn, myStatus, teamStatus) {
   if (!asgn) return false;
   const status = String(asgn.status || '');
   if (status === 'Cancelled' || status === 'Unassigned' || status === 'Completed') return false;
   try {
+    if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(asgn)) return false;
+  } catch (_) {}
+  try {
     if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(asgn)) return false;
   } catch (_) {}
-  const arrivedIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('arrived') : -1;
   const doneIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx('session_done') : -1;
   const myIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(myStatus) : -1;
   const teamIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(teamStatus) : -1;
@@ -1477,8 +1587,11 @@ function assignmentShowsCancelSession(asgn, myStatus, teamStatus) {
     const ss = String(state.sessionStatus || '');
     if (ss === 'session_done' || ss === 'office_checkout') return false;
   }
-  const worklogArrived = arrivedIdx >= 0 && idx >= arrivedIdx;
-  return worklogArrived || operatorArrivedForCancelSession(asgn);
+  // Incomplete overnight (arrived or guide ack, including 0 stations)
+  // stays cancellable through 9:00 AM PT. After that gate, do not offer
+  // Cancel for the prior night. Today's booking is unchanged.
+  if (!modCancelMorningGateStillOpen(asgn)) return false;
+  return assignmentHasOpenCancelStart(asgn, myStatus, teamStatus);
 }
 
 function modCancelSessionHoldButtonHTML(extraClass) {
@@ -1561,6 +1674,23 @@ function openModCancelSessionConfirm() {
     ? getActiveOperatorAssignment()
     : ((typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null);
   if (!asgn || String(asgn.status || '') === 'Cancelled') return;
+  if (typeof assignmentShowsCancelSession === 'function') {
+    let myStatus = null;
+    let teamStatus = null;
+    try {
+      if (typeof getMyLatestStatusForAssignment === 'function') {
+        const my = getMyLatestStatusForAssignment(asgn.id);
+        myStatus = my && my.status;
+      }
+    } catch (_) {}
+    try {
+      if (typeof getLatestStatusForAssignment === 'function') {
+        const team = getLatestStatusForAssignment(asgn.id);
+        teamStatus = team && team.status;
+      }
+    } catch (_) {}
+    if (!assignmentShowsCancelSession(asgn, myStatus, teamStatus)) return;
+  }
   const ask = (typeof appConfirm === 'function')
     ? appConfirm({
         title: 'Are you sure you want to cancel the current session?',
@@ -1595,8 +1725,9 @@ function renderWelcomeWorklogBannerHTML() {
   const displayStatus = (statusOrderIdx(teamStatus) > statusOrderIdx(myStatus)) ? teamStatus : myStatus;
   const showCancel = assignmentShowsCancelSession(asgn, myStatus, teamStatus);
   const teamIdx = statusOrderIdx(teamStatus);
-  // Pre-check-in banner stays today-only. After check-in, overnight
-  // sessions still need Cancel session on this banner.
+  // Pre-check-in banner stays today-only. An unfinished night
+  // (arrived or guide ack, not completed) still shows Cancel session
+  // here until 9:00 AM PT. After that gate, showCancel is false.
   if (asgn.date !== todayStr && !showCancel) return '';
   const arrivedIdx = statusOrderIdx('arrived');
   const myIdx = statusOrderIdx(myStatus);

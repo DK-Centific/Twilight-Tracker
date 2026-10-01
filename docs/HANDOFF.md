@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-09-30 · Grok · Tonight chip sits inside the Overview well (1.3.091830b)
+**Last updated:** 2026-10-01 · Grok · Cancel session stays up until 9:00 AM PT for an unfinished night (1.3.100101a)
+
+## 2026-10-01 · Grok · Cancel session until 9:00 AM PT (1.3.100101a)
+
+**Ask:** Venkata × Sravya (Sanjay) arrived and acknowledged the guide, with no stations, and never pressed Cancel. They were Flagged incomplete. David wants Cancel session still available through 9:00 AM Pacific for that unfinished night. Do not merge.
+
+**Fix:** Cancel session stays on the same hold-to-confirm button until 9:00 AM Pacific the morning after the booking date, when the night is not finished. Arrived, or a guide acknowledgment with no stations, is enough. Confirm still marks the team Cancelled, does not add a strike or Flagged, and clears the checklist. At 9:00 AM that prior night loses the button. A session dated today still has Cancel after check-in. A finished or soft-closed session never gets Cancel. The 9:00 AM booking gate is unchanged: after 9:00 AM, today's booking is what My session uses.
+
+**Version:** **1.3.100101a**. Selftest: `scripts/mod-cancel-session-selftest.js`. Booking queue, overnight, soft-close, and strike-gate tests still pass.
+
+**PR:** draft on `cursor/cancel-until-9am-12e1`. Do **not** merge until David says push.
+
+**Checked:** Corner would say **1.3.100101a**. Before 9:00 AM PT, an unfinished last night with only a guide acknowledgment shows **Cancel session**. After 9:00 AM that button is gone. A finished night does not show it. A checked-in session dated today still shows it.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100101a**. Sign in as a moderator who checked in last night and did not finish. Before 9:00 AM Pacific, **Cancel session** should be on the session. Press and hold it until it fills, then tap **Confirm**. The session should say Cancelled. It should not say Flagged, and stars should stay the same. After 9:00 AM Pacific, that last-night button should be gone, and today's booking should be the one on screen.
 
 ## 2026-09-30 · Grok · Tonight weather sits inside the Overview well (1.3.091830b)
 

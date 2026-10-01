@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Moderator cancel-session self-test (1.3.091825d)');
+console.log('Moderator cancel-session self-test (1.3.100101a)');
 
-assert('APP_VERSION 1.3.091830b',
-  /const APP_VERSION = '1\.3\.091830b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.091830b'));
+assert('APP_VERSION 1.3.100101a',
+  /const APP_VERSION = '1\.3\.100101a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100101a'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
@@ -304,18 +304,26 @@ assert('SS marker wipes checklist and keeps cancel',
   && patched.assignmentId === '115',
   JSON.stringify(patched));
 
-function showCtx() {
-  const ctx = {
+const CANCEL_UI_FNS = [
+  'operatorArrivedForCancelSession',
+  'modCancelMorningGateStillOpen',
+  'cancelWorklogStatusIsOpenStart',
+  'operatorCalGuideAckForCancelSession',
+  'worklogCacheHasOpenCancelStart',
+  'sessionStateCalGuideAckForCancel',
+  'assignmentHasOpenCancelStart',
+  'assignmentShowsCancelSession',
+].map(extractFn).join('\n');
+
+function showCtx(extra) {
+  const ctx = Object.assign({
     state: {},
     statusOrderIdx: (s) => ['arrived', 'station_1_done', 'session_done'].indexOf(s),
     isSessionWrapUpDone: () => false,
     sessionStateStampBelongsToAssignment: () => true,
-  };
+  }, extra || {});
   vm.createContext(ctx);
-  vm.runInContext(
-    extractFn('operatorArrivedForCancelSession') + '\n' + extractFn('assignmentShowsCancelSession'),
-    ctx
-  );
+  vm.runInContext(CANCEL_UI_FNS, ctx);
   return ctx;
 }
 
@@ -338,6 +346,67 @@ function showCtx() {
   ui.state.sessionStatus = 'session_done';
   assert('Cancel hides when local wrap-up is session_done',
     ui.assignmentShowsCancelSession(booked, 'arrived', null) === false);
+}
+
+{
+  const addDays = (ymd, delta) => {
+    const d = new Date(String(ymd).slice(0, 10) + 'T12:00:00');
+    d.setDate(d.getDate() + delta);
+    return d.toISOString().slice(0, 10);
+  };
+  const night = { status: 'Booked', date: '2026-09-30', id: 'night' };
+  const todayBooking = { status: 'Booked', date: '2026-10-01', id: 'today' };
+  const before = showCtx({
+    getPSTDateString: () => '2026-10-01',
+    addDaysToYmd: addDays,
+    isPastModStrikeCheckpointHour: () => false,
+  });
+  before.state.arrivedAt = '2026-10-01T06:00:00.000Z';
+  assert('overnight arrived still shows Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(night, null, null) === true);
+  before.state.arrivedAt = '';
+  before.state.calGuideAck = { acknowledgedAt: '2026-10-01T05:00:00.000Z', acknowledgedBy: 'Sravya' };
+  before.state.sessionDate = '2026-09-30';
+  assert('guide ack with 0 stations shows Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(night, null, null) === true);
+  before.state.calGuideAck = null;
+  assert('guide ack worklog status shows Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(night, 'cal_guide_acknowledged', null) === true);
+  assert('not started stays without Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(night, null, null) === false);
+  assert('finished night does not show Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(night, 'session_done', null) === false);
+  assert('soft-close Cancelled does not show Cancel',
+    before.assignmentShowsCancelSession({ status: 'Cancelled', date: '2026-09-30', comment: 'od-sync-soft-close' }, 'arrived', null) === false);
+  before.state.arrivedAt = '2026-10-01T16:00:00.000Z';
+  assert('today session still shows Cancel before 9 AM PT',
+    before.assignmentShowsCancelSession(todayBooking, 'arrived', null) === true);
+
+  const after = showCtx({
+    getPSTDateString: () => '2026-10-01',
+    addDaysToYmd: addDays,
+    isPastModStrikeCheckpointHour: () => true,
+  });
+  after.state.arrivedAt = '2026-10-01T06:00:00.000Z';
+  after.state.calGuideAck = { acknowledgedAt: '2026-10-01T05:00:00.000Z' };
+  after.state.sessionDate = '2026-09-30';
+  assert('prior incomplete hides Cancel after 9 AM PT',
+    after.assignmentShowsCancelSession(night, 'arrived', null) === false);
+  assert('guide-ack night hides Cancel after 9 AM PT',
+    after.assignmentShowsCancelSession(night, 'cal_guide_acknowledged', null) === false);
+  assert('today session still shows Cancel after 9 AM PT',
+    after.assignmentShowsCancelSession(todayBooking, 'arrived', null) === true);
+  assert('older than yesterday stays hidden',
+    after.assignmentShowsCancelSession({ status: 'Booked', date: '2026-09-28' }, 'arrived', null) === false);
+
+  const cache = showCtx({
+    getPSTDateString: () => '2026-10-01',
+    addDaysToYmd: addDays,
+    isPastModStrikeCheckpointHour: () => false,
+    loadWorklogCache: () => [{ assignmentId: 'night', status: 'cal_guide_acknowledged' }],
+  });
+  assert('worklog cache guide ack shows Cancel before 9 AM PT',
+    cache.assignmentShowsCancelSession(night, null, null) === true);
 }
 
 {
