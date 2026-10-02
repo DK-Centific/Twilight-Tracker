@@ -29,9 +29,9 @@ function assert(name, cond, detail) {
 
 console.log('One strike per moderator per incomplete session');
 
-assert('version 1.3.100226e',
-  /const APP_VERSION = '1\.3\.100226e'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226e'));
+assert('version 1.3.100226f',
+  /const APP_VERSION = '1\.3\.100226f'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226f'));
 
 const sliceStart = src.indexOf('function ymd(d)');
 const sliceEnd = src.indexOf('function fmtTimeOfDay(min)', sliceStart);

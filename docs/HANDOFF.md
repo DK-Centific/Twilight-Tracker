@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Checklist mirror paints from cache first (1.3.100226e)
+**Last updated:** 2026-10-02 · Grok · Admin console opens before SessionState (1.3.100226f)
+
+## 2026-10-02 · Grok · Admin console opens first; checklist loads behind it (1.3.100226f)
+
+**Ask:** After Admin sign-in, Overview, Performance, and the menus should be usable right away. They must not wait on a full SessionState read. Checklist progress should load quietly in the background. Opening Helios later should use that load. If it is not ready yet, show the bar immediately and fill the stations when the load finishes. Do not start a second full read. Keep the view-only banner and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Do not merge until David says push.
+
+**Fix:** The Admin console paints from the saved sign-in list, then starts one SessionState read in the background. Overview and Performance can be opened while that read is still running. The checklist, the team list, and Performance share that same read. A cold checklist shows the bar at once and fills the stations when the rows arrive. A person already marked deactivated on this browser is still stopped at the sign-in screen.
+
+**Version:** **1.3.100226f**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226f**. Sign in as Admin. Overview should be on screen without a long wait. Click **Performance**, then **Overview** again. Both should open right away. Click the Helios logo and open a team. The line at the top should name that team. Close it. Stars and the moderator app should be unchanged.
 
 ## 2026-10-02 · Grok · Checklist progress opens from the rows already loaded (1.3.100226e)
 

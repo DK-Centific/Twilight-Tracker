@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226e';
-const APP_UPDATED_AT = '10/02/2026 05:40';
+const APP_VERSION = '1.3.100226f';
+const APP_UPDATED_AT = '10/02/2026 06:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -17635,14 +17635,19 @@ async function adminProgressMirrorHydrateChecklist(a, opts) {
     }
     return;
   }
-  // Cold cache: wait, but share the Read Performance or the picker already started.
+  // Cold cache: the shell and banner are already on screen. Do not wait
+  // here. The same background Read fills the stations when it lands.
   if (!skipFetch && !ready) {
-    try {
-      if (typeof ensurePerfSessionStateRows === 'function') await ensurePerfSessionStateRows();
-    } catch (_) {}
-    if (!adminProgressMirrorBlocksWrites()) return;
-    const flag = (typeof state !== 'undefined' && state) ? state._adminProgressMirror : null;
-    if (!flag || String(flag.assignmentId) !== wantedId) return;
+    const refresh = (typeof ensurePerfSessionStateRows === 'function') ? ensurePerfSessionStateRows() : null;
+    if (refresh && typeof refresh.then === 'function') {
+      refresh.then(() => {
+        if (!adminProgressMirrorBlocksWrites()) return;
+        const flag = (typeof state !== 'undefined' && state) ? state._adminProgressMirror : null;
+        if (!flag || !flag.checklist || String(flag.assignmentId) !== wantedId) return;
+        adminProgressMirrorHydrateChecklist(a, { skipFetch: true });
+      }).catch(() => {});
+      return;
+    }
   }
   adminProgressMirrorApplyHydratedChecklist(a);
 }
@@ -46447,6 +46452,24 @@ function startAdminApp() {
     startAdminAppAfterLogin();
   });
 }
+// One silent SessionState Read after the Admin console is already on
+// screen. Checklist progress, strikes, and the saved admin settings all
+// ride this same Read. Clicks and tab changes do not wait for it.
+function startAdminSessionStatePrefetch() {
+  if (typeof ensurePerfSessionStateRows !== 'function') return;
+  ensurePerfSessionStateRows().then(() => {
+    try { if (typeof syncModTrackingUi === 'function') syncModTrackingUi(); } catch (_) {}
+    try { if (typeof syncApprovalAutoToggleUi === 'function') syncApprovalAutoToggleUi(); } catch (_) {}
+    try { if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators(); } catch (_) {}
+    try { if (typeof overlayMasterAdminFlagsOnModerators === 'function') overlayMasterAdminFlagsOnModerators(); } catch (_) {}
+    try { if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome(); } catch (_) {}
+    if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
+        && typeof renderModerators === 'function') {
+      renderModerators();
+    }
+  }).catch(() => {});
+}
+
 function startAdminAppAfterLogin() {
   if (typeof ensureModStrikeActionDelegation === 'function') ensureModStrikeActionDelegation();
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
@@ -46500,31 +46523,7 @@ function startAdminAppAfterLogin() {
       }
     }).catch(() => {});
   }
-  if (typeof refreshModTrackingSetting === 'function') {
-    refreshModTrackingSetting().then(() => {
-      if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
-    }).catch(() => {});
-  }
-  if (typeof refreshApprovalAutoSetting === 'function') {
-    refreshApprovalAutoSetting().catch(() => {});
-  }
-  if (typeof refreshDeactivatedUsers === 'function') {
-    refreshDeactivatedUsers().then(() => {
-      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
-          && typeof renderModerators === 'function') {
-        renderModerators();
-      }
-    }).catch(() => {});
-  }
-  if (typeof refreshMasterAdmins === 'function') {
-    refreshMasterAdmins().then(() => {
-      if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
-      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
-          && typeof renderModerators === 'function') {
-        renderModerators();
-      }
-    }).catch(() => {});
-  }
+  if (typeof startAdminSessionStatePrefetch === 'function') startAdminSessionStatePrefetch();
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
 }
@@ -46628,7 +46627,11 @@ function bindAdminMenu() {
         if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
         if (typeof fetchWorklogFromPA === 'function')     fetchWorklogFromPA();
       } else if (tab === 'checklist') {
-        if (typeof fetchSessionStateRows === 'function') fetchSessionStateRows();
+        if (typeof adminState !== 'undefined' && adminState && !adminState._perfSSInflight) {
+          adminState._perfSSFetchedAt = 0;
+        }
+        if (typeof ensurePerfSessionStateRows === 'function') ensurePerfSessionStateRows();
+        else if (typeof fetchSessionStateRows === 'function') fetchSessionStateRows();
       } else if (tab === 'approval') {
         // Approval was missing from this dispatcher · Refresh spun the
         // icon but never re-fetched the queue, so the list looked frozen.
@@ -48907,7 +48910,25 @@ function startSessionStateHeartbeat() {
 // empty) of {sessionStateId, assignmentId, teamId, orbitLoginId,
 // stateJson, lastActive, appVersion}. Returns null on error so callers
 // can distinguish "no data" from "couldn't reach the server."
+// One in-flight Read is shared. Admin boot, Performance, the checklist
+// mirror, and Activities join it instead of starting a second full table
+// fetch while the first is still running.
+let _sessionStateReadInflight = null;
+
 async function fetchSessionStateRows() {
+  if (_sessionStateReadInflight) return _sessionStateReadInflight;
+  if (!SESSIONSTATE_PA_READ_URL) return null;
+  if (_sessionStateReadRetryAt && Date.now() < _sessionStateReadRetryAt) return null;
+  const job = fetchSessionStateRowsNow();
+  _sessionStateReadInflight = job;
+  const clear = () => {
+    if (_sessionStateReadInflight === job) _sessionStateReadInflight = null;
+  };
+  job.then(clear, clear);
+  return job;
+}
+
+async function fetchSessionStateRowsNow() {
   if (!SESSIONSTATE_PA_READ_URL) return null;
   // A disabled PA flow may be turned back on while the app is open. Use a
   // one-minute cooldown after a disabled response instead of permanently
@@ -61953,12 +61974,11 @@ async function maybeRerouteFromDirectoryRole() {
 }
 
 async function blockDeactivatedLogin(orbitId) {
+  // The saved list is enough to stop a known deactivated account. The
+  // cloud list refreshes after the Admin console is already open.
   try {
-    if (typeof refreshDeactivatedUsers === 'function') await refreshDeactivatedUsers();
-    else if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
-  } catch (_) {
     if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
-  }
+  } catch (_) {}
   if (typeof isUserDeactivated !== 'function' || !isUserDeactivated(orbitId)) return false;
   setLoginError('This account has been deactivated. Ask an admin to restore access.');
   shakeLoginCard();
@@ -61973,11 +61993,8 @@ function blockStrikeLockedLogin(orbitId) {
 async function enterPasswordlessAdmin(enteredName) {
   const enteredAdminName = canonicalAdminUsername(enteredName);
   try {
-    if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
-    else if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  } catch (_) {
     if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  }
+  } catch (_) {}
   const saved = loadState(enteredAdminName);
   if (saved && saved.username && isAdminUsername(saved.username)) {
     state = saved;

@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.100226e)
+ * Admin progress mirror (1.3.100226f)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(Math.max(0, start - 6), start) === 'async ' ? 'async ' + code : code;
 }
 
-console.log('Admin progress mirror (1.3.100226e)');
+console.log('Admin progress mirror (1.3.100226f)');
 
-assert('APP_VERSION 1.3.100226e',
-  /const APP_VERSION = '1\.3\.100226e'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226e'));
+assert('APP_VERSION 1.3.100226f',
+  /const APP_VERSION = '1\.3\.100226f'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226f'));
 
 const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825o)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
@@ -120,6 +120,24 @@ assert('stale checklist paints before the shared SessionState read',
   && pickerSrc.indexOf('ensurePerfSessionStateRows') < pickerSrc.indexOf('fetchSessionStateRows')
   && ensureSrc.includes('_perfSSInflight')
   && ensureSrc.indexOf('adminState._perfSSInflight = job') < ensureSrc.indexOf('fetchSessionStateRows'));
+const bootSrc = extractFn('enterPasswordlessAdmin');
+const afterSrc = extractFn('startAdminAppAfterLogin');
+const blockSrc = extractFn('blockDeactivatedLogin');
+const prefetchSrc = extractFn('startAdminSessionStatePrefetch');
+const fetchSrc = extractFn('fetchSessionStateRows');
+assert('admin console paints before a SessionState read',
+  bootSrc.includes('startAdminApp()')
+  && !bootSrc.includes('refreshMasterAdmins')
+  && !bootSrc.includes('fetchSessionStateRows')
+  && blockSrc.includes('loadDeactivatedUsersCache')
+  && !blockSrc.includes('refreshDeactivatedUsers')
+  && !blockSrc.includes('fetchSessionStateRows')
+  && afterSrc.indexOf('renderAdmin()') < afterSrc.indexOf('startAdminSessionStatePrefetch')
+  && prefetchSrc.includes('ensurePerfSessionStateRows')
+  && !prefetchSrc.includes('await ')
+  && fetchSrc.includes('_sessionStateReadInflight = job')
+  && fetchSrc.includes('fetchSessionStateRowsNow')
+  && fetchSrc.indexOf('_sessionStateReadInflight = job') < fetchSrc.indexOf('return job'));
 
 const TODAY = '2026-09-26';
 const YDAY = '2026-09-25';
@@ -492,13 +510,33 @@ async function runCacheFirstChecks() {
   ctx.adminState.perfSessionStateRows = null;
   ctx.adminState._perfSSFetchedAt = 0;
   ctx.adminState._perfSSInflight = null;
-  const coldA = ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  assert('a cold checklist returns before the read and does not paint yet',
+    paints === 0 && fetches === 1);
   const coldB = ctx.ensurePerfSessionStateRows();
-  assert('a cold checklist waits and does not paint yet', paints === 0 && fetches === 1);
+  assert('the open checklist joins the read already running', fetches === 1);
   releaseFetch();
-  await coldA;
   await coldB;
-  assert('a cold checklist paints after the one shared read', paints === 1 && fetches === 1);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert('a cold checklist paints when the shared read lands', paints === 1 && fetches === 1);
+
+  let tableReads = 0;
+  let releaseTable;
+  ctx.SESSIONSTATE_PA_READ_URL = 'https://example.test/session-state';
+  ctx._sessionStateReadRetryAt = 0;
+  ctx._sessionStateReadInflight = null;
+  ctx.fetchSessionStateRowsNow = function () {
+    tableReads += 1;
+    return new Promise((resolve) => { releaseTable = () => resolve([{ assignmentId: 'od_1' }]); });
+  };
+  vm.runInContext(extractFn('fetchSessionStateRows'), ctx);
+  const readA = ctx.fetchSessionStateRows();
+  const readB = ctx.fetchSessionStateRows();
+  assert('two full-table callers share one SessionState read', tableReads === 1);
+  releaseTable();
+  const rowsA = await readA;
+  const rowsB = await readB;
+  assert('both full-table callers receive the same rows', rowsA === rowsB && rowsA.length === 1);
 
   if (failed) {
     console.error('\n' + failed + ' admin progress mirror checks failed');
