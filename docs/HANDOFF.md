@@ -1,8 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Activities Today team dropdown (1.3.100226c)
+**Last updated:** 2026-10-02 · Grok · Activities Today is the booked ops day (1.3.100226d)
+
+## 2026-10-02 · Grok · Activities Today team menu is that day’s booked teams (1.3.100226d)
+
+**Ask:** On Activities with Today selected, the Team menu still listed nine pairings. For the evening of 2026-10-01 Pacific it should list only Venkata x Manoj, Narendra x Rohith, and Matthew x Pradeepreddy, plus All teams. A team stays through 9:00 AM Pacific the next morning, then the menu switches to the new day’s booked teams. Do not keep every team the live queue still holds. Do not merge until David says push.
+
+**Fix:** Today was treating any non-future row still in the live admin queue as today’s team. That queue keeps older nights after they are no longer the booked session. Today now uses the booked session date. After 9:00 AM Pacific that date is today’s Pacific date. Before 9:00 AM, yesterday’s booked session is still Today. Older queue rows and later nights stay out. This Week and All are unchanged. Night Time Lakitu is unchanged.
+
+**Version:** **1.3.100226d**. Selftest: `scripts/activities-map-today-selftest.js`. A prior night the live queue still holds after 9:00 AM is not in the Today team list. That same night is in the list before 9:00 AM. An unbooked roster team stays out.
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** Hard refresh until the corner says **1.3.100226d**. Sign in as Admin. Open **Activities**. Leave **Today** selected. Open **Team**. You should see **All teams**, **Venkata x Manoj**, **Narendra x Rohith**, and **Matthew x Pradeepreddy**. The other pairings should be gone.
 
 ## 2026-10-02 · Grok · Activities Today team dropdown is only today’s teams (1.3.100226c)
+
+Superseded by **1.3.100226d**. Nine teams in the Today menu was the bug, not the check to copy.
 
 **Ask:** On Activities, with Today selected, the Team dropdown still listed the whole roster. It should list only the teams in the same window as Performance Today: through 9:00 AM Pacific the next morning. Week and All stay as they are. Night Time Lakitu stays a tile that opens a popup. Do not merge until David says push.
 
@@ -14,7 +28,7 @@
 
 **Checked:** Local preview, signed in as Admin. Corner **1.3.100226c**. Activities with Today selected showed 9 teams in the Team menu. This Week showed more. Today again showed the shorter list. Night Time Lakitu was not changed.
 
-**Verify (David):** This build is on the pull request, not the live site. Hard refresh until the corner says **1.3.100226c**. Sign in as Admin. Open **Activities**. Leave **Today** selected. Open the **Team** menu. You should see only today’s teams, not every team in the roster. **This Week** can show more. **Today** again should go back to the shorter list.
+**Verify (David):** Use the **1.3.100226d** steps above. Nine teams on Today was the failure.
 
 ## 2026-10-02 · Grok · Night Time Lakitu opens from a tile; Activities Today matches Performance (1.3.100226b)
 

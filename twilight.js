@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226c';
-const APP_UPDATED_AT = '10/02/2026 03:30';
+const APP_VERSION = '1.3.100226d';
+const APP_UPDATED_AT = '10/02/2026 04:25';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -21004,6 +21004,17 @@ function getActivitiesDateRange() {
   return 'today';
 }
 
+function activitiesBookingYmd(a) {
+  let date = String((a && a.date) || '').split('T')[0];
+  if (!date && typeof assignmentPerfMaterialize === 'function') {
+    try {
+      const mat = assignmentPerfMaterialize(a);
+      date = String((mat && mat.date) || '').split('T')[0];
+    } catch (_) {}
+  }
+  return date;
+}
+
 function activitiesAssignmentInDateRange(a) {
   if (!a) return false;
   const range = getActivitiesDateRange();
@@ -21011,27 +21022,25 @@ function activitiesAssignmentInDateRange(a) {
   if (range === 'week') {
     return typeof perfDateInRange === 'function' && perfDateInRange(a, 'week');
   }
-  // Today uses the Performance ops window (live queue + 9 AM PT gate),
-  // not a Pacific midnight cutoff. A night dated yesterday stays on
-  // Today until that gate. A later calendar day does not: the queue
-  // can still carry next week's Booked row, and that was filling the
-  // Team dropdown with the whole roster.
-  if (typeof perfAssignmentVisibleInAdminQueue === 'function'
-      && !perfAssignmentVisibleInAdminQueue(a)) {
-    return false;
-  }
+  // Today is the booked session for the current ops day, the same
+  // window Performance uses for Today. After 9:00 AM Pacific the ops
+  // day is today's Pacific date. Before 9:00 AM, yesterday's booked
+  // session is still Today. It rolls at 9 AM, not at midnight, and
+  // not whenever the live admin queue still holds an older night.
   const today = (typeof getPSTDateString === 'function')
     ? String(getPSTDateString() || '').split('T')[0]
     : '';
-  let date = String(a.date || '').split('T')[0];
-  if (!date && typeof assignmentPerfMaterialize === 'function') {
-    try {
-      const mat = assignmentPerfMaterialize(a);
-      date = String((mat && mat.date) || '').split('T')[0];
-    } catch (_) {}
+  const date = activitiesBookingYmd(a);
+  const gateOpen = typeof isPastModStrikeCheckpointHour === 'function'
+    && isPastModStrikeCheckpointHour();
+  if (today && date) {
+    if (date === today) return true;
+    if (!gateOpen) {
+      const yesterday = (typeof addDaysToYmd === 'function') ? addDaysToYmd(today, -1) : '';
+      return !!yesterday && date === yesterday;
+    }
+    return false;
   }
-  if (today && date && date > today) return false;
-  if (typeof perfAssignmentVisibleInAdminQueue === 'function') return true;
   return typeof perfDateInRange === 'function' && perfDateInRange(a, 'today');
 }
 
@@ -21048,7 +21057,10 @@ function listActivitiesTeamsForDateRange() {
   const ids = new Set();
   asgns.forEach(a => {
     if (!activitiesAssignmentInDateRange(a)) return;
-    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+    // Week still intersects the live queue. Today does not: a prior
+    // night the queue has not dropped yet is not this ops day.
+    if (range !== 'today'
+        && typeof perfAssignmentVisibleInAdminQueue === 'function'
         && !perfAssignmentVisibleInAdminQueue(a)) return;
     if (a.teamId) ids.add(String(a.teamId));
   });
@@ -21064,7 +21076,8 @@ function listActivitiesMapAssignments() {
     if (!a || a.status === 'Cancelled' || a.status === 'Unassigned') return false;
     if (typeof assignmentMatchesActivitiesFocus === 'function' && !assignmentMatchesActivitiesFocus(a)) return false;
     if (!activitiesAssignmentInDateRange(a)) return false;
-    if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+    if (getActivitiesDateRange() !== 'today'
+        && typeof perfAssignmentVisibleInAdminQueue === 'function'
         && !perfAssignmentVisibleInAdminQueue(a)) return false;
     return !!(typeof assignmentFenceAddress === 'function' && assignmentFenceAddress(a));
   });

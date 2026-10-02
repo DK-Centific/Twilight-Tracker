@@ -187,8 +187,13 @@ assert('Team dropdown omits a later night and an unbooked roster team',
   !teamIds.includes('88') && !teamIds.includes('99'), teamIds.join(','));
 
 ctx.isPastModStrikeCheckpointHour = () => true;
-assert('after 9 AM a team with no booking today still keeps last night',
-  ctx.activitiesAssignmentInDateRange(eveningOnly));
+assert('live queue still holds the prior night after 9 AM',
+  ctx.perfAssignmentVisibleInAdminQueue(eveningOnly));
+assert('that prior night is not a Today booking after 9 AM',
+  !ctx.activitiesAssignmentInDateRange(eveningOnly));
+const droppedIds = ctx.listActivitiesTeamsForDateRange().map(t => String(t.id));
+assert('Team dropdown drops a queue-only older pairing',
+  !droppedIds.includes('77'), droppedIds.join(','));
 
 const todayStart = {
   id: 'od_evening_today',
