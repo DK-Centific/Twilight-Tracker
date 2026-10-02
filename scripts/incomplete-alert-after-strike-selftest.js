@@ -31,9 +31,9 @@ function assert(name, cond, detail) {
 
 console.log('Incomplete alert clears after auto-strike');
 
-assert('version 1.3.100226d',
-  /const APP_VERSION = '1\.3\.100226d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226d'));
+assert('version 1.3.100226e',
+  /const APP_VERSION = '1\.3\.100226e'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226e'));
 
 assert('Overview and Performance share the auto-strike clear',
   /function modStrikeAutoStrikeClearsIncompleteAlert/.test(src)

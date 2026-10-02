@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Activities Today is the booked ops day (1.3.100226d)
+**Last updated:** 2026-10-02 · Grok · Checklist mirror paints from cache first (1.3.100226e)
+
+## 2026-10-02 · Grok · Checklist progress opens from the rows already loaded (1.3.100226e)
+
+**Ask:** Admin Helios checklist progress felt slow when SessionState was already on screen but older than 30 seconds. The checklist waited for a full SessionState read before the stations filled. Opening it while the team list was still loading could start a second full read. Keep the read-only banner and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Do not merge until David says push.
+
+**Fix:** If SessionState rows are already in this browser, the stations fill at once, including when those rows are older than 30 seconds. A fresh read continues in the background and the stations update when it arrives. The first open, with no rows yet, still waits. The checklist, the team list, and the refresh while it is open share one read with Performance, so a read that is already running is not started again.
+
+**Version:** **1.3.100226e**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226e**. Sign in as Admin. Open **Performance** once so tonight’s progress has loaded, then click the Helios logo and open a team. The checklist stations should show right away. The gold line at the top should still say you are seeing that team’s progress. Close it. Stars and the moderator app should be unchanged.
 
 ## 2026-10-02 · Grok · Activities Today team menu is that day’s booked teams (1.3.100226d)
 

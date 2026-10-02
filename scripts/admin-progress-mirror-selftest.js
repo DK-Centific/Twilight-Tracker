@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.100226d)
+ * Admin progress mirror (1.3.100226e)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -38,14 +38,15 @@ function extractFn(name) {
       if (begun && depth === 0) { i++; break; }
     }
   }
-  return src.slice(start, i);
+  const code = src.slice(start, i);
+  return src.slice(Math.max(0, start - 6), start) === 'async ' ? 'async ' + code : code;
 }
 
-console.log('Admin progress mirror (1.3.100226d)');
+console.log('Admin progress mirror (1.3.100226e)');
 
-assert('APP_VERSION 1.3.100226d',
-  /const APP_VERSION = '1\.3\.100226d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226d'));
+assert('APP_VERSION 1.3.100226e',
+  /const APP_VERSION = '1\.3\.100226e'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226e'));
 
 const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825o)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
@@ -107,6 +108,18 @@ assert('hydrate replaces the admin checklist with the picked team',
   mirrorSrc.includes('replaceChecklist: true')
   && mirrorSrc.includes('assignment: a')
   && !mirrorSrc.includes('scoreAfterScrub'));
+const hydrateSrc = extractFn('adminProgressMirrorHydrateChecklist');
+const pollSrc = extractFn('adminProgressMirrorRefreshRows');
+const pickerSrc = extractFn('openAdminProgressPicker');
+const ensureSrc = extractFn('ensurePerfSessionStateRows');
+assert('stale checklist paints before the shared SessionState read',
+  hydrateSrc.indexOf('adminProgressMirrorApplyHydratedChecklist(a)') < hydrateSrc.indexOf('ensurePerfSessionStateRows')
+  && hydrateSrc.includes('skipFetch: true')
+  && pollSrc.includes('ensurePerfSessionStateRows')
+  && !pollSrc.includes('fetchSessionStateRows')
+  && pickerSrc.indexOf('ensurePerfSessionStateRows') < pickerSrc.indexOf('fetchSessionStateRows')
+  && ensureSrc.includes('_perfSSInflight')
+  && ensureSrc.indexOf('adminState._perfSSInflight = job') < ensureSrc.indexOf('fetchSessionStateRows'));
 
 const TODAY = '2026-09-26';
 const YDAY = '2026-09-25';
@@ -392,8 +405,109 @@ assert('painting the entry bar does not wipe the co-mod checklist',
   && ctx.state._lastSeenActiveAsgnId === ASGN
   && ctx.state.participantName === 'Ada Mod');
 
-if (failed) {
-  console.error('\n' + failed + ' admin progress mirror checks failed');
-  process.exit(1);
+async function runCacheFirstChecks() {
+  ctx.PERF_SS_CACHE_TTL_MS = 30000;
+  ctx.syncArrivalCheckInAlerts = function () {};
+  ctx.console = console;
+  vm.runInContext(extractFn('ensurePerfSessionStateRows'), ctx);
+  vm.runInContext(extractFn('adminProgressMirrorRowsReadyNow'), ctx);
+  vm.runInContext(extractFn('adminProgressMirrorSessionRowsFresh'), ctx);
+  vm.runInContext(extractFn('adminProgressMirrorApplyHydratedChecklist'), ctx);
+  vm.runInContext(extractFn('adminProgressMirrorHydrateChecklist'), ctx);
+
+  let fetches = 0;
+  let releaseFetch = function () {};
+  const freshRows = [{ assignmentId: 'od_1', stateJson: '{}' }];
+  ctx.fetchSessionStateRows = function () {
+    fetches += 1;
+    return new Promise((resolve) => {
+      releaseFetch = () => resolve(freshRows);
+    });
+  };
+
+  ctx.adminState = { perfSessionStateRows: null, _perfSSFetching: false, _perfSSInflight: null };
+  const first = ctx.ensurePerfSessionStateRows();
+  const second = ctx.ensurePerfSessionStateRows();
+  assert('two callers share one in-flight SessionState read', fetches === 1);
+  releaseFetch();
+  const gotA = await first;
+  const gotB = await second;
+  assert('both callers receive the same fetched rows', gotA === gotB && gotA === freshRows);
+
+  fetches = 0;
+  await ctx.ensurePerfSessionStateRows();
+  assert('a fresh cache does not start another read', fetches === 0);
+
+  const staleRows = [{ assignmentId: 'od_1', stateJson: '{"stations":{}}' }];
+  ctx.adminState.perfSessionStateRows = staleRows;
+  ctx.adminState._perfSSFetchedAt = Date.now() - 60000;
+  fetches = 0;
+  const staleA = ctx.ensurePerfSessionStateRows();
+  const staleB = ctx.ensurePerfSessionStateRows();
+  assert('a stale cache starts one shared read', fetches === 1);
+  releaseFetch();
+  await staleA;
+  await staleB;
+
+  let paints = 0;
+  let fetchesAtPaint = -1;
+  ctx.adminProgressMirrorBlocksWrites = function () { return true; };
+  ctx.state = { _adminProgressMirror: { open: true, checklist: true, assignmentId: 'od_1' } };
+  ctx.adminProgressMirrorRewindToSnapshot = function () {};
+  ctx.adminProgressMirrorRowsForBooking = function () { return ctx.adminState.perfSessionStateRows || []; };
+  ctx.pickLatestTeamProgress = function () { return null; };
+  ctx.adminProgressMirrorHasChecklistWork = function () { return false; };
+  ctx.adminProgressMirrorResetChecklistFields = function () {};
+  ctx.adminProgressMirrorEnsureStationShells = function () {};
+  ctx.adminProgressMirrorSetBanner = function () {};
+  ctx.adminProgressMirrorFirstStationKey = function () { return null; };
+  ctx.renderApp = function () {
+    paints += 1;
+    fetchesAtPaint = fetches;
+  };
+  ctx.adminState.perfSessionStateRows = staleRows.slice();
+  ctx.adminState._perfSSFetchedAt = Date.now() - 60000;
+  ctx.adminState._perfSSInflight = null;
+  fetches = 0;
+  paints = 0;
+  const painted = ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  assert('stale rows paint before SessionState is read', paints === 1 && fetchesAtPaint === 0 && fetches === 1);
+  const joined = ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  assert('a second checklist open joins that read', fetches === 1 && paints === 2);
+  releaseFetch();
+  await painted;
+  await joined;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert('fresh rows paint again after the shared read lands', paints >= 3);
+
+  fetches = 0;
+  paints = 0;
+  ctx.adminState._perfSSFetchedAt = Date.now();
+  ctx.adminState.perfSessionStateRows = staleRows.slice();
+  await ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  assert('a fresh cache paints once and does not read', paints === 1 && fetches === 0);
+
+  fetches = 0;
+  paints = 0;
+  ctx.adminState.perfSessionStateRows = null;
+  ctx.adminState._perfSSFetchedAt = 0;
+  ctx.adminState._perfSSInflight = null;
+  const coldA = ctx.adminProgressMirrorHydrateChecklist({ id: 'od_1', date: TODAY });
+  const coldB = ctx.ensurePerfSessionStateRows();
+  assert('a cold checklist waits and does not paint yet', paints === 0 && fetches === 1);
+  releaseFetch();
+  await coldA;
+  await coldB;
+  assert('a cold checklist paints after the one shared read', paints === 1 && fetches === 1);
+
+  if (failed) {
+    console.error('\n' + failed + ' admin progress mirror checks failed');
+    process.exit(1);
+  }
+  console.log('\nAll admin progress mirror checks passed');
 }
-console.log('\nAll admin progress mirror checks passed');
+
+runCacheFirstChecks().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
