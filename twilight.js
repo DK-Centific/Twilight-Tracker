@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226d';
-const APP_UPDATED_AT = '10/02/2026 04:25';
+const APP_VERSION = '1.3.100226h';
+const APP_UPDATED_AT = '10/02/2026 15:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -9065,6 +9065,7 @@ const adminState = {
   perfStatusScope: 'all',
   perfSessionStateRows: null,
   _perfSSFetching: false,
+  _perfSSInflight: null,
   // perfListLayout: 'grid' | 'list' · card tiles vs dense list (Moderator Hub mirror)
   perfListLayout: (function () {
     try { return localStorage.getItem('orbit_perf_list_layout') === 'list' ? 'list' : 'grid'; }
@@ -14981,48 +14982,63 @@ const PERF_SS_CACHE_TTL_MS = 30000;
 async function ensurePerfSessionStateRows() {
   // Fetch SessionState rows on Performance tab visit; reuse cached
   // rows if they're still fresh (within PERF_SS_CACHE_TTL_MS of the
-  // last fetch). Re-fetch in the background otherwise · see below.
+  // last fetch). Re-fetch otherwise.
+  //
+  // One in-flight promise is shared. Checklist hydrate, the home
+  // picker, the mirror poll, and Performance all join it so a slow
+  // SessionState Read is not started twice.
   const now = Date.now();
   const fetchedAt = adminState._perfSSFetchedAt || 0;
+  // An empty list is not fresh. A failed or empty first Read must
+  // retry, not sit blank for the whole TTL.
   const isFresh = Array.isArray(adminState.perfSessionStateRows)
+                && adminState.perfSessionStateRows.length > 0
                 && (now - fetchedAt) < PERF_SS_CACHE_TTL_MS;
   if (isFresh) return adminState.perfSessionStateRows;
-  if (adminState._perfSSFetching) {
-    // Another fetch is in flight · return what we have (could be
-    // null on first-ever fetch, or a stale array). The in-flight
-    // fetch will refresh the cache when it lands.
-    return adminState.perfSessionStateRows || [];
-  }
+  if (adminState._perfSSInflight) return adminState._perfSSInflight;
+  let resolveJob;
+  const job = new Promise((resolve) => { resolveJob = resolve; });
+  adminState._perfSSInflight = job;
   adminState._perfSSFetching = true;
-  try {
-    if (typeof fetchSessionStateRows === 'function') {
-      const rows = await fetchSessionStateRows();
-      if (Array.isArray(rows)) {
-        adminState.perfSessionStateRows = rows;
-        adminState._perfSSFetchedAt = Date.now();
-        adminState._perfSSOk = true;
+  (async () => {
+    try {
+      if (typeof fetchSessionStateRows === 'function') {
+        const rows = await fetchSessionStateRows();
+        if (Array.isArray(rows)) {
+          // Keep the same empty array so a blank Read does not look like
+          // new data and schedule another Read on every paint.
+          if (!(rows.length === 0 && Array.isArray(adminState.perfSessionStateRows)
+              && adminState.perfSessionStateRows.length === 0)) {
+            adminState.perfSessionStateRows = rows;
+          }
+          // Stamp every successful Read. Fresh still requires rows.
+          adminState._perfSSFetchedAt = Date.now();
+          adminState._perfSSOk = true;
+        } else {
+          adminState._perfSSOk = false;
+        }
       } else {
+        adminState.perfSessionStateRows = [];
+        adminState._perfSSFetchedAt = Date.now();
         adminState._perfSSOk = false;
       }
-    } else {
-      adminState.perfSessionStateRows = [];
+    } catch (e) {
+      console.warn('[Twilight] Performance: SessionState fetch failed', e && e.message);
+      // On error, preserve any prior cache so we don't regress from
+      // "stale data showing" to "no data showing." But mark
+      // _perfSSFetchedAt so the next visit re-tries.
+      if (!Array.isArray(adminState.perfSessionStateRows)) {
+        adminState.perfSessionStateRows = [];
+      }
       adminState._perfSSFetchedAt = Date.now();
-      adminState._perfSSOk = false;
+    } finally {
+      adminState._perfSSFetching = false;
+      adminState._perfSSInflight = null;
+      if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
+      resolveJob(adminState.perfSessionStateRows);
     }
-  } catch (e) {
-    console.warn('[Twilight] Performance: SessionState fetch failed', e && e.message);
-    // On error, preserve any prior cache so we don't regress from
-    // "stale data showing" to "no data showing." But mark
-    // _perfSSFetchedAt so the next visit re-tries.
-    if (!Array.isArray(adminState.perfSessionStateRows)) {
-      adminState.perfSessionStateRows = [];
-    }
-    adminState._perfSSFetchedAt = Date.now();
-  } finally {
-    adminState._perfSSFetching = false;
-  }
-  if (typeof syncArrivalCheckInAlerts === 'function') syncArrivalCheckInAlerts();
-  return adminState.perfSessionStateRows;
+  })();
+  return job;
 }
 
 // ---- Performance tab live auto-refresh (1.3.061526) -------------------
@@ -17446,15 +17462,14 @@ function closeAdminProgressMirror() {
 
 async function adminProgressMirrorRefreshRows() {
   if (!adminProgressMirrorBlocksWrites()) return;
-  if (typeof fetchSessionStateRows !== 'function') return;
+  if (typeof ensurePerfSessionStateRows !== 'function') return;
   try {
-    const rows = await fetchSessionStateRows();
-    if (!adminProgressMirrorBlocksWrites()) return;
-    if (Array.isArray(rows) && typeof adminState !== 'undefined' && adminState) {
-      adminState.perfSessionStateRows = rows;
-      adminState._perfSSFetchedAt = Date.now();
-      adminState._perfSSOk = true;
+    // Join a Read already running. Otherwise force past the TTL so the
+    // open checklist still updates on the poll beat.
+    if (typeof adminState !== 'undefined' && adminState && !adminState._perfSSInflight) {
+      adminState._perfSSFetchedAt = 0;
     }
+    await ensurePerfSessionStateRows();
   } catch (_) {}
   if (!adminProgressMirrorBlocksWrites()) return;
   const flag = state && state._adminProgressMirror;
@@ -17564,28 +17579,19 @@ function adminProgressMirrorShowChecklistShell() {
   adminProgressMirrorEnsureBar();
 }
 
-async function adminProgressMirrorHydrateChecklist(a, opts) {
-  opts = opts || {};
+function adminProgressMirrorRowsReadyNow() {
+  return typeof adminState !== 'undefined' && !!adminState && Array.isArray(adminState.perfSessionStateRows);
+}
+
+function adminProgressMirrorSessionRowsFresh() {
+  if (!adminProgressMirrorRowsReadyNow() || !adminState.perfSessionStateRows.length) return false;
+  const fetchedAt = adminState._perfSSFetchedAt || 0;
+  const ttl = (typeof PERF_SS_CACHE_TTL_MS === 'number') ? PERF_SS_CACHE_TTL_MS : 30000;
+  return (Date.now() - fetchedAt) < ttl;
+}
+
+function adminProgressMirrorApplyHydratedChecklist(a) {
   if (!a || !adminProgressMirrorBlocksWrites()) return;
-  if (!opts.skipFetch && typeof fetchSessionStateRows === 'function') {
-    const rowsNow = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
-      ? adminState.perfSessionStateRows : null;
-    const fetchedAt = (typeof adminState !== 'undefined' && adminState && adminState._perfSSFetchedAt) || 0;
-    const ttl = (typeof PERF_SS_CACHE_TTL_MS === 'number') ? PERF_SS_CACHE_TTL_MS : 30000;
-    const fresh = !!(rowsNow && rowsNow.length && (Date.now() - fetchedAt) < ttl);
-    if (!fresh) {
-      try {
-        const fetched = await fetchSessionStateRows();
-        if (!adminProgressMirrorBlocksWrites()) return;
-        if (Array.isArray(fetched) && typeof adminState !== 'undefined' && adminState) {
-          adminState.perfSessionStateRows = fetched;
-          adminState._perfSSFetchedAt = Date.now();
-          adminState._perfSSOk = true;
-        }
-      } catch (_) {}
-    }
-  }
-  if (!adminProgressMirrorBlocksWrites()) return;
   adminProgressMirrorRewindToSnapshot();
   const rows = adminProgressMirrorRowsForBooking(a);
   const picked = (typeof pickLatestTeamProgress === 'function')
@@ -17612,6 +17618,47 @@ async function adminProgressMirrorHydrateChecklist(a, opts) {
   if (typeof renderApp === 'function') {
     try { renderApp(); } catch (e) { console.warn('[Twilight] checklist mirror render failed', e); }
   }
+}
+
+async function adminProgressMirrorHydrateChecklist(a, opts) {
+  opts = opts || {};
+  if (!a || !adminProgressMirrorBlocksWrites()) return;
+  const wantedId = String(a.id);
+  const skipFetch = !!opts.skipFetch;
+  const ready = adminProgressMirrorRowsReadyNow();
+  const fresh = adminProgressMirrorSessionRowsFresh();
+  // Rows already in memory paint now, even when older than the TTL.
+  // The Read continues in the background and fills again when it lands.
+  if (!skipFetch && ready && !fresh) {
+    adminProgressMirrorApplyHydratedChecklist(a);
+    const before = (typeof adminState !== 'undefined' && adminState) ? adminState.perfSessionStateRows : null;
+    const refresh = (typeof ensurePerfSessionStateRows === 'function') ? ensurePerfSessionStateRows() : null;
+    if (refresh && typeof refresh.then === 'function') {
+      refresh.then(() => {
+        if (!adminProgressMirrorBlocksWrites()) return;
+        const flag = (typeof state !== 'undefined' && state) ? state._adminProgressMirror : null;
+        if (!flag || !flag.checklist || String(flag.assignmentId) !== wantedId) return;
+        if (typeof adminState !== 'undefined' && adminState && adminState.perfSessionStateRows === before) return;
+        adminProgressMirrorHydrateChecklist(a, { skipFetch: true });
+      }).catch(() => {});
+    }
+    return;
+  }
+  // Cold cache: the shell and banner are already on screen. Do not wait
+  // here. The same background Read fills the stations when it lands.
+  if (!skipFetch && !ready) {
+    const refresh = (typeof ensurePerfSessionStateRows === 'function') ? ensurePerfSessionStateRows() : null;
+    if (refresh && typeof refresh.then === 'function') {
+      refresh.then(() => {
+        if (!adminProgressMirrorBlocksWrites()) return;
+        const flag = (typeof state !== 'undefined' && state) ? state._adminProgressMirror : null;
+        if (!flag || !flag.checklist || String(flag.assignmentId) !== wantedId) return;
+        adminProgressMirrorHydrateChecklist(a, { skipFetch: true });
+      }).catch(() => {});
+      return;
+    }
+  }
+  adminProgressMirrorApplyHydratedChecklist(a);
 }
 
 function openAdminProgressMirror(assignmentId, opts) {
@@ -17740,7 +17787,9 @@ function openAdminProgressPicker(anchor) {
   if (!cold && !ssCold) return true;
   const jobs = [];
   if (cold && typeof fetchAssignmentsFromPA === 'function') jobs.push(Promise.resolve(fetchAssignmentsFromPA()));
-  if (ssCold && typeof fetchSessionStateRows === 'function') {
+  if (ssCold && typeof ensurePerfSessionStateRows === 'function') {
+    jobs.push(ensurePerfSessionStateRows());
+  } else if (ssCold && typeof fetchSessionStateRows === 'function') {
     jobs.push(Promise.resolve(fetchSessionStateRows()).then(rows => {
       if (Array.isArray(rows) && typeof adminState !== 'undefined' && adminState) {
         adminState.perfSessionStateRows = rows;
@@ -46412,6 +46461,24 @@ function startAdminApp() {
     startAdminAppAfterLogin();
   });
 }
+// One silent SessionState Read after the Admin console is already on
+// screen. Checklist progress, strikes, and the saved admin settings all
+// ride this same Read. Clicks and tab changes do not wait for it.
+function startAdminSessionStatePrefetch() {
+  if (typeof ensurePerfSessionStateRows !== 'function') return;
+  ensurePerfSessionStateRows().then(() => {
+    try { if (typeof syncModTrackingUi === 'function') syncModTrackingUi(); } catch (_) {}
+    try { if (typeof syncApprovalAutoToggleUi === 'function') syncApprovalAutoToggleUi(); } catch (_) {}
+    try { if (typeof overlayDeactivatedFlagsOnModerators === 'function') overlayDeactivatedFlagsOnModerators(); } catch (_) {}
+    try { if (typeof overlayMasterAdminFlagsOnModerators === 'function') overlayMasterAdminFlagsOnModerators(); } catch (_) {}
+    try { if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome(); } catch (_) {}
+    if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
+        && typeof renderModerators === 'function') {
+      renderModerators();
+    }
+  }).catch(() => {});
+}
+
 function startAdminAppAfterLogin() {
   if (typeof ensureModStrikeActionDelegation === 'function') ensureModStrikeActionDelegation();
   if (typeof redirectHiddenAssignmentTab === 'function') redirectHiddenAssignmentTab();
@@ -46465,31 +46532,7 @@ function startAdminAppAfterLogin() {
       }
     }).catch(() => {});
   }
-  if (typeof refreshModTrackingSetting === 'function') {
-    refreshModTrackingSetting().then(() => {
-      if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
-    }).catch(() => {});
-  }
-  if (typeof refreshApprovalAutoSetting === 'function') {
-    refreshApprovalAutoSetting().catch(() => {});
-  }
-  if (typeof refreshDeactivatedUsers === 'function') {
-    refreshDeactivatedUsers().then(() => {
-      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
-          && typeof renderModerators === 'function') {
-        renderModerators();
-      }
-    }).catch(() => {});
-  }
-  if (typeof refreshMasterAdmins === 'function') {
-    refreshMasterAdmins().then(() => {
-      if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
-      if (adminState && adminState.tab === 'moderators' && adminState.subtab === 'moderators'
-          && typeof renderModerators === 'function') {
-        renderModerators();
-      }
-    }).catch(() => {});
-  }
+  if (typeof startAdminSessionStatePrefetch === 'function') startAdminSessionStatePrefetch();
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
   if (typeof dockPanicFab === 'function') dockPanicFab(typeof isDesktopLayout === 'function' ? isDesktopLayout() : window.innerWidth > 760);
 }
@@ -46593,7 +46636,11 @@ function bindAdminMenu() {
         if (typeof fetchAssignmentsFromPA === 'function') fetchAssignmentsFromPA();
         if (typeof fetchWorklogFromPA === 'function')     fetchWorklogFromPA();
       } else if (tab === 'checklist') {
-        if (typeof fetchSessionStateRows === 'function') fetchSessionStateRows();
+        if (typeof adminState !== 'undefined' && adminState && !adminState._perfSSInflight) {
+          adminState._perfSSFetchedAt = 0;
+        }
+        if (typeof ensurePerfSessionStateRows === 'function') ensurePerfSessionStateRows();
+        else if (typeof fetchSessionStateRows === 'function') fetchSessionStateRows();
       } else if (tab === 'approval') {
         // Approval was missing from this dispatcher · Refresh spun the
         // icon but never re-fetched the queue, so the list looked frozen.
@@ -48872,7 +48919,25 @@ function startSessionStateHeartbeat() {
 // empty) of {sessionStateId, assignmentId, teamId, orbitLoginId,
 // stateJson, lastActive, appVersion}. Returns null on error so callers
 // can distinguish "no data" from "couldn't reach the server."
+// One in-flight Read is shared. Admin boot, Performance, the checklist
+// mirror, and Activities join it instead of starting a second full table
+// fetch while the first is still running.
+let _sessionStateReadInflight = null;
+
 async function fetchSessionStateRows() {
+  if (_sessionStateReadInflight) return _sessionStateReadInflight;
+  if (!SESSIONSTATE_PA_READ_URL) return null;
+  if (_sessionStateReadRetryAt && Date.now() < _sessionStateReadRetryAt) return null;
+  const job = fetchSessionStateRowsNow();
+  _sessionStateReadInflight = job;
+  const clear = () => {
+    if (_sessionStateReadInflight === job) _sessionStateReadInflight = null;
+  };
+  job.then(clear, clear);
+  return job;
+}
+
+async function fetchSessionStateRowsNow() {
   if (!SESSIONSTATE_PA_READ_URL) return null;
   // A disabled PA flow may be turned back on while the app is open. Use a
   // one-minute cooldown after a disabled response instead of permanently
@@ -61918,12 +61983,11 @@ async function maybeRerouteFromDirectoryRole() {
 }
 
 async function blockDeactivatedLogin(orbitId) {
+  // The saved list is enough to stop a known deactivated account. The
+  // cloud list refreshes after the Admin console is already open.
   try {
-    if (typeof refreshDeactivatedUsers === 'function') await refreshDeactivatedUsers();
-    else if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
-  } catch (_) {
     if (typeof loadDeactivatedUsersCache === 'function') loadDeactivatedUsersCache();
-  }
+  } catch (_) {}
   if (typeof isUserDeactivated !== 'function' || !isUserDeactivated(orbitId)) return false;
   setLoginError('This account has been deactivated. Ask an admin to restore access.');
   shakeLoginCard();
@@ -61938,11 +62002,8 @@ function blockStrikeLockedLogin(orbitId) {
 async function enterPasswordlessAdmin(enteredName) {
   const enteredAdminName = canonicalAdminUsername(enteredName);
   try {
-    if (typeof refreshMasterAdmins === 'function') await refreshMasterAdmins();
-    else if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  } catch (_) {
     if (typeof loadMasterAdminsCache === 'function') loadMasterAdminsCache();
-  }
+  } catch (_) {}
   const saved = loadState(enteredAdminName);
   if (saved && saved.username && isAdminUsername(saved.username)) {
     state = saved;

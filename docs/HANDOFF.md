@@ -1,6 +1,54 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Activities Today is the booked ops day (1.3.100226d)
+**Last updated:** 2026-10-02 · Grok · Non-empty SessionState cache stays fresh (1.3.100226h)
+
+## 2026-10-02 · Grok · A real SessionState list stays fresh for 30 seconds (1.3.100226h)
+
+**Ask:** AHP asked for another change on pull request 193. The empty-list retry was right, but a successful list with rows never saved the time it arrived. The next open always started another full read, and the check for “a fresh list does not read again” did not finish. Keep the empty list retrying. Keep the Admin console opening first. Do not change Panic, Switch to the moderator app, or Activities. Squash waits until AHP reviews this fix.
+
+**Fix:** When a read comes back with rows, the time is saved. For the next 30 seconds that list is reused. An empty list still does not count as fresh, so a failed first read still tries again.
+
+**Version:** **1.3.100226h**. Selftest: `scripts/admin-progress-mirror-selftest.js` (a fresh list does not start another read; an empty list still retries).
+
+**PR:** [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Squash waits on AHP. Not on the live site until then.
+
+**Verify (David):** After this is merged, hard refresh until the corner says **1.3.100226h**. Sign in as Admin. Overview should be on screen without a long wait. Open a team from the Helios logo. The line at the top should name that team.
+
+## 2026-10-02 · Grok · A blank SessionState list is not treated as fresh (1.3.100226g)
+
+**Ask:** AHP asked for a change on pull request 193. An empty SessionState list was treated as fresh for 30 seconds, so a failed first read did not try again and the checklist could stay blank. Keep the Admin console opening first, the shared background load, the view-only banner, and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Squash waits until AHP reviews this fix. David already said push.
+
+**Fix:** The saved list counts as fresh only when it has rows and is under 30 seconds old. An empty list starts another read. The checklist uses that same rule.
+
+**Version:** **1.3.100226g**. Selftest: `scripts/admin-progress-mirror-selftest.js` (empty list is not fresh and retries inside the 30 second window).
+
+**PR:** [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Squash waits on AHP. Not on the live site until then.
+
+**Verify (David):** After this is merged, hard refresh until the corner says **1.3.100226g**. Sign in as Admin. Overview should be on screen without a long wait. Open a team from the Helios logo. The line at the top should name that team.
+
+## 2026-10-02 · Grok · Admin console opens first; checklist loads behind it (1.3.100226f)
+
+**Ask:** After Admin sign-in, Overview, Performance, and the menus should be usable right away. They must not wait on a full SessionState read. Checklist progress should load quietly in the background. Opening Helios later should use that load. If it is not ready yet, show the bar immediately and fill the stations when the load finishes. Do not start a second full read. Keep the view-only banner and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Do not merge until David says push.
+
+**Fix:** The Admin console paints from the saved sign-in list, then starts one SessionState read in the background. Overview and Performance can be opened while that read is still running. The checklist, the team list, and Performance share that same read. A cold checklist shows the bar at once and fills the stations when the rows arrive. A person already marked deactivated on this browser is still stopped at the sign-in screen.
+
+**Version:** **1.3.100226f**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226f**. Sign in as Admin. Overview should be on screen without a long wait. Click **Performance**, then **Overview** again. Both should open right away. Click the Helios logo and open a team. The line at the top should name that team. Close it. Stars and the moderator app should be unchanged.
+
+## 2026-10-02 · Grok · Checklist progress opens from the rows already loaded (1.3.100226e)
+
+**Ask:** Admin Helios checklist progress felt slow when SessionState was already on screen but older than 30 seconds. The checklist waited for a full SessionState read before the stations filled. Opening it while the team list was still loading could start a second full read. Keep the read-only banner and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Do not merge until David says push.
+
+**Fix:** If SessionState rows are already in this browser, the stations fill at once, including when those rows are older than 30 seconds. A fresh read continues in the background and the stations update when it arrives. The first open, with no rows yet, still waits. The checklist, the team list, and the refresh while it is open share one read with Performance, so a read that is already running is not started again.
+
+**Version:** **1.3.100226e**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
+
+**PR:** draft [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226e**. Sign in as Admin. Open **Performance** once so tonight’s progress has loaded, then click the Helios logo and open a team. The checklist stations should show right away. The gold line at the top should still say you are seeing that team’s progress. Close it. Stars and the moderator app should be unchanged.
 
 ## 2026-10-02 · Grok · Activities Today team menu is that day’s booked teams (1.3.100226d)
 
