@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226f';
-const APP_UPDATED_AT = '10/02/2026 06:05';
+const APP_VERSION = '1.3.100226g';
+const APP_UPDATED_AT = '10/02/2026 15:40';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -14989,7 +14989,10 @@ async function ensurePerfSessionStateRows() {
   // SessionState Read is not started twice.
   const now = Date.now();
   const fetchedAt = adminState._perfSSFetchedAt || 0;
+  // An empty list is not fresh. A failed or empty first Read must
+  // retry, not sit blank for the whole TTL.
   const isFresh = Array.isArray(adminState.perfSessionStateRows)
+                && adminState.perfSessionStateRows.length > 0
                 && (now - fetchedAt) < PERF_SS_CACHE_TTL_MS;
   if (isFresh) return adminState.perfSessionStateRows;
   if (adminState._perfSSInflight) return adminState._perfSSInflight;
@@ -15002,8 +15005,14 @@ async function ensurePerfSessionStateRows() {
       if (typeof fetchSessionStateRows === 'function') {
         const rows = await fetchSessionStateRows();
         if (Array.isArray(rows)) {
-          adminState.perfSessionStateRows = rows;
-          adminState._perfSSFetchedAt = Date.now();
+          // Keep the same empty array so a blank Read does not look like
+          // new data and schedule another Read on every paint.
+          if (rows.length === 0 && Array.isArray(adminState.perfSessionStateRows)
+              && adminState.perfSessionStateRows.length === 0) {
+            adminState._perfSSFetchedAt = Date.now();
+          } else {
+            adminState.perfSessionStateRows = rows;
+          }
           adminState._perfSSOk = true;
         } else {
           adminState._perfSSOk = false;
@@ -17575,7 +17584,7 @@ function adminProgressMirrorRowsReadyNow() {
 }
 
 function adminProgressMirrorSessionRowsFresh() {
-  if (!adminProgressMirrorRowsReadyNow()) return false;
+  if (!adminProgressMirrorRowsReadyNow() || !adminState.perfSessionStateRows.length) return false;
   const fetchedAt = adminState._perfSSFetchedAt || 0;
   const ttl = (typeof PERF_SS_CACHE_TTL_MS === 'number') ? PERF_SS_CACHE_TTL_MS : 30000;
   return (Date.now() - fetchedAt) < ttl;

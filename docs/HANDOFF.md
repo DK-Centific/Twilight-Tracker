@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Admin console opens before SessionState (1.3.100226f)
+**Last updated:** 2026-10-02 · Grok · Empty SessionState cache retries (1.3.100226g)
+
+## 2026-10-02 · Grok · A blank SessionState list is not treated as fresh (1.3.100226g)
+
+**Ask:** AHP asked for a change on pull request 193. An empty SessionState list was treated as fresh for 30 seconds, so a failed first read did not try again and the checklist could stay blank. Keep the Admin console opening first, the shared background load, the view-only banner, and the block on saving. Do not change Panic, Switch to the moderator app, or Activities. Squash waits until AHP reviews this fix. David already said push.
+
+**Fix:** The saved list counts as fresh only when it has rows and is under 30 seconds old. An empty list starts another read. The checklist uses that same rule.
+
+**Version:** **1.3.100226g**. Selftest: `scripts/admin-progress-mirror-selftest.js` (empty list is not fresh and retries inside the 30 second window).
+
+**PR:** [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Squash waits on AHP. Not on the live site until then.
+
+**Verify (David):** After this is merged, hard refresh until the corner says **1.3.100226g**. Sign in as Admin. Overview should be on screen without a long wait. Open a team from the Helios logo. The line at the top should name that team.
 
 ## 2026-10-02 · Grok · Admin console opens first; checklist loads behind it (1.3.100226f)
 

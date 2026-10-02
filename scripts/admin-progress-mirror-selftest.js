@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.100226f)
+ * Admin progress mirror (1.3.100226g)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(Math.max(0, start - 6), start) === 'async ' ? 'async ' + code : code;
 }
 
-console.log('Admin progress mirror (1.3.100226f)');
+console.log('Admin progress mirror (1.3.100226g)');
 
-assert('APP_VERSION 1.3.100226f',
-  /const APP_VERSION = '1\.3\.100226f'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226f'));
+assert('APP_VERSION 1.3.100226g',
+  /const APP_VERSION = '1\.3\.100226g'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226g'));
 
 const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825o)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
@@ -455,6 +455,16 @@ async function runCacheFirstChecks() {
   fetches = 0;
   await ctx.ensurePerfSessionStateRows();
   assert('a fresh cache does not start another read', fetches === 0);
+
+  ctx.adminState.perfSessionStateRows = [];
+  ctx.adminState._perfSSFetchedAt = Date.now();
+  ctx.adminState._perfSSInflight = null;
+  fetches = 0;
+  assert('an empty cache is not fresh', ctx.adminProgressMirrorSessionRowsFresh() === false);
+  const emptyRead = ctx.ensurePerfSessionStateRows();
+  assert('an empty cache retries SessionState inside the TTL', fetches === 1);
+  releaseFetch();
+  await emptyRead;
 
   const staleRows = [{ assignmentId: 'od_1', stateJson: '{"stations":{}}' }];
   ctx.adminState.perfSessionStateRows = staleRows;
