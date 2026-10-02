@@ -12,7 +12,7 @@
 
 **Version:** **1.3.100226i**. Selftest: `scripts/mod-strike-checkpoint-roster-selftest.js`. Strike, cancel, ghost, and soft-close checks still pass.
 
-**PR:** draft on `cursor/mod-strike-banner-roster-731d`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#194](https://github.com/DK-Centific/Twilight-Tracker/pull/194) on `cursor/mod-strike-banner-roster-731d`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226i**. Sign in as Admin. Open **Performance**. The Yesterday box for **2026-10-01** should list **Venkata x Manoj**, **Narendra x Rohith**, **Matthew x Pradeepreddy**, and **Muhammad x Sravya**. Each name once. Venkata x Manoj can still say **Not completed** with **Strike** and **Skip**. Muhammad x Sravya should say **Completed**. The other pairs should be gone.
 
