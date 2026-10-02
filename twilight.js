@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226i';
-const APP_UPDATED_AT = '10/02/2026 15:50';
+const APP_VERSION = '1.3.100226j';
+const APP_UPDATED_AT = '10/02/2026 16:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -21855,7 +21855,8 @@ function shouldReplaceLocalGeoPing(existing, incoming) {
 
 function isSilentGeoSaveReason(reason) {
   const key = String(reason || '');
-  return key === 'inflight' || key === 'nochange';
+  return key === 'inflight' || key === 'nochange'
+    || key === 'refuse-regressive' || key === 'refuse-empty-beacon' || key === 'refuse-empty-resume';
 }
 
 function shouldWaitForSessionStateInflight(opts) {
@@ -45652,6 +45653,23 @@ async function postSessionStatePayloadDirect(payload) {
   }
   payload.overwrite = true;
   payload.writeMode = 'upsert';
+  const directSyncable = (typeof sessionStateParseBlob === 'function')
+    ? sessionStateParseBlob(payload.stateJson) : null;
+  if (directSyncable && typeof sessionStateRegressiveWriteDecision === 'function') {
+    const decision = sessionStateRegressiveWriteDecision(directSyncable, payload.assignmentId, {
+      syncReason: 'direct',
+      sessionStateId: payload.sessionStateId,
+      confirmedReset: !!(payload.confirmedReset || (typeof sessionStateConfirmedResetActive === 'function' && sessionStateConfirmedResetActive())),
+      adminHealForce: !!(payload.adminHealForce || payload.allowRegressiveWipe),
+    });
+    if (decision && decision.refuse) {
+      try { console.warn('[Twilight] SessionState direct write skipped · ' + decision.reason); } catch (e) {}
+      return { ok: false, reason: decision.reason || 'refuse-regressive' };
+    }
+    if (decision && decision.reason === 'confirmed-reset' && typeof clearSessionStateConfirmedReset === 'function') {
+      clearSessionStateConfirmedReset();
+    }
+  }
   try {
     if (typeof fetchWithRetry === 'function') {
       const body = await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
@@ -48666,7 +48684,336 @@ const _sessionStateSyncState = {
   // detection: a cloud self-row newer than this came from another
   // browser. '' / null until the first write.
   lastSyncedActive:      null,
+  // Last self-row observed for one assignment (poll or a read just
+  // before a cloud write). Same-assignment only. Used so an empty
+  // Not-Started shell cannot overwrite richer progress.
+  lastPolledSelfAsgnId:  null,
+  lastPolledSelfSessionStateId: null,
+  lastPolledSelfStateJson: null,
 };
+
+// A completed scenario is +100. Below this, the blob has no finished
+// scenario work. Arrived-only and a Lakitu id land under it (about 21 / 1).
+const SESSIONSTATE_REAL_PROGRESS_SCORE = 100;
+// Menu Reset and "Start a new session" may post a cleared shell once.
+let _sessionStateConfirmedResetUntil = 0;
+
+function markSessionStateConfirmedReset() {
+  _sessionStateConfirmedResetUntil = Date.now() + (2 * 60 * 1000);
+}
+
+function sessionStateConfirmedResetActive() {
+  return _sessionStateConfirmedResetUntil > 0 && Date.now() < _sessionStateConfirmedResetUntil;
+}
+
+function clearSessionStateConfirmedReset() {
+  _sessionStateConfirmedResetUntil = 0;
+}
+
+function sessionStateParseBlob(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function sessionStateComputedProgressScore(syncable) {
+  if (!syncable || typeof syncable !== 'object') return 0;
+  if (typeof sessionStateProgressScore !== 'function') return 0;
+  return sessionStateProgressScore(syncable);
+}
+
+function sessionStateHasStationCompletion(syncable) {
+  const stamp = syncable && syncable.stationCompletedAt;
+  if (!stamp || typeof stamp !== 'object') return false;
+  const keys = Object.keys(stamp);
+  for (let i = 0; i < keys.length; i++) {
+    if (stamp[keys[i]]) return true;
+  }
+  return false;
+}
+
+function sessionStateStationsAllNotStarted(syncable) {
+  const stations = syncable && syncable.stations;
+  if (!stations || typeof stations !== 'object') return true;
+  const keys = Object.keys(stations);
+  for (let i = 0; i < keys.length; i++) {
+    const data = stations[keys[i]] || {};
+    const scenarios = data.scenarios || {};
+    const nums = Object.keys(scenarios);
+    for (let n = 0; n < nums.length; n++) {
+      const sc = scenarios[nums[n]];
+      if (!sc || typeof sc !== 'object') continue;
+      const status = String(sc.status || 'Not Started').trim().toLowerCase();
+      if (status && status !== 'not started') return false;
+      if (String(sc.notes || '').trim()) return false;
+      if (Number(sc.iterations || 0) > 0) return false;
+    }
+  }
+  return true;
+}
+
+function sessionStateStatusIsEmptyOrArrivedOnly(syncable) {
+  const st = String((syncable && syncable.sessionStatus) || '').trim().toLowerCase();
+  if (!st) return true;
+  return st === 'arrived' || st === 'office_checkin';
+}
+
+// Empty / regressive shell: the Venkata×Manoj wipe shape. Full station
+// template, every scenario Not Started, no station completion, status
+// blank or arrived-only, and no finished scenario (score under 100).
+function sessionStateIsEmptyOrRegressiveShell(syncable) {
+  if (!syncable || typeof syncable !== 'object') return true;
+  if (syncable.type === 'appSetting') return false;
+  if (sessionStateComputedProgressScore(syncable) >= SESSIONSTATE_REAL_PROGRESS_SCORE) return false;
+  if (syncable.sessionCompletedAt) return false;
+  if (sessionStateHasStationCompletion(syncable)) return false;
+  if (!sessionStateStatusIsEmptyOrArrivedOnly(syncable)) return false;
+  if (!sessionStateStationsAllNotStarted(syncable)) return false;
+  return true;
+}
+
+function sessionStateBaselineHasRealProgress(syncable) {
+  if (!syncable || typeof syncable !== 'object') return false;
+  if (syncable.type === 'appSetting') return false;
+  if (syncable.sessionCompletedAt) return true;
+  if (sessionStateHasStationCompletion(syncable)) return true;
+  if (!sessionStateStationsAllNotStarted(syncable)) return true;
+  if (sessionStateComputedProgressScore(syncable) >= SESSIONSTATE_REAL_PROGRESS_SCORE) return true;
+  const stored = Number(syncable.progressScore);
+  return Number.isFinite(stored) && stored >= SESSIONSTATE_REAL_PROGRESS_SCORE;
+}
+
+function sessionStateBaselineScore(syncable) {
+  if (!syncable || typeof syncable !== 'object') return 0;
+  const computed = sessionStateComputedProgressScore(syncable);
+  const stored = Number(syncable.progressScore);
+  const storedOk = Number.isFinite(stored) ? stored : 0;
+  return Math.max(computed, storedOk);
+}
+
+function rememberSessionStatePolledSelf(asgnId, syncable, sessionStateId) {
+  if (typeof _sessionStateSyncState === 'undefined' || !_sessionStateSyncState) return;
+  if (!syncable || typeof syncable !== 'object' || syncable.type === 'appSetting') return;
+  const id = String(asgnId || '');
+  if (!id) return;
+  const prevId = String(_sessionStateSyncState.lastPolledSelfAsgnId || '');
+  const prev = sessionStateParseBlob(_sessionStateSyncState.lastPolledSelfStateJson);
+  if (prev && prevId === id && sessionStateBaselineHasRealProgress(prev)) {
+    const prevScore = sessionStateBaselineScore(prev);
+    const nextScore = sessionStateBaselineScore(syncable);
+    if (nextScore < prevScore && !sessionStateBaselineHasRealProgress(syncable)) return;
+  }
+  _sessionStateSyncState.lastPolledSelfAsgnId = id;
+  _sessionStateSyncState.lastPolledSelfSessionStateId = sessionStateId ? String(sessionStateId) : '';
+  try { _sessionStateSyncState.lastPolledSelfStateJson = JSON.stringify(syncable); } catch (e) {}
+}
+
+function sessionStateRememberSelfFromRows(rows, asgnId, orbitLoginId) {
+  const id = String(asgnId || '');
+  const orbit = String(
+    orbitLoginId
+    || (typeof state !== 'undefined' && state && state.modProfile && state.modProfile.orbitLoginId)
+    || ''
+  ).toLowerCase();
+  if (!id || !orbit || !Array.isArray(rows)) return null;
+  let winner = null;
+  let winnerParsed = null;
+  let winnerScore = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r.orbitLoginId) continue;
+    if (String(r.orbitLoginId).toLowerCase() !== orbit) continue;
+    if (typeof isGeoPresenceOrRemoteSessionStateRow === 'function'
+        && isGeoPresenceOrRemoteSessionStateRow(r)) continue;
+    const matches = (typeof sessionStateRowMatchesAssignment === 'function')
+      ? sessionStateRowMatchesAssignment(r, id)
+      : String(r.assignmentId || '') === id;
+    if (!matches) continue;
+    let parsed = null;
+    if (typeof parseSessionStateJson === 'function') parsed = parseSessionStateJson(r);
+    else parsed = sessionStateParseBlob(r.stateJson);
+    if (!parsed || parsed.type === 'appSetting') continue;
+    const score = sessionStateBaselineScore(parsed);
+    if (!winner || score >= winnerScore) {
+      winner = r;
+      winnerParsed = parsed;
+      winnerScore = score;
+    }
+  }
+  if (!winnerParsed) return null;
+  rememberSessionStatePolledSelf(id, winnerParsed, winner && winner.sessionStateId);
+  return { row: winner, syncableState: winnerParsed, score: winnerScore };
+}
+
+function sessionStateSelfRowFromCache(asgnId, opts) {
+  opts = opts || {};
+  const rows = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
+    ? adminState.perfSessionStateRows : [];
+  if (!rows.length) return null;
+  return sessionStateRememberSelfFromRows(rows, asgnId, opts.orbitLoginId);
+}
+
+// Last-good baseline for this assignment only.
+// Prefer the last successful self write, then the last polled self row,
+// then the in-memory peak. A source counts only when it still has real
+// progress. An empty last write does not hide a richer polled row.
+function resolveSessionStateLastGoodBaseline(asgnId, opts) {
+  opts = opts || {};
+  const id = String(asgnId || '');
+  const sources = [];
+  if (id && typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState
+      && String(_sessionStateSyncState.lastSyncedAsgnId || '') === id) {
+    const parsed = sessionStateParseBlob(_sessionStateSyncState.lastSyncedStateJson);
+    if (parsed) sources.push({ source: 'lastSynced', syncable: parsed });
+  }
+  if (id && typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
+    const polled = sessionStateParseBlob(_sessionStateSyncState.lastPolledSelfStateJson);
+    const sameAsgn = String(_sessionStateSyncState.lastPolledSelfAsgnId || '') === id;
+    const sid = String(opts.sessionStateId || '');
+    const sameSid = !!(sid && String(_sessionStateSyncState.lastPolledSelfSessionStateId || '') === sid);
+    if (polled && (sameAsgn || sameSid)) sources.push({ source: 'polledSelf', syncable: polled });
+  }
+  const cached = sessionStateSelfRowFromCache(id, opts);
+  if (cached && cached.syncableState) {
+    sources.push({ source: 'cachedSelf', syncable: cached.syncableState });
+  }
+  const peak = (opts.memoryPeakScore != null)
+    ? Number(opts.memoryPeakScore)
+    : Number((typeof state !== 'undefined' && state && state._progressScore) || 0);
+  const peakAsgn = (opts.memoryPeakAsgnId != null)
+    ? String(opts.memoryPeakAsgnId || '')
+    : String((typeof state !== 'undefined' && state && (state._lastSeenActiveAsgnId || state._completionWriteAsgnId)) || '');
+  if (id && peakAsgn === id && Number.isFinite(peak) && peak > 0) {
+    sources.push({ source: 'memoryPeak', syncable: { progressScore: peak }, scoreOverride: peak });
+  }
+  let first = null;
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    if (!first) first = src;
+    const score = (src.scoreOverride != null) ? src.scoreOverride : sessionStateBaselineScore(src.syncable);
+    const hasReal = (src.scoreOverride != null)
+      ? src.scoreOverride >= SESSIONSTATE_REAL_PROGRESS_SCORE
+      : sessionStateBaselineHasRealProgress(src.syncable);
+    if (hasReal) {
+      return { source: src.source, syncable: src.syncable, score: score, hasRealProgress: true, knownEmpty: false };
+    }
+  }
+  if (!first) return null;
+  const emptyScore = (first.scoreOverride != null) ? first.scoreOverride : sessionStateBaselineScore(first.syncable);
+  return { source: first.source, syncable: first.syncable, score: emptyScore, hasRealProgress: false, knownEmpty: true };
+}
+
+// Refuse when this payload is an empty shell and the same assignment
+// still has real progress. Allowed on purpose: moderator Cancel,
+// Admin heal force, and a confirmed Reset. A brand-new booking is
+// allowed only when the baseline for that id is missing or empty.
+function sessionStateRegressiveWriteDecision(localSyncable, asgnId, opts) {
+  opts = opts || {};
+  const local = (localSyncable && typeof localSyncable === 'object') ? localSyncable : {};
+  if (local.type === 'appSetting') return { refuse: false, reason: 'not-progress' };
+  if (opts.adminHealForce || opts.allowRegressiveWipe) return { refuse: false, reason: 'admin-heal' };
+  if (opts.confirmedReset) return { refuse: false, reason: 'confirmed-reset' };
+  if (typeof sessionStateBlobIsModCancelWipe === 'function' && sessionStateBlobIsModCancelWipe(local)) {
+    return { refuse: false, reason: 'mod-cancel' };
+  }
+  if (!sessionStateIsEmptyOrRegressiveShell(local)) {
+    return { refuse: false, reason: 'not-empty-shell' };
+  }
+  const baseline = resolveSessionStateLastGoodBaseline(asgnId, opts);
+  const baseScore = baseline ? baseline.score : 0;
+  const localScore = sessionStateComputedProgressScore(local);
+  if (baseline && baseline.hasRealProgress && localScore < baseScore) {
+    return {
+      refuse: true,
+      reason: 'refuse-regressive',
+      baselineSource: baseline.source,
+      baselineScore: baseScore,
+      localScore: localScore,
+    };
+  }
+  const reason = String(opts.syncReason || '');
+  const closeLike = reason === 'app_close' || reason === 'logout';
+  if (closeLike && !(baseline && baseline.knownEmpty)) {
+    return { refuse: true, reason: 'refuse-empty-beacon', baselineSource: baseline && baseline.source || '' };
+  }
+  if (reason === 'app_resume' && !(baseline && baseline.knownEmpty)) {
+    return { refuse: true, reason: 'refuse-empty-resume', baselineSource: baseline && baseline.source || '' };
+  }
+  return {
+    refuse: false,
+    reason: (baseline && baseline.knownEmpty) ? 'cloud-empty' : 'no-rich-baseline',
+    baselineSource: baseline && baseline.source || '',
+  };
+}
+
+async function sessionStateRefreshBaselineFromCloud(asgn) {
+  if (!asgn || asgn.id == null || String(asgn.id) === '') return null;
+  if (typeof fetchSessionStateRows !== 'function') return null;
+  let rows = null;
+  try { rows = await fetchSessionStateRows(); } catch (e) { rows = null; }
+  if (!rows) return null;
+  return sessionStateRememberSelfFromRows(rows, asgn.id);
+}
+
+// Read the cloud row before an empty write. On app resume, fold a
+// richer cloud checklist back into this browser so the save that
+// follows keeps the stations. Other reasons only remember the row
+// and then refuse the empty overwrite.
+async function sessionStatePrepareGuardedPayload(asgn, reason, opts) {
+  opts = opts || {};
+  const why = String(reason || '');
+  const preLocal = (typeof extractSyncableState === 'function' && typeof state !== 'undefined' && state)
+    ? extractSyncableState(state) : null;
+  const peakScore = Number((typeof state !== 'undefined' && state && state._progressScore) || 0);
+  const peakAsgn = String((typeof state !== 'undefined' && state && (state._lastSeenActiveAsgnId || state._completionWriteAsgnId)) || '');
+  const confirmed = !!(opts.confirmedReset || sessionStateConfirmedResetActive());
+  const heal = !!(opts.adminHealForce || opts.allowRegressiveWipe);
+  if (!confirmed && !heal && sessionStateIsEmptyOrRegressiveShell(preLocal) && why !== 'app_close') {
+    const already = resolveSessionStateLastGoodBaseline(asgn && asgn.id, {
+      memoryPeakScore: peakScore,
+      memoryPeakAsgnId: peakAsgn,
+    });
+    const found = (already && already.hasRealProgress && why !== 'app_resume')
+      ? null
+      : await sessionStateRefreshBaselineFromCloud(asgn);
+    const cloud = found && found.syncableState;
+    if (why === 'app_resume' && cloud
+        && sessionStateBaselineHasRealProgress(cloud)
+        && sessionStateBaselineScore(cloud) > sessionStateComputedProgressScore(preLocal)
+        && typeof applySelfSyncReplace === 'function') {
+      applySelfSyncReplace(cloud);
+    }
+  }
+  const payload = buildSessionStateCloudPayload(asgn, why);
+  const syncable = sessionStateParseBlob(payload && payload.stateJson);
+  const decision = sessionStateRegressiveWriteDecision(syncable, asgn && asgn.id, {
+    syncReason: why,
+    sessionStateId: payload && payload.sessionStateId,
+    adminHealForce: heal,
+    allowRegressiveWipe: !!opts.allowRegressiveWipe,
+    confirmedReset: confirmed,
+    memoryPeakScore: peakScore,
+    memoryPeakAsgnId: peakAsgn,
+    orbitLoginId: payload && payload.orbitLoginId,
+  });
+  if (!decision.refuse && confirmed && decision.reason === 'confirmed-reset') {
+    clearSessionStateConfirmedReset();
+  }
+  if (decision.refuse) {
+    try {
+      console.warn('[Twilight] SessionState write skipped · ' + decision.reason
+        + (decision.baselineSource ? ' · baseline ' + decision.baselineSource : '')
+        + (decision.baselineScore != null ? ' ' + decision.baselineScore : ''));
+    } catch (e) {}
+  }
+  return { payload: payload, decision: decision };
+}
 
 function assignmentCompletionNeedsWrite(asgn) {
   if (!state || !state.sessionCompletedAt || !asgn || !asgn.id) return false;
@@ -48930,7 +49277,16 @@ async function flushSessionStateSync(opts) {
   // Tracks the outcome to return after the finally block runs.
   let outcome = { ok: false, reason: 'error' };
   try {
-    const payload = buildSessionStateCloudPayload(asgn, opts.geoSyncReason || '');
+    const guarded = await sessionStatePrepareGuardedPayload(asgn, opts.geoSyncReason || '', opts);
+    if (!guarded || !guarded.payload || (guarded.decision && guarded.decision.refuse)) {
+      outcome = {
+        ok: false,
+        reason: (guarded && guarded.decision && guarded.decision.reason) || 'refuse-regressive',
+      };
+      if (opts.force || opts.geoSyncReason) notifyGeoSaveResult(outcome);
+      return outcome;
+    }
+    const payload = guarded.payload;
     payload.overwrite = true;
     payload.writeMode = 'upsert';
     if (!payload.sessionStateId) {
@@ -49664,6 +50020,9 @@ async function findSelfSessionStateUpdate(prefetchedRows) {
     }
   }
   if (!winner) return null;
+  if (typeof rememberSessionStatePolledSelf === 'function') {
+    rememberSessionStatePolledSelf(asgn.id, winnerParsed || {}, winner.sessionStateId);
+  }
   if (typeof sessionStateRehydrateBlockedForModCancel === 'function'
       && sessionStateRehydrateBlockedForModCancel(asgn.id)
       && !(typeof sessionStateBlobIsModCancelWipe === 'function'
@@ -49744,6 +50103,29 @@ function sendSessionStateBeacon(reason) {
       saveState();
     }
     const payload = buildSessionStateCloudPayload(asgn, reason || 'app_close');
+    const syncable = (typeof sessionStateParseBlob === 'function')
+      ? sessionStateParseBlob(payload.stateJson) : null;
+    const peakScore = Number((state && state._progressScore) || 0);
+    const peakAsgn = String((state && (state._lastSeenActiveAsgnId || state._completionWriteAsgnId)) || '');
+    const decision = (typeof sessionStateRegressiveWriteDecision === 'function')
+      ? sessionStateRegressiveWriteDecision(syncable, asgn.id, {
+        syncReason: reason || 'app_close',
+        sessionStateId: payload.sessionStateId,
+        confirmedReset: (typeof sessionStateConfirmedResetActive === 'function') && sessionStateConfirmedResetActive(),
+        memoryPeakScore: peakScore,
+        memoryPeakAsgnId: peakAsgn,
+        orbitLoginId: payload.orbitLoginId,
+      })
+      : { refuse: false };
+    if (decision && decision.refuse) {
+      try {
+        console.warn('[Twilight] SessionState beacon skipped · ' + decision.reason);
+      } catch (e) {}
+      return false;
+    }
+    if (decision && decision.reason === 'confirmed-reset' && typeof clearSessionStateConfirmedReset === 'function') {
+      clearSessionStateConfirmedReset();
+    }
     // sendBeacon is fire-and-forget but reliably delivered even during
     // page unload. The browser queues it and sends it post-unload.
     const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
@@ -49769,26 +50151,35 @@ function postSessionStateLifecycleUpdate(reason) {
     }
     // Build the complete body before logout resets in-memory state. `keepalive`
     // lets this request finish while the app transitions to the login screen.
-    const payload = buildSessionStateCloudPayload(asgn, reason || 'lifecycle');
-    const body = JSON.stringify(payload);
-    return fetch(SESSIONSTATE_PA_WRITE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-      keepalive: true,
-    }).then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return true;
-    }).catch(() => {
-      // Beacon remains the unload-safe fallback if the normal request cannot
-      // start (brief offline transition, browser shutdown, etc.).
-      try {
-        const blob = new Blob([body], { type: 'application/json' });
-        return navigator.sendBeacon(SESSIONSTATE_PA_WRITE_URL, blob);
-      } catch (_) {
-        return false;
-      }
-    });
+    // An empty Not-Started shell is not posted over a richer cloud row.
+    const prepare = (typeof sessionStatePrepareGuardedPayload === 'function')
+      ? sessionStatePrepareGuardedPayload(asgn, reason || 'lifecycle', {})
+      : Promise.resolve({
+        payload: buildSessionStateCloudPayload(asgn, reason || 'lifecycle'),
+        decision: { refuse: false },
+      });
+    return prepare.then(guarded => {
+      if (!guarded || !guarded.payload || (guarded.decision && guarded.decision.refuse)) return false;
+      const body = JSON.stringify(guarded.payload);
+      return fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+      }).then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return true;
+      }).catch(() => {
+        // Beacon remains the unload-safe fallback if the normal request cannot
+        // start (brief offline transition, browser shutdown, etc.).
+        try {
+          const blob = new Blob([body], { type: 'application/json' });
+          return navigator.sendBeacon(SESSIONSTATE_PA_WRITE_URL, blob);
+        } catch (err) {
+          return false;
+        }
+      });
+    }).catch(() => false);
   } catch (_) {
     return Promise.resolve(false);
   }
@@ -58269,6 +58660,9 @@ function switchToNextAssignment(completedAsgn) {
 // blank. Pre-populates the participant fields from the next assignment.
 function resetOperatorSessionState(opts) {
   opts = opts || {};
+  if (opts.confirmedReset && typeof markSessionStateConfirmedReset === 'function') {
+    markSessionStateConfirmedReset();
+  }
   const preserveEquipment = opts.preserveEquipment !== false;  // default true
 
   // Defensive: if we somehow lost modProfile, refuse to reset rather than
@@ -61271,7 +61665,7 @@ function showTodayCompletedModal(w) {
           // assumption that equipment is still packed and ready ·
           // matches the menu's Reset Session behavior.
           if (typeof resetOperatorSessionState === 'function') {
-            resetOperatorSessionState({ preserveEquipment: true });
+            resetOperatorSessionState({ preserveEquipment: true, confirmedReset: true });
           }
           // sessionCompletedAt is reset implicitly by the fresh state;
           // explicitly null it just in case the reset preserves more
@@ -62705,7 +63099,8 @@ function init() {
     // Use the canonical reset helper. It preserves username + theme + modProfile,
     // and importantly it WON'T silently leave the operator without an identity
     // (the bug that made the schedule appear empty after reset).
-    resetOperatorSessionState({ preserveEquipment: false });
+    // confirmedReset lets this one clear post over a richer cloud row.
+    resetOperatorSessionState({ preserveEquipment: false, confirmedReset: true });
     currentStationKey = null;
     // Force-reload assignment cache so the My Session sidebar re-pulls cleanly
     adminState._asgnLoaded = false;
