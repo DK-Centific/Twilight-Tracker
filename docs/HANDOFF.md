@@ -10,7 +10,7 @@
 
 **Version:** **1.3.100226e**. Selftest: `scripts/admin-progress-mirror-selftest.js`.
 
-**PR:** draft on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226e**. Sign in as Admin. Open **Performance** once so tonight’s progress has loaded, then click the Helios logo and open a team. The checklist stations should show right away. The gold line at the top should still say you are seeing that team’s progress. Close it. Stars and the moderator app should be unchanged.
 
