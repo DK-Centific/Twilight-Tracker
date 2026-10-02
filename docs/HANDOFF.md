@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Yesterday checkpoint lists that night’s booked teams (1.3.100226i)
+**Last updated:** 2026-10-02 · Grok · Empty SessionState shells cannot wipe real progress (1.3.100226j)
+
+## 2026-10-02 · Grok · Empty SessionState shells cannot wipe real progress (1.3.100226j)
+
+**Ask:** A finished checklist was replaced by an empty Not Started shell. Venkata’s row went from 32/44 to 0/44 when the app closed. Manoj’s row went from 44/44 to 0/44 when the app came back. Stop the app from posting that empty shell over real progress. Do not change Power Automate. Do not restore Venkata’s live row.
+
+**Fix:** Before a SessionState save, the app checks the shell. If every station is Not Started, nothing is marked complete, and the status is blank or arrived only, it will not overwrite a richer copy of that same booking. It compares the last successful save, then the last cloud copy it has seen, then the highest score still in memory. Close skips that empty post. Coming back loads the cloud copy first and keeps the richer checklist. Moderator Cancel, a confirmed Reset, and an Admin heal can still clear. A new booking can clear only when the cloud copy for that booking is also empty.
+
+**Version:** **1.3.100226j**. Selftest: `scripts/sessionstate-refuse-empty-selftest.js`. Cancel, strike, and checklist-mirror checks still pass.
+
+**PR:** draft [#195](https://github.com/DK-Centific/Twilight-Tracker/pull/195) on `cursor/ss-refuse-empty-shell-0899`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226j**. A session that already has station progress should keep that progress if the phone posts an empty checklist on close or when the app is opened again.
 
 ## 2026-10-02 · Grok · Yesterday checkpoint lists that night’s booked teams (1.3.100226i)
 

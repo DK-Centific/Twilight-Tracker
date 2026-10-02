@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 9 AM auto-strike team-complete gate (1.3.100226i).
+ * 9 AM auto-strike team-complete gate (1.3.100226j).
  * Completed, soft-close Completed, and either co-mod's finish
  * (happypath / station_4_done / session_done / sessionCompletedAt)
  * must not take a star. An unfinished overnight still can, once.
@@ -31,9 +31,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM team-complete gate');
 
-assert('version 1.3.100226i',
-  /const APP_VERSION = '1\.3\.100226i'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226i'));
+assert('version 1.3.100226j',
+  /const APP_VERSION = '1\.3\.100226j'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100226j'));
 assert('gate uses happypath helper and soft-close sibling',
   /function modStrikeCoModSessionDateOk/.test(src)
   && /sessionStateCountsAsTeamComplete/.test(src.slice(src.indexOf('function modStrikeCoModStatusBlocksStrike')))
