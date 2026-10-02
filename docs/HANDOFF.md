@@ -1,6 +1,64 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
+**Last updated:** 2026-10-02 · Grok · Activities Today is the booked ops day (1.3.100226d)
+
+## 2026-10-02 · Grok · Activities Today team menu is that day’s booked teams (1.3.100226d)
+
+**Ask:** On Activities with Today selected, the Team menu still listed nine pairings. For the evening of 2026-10-01 Pacific it should list only Venkata x Manoj, Narendra x Rohith, and Matthew x Pradeepreddy, plus All teams. A team stays through 9:00 AM Pacific the next morning, then the menu switches to the new day’s booked teams. Do not keep every team the live queue still holds. Do not merge until David says push.
+
+**Fix:** Today was treating any non-future row still in the live admin queue as today’s team. That queue keeps older nights after they are no longer the booked session. Today now uses the booked session date. After 9:00 AM Pacific that date is today’s Pacific date. Before 9:00 AM, yesterday’s booked session is still Today. Older queue rows and later nights stay out. This Week and All are unchanged. Night Time Lakitu is unchanged.
+
+**Version:** **1.3.100226d**. Selftest: `scripts/activities-map-today-selftest.js`. A prior night the live queue still holds after 9:00 AM is not in the Today team list. That same night is in the list before 9:00 AM. An unbooked roster team stays out.
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** Hard refresh until the corner says **1.3.100226d**. Sign in as Admin. Open **Activities**. Leave **Today** selected. Open **Team**. You should see **All teams**, **Venkata x Manoj**, **Narendra x Rohith**, and **Matthew x Pradeepreddy**. The other pairings should be gone.
+
+## 2026-10-02 · Grok · Activities Today team dropdown is only today’s teams (1.3.100226c)
+
+Superseded by **1.3.100226d**. Nine teams in the Today menu was the bug, not the check to copy.
+
+**Ask:** On Activities, with Today selected, the Team dropdown still listed the whole roster. It should list only the teams in the same window as Performance Today: through 9:00 AM Pacific the next morning. Week and All stay as they are. Night Time Lakitu stays a tile that opens a popup. Do not merge until David says push.
+
+**Fix:** The dropdown was already using the same helper as the map, but that helper treated a later booked night as “today.” A team with only a future booking stayed in the list, so the menu looked like the full roster. Today now stops at the current Pacific date. Yesterday still stays until the 9:00 AM gate. A team with no booking in that window is not in the menu. This Week and All are unchanged.
+
+**Version:** **1.3.100226c**. Selftest: `scripts/activities-map-today-selftest.js` (a later night stays in the Performance queue and is left out of the Today team list; an unbooked roster team is left out; an 11 PM night stays before 9:00 AM). Lakitu catalog selftest still 26 passed.
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100226c**. Activities with Today selected showed 9 teams in the Team menu. This Week showed more. Today again showed the shorter list. Night Time Lakitu was not changed.
+
+**Verify (David):** Use the **1.3.100226d** steps above. Nine teams on Today was the failure.
+
+## 2026-10-02 · Grok · Night Time Lakitu opens from a tile; Activities Today matches Performance (1.3.100226b)
+
+Superseded on the same pull request by **1.3.100226c**. The Team menu on Activities Today was still too wide. Use the steps in the section above.
+
+**Ask:** Same pull request as the Night Time Lakitu catalog. Two follow-ups. The five links should open from a button under Master List, not sit open in the menu. Activities set to Today should keep today’s teams until 9:00 AM Pacific the next morning, the same window Performance already uses. Do not merge until David says push. Independent of PR #186.
+
+**Fix:** Under Master List, Night Time Lakitu is a menu tile. Clicking it closes the menu and opens the same Admin popup used elsewhere. The popup has the five fixed names, a link box for each, Save, and Apply to tonight. Save, new bookings, and Apply to tonight are unchanged. Apply to tonight still asks “Update tonight’s Lakitu links?” and names the count. Cancel does nothing. A Reviewer does not see the tile. Activities Today now uses the Performance live queue (`perfAssignmentVisibleInAdminQueue`), including the 9:00 AM Pacific gate. A night that ended before midnight stays on Today until that gate. Week and All are unchanged.
+
+**Version:** **1.3.100226b**. Selftests: `scripts/lakitu-catalog-selftest.js` (26 passed), `scripts/activities-map-today-selftest.js` (passed, including an 11 PM night the midnight overlap would hide).
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100226b**. Menu shows the Night Time Lakitu tile under Master List, not five open boxes. The popup has the five links, Save, and Apply to tonight. A bad link is refused. Apply to tonight named 4 Night Time sessions booked for today. Cancel was used, so nothing was written. At a phone width the tile and the popup still fit.
+
+**Verify (David):** Use the **1.3.100226c** steps above. This build’s Team menu on Activities Today was still too wide.
+
+## 2026-10-02 · Grok · Admin can edit the five Night Time Lakitu links (1.3.100226a)
+
+Superseded on the same pull request by **1.3.100226b**. The five boxes are no longer open in the menu. Use the steps in the section above.
+
+**Ask:** Any Admin can edit the five shared Night Time Lakitu catalog links from the menu, under Master List. New bookings use the saved links. Apply to tonight can update today’s Night Time sessions after a confirm that shows the count. Past nights stay as they are. Do not merge until David says push. Independent of PR #186.
+
+**Fix:** The Admin menu, under Master List, has Night Time Lakitu with the five fixed names and a link box for each. Save stores the links the same way other Admin settings are stored (this browser, then SessionState). The built-in links stay in place until a saved change loads. A new booking copies the saved link onto that session. Checklist, Performance, and Approval keep using the link stored on each session. Apply to tonight asks “Update tonight’s Lakitu links?” and names how many Night Time sessions booked for today (Pacific) will change. Cancel does nothing. Confirm updates only those sessions. A Reviewer does not see this block.
+
+**Version:** **1.3.100226a**. Selftest: `scripts/lakitu-catalog-selftest.js` (26 passed). Booking session-link checks still pass except an older version pin that was already behind.
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** Use the **1.3.100226b** steps above. This earlier build had the five boxes open in the menu. That layout is gone.
 
 ## 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
 
