@@ -10,7 +10,7 @@
 
 **Version:** **1.3.100226j**. Selftest: `scripts/sessionstate-refuse-empty-selftest.js`. Cancel, strike, and checklist-mirror checks still pass.
 
-**PR:** draft on `cursor/ss-refuse-empty-shell-0899`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#195](https://github.com/DK-Centific/Twilight-Tracker/pull/195) on `cursor/ss-refuse-empty-shell-0899`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226j**. A session that already has station progress should keep that progress if the phone posts an empty checklist on close or when the app is opened again.
 
