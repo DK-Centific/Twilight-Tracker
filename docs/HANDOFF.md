@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Empty SessionState cache retries (1.3.100226g)
+**Last updated:** 2026-10-02 · Grok · Non-empty SessionState cache stays fresh (1.3.100226h)
+
+## 2026-10-02 · Grok · A real SessionState list stays fresh for 30 seconds (1.3.100226h)
+
+**Ask:** AHP asked for another change on pull request 193. The empty-list retry was right, but a successful list with rows never saved the time it arrived. The next open always started another full read, and the check for “a fresh list does not read again” did not finish. Keep the empty list retrying. Keep the Admin console opening first. Do not change Panic, Switch to the moderator app, or Activities. Squash waits until AHP reviews this fix.
+
+**Fix:** When a read comes back with rows, the time is saved. For the next 30 seconds that list is reused. An empty list still does not count as fresh, so a failed first read still tries again.
+
+**Version:** **1.3.100226h**. Selftest: `scripts/admin-progress-mirror-selftest.js` (a fresh list does not start another read; an empty list still retries).
+
+**PR:** [#193](https://github.com/DK-Centific/Twilight-Tracker/pull/193) on `cursor/checklist-mirror-cache-first-1e33`. Squash waits on AHP. Not on the live site until then.
+
+**Verify (David):** After this is merged, hard refresh until the corner says **1.3.100226h**. Sign in as Admin. Overview should be on screen without a long wait. Open a team from the Helios logo. The line at the top should name that team.
 
 ## 2026-10-02 · Grok · A blank SessionState list is not treated as fresh (1.3.100226g)
 

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226g';
-const APP_UPDATED_AT = '10/02/2026 15:40';
+const APP_VERSION = '1.3.100226h';
+const APP_UPDATED_AT = '10/02/2026 15:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -15007,12 +15007,12 @@ async function ensurePerfSessionStateRows() {
         if (Array.isArray(rows)) {
           // Keep the same empty array so a blank Read does not look like
           // new data and schedule another Read on every paint.
-          if (rows.length === 0 && Array.isArray(adminState.perfSessionStateRows)
-              && adminState.perfSessionStateRows.length === 0) {
-            adminState._perfSSFetchedAt = Date.now();
-          } else {
+          if (!(rows.length === 0 && Array.isArray(adminState.perfSessionStateRows)
+              && adminState.perfSessionStateRows.length === 0)) {
             adminState.perfSessionStateRows = rows;
           }
+          // Stamp every successful Read. Fresh still requires rows.
+          adminState._perfSSFetchedAt = Date.now();
           adminState._perfSSOk = true;
         } else {
           adminState._perfSSOk = false;
