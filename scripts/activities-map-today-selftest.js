@@ -47,16 +47,29 @@ const nextQueued = {
   address: 'Next MxS site',
 };
 
+// Ended before midnight, so a Pacific-day overlap would drop it at
+// 12:00 AM. Performance Today still keeps it until the 9 AM gate.
+const eveningOnly = {
+  id: 'od_evening_only',
+  teamId: 77,
+  date: '2026-09-17',
+  startMin: 19 * 60,
+  endMin: 23 * 60,
+  status: 'Booked',
+  address: 'Evening site',
+};
+
 const ctx = {
   console,
   Date,
   Intl,
   adminState: {
     activitiesDateRange: 'today',
-    assignments: [patrick, kajol, nextQueued],
+    assignments: [patrick, kajol, nextQueued, eveningOnly],
     teams: [
       { id: 11, name: 'Patrick team' },
       { id: 42, name: 'Kajol team' },
+      { id: 77, name: 'Evening team' },
     ],
     perfSessionStateRows: [],
   },
@@ -119,6 +132,8 @@ function assert(name, cond, detail) {
 
 console.log('Activities Map Today parity self-test');
 
+ctx.isPastModStrikeCheckpointHour = () => false;
+
 assert('Patrick overnight in Today range (calendar date is Sep 17)',
   ctx.activitiesAssignmentInDateRange(patrick));
 
@@ -128,7 +143,13 @@ assert('Kajol overnight in Today range',
 assert('next queued Sep 19 not in Today range',
   !ctx.activitiesAssignmentInDateRange(nextQueued));
 
-ctx.isPastModStrikeCheckpointHour = () => false;
+assert('midnight overlap still sees Patrick overnight',
+  ctx.perfBookingOverlapsPacificDay(patrick));
+assert('midnight overlap misses a night that ended at 11 PM',
+  !ctx.perfBookingOverlapsPacificDay(eveningOnly)
+    && !ctx.perfDateInRange(eveningOnly, 'today'));
+assert('Today still lists that 11 PM night before 9 AM',
+  ctx.activitiesAssignmentInDateRange(eveningOnly));
 
 const mapIds = ctx.listActivitiesMapAssignments().map(a => String(a.id));
 assert('Map Today includes Patrick overnight fence',
@@ -143,6 +164,29 @@ assert('Team list includes Patrick team for Today overnight',
   teamIds.includes('11'));
 assert('Team list for Kajol team without surfacing gated next booking alone',
   teamIds.includes('42'));
+assert('Team list includes the 11 PM night before 9 AM',
+  teamIds.includes('77'));
+
+ctx.isPastModStrikeCheckpointHour = () => true;
+assert('after 9 AM a team with no booking today still keeps last night',
+  ctx.activitiesAssignmentInDateRange(eveningOnly));
+
+const todayStart = {
+  id: 'od_evening_today',
+  teamId: 77,
+  date: '2026-09-18',
+  startMin: 19 * 60,
+  endMin: 23 * 60,
+  status: 'Booked',
+  address: 'Evening today',
+};
+ctx.adminState.assignments.push(todayStart);
+assert('after 9 AM a today booking drops last night, same as Performance',
+  !ctx.activitiesAssignmentInDateRange(eveningOnly)
+    && ctx.activitiesAssignmentInDateRange(todayStart));
+const afterGateTeams = ctx.listActivitiesTeamsForDateRange().map(t => String(t.id));
+assert('that team stays on Today because tonight is booked',
+  afterGateTeams.includes('77'));
 
 if (failed) {
   console.error('\n' + failed + ' failed');

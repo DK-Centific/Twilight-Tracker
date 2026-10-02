@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Admin Night Time Lakitu catalog (1.3.100226a).
+/* Self-test: Admin Night Time Lakitu catalog (1.3.100226b).
  * Any Admin can save the five shared catalog URLs. Code defaults
  * stay until overrides load. New bookings copy the saved catalog.
  * Apply to tonight rewrites only today's Night Time sessions.
@@ -27,18 +27,22 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Night Time Lakitu catalog (1.3.100226a)');
+console.log('Night Time Lakitu catalog (1.3.100226b)');
 
-assert('APP_VERSION 1.3.100226a',
-  /const APP_VERSION = '1\.3\.100226a'/.test(src)
-    && html.includes('twilight.js?v=twilight-1.3.100226a'));
+assert('APP_VERSION 1.3.100226b',
+  /const APP_VERSION = '1\.3\.100226b'/.test(src)
+    && html.includes('twilight.js?v=twilight-1.3.100226b'));
 
-const editorAt = html.indexOf('id="lakituCatalogEditor"');
+const rowAt = html.indexOf('id="lakituCatalogRow"');
 const masterAt = html.indexOf('id="masterlistRow"');
-assert('editor sits under Master List in the Admin drawer',
-  masterAt >= 0 && editorAt > masterAt
-    && html.includes('menu-lakitu-catalog menu-row-admin-only')
-    && html.includes('Night Time Lakitu'));
+const modalAt = html.indexOf('id="lakituCatalogModal"');
+assert('tile sits under Master List and opens a popup',
+  masterAt >= 0 && rowAt > masterAt && modalAt > rowAt
+    && html.includes('id="lakituCatalogRow"')
+    && html.includes('menu-row menu-row-admin-only')
+    && html.includes('Night Time Lakitu')
+    && /function openLakituCatalogPopup\(/.test(src)
+    && /function closeLakituCatalogPopup\(/.test(src));
 for (let n = 1; n <= 5; n++) {
   assert('fixed label and url field for Night Time ' + n,
     html.includes('US - BEV+ LeapFrog Night Time - ' + n)

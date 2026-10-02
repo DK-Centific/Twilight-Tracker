@@ -1,8 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Night Time Lakitu catalog in the Admin menu (1.3.100226a)
+**Last updated:** 2026-10-02 · Grok · Night Time Lakitu popup and Activities Today until 9 AM (1.3.100226b)
+
+## 2026-10-02 · Grok · Night Time Lakitu opens from a tile; Activities Today matches Performance (1.3.100226b)
+
+**Ask:** Same pull request as the Night Time Lakitu catalog. Two follow-ups. The five links should open from a button under Master List, not sit open in the menu. Activities set to Today should keep today’s teams until 9:00 AM Pacific the next morning, the same window Performance already uses. Do not merge until David says push. Independent of PR #186.
+
+**Fix:** Under Master List, Night Time Lakitu is a menu tile. Clicking it closes the menu and opens the same Admin popup used elsewhere. The popup has the five fixed names, a link box for each, Save, and Apply to tonight. Save, new bookings, and Apply to tonight are unchanged. Apply to tonight still asks “Update tonight’s Lakitu links?” and names the count. Cancel does nothing. A Reviewer does not see the tile. Activities Today now uses the Performance live queue (`perfAssignmentVisibleInAdminQueue`), including the 9:00 AM Pacific gate. A night that ended before midnight stays on Today until that gate. Week and All are unchanged.
+
+**Version:** **1.3.100226b**. Selftests: `scripts/lakitu-catalog-selftest.js` (26 passed), `scripts/activities-map-today-selftest.js` (passed, including an 11 PM night the midnight overlap would hide).
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100226b**. Menu shows the Night Time Lakitu tile under Master List, not five open boxes. The popup has the five links, Save, and Apply to tonight. A bad link is refused. Apply to tonight named 4 Night Time sessions booked for today. Cancel was used, so nothing was written. At a phone width the tile and the popup still fit.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100226b**. Sign in as Admin. Open the menu. Under **Master List**, click **Night Time Lakitu**. A popup should show five link boxes, **Save**, and **Apply to tonight**. Close it. The five boxes should not stay open in the menu. Open **Activities** with **Today** selected before 9:00 AM Pacific. A team booked yesterday, even if that night ended before midnight, should still be in the list. After 9:00 AM Pacific, that list should match Performance Today.
 
 ## 2026-10-02 · Grok · Admin can edit the five Night Time Lakitu links (1.3.100226a)
+
+Superseded on the same pull request by **1.3.100226b**. The five boxes are no longer open in the menu. Use the steps in the section above.
 
 **Ask:** Any Admin can edit the five shared Night Time Lakitu catalog links from the menu, under Master List. New bookings use the saved links. Apply to tonight can update today’s Night Time sessions after a confirm that shows the count. Past nights stay as they are. Do not merge until David says push. Independent of PR #186.
 
@@ -12,7 +28,7 @@
 
 **PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
 
-**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100226a**. Sign in as Admin. Open the menu. Under **Master List**, you should see **Night Time Lakitu** and five link boxes. Change a link and click **Save**. Book a new Night Time session. That session should use the link you saved. Click **Apply to tonight**. A question should name how many of today’s Night Time sessions will change. **Cancel** leaves them alone. **Update tonight** changes only those. A session from an earlier night should keep its old link.
+**Verify (David):** Use the **1.3.100226b** steps above. This earlier build had the five boxes open in the menu. That layout is gone.
 
 ## 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
 

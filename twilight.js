@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226a';
-const APP_UPDATED_AT = '10/02/2026 01:10';
+const APP_VERSION = '1.3.100226b';
+const APP_UPDATED_AT = '10/02/2026 01:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -7917,7 +7917,6 @@ function openMenu() {
     }
   }
   if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
-  if (typeof fillLakituCatalogEditor === 'function') fillLakituCatalogEditor();
   if (typeof syncReviewerChrome === 'function') syncReviewerChrome();
   document.getElementById('menuOverlay').classList.add('open');
   document.getElementById('menuDrawer').classList.add('open');
@@ -21009,8 +21008,16 @@ function activitiesAssignmentInDateRange(a) {
   if (!a) return false;
   const range = getActivitiesDateRange();
   if (range === 'all') return true;
-  if (typeof perfDateInRange !== 'function') return false;
-  return perfDateInRange(a, range === 'week' ? 'week' : 'today');
+  if (range === 'week') {
+    return typeof perfDateInRange === 'function' && perfDateInRange(a, 'week');
+  }
+  // Today uses the Performance ops window (live queue + 9 AM PT gate),
+  // not a Pacific midnight cutoff. A night dated yesterday stays on
+  // Today until that gate, the same way Performance Today does.
+  if (typeof perfAssignmentVisibleInAdminQueue === 'function') {
+    return perfAssignmentVisibleInAdminQueue(a);
+  }
+  return typeof perfDateInRange === 'function' && perfDateInRange(a, 'today');
 }
 
 function listActivitiesTeamsForDateRange() {
@@ -22476,6 +22483,28 @@ async function persistLakituCatalogSetting(urls) {
     console.warn('[Twilight] Lakitu catalog setting write failed:', e && e.message);
     return { ok: false, reason: 'error' };
   }
+}
+
+function openLakituCatalogPopup() {
+  if (!lakituCatalogEditAllowed()) return;
+  const overlay = document.getElementById('lakituCatalogOverlay');
+  const modal = document.getElementById('lakituCatalogModal');
+  if (!overlay || !modal) return;
+  if (typeof closeMenu === 'function') closeMenu();
+  fillLakituCatalogEditor();
+  overlay.classList.add('open');
+  modal.classList.add('open');
+  const first = document.getElementById('lakituCatalogUrl-night-time-1');
+  if (first) {
+    try { first.focus(); } catch (_) {}
+  }
+}
+
+function closeLakituCatalogPopup() {
+  const overlay = document.getElementById('lakituCatalogOverlay');
+  const modal = document.getElementById('lakituCatalogModal');
+  if (overlay) overlay.classList.remove('open');
+  if (modal) modal.classList.remove('open');
 }
 
 function fillLakituCatalogEditor() {
@@ -62429,6 +62458,12 @@ function init() {
       setTimeout(() => { try { closeMenu(); } catch (_) {} }, 10);
     });
   }
+  const lakituCatalogRow = document.getElementById('lakituCatalogRow');
+  if (lakituCatalogRow) {
+    lakituCatalogRow.addEventListener('click', () => {
+      if (typeof openLakituCatalogPopup === 'function') openLakituCatalogPopup();
+    });
+  }
   const lakituCatalogSaveBtn = document.getElementById('lakituCatalogSaveBtn');
   if (lakituCatalogSaveBtn) {
     lakituCatalogSaveBtn.addEventListener('click', () => {
@@ -62441,6 +62476,25 @@ function init() {
       if (typeof applyLakituCatalogToTonight === 'function') applyLakituCatalogToTonight();
     });
   }
+  const lakituCatalogClose = document.getElementById('lakituCatalogClose');
+  if (lakituCatalogClose) {
+    lakituCatalogClose.addEventListener('click', () => {
+      if (typeof closeLakituCatalogPopup === 'function') closeLakituCatalogPopup();
+    });
+  }
+  const lakituCatalogOverlay = document.getElementById('lakituCatalogOverlay');
+  if (lakituCatalogOverlay) {
+    lakituCatalogOverlay.addEventListener('click', () => {
+      if (typeof closeLakituCatalogPopup === 'function') closeLakituCatalogPopup();
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const modal = document.getElementById('lakituCatalogModal');
+    if (modal && modal.classList.contains('open') && typeof closeLakituCatalogPopup === 'function') {
+      closeLakituCatalogPopup();
+    }
+  });
   document.getElementById('resetRow').addEventListener('click', async () => {
     const ok = await appConfirm({
       title:        'Reset session data?',
