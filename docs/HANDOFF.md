@@ -30,7 +30,7 @@ Superseded on the same pull request by **1.3.100226c**. The Team menu on Activit
 
 **Checked:** Local preview, signed in as Admin. Corner **1.3.100226b**. Menu shows the Night Time Lakitu tile under Master List, not five open boxes. The popup has the five links, Save, and Apply to tonight. A bad link is refused. Apply to tonight named 4 Night Time sessions booked for today. Cancel was used, so nothing was written. At a phone width the tile and the popup still fit.
 
-**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100226b**. Sign in as Admin. Open the menu. Under **Master List**, click **Night Time Lakitu**. A popup should show five link boxes, **Save**, and **Apply to tonight**. Close it. The five boxes should not stay open in the menu. Open **Activities** with **Today** selected before 9:00 AM Pacific. A team booked yesterday, even if that night ended before midnight, should still be in the list. After 9:00 AM Pacific, that list should match Performance Today.
+**Verify (David):** Use the **1.3.100226c** steps above. This build’s Team menu on Activities Today was still too wide.
 
 ## 2026-10-02 · Grok · Admin can edit the five Night Time Lakitu links (1.3.100226a)
 
