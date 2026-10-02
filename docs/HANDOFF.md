@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Non-empty SessionState cache stays fresh (1.3.100226h)
+**Last updated:** 2026-10-02 · Grok · Yesterday checkpoint lists that night’s booked teams (1.3.100226i)
+
+## 2026-10-02 · Grok · Yesterday checkpoint lists that night’s booked teams (1.3.100226i)
+
+**Ask:** The Yesterday checkpoint on Performance was listing 11 completed and 1 incomplete for 2026-10-01, including the same pair twice. David said that night should be about four teams, the same booked list Activities Today uses. Cancelled stays off the strike. A finished team stays Completed. Do not merge until David says push.
+
+**Cause:** The list walked every saved two-person team. If those two people were also on an older team record, that older record was treated as booked last night. A booking that still had an extra moderator from an earlier lineup could also light up every pair inside that lineup. The Assignment list for 2026-10-01 only has four bookings: Venkata x Manoj, Narendra x Rohith, Matthew x Pradeepreddy, and Muhammad x Sravya.
+
+**Fix:** The checkpoint now keeps one row per crew actually booked on that date. An older team record with the same two people does not add a second row. A cancelled booking stays off the list. Completed stays Completed. Strike, Skip, and the 9:00 AM check use this shorter list.
+
+**Version:** **1.3.100226i**. Selftest: `scripts/mod-strike-checkpoint-roster-selftest.js`. Strike, cancel, ghost, and soft-close checks still pass.
+
+**PR:** draft [#194](https://github.com/DK-Centific/Twilight-Tracker/pull/194) on `cursor/mod-strike-banner-roster-731d`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100226i**. Sign in as Admin. Open **Performance**. The Yesterday box for **2026-10-01** should list **Venkata x Manoj**, **Narendra x Rohith**, **Matthew x Pradeepreddy**, and **Muhammad x Sravya**. Each name once. Venkata x Manoj can still say **Not completed** with **Strike** and **Skip**. Muhammad x Sravya should say **Completed**. The other pairs should be gone.
 
 ## 2026-10-02 · Grok · A real SessionState list stays fresh for 30 seconds (1.3.100226h)
 
