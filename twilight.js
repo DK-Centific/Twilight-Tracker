@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226h';
-const APP_UPDATED_AT = '10/02/2026 15:45';
+const APP_VERSION = '1.3.100226i';
+const APP_UPDATED_AT = '10/02/2026 15:50';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -32683,21 +32683,25 @@ function teamBookingOnDateForStrike(teamId, ymd) {
   const candidates = [];
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
-    if (!a || String(a.date || '') !== String(ymd)) continue;
+    if (!a) continue;
+    const rowDay = String(a.date || '').split('T')[0];
+    if (!rowDay || rowDay !== String(ymd).split('T')[0]) continue;
     if (a.status === 'Cancelled' || a.status === 'Unassigned') continue;
     if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) continue;
     if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) continue;
     if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) continue;
     const tidMatch = a.teamId != null && a.teamId !== '' && String(a.teamId) === String(teamId);
     let crewMatch = false;
-    if (!tidMatch && primarySet.size) {
+    if (!tidMatch && primarySet.size === 2) {
       const snaps = ((a.modSnapshots) || [])
         .map(s => String((s && (s.orbitLoginId || s.orbitId)) || '').trim().toLowerCase())
         .filter(Boolean);
-      if (snaps.length) {
+      // Live OD row may have teamId null after rebind; match this exact
+      // two-mod crew. A longer snapshot list (stale co-mod still on the
+      // row) must not attach every pair inside it.
+      if (snaps.length === primarySet.size) {
         let hit = 0;
         primarySet.forEach(id => { if (snaps.indexOf(id) >= 0) hit++; });
-        // Live OD row may have teamId null after rebind; match the crew.
         crewMatch = hit === primarySet.size;
       }
     }
@@ -33036,12 +33040,116 @@ function buildModStrikeCheckpointReport(nowMs) {
   const yesterday = addDaysToYmd(getPSTDateString(), -1);
   const todayPst = getPSTDateString();
   const teams = [];
-  for (const t of ((typeof adminState !== 'undefined' && adminState && adminState.teams) || [])) {
-    if (!t) continue;
-    const primaries = (t.primaryIds || []).filter(Boolean);
+  // One row per booked two-mod crew on the checkpoint night. Walking
+  // every saved team and crew-matching it pulled in older team records
+  // that share those two people (Matthew twice, plus pairs who were not
+  // booked that night). Same rule as Activities Today: the booking's
+  // own date and crew, not every roster pair still in memory.
+  const list = ((typeof adminState !== 'undefined' && adminState && adminState.assignments) || []);
+  const roster = ((typeof adminState !== 'undefined' && adminState && adminState.teams) || []);
+  const dayOf = (a) => String((a && a.date) || '').split('T')[0];
+  const eligible = (a) => {
+    if (!a || dayOf(a) !== String(yesterday || '')) return false;
+    if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+    if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
+    if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return false;
+    if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return false;
+    return true;
+  };
+  const teamById = (id) => {
+    if (id == null || id === '') return null;
+    return roster.find(t => t && String(t.id) === String(id)) || null;
+  };
+  const snapIds = (a) => {
+    const ids = [];
+    const seen = new Set();
+    ((a && a.modSnapshots) || []).forEach(s => {
+      const id = String((s && (s.orbitLoginId || s.orbitId)) || '').trim();
+      const key = id.toLowerCase();
+      if (!id || seen.has(key)) return;
+      seen.add(key);
+      ids.push(id);
+    });
+    return ids;
+  };
+  const pickScore = (a, teamId) => {
+    let score = 0;
+    try {
+      if (typeof isAssignmentCompleteForStrike === 'function' && isAssignmentCompleteForStrike(a)) score += 1000;
+      else if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) score += 900;
+      else if (typeof modStrikeAssignmentEvidence === 'function') {
+        const ev = modStrikeAssignmentEvidence(a);
+        if (ev === 'complete') score += 1000;
+        else if (ev === 'incomplete') score -= 50;
+      }
+    } catch (_) {}
+    score += Math.min(20, ((a && a.modSnapshots) || []).length * 5);
+    if (teamId != null && a && a.teamId != null && a.teamId !== '' && String(a.teamId) === String(teamId)) score += 10;
+    return score;
+  };
+  const byCrew = new Map();
+  const offer = (team, booking) => {
+    if (!booking || !eligible(booking)) return;
+    const snaps = snapIds(booking);
+    const primaries = team ? (team.primaryIds || []).filter(Boolean) : [];
+    const crewIds = snaps.length === 2 ? snaps.slice() : (primaries.length === 2 ? primaries.slice() : []);
+    if (crewIds.length !== 2) return;
+    const crewKey = crewIds.map(id => String(id).trim().toLowerCase()).sort().join('|');
+    if (!crewKey) return;
+    const score = pickScore(booking, team && team.id);
+    const prev = byCrew.get(crewKey);
+    if (!prev || score > prev.score) byCrew.set(crewKey, { team: team, booking: booking, score: score, crewIds: crewIds });
+  };
+  const ownerSeen = new Set();
+  list.forEach(a => {
+    if (!eligible(a) || a.teamId == null || a.teamId === '') return;
+    const key = String(a.teamId);
+    if (ownerSeen.has(key)) return;
+    const team = teamById(a.teamId);
+    const primaries = team ? (team.primaryIds || []).filter(Boolean) : [];
+    if (!team || primaries.length !== 2) return;
+    ownerSeen.add(key);
+    offer(team, teamBookingOnDateForStrike(team.id, yesterday));
+  });
+  const loose = new Map();
+  list.forEach(a => {
+    if (!eligible(a)) return;
+    const snaps = snapIds(a);
+    if (snaps.length !== 2) return;
+    const owned = a.teamId != null && a.teamId !== '' && ownerSeen.has(String(a.teamId));
+    if (owned) return;
+    const crewKey = snaps.map(id => String(id).trim().toLowerCase()).sort().join('|');
+    if (!crewKey || byCrew.has(crewKey)) return;
+    let bucket = loose.get(crewKey);
+    if (!bucket) { bucket = []; loose.set(crewKey, bucket); }
+    bucket.push(a);
+  });
+  loose.forEach(bucket => {
+    let best = bucket[0];
+    let bestScore = -1e9;
+    bucket.forEach(b => {
+      const score = pickScore(b, b.teamId);
+      if (score > bestScore) { bestScore = score; best = b; }
+    });
+    const named = teamById(best.teamId);
+    offer(named && (named.primaryIds || []).filter(Boolean).length === 2 ? named : null, best);
+  });
+  const subjects = Array.from(byCrew.values());
+  for (let s = 0; s < subjects.length; s++) {
+    const subject = subjects[s];
+    const booking = subject.booking;
+    const labelTeam = (booking.teamId != null && booking.teamId !== '')
+      ? (teamById(booking.teamId) || subject.team)
+      : subject.team;
+    const t = labelTeam || {
+      id: booking.id,
+      name: booking.teamName || booking.team || 'Team',
+      primaryIds: subject.crewIds,
+    };
+    const primaries = (subject.crewIds && subject.crewIds.length === 2)
+      ? subject.crewIds.slice()
+      : (t.primaryIds || []).filter(Boolean);
     if (primaries.length !== 2) continue;
-    const booking = teamBookingOnDateForStrike(t.id, yesterday);
-    if (!booking) continue;
     const evidence = modStrikeAssignmentEvidence(booking);
     const completed = evidence === 'complete';
     const cancelled = evidence === 'cancelled';
@@ -33082,9 +33190,10 @@ function buildModStrikeCheckpointReport(nowMs) {
       if (!skipped && modStrikeAssignmentMutedBySkipOrResolve(booking, 'skippedTeams')) skipped = true;
       if (!resolved && modStrikeAssignmentMutedBySkipOrResolve(booking, 'resolvedTeams')) resolved = true;
     }
+    const bookedName = String((booking && (booking.teamName || booking.team)) || '').trim();
     teams.push({
       teamId: t.id,
-      teamName: t.name || 'Team',
+      teamName: bookedName || t.name || 'Team',
       completed,
       evidence,
       pastSessionEnd,
