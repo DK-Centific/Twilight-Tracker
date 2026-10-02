@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Self-test: Admin Night Time Lakitu catalog (1.3.100226b).
+/* Self-test: Admin Night Time Lakitu catalog (1.3.100226c).
  * Any Admin can save the five shared catalog URLs. Code defaults
  * stay until overrides load. New bookings copy the saved catalog.
  * Apply to tonight rewrites only today's Night Time sessions.
@@ -27,11 +27,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Night Time Lakitu catalog (1.3.100226b)');
+console.log('Night Time Lakitu catalog (1.3.100226c)');
 
-assert('APP_VERSION 1.3.100226b',
-  /const APP_VERSION = '1\.3\.100226b'/.test(src)
-    && html.includes('twilight.js?v=twilight-1.3.100226b'));
+assert('APP_VERSION 1.3.100226c',
+  /const APP_VERSION = '1\.3\.100226c'/.test(src)
+    && html.includes('twilight.js?v=twilight-1.3.100226c'));
 
 const rowAt = html.indexOf('id="lakituCatalogRow"');
 const masterAt = html.indexOf('id="masterlistRow"');

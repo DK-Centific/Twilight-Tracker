@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226b';
-const APP_UPDATED_AT = '10/02/2026 01:50';
+const APP_VERSION = '1.3.100226c';
+const APP_UPDATED_AT = '10/02/2026 03:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -21013,10 +21013,25 @@ function activitiesAssignmentInDateRange(a) {
   }
   // Today uses the Performance ops window (live queue + 9 AM PT gate),
   // not a Pacific midnight cutoff. A night dated yesterday stays on
-  // Today until that gate, the same way Performance Today does.
-  if (typeof perfAssignmentVisibleInAdminQueue === 'function') {
-    return perfAssignmentVisibleInAdminQueue(a);
+  // Today until that gate. A later calendar day does not: the queue
+  // can still carry next week's Booked row, and that was filling the
+  // Team dropdown with the whole roster.
+  if (typeof perfAssignmentVisibleInAdminQueue === 'function'
+      && !perfAssignmentVisibleInAdminQueue(a)) {
+    return false;
   }
+  const today = (typeof getPSTDateString === 'function')
+    ? String(getPSTDateString() || '').split('T')[0]
+    : '';
+  let date = String(a.date || '').split('T')[0];
+  if (!date && typeof assignmentPerfMaterialize === 'function') {
+    try {
+      const mat = assignmentPerfMaterialize(a);
+      date = String((mat && mat.date) || '').split('T')[0];
+    } catch (_) {}
+  }
+  if (today && date && date > today) return false;
+  if (typeof perfAssignmentVisibleInAdminQueue === 'function') return true;
   return typeof perfDateInRange === 'function' && perfDateInRange(a, 'today');
 }
 

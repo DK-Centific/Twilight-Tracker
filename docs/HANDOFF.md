@@ -1,8 +1,24 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Night Time Lakitu popup and Activities Today until 9 AM (1.3.100226b)
+**Last updated:** 2026-10-02 · Grok · Activities Today team dropdown (1.3.100226c)
+
+## 2026-10-02 · Grok · Activities Today team dropdown is only today’s teams (1.3.100226c)
+
+**Ask:** On Activities, with Today selected, the Team dropdown still listed the whole roster. It should list only the teams in the same window as Performance Today: through 9:00 AM Pacific the next morning. Week and All stay as they are. Night Time Lakitu stays a tile that opens a popup. Do not merge until David says push.
+
+**Fix:** The dropdown was already using the same helper as the map, but that helper treated a later booked night as “today.” A team with only a future booking stayed in the list, so the menu looked like the full roster. Today now stops at the current Pacific date. Yesterday still stays until the 9:00 AM gate. A team with no booking in that window is not in the menu. This Week and All are unchanged.
+
+**Version:** **1.3.100226c**. Selftest: `scripts/activities-map-today-selftest.js` (a later night stays in the Performance queue and is left out of the Today team list; an unbooked roster team is left out; an 11 PM night stays before 9:00 AM). Lakitu catalog selftest still 26 passed.
+
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100226c**. Activities with Today selected showed 9 teams in the Team menu. This Week showed more. Today again showed the shorter list. Night Time Lakitu was not changed.
+
+**Verify (David):** This build is on the pull request, not the live site. Hard refresh until the corner says **1.3.100226c**. Sign in as Admin. Open **Activities**. Leave **Today** selected. Open the **Team** menu. You should see only today’s teams, not every team in the roster. **This Week** can show more. **Today** again should go back to the shorter list.
 
 ## 2026-10-02 · Grok · Night Time Lakitu opens from a tile; Activities Today matches Performance (1.3.100226b)
+
+Superseded on the same pull request by **1.3.100226c**. The Team menu on Activities Today was still too wide. Use the steps in the section above.
 
 **Ask:** Same pull request as the Night Time Lakitu catalog. Two follow-ups. The five links should open from a button under Master List, not sit open in the menu. Activities set to Today should keep today’s teams until 9:00 AM Pacific the next morning, the same window Performance already uses. Do not merge until David says push. Independent of PR #186.
 

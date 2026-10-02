@@ -59,17 +59,31 @@ const eveningOnly = {
   address: 'Evening site',
 };
 
+// Later calendar day only. The live queue can still keep this row.
+// Activities Today must not.
+const futureOnly = {
+  id: 'od_future_only',
+  teamId: 88,
+  date: '2026-09-19',
+  startMin: 19 * 60,
+  endMin: 23 * 60,
+  status: 'Booked',
+  address: 'Future site',
+};
+
 const ctx = {
   console,
   Date,
   Intl,
   adminState: {
     activitiesDateRange: 'today',
-    assignments: [patrick, kajol, nextQueued, eveningOnly],
+    assignments: [patrick, kajol, nextQueued, eveningOnly, futureOnly],
     teams: [
       { id: 11, name: 'Patrick team' },
       { id: 42, name: 'Kajol team' },
       { id: 77, name: 'Evening team' },
+      { id: 88, name: 'Future only team' },
+      { id: 99, name: 'Idle roster team' },
     ],
     perfSessionStateRows: [],
   },
@@ -150,6 +164,9 @@ assert('midnight overlap misses a night that ended at 11 PM',
     && !ctx.perfDateInRange(eveningOnly, 'today'));
 assert('Today still lists that 11 PM night before 9 AM',
   ctx.activitiesAssignmentInDateRange(eveningOnly));
+assert('queue can keep a later night, Today does not',
+  ctx.perfAssignmentVisibleInAdminQueue(futureOnly)
+    && !ctx.activitiesAssignmentInDateRange(futureOnly));
 
 const mapIds = ctx.listActivitiesMapAssignments().map(a => String(a.id));
 assert('Map Today includes Patrick overnight fence',
@@ -166,6 +183,8 @@ assert('Team list for Kajol team without surfacing gated next booking alone',
   teamIds.includes('42'));
 assert('Team list includes the 11 PM night before 9 AM',
   teamIds.includes('77'));
+assert('Team dropdown omits a later night and an unbooked roster team',
+  !teamIds.includes('88') && !teamIds.includes('99'), teamIds.join(','));
 
 ctx.isPastModStrikeCheckpointHour = () => true;
 assert('after 9 AM a team with no booking today still keeps last night',
