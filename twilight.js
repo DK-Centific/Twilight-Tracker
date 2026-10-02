@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100101c';
-const APP_UPDATED_AT = '10/01/2026 09:55';
+const APP_VERSION = '1.3.100226a';
+const APP_UPDATED_AT = '10/02/2026 01:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -5305,8 +5305,195 @@ function getLakituProjectByKey(key) {
     'centific-5': 'night-time-5',
   };
   if (legacy[k]) k = legacy[k];
-  return LAKITU_PROJECTS.find(p => p.key === k) || null;
+  const row = LAKITU_PROJECTS.find(p => p.key === k) || null;
+  if (!row) return null;
+  // Saved Admin catalog overrides replace the code default. Until they
+  // load, the LAKITU_PROJECTS url stays the fallback.
+  if (typeof lakituCatalogUrlForKey === 'function') {
+    const over = lakituCatalogUrlForKey(row.key);
+    if (over) return { key: row.key, label: row.label, url: over };
+  }
+  return row;
 }
+
+/* LAKITU_CATALOG_BEGIN */
+// Admin-edited Night Time Lakitu catalog. Keys stay the five fixed
+// slots. Only the URL is editable. Code defaults in LAKITU_PROJECTS
+// remain until a saved override loads. Checklist, Performance, and
+// Approval keep the URL stored on each session; this catalog is what
+// new bookings copy, and what Apply to tonight writes onto today.
+const LAKITU_CATALOG_SETTING_ID = 'ss_app_setting_lakitu_catalog';
+const LAKITU_CATALOG_SETTING_KEY = 'app_setting_lakitu_catalog';
+const LAKITU_CATALOG_LS_KEY = 'centific_twilight_lakitu_catalog_v1';
+let _lakituCatalogOverrides = {};
+let _lakituCatalogUpdatedAt = '';
+
+function lakituCatalogUrlForKey(key) {
+  if (!key || !_lakituCatalogOverrides) return '';
+  const url = _lakituCatalogOverrides[String(key)];
+  return url ? String(url).trim() : '';
+}
+
+function lakituCatalogUrlAccepted(raw) {
+  const s = raw == null ? '' : String(raw).trim();
+  if (!s) return '';
+  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(s)) return s;
+  if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(s)) return s;
+  return '';
+}
+
+function setLakituCatalogOverrides(map) {
+  const next = {};
+  const src = (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+  (typeof LAKITU_PROJECTS !== 'undefined' ? LAKITU_PROJECTS : []).forEach((p) => {
+    if (!p || !p.key) return;
+    const raw = src[p.key] != null ? String(src[p.key]).trim() : '';
+    if (!raw || raw === String(p.url || '').trim()) return;
+    const ok = lakituCatalogUrlAccepted(raw);
+    if (!ok) return;
+    next[p.key] = ok;
+  });
+  _lakituCatalogOverrides = next;
+  return next;
+}
+
+function lakituCatalogOverridesFromFields(fields) {
+  const src = (fields && typeof fields === 'object') ? fields : {};
+  const urls = {};
+  const projects = (typeof LAKITU_PROJECTS !== 'undefined') ? LAKITU_PROJECTS : [];
+  for (let i = 0; i < projects.length; i++) {
+    const p = projects[i];
+    const raw = src[p.key] != null ? String(src[p.key]).trim() : '';
+    if (!raw || raw === String(p.url || '').trim()) continue;
+    const ok = lakituCatalogUrlAccepted(raw);
+    if (!ok) return { ok: false, label: p.label || p.key, urls: null };
+    urls[p.key] = ok;
+  }
+  return { ok: true, label: '', urls: urls };
+}
+
+function lakituLinksForNewBooking(team) {
+  const raw = team && team.lakituProjectKey ? String(team.lakituProjectKey) : '';
+  const proj = (raw && typeof getLakituProjectByKey === 'function')
+    ? getLakituProjectByKey(raw)
+    : null;
+  if (proj && proj.url) {
+    return {
+      lakituProjectKey: String(proj.key || raw),
+      lakituProjectUrl: String(proj.url).trim(),
+    };
+  }
+  const url = team && team.lakituProjectUrl ? String(team.lakituProjectUrl).trim() : '';
+  return { lakituProjectKey: raw, lakituProjectUrl: url };
+}
+
+function lakituCatalogPacificTodayYmd(now) {
+  const d = (now && typeof now.getTime === 'function') ? now : new Date();
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d);
+  } catch (_) {
+    return '';
+  }
+}
+
+function lakituCatalogAssignmentDateYmd(asgn) {
+  const raw = asgn && asgn.date != null ? String(asgn.date).trim() : '';
+  const m = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+function lakituCatalogTeamForAssignment(asgn, teams) {
+  if (!asgn || asgn.teamId == null || asgn.teamId === '') return null;
+  const list = Array.isArray(teams) ? teams : [];
+  return list.find(t => t && String(t.id) === String(asgn.teamId)) || null;
+}
+
+function nightTimeLakituKeyForAssignment(asgn, teams, getOverride) {
+  if (!asgn) return '';
+  const team = lakituCatalogTeamForAssignment(asgn, teams);
+  let ov = null;
+  if (typeof getOverride === 'function') ov = getOverride(asgn.id);
+  else if (typeof getSessionLinkOverride === 'function') ov = getSessionLinkOverride(asgn.id);
+  const raw = (asgn.lakituProjectKey || (team && team.lakituProjectKey) || (ov && ov.lakituProjectKey) || '');
+  const proj = (raw && typeof getLakituProjectByKey === 'function')
+    ? getLakituProjectByKey(raw)
+    : null;
+  const canon = proj && proj.key ? String(proj.key) : '';
+  return /^night-time-[1-5]$/.test(canon) ? canon : '';
+}
+
+function lakituCatalogSessionSkipped(asgn) {
+  if (!asgn) return true;
+  const st = asgn.status || 'Booked';
+  if (st === 'Cancelled' || st === 'Unassigned') return true;
+  if (asgn.source === 'team-session') return true;
+  if (typeof isTeamSessionAssignment === 'function' && isTeamSessionAssignment(asgn)) return true;
+  return false;
+}
+
+function nightTimeSessionsBookedOnDate(assignments, teams, ymd, getOverride) {
+  const day = String(ymd || '');
+  if (!day) return [];
+  return (Array.isArray(assignments) ? assignments : []).filter((asgn) => {
+    if (lakituCatalogSessionSkipped(asgn)) return false;
+    if (lakituCatalogAssignmentDateYmd(asgn) !== day) return false;
+    return !!nightTimeLakituKeyForAssignment(asgn, teams, getOverride);
+  });
+}
+
+function applyLakituCatalogToSessions(assignments, teams, ymd, getOverride) {
+  const targets = nightTimeSessionsBookedOnDate(assignments, teams, ymd, getOverride);
+  const updated = [];
+  targets.forEach((asgn) => {
+    const key = nightTimeLakituKeyForAssignment(asgn, teams, getOverride);
+    const proj = (key && typeof getLakituProjectByKey === 'function')
+      ? getLakituProjectByKey(key)
+      : null;
+    if (!proj || !proj.url) return;
+    asgn.lakituProjectKey = String(proj.key || key);
+    asgn.lakituProjectUrl = String(proj.url).trim();
+    asgn.updatedAt = new Date().toISOString();
+    updated.push(asgn);
+  });
+  return updated;
+}
+
+function lakituCatalogSettingBody(urls, updatedBy, nowIso) {
+  return {
+    type: 'appSetting',
+    key: 'lakituCatalog',
+    urls: urls && typeof urls === 'object' ? urls : {},
+    updatedAt: nowIso || new Date().toISOString(),
+    updatedBy: updatedBy || 'Admin',
+  };
+}
+
+function lakituCatalogOverridesFromSessionRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  let best = null;
+  for (const r of rows) {
+    if (!r) continue;
+    const id = String(r.sessionStateId || r.assignmentId || '');
+    if (id !== LAKITU_CATALOG_SETTING_ID && id !== LAKITU_CATALOG_SETTING_KEY) continue;
+    if (!best || String(r.lastActive || '') > String(best.lastActive || '')) best = r;
+  }
+  if (!best) return null;
+  let parsed = best.stateJson;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch (_) { parsed = null; }
+  }
+  if (!parsed || parsed.type !== 'appSetting' || parsed.key !== 'lakituCatalog') return null;
+  const urls = (parsed.urls && typeof parsed.urls === 'object' && !Array.isArray(parsed.urls))
+    ? parsed.urls
+    : {};
+  return { urls: urls, updatedAt: String(parsed.updatedAt || best.lastActive || '') };
+}
+/* LAKITU_CATALOG_END */
 
 // Map any stored Lakitu key (including legacy centific-1..5) onto the
 // live catalog key used by <select> options. Returns '' for unknown /
@@ -5488,14 +5675,16 @@ function isSafeHttpsUrl(v) {
 
 function resolveTeamLakituProjectUrl(team) {
   if (!team) return '';
-  // Prefer live catalog URL when the key is known so stale stored
-  // session URLs refresh after LAKITU_PROJECTS updates. Paste-over
-  // assigned Lakitu (moderator session paste) stays separate.
+  // The URL stored on the team wins. Catalog edits must not rewrite
+  // nights that already have a link. A key with no stored URL still
+  // falls back to the live catalog (code default until overrides load).
+  const stored = team.lakituProjectUrl ? String(team.lakituProjectUrl).trim() : '';
+  if (stored) return stored;
   if (team.lakituProjectKey) {
     const proj = getLakituProjectByKey(team.lakituProjectKey);
     if (proj && proj.url) return String(proj.url).trim();
   }
-  return team.lakituProjectUrl ? String(team.lakituProjectUrl).trim() : '';
+  return '';
 }
 
 function resolveTeamRingDashboardUrl(team) {
@@ -5515,19 +5704,26 @@ function resolveTeamRingDashboardUrl(team) {
 // Approval side-panel openers.
 function resolveLakituUrlFromRecord(rec) {
   if (!rec) return '';
-  let url = '';
-  // Prefer catalog URL when key resolves (refreshes stale stored URLs).
+  const accept = (raw) => {
+    const s = raw == null ? '' : String(raw).trim();
+    if (!s) return '';
+    if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(s)) return s;
+    if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(s)) return s;
+    if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(s)) return s;
+    return '';
+  };
+  // Checklist, Performance, and Approval read the URL stored on the
+  // session. Catalog changes do not replace that stored link. A key
+  // with no stored URL still falls back to the live catalog.
+  const stored = accept(rec.lakituProjectUrl);
+  if (stored) return stored;
   if (rec.lakituProjectKey && typeof getLakituProjectByKey === 'function') {
     const proj = getLakituProjectByKey(rec.lakituProjectKey);
-    if (proj && proj.url) url = String(proj.url).trim();
+    if (proj && proj.url) {
+      const fromCat = accept(proj.url);
+      if (fromCat) return fromCat;
+    }
   }
-  if (!url && rec.lakituProjectUrl != null) {
-    url = String(rec.lakituProjectUrl).trim();
-  }
-  if (!url) return '';
-  if (typeof isLakituProjectUrl === 'function' && isLakituProjectUrl(url)) return url;
-  if (typeof isValidLakituUrl === 'function' && isValidLakituUrl(url)) return url;
-  if (typeof isSafeHttpUrl === 'function' && isSafeHttpUrl(url)) return url;
   return '';
 }
 
@@ -7721,6 +7917,7 @@ function openMenu() {
     }
   }
   if (typeof syncModTrackingUi === 'function') syncModTrackingUi();
+  if (typeof fillLakituCatalogEditor === 'function') fillLakituCatalogEditor();
   if (typeof syncReviewerChrome === 'function') syncReviewerChrome();
   document.getElementById('menuOverlay').classList.add('open');
   document.getElementById('menuDrawer').classList.add('open');
@@ -21890,6 +22087,9 @@ function ingestAppSettingsFromSessionRows(rows) {
   if (typeof ingestSessionLinkOverridesFromSessionRows === 'function') {
     ingestSessionLinkOverridesFromSessionRows(rows);
   }
+  if (typeof ingestLakituCatalogFromSessionRows === 'function') {
+    ingestLakituCatalogFromSessionRows(rows);
+  }
   if (typeof ingestModeratorStrikesFromSessionRows === 'function') {
     ingestModeratorStrikesFromSessionRows(rows);
   }
@@ -22191,6 +22391,214 @@ async function persistSessionLinkOverridesSetting() {
 }
 
 loadSessionLinkOverridesCache();
+
+function lakituCatalogEditAllowed() {
+  return (typeof isAdminSession === 'function') && isAdminSession();
+}
+
+function loadLakituCatalogCache() {
+  try {
+    if (typeof localStorage === 'undefined' || !localStorage.getItem) return;
+    const raw = localStorage.getItem(LAKITU_CATALOG_LS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    if (typeof setLakituCatalogOverrides === 'function') setLakituCatalogOverrides(parsed.urls || {});
+    _lakituCatalogUpdatedAt = parsed.updatedAt ? String(parsed.updatedAt) : '';
+  } catch (_) {}
+}
+
+function cacheLakituCatalogLocal() {
+  try {
+    if (typeof localStorage === 'undefined' || !localStorage.setItem) return;
+    localStorage.setItem(LAKITU_CATALOG_LS_KEY, JSON.stringify({
+      urls: _lakituCatalogOverrides,
+      updatedAt: _lakituCatalogUpdatedAt || '',
+    }));
+  } catch (_) {}
+}
+
+function ingestLakituCatalogFromSessionRows(rows) {
+  if (typeof lakituCatalogOverridesFromSessionRows !== 'function') return;
+  const parsed = lakituCatalogOverridesFromSessionRows(rows);
+  if (!parsed) return;
+  const localAt = _lakituCatalogUpdatedAt || '';
+  const remoteAt = String(parsed.updatedAt || '');
+  if (localAt && remoteAt && remoteAt < localAt) return;
+  if (typeof setLakituCatalogOverrides === 'function') setLakituCatalogOverrides(parsed.urls);
+  _lakituCatalogUpdatedAt = remoteAt || localAt;
+  cacheLakituCatalogLocal();
+  if (typeof fillLakituCatalogEditor === 'function') fillLakituCatalogEditor();
+}
+
+async function persistLakituCatalogSetting(urls) {
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    return { ok: false, reason: 'admin-progress-mirror' };
+  }
+  if (typeof SESSIONSTATE_PA_WRITE_URL === 'undefined' || !SESSIONSTATE_PA_WRITE_URL) {
+    return { ok: false, reason: 'notconfigured' };
+  }
+  const nowIso = new Date().toISOString();
+  const body = (typeof lakituCatalogSettingBody === 'function')
+    ? lakituCatalogSettingBody(urls, (typeof state !== 'undefined' && state && state.username) || 'Admin', nowIso)
+    : { type: 'appSetting', key: 'lakituCatalog', urls: urls || {}, updatedAt: nowIso };
+  const payload = {
+    sessionStateId: LAKITU_CATALOG_SETTING_ID,
+    assignmentId: LAKITU_CATALOG_SETTING_KEY,
+    teamId: '',
+    orbitLoginId: '_app_setting',
+    assignmentAddress: '',
+    milesFromHq: '',
+    stateJson: JSON.stringify(body),
+    lastActive: nowIso,
+    appVersion: (typeof APP_VERSION !== 'undefined') ? APP_VERSION : '',
+    overwrite: true,
+  };
+  try {
+    if (typeof fetchWithRetry === 'function') {
+      await fetchWithRetry(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        timeoutMs: 20000,
+        maxAttempts: 2,
+      });
+    } else {
+      const res = await fetch(SESSIONSTATE_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+    return { ok: true };
+  } catch (e) {
+    console.warn('[Twilight] Lakitu catalog setting write failed:', e && e.message);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+function fillLakituCatalogEditor() {
+  const host = document.getElementById('lakituCatalogEditor');
+  if (!host) return;
+  const projects = (typeof LAKITU_PROJECTS !== 'undefined') ? LAKITU_PROJECTS : [];
+  projects.forEach((p) => {
+    const el = document.getElementById('lakituCatalogUrl-' + p.key);
+    if (!el || document.activeElement === el) return;
+    const live = (typeof getLakituProjectByKey === 'function') ? getLakituProjectByKey(p.key) : null;
+    el.value = (live && live.url) ? String(live.url) : String(p.url || '');
+  });
+}
+
+function lakituCatalogEditorFields() {
+  const fields = {};
+  const projects = (typeof LAKITU_PROJECTS !== 'undefined') ? LAKITU_PROJECTS : [];
+  projects.forEach((p) => {
+    const el = document.getElementById('lakituCatalogUrl-' + p.key);
+    fields[p.key] = el ? el.value : '';
+  });
+  return fields;
+}
+
+function lakituCatalogEditorIsDirty() {
+  const fields = lakituCatalogEditorFields();
+  const projects = (typeof LAKITU_PROJECTS !== 'undefined') ? LAKITU_PROJECTS : [];
+  return projects.some((p) => {
+    const shown = String(fields[p.key] || '').trim();
+    const live = (typeof getLakituProjectByKey === 'function') ? getLakituProjectByKey(p.key) : null;
+    const cur = live && live.url ? String(live.url).trim() : String(p.url || '').trim();
+    return shown !== cur;
+  });
+}
+
+async function saveLakituCatalogFromEditor() {
+  if (!lakituCatalogEditAllowed()) {
+    if (typeof toast === 'function') toast('Only an Admin can save these links');
+    return { ok: false, reason: 'forbidden' };
+  }
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    return { ok: false, reason: 'admin-progress-mirror' };
+  }
+  const parsed = (typeof lakituCatalogOverridesFromFields === 'function')
+    ? lakituCatalogOverridesFromFields(lakituCatalogEditorFields())
+    : { ok: false, label: '', urls: null };
+  if (!parsed.ok) {
+    if (typeof appAlert === 'function') {
+      await appAlert({
+        title: 'Link not saved',
+        message: (parsed.label || 'One link') + ' needs a full Lakitu link, starting with https://lakitu.ring.amazon.dev/. Leave a box as it is to keep the built-in link.',
+        variant: 'warning',
+      });
+    }
+    return { ok: false, reason: 'invalid' };
+  }
+  if (typeof setLakituCatalogOverrides === 'function') setLakituCatalogOverrides(parsed.urls);
+  _lakituCatalogUpdatedAt = new Date().toISOString();
+  cacheLakituCatalogLocal();
+  const write = await persistLakituCatalogSetting(_lakituCatalogOverrides);
+  fillLakituCatalogEditor();
+  if (typeof toast === 'function') {
+    toast(write && write.ok ? 'Night Time Lakitu links saved' : 'Night Time Lakitu links saved on this browser');
+  }
+  return { ok: true, cloud: !!(write && write.ok) };
+}
+
+async function applyLakituCatalogToTonight() {
+  if (!lakituCatalogEditAllowed()) {
+    if (typeof toast === 'function') toast('Only an Admin can update tonight');
+    return { ok: false, reason: 'forbidden' };
+  }
+  if (lakituCatalogEditorIsDirty()) {
+    if (typeof appAlert === 'function') {
+      await appAlert({
+        title: 'Save first',
+        message: 'Save the Lakitu links, then use Apply to tonight.',
+        variant: 'warning',
+      });
+    }
+    return { ok: false, reason: 'dirty' };
+  }
+  const today = (typeof lakituCatalogPacificTodayYmd === 'function')
+    ? lakituCatalogPacificTodayYmd(new Date())
+    : '';
+  const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
+  const assignments = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  const preview = (typeof nightTimeSessionsBookedOnDate === 'function')
+    ? nightTimeSessionsBookedOnDate(assignments, teams, today)
+    : [];
+  const n = preview.length;
+  const noun = n === 1 ? 'session' : 'sessions';
+  const confirmed = (typeof appConfirm === 'function')
+    ? await appConfirm({
+        title: 'Update tonight’s Lakitu links?',
+        message: 'This will change the Lakitu link on ' + n + ' Night Time ' + noun + ' booked for today. Past nights stay the same.',
+        confirmLabel: 'Update tonight',
+        cancelLabel: 'Cancel',
+        variant: 'warning',
+      })
+    : false;
+  if (!confirmed) return { ok: false, reason: 'cancelled', count: n };
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    return { ok: false, reason: 'admin-progress-mirror', count: n };
+  }
+  const updated = (typeof applyLakituCatalogToSessions === 'function')
+    ? applyLakituCatalogToSessions(assignments, teams, today)
+    : [];
+  if (typeof saveAssignmentData === 'function') saveAssignmentData();
+  for (let i = 0; i < updated.length; i++) {
+    if (typeof persistTeamSessionAssignment === 'function') {
+      try { await persistTeamSessionAssignment(updated[i]); } catch (_) {}
+    }
+  }
+  if (typeof toast === 'function') {
+    toast(updated.length
+      ? ('Updated ' + updated.length + ' session' + (updated.length === 1 ? '' : 's') + ' for tonight')
+      : 'No Night Time sessions booked for today');
+  }
+  return { ok: true, count: updated.length };
+}
+
+loadLakituCatalogCache();
 
 function syncMasterAdminChrome() {
   const on = isMasterAdminUser();
@@ -42716,6 +43124,9 @@ async function saveAssignment() {
     };
     adminState.assignments[idx] = newAsgn;
   } else {
+    const stampedLakitu = (typeof lakituLinksForNewBooking === 'function')
+      ? lakituLinksForNewBooking(team)
+      : { lakituProjectKey: '', lakituProjectUrl: '' };
     newAsgn = {
       id: 'asgn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
       teamId: m.teamId,
@@ -42730,6 +43141,10 @@ async function saveAssignment() {
       status: 'Booked',
       comment: '',
       savedAt: new Date().toISOString(),
+      // New Night Time bookings copy the saved catalog URL. Later catalog
+      // edits do not change this session unless Apply to tonight does.
+      lakituProjectKey: stampedLakitu.lakituProjectKey || '',
+      lakituProjectUrl: stampedLakitu.lakituProjectUrl || '',
     };
     adminState.assignments.push(newAsgn);
   }
@@ -62012,6 +62427,18 @@ function init() {
   if (masterlistRow) {
     masterlistRow.addEventListener('click', () => {
       setTimeout(() => { try { closeMenu(); } catch (_) {} }, 10);
+    });
+  }
+  const lakituCatalogSaveBtn = document.getElementById('lakituCatalogSaveBtn');
+  if (lakituCatalogSaveBtn) {
+    lakituCatalogSaveBtn.addEventListener('click', () => {
+      if (typeof saveLakituCatalogFromEditor === 'function') saveLakituCatalogFromEditor();
+    });
+  }
+  const lakituCatalogApplyBtn = document.getElementById('lakituCatalogApplyBtn');
+  if (lakituCatalogApplyBtn) {
+    lakituCatalogApplyBtn.addEventListener('click', () => {
+      if (typeof applyLakituCatalogToTonight === 'function') applyLakituCatalogToTonight();
     });
   }
   document.getElementById('resetRow').addEventListener('click', async () => {

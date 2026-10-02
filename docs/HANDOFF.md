@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
+**Last updated:** 2026-10-02 · Grok · Night Time Lakitu catalog in the Admin menu (1.3.100226a)
+
+## 2026-10-02 · Grok · Admin can edit the five Night Time Lakitu links (1.3.100226a)
+
+**Ask:** Any Admin can edit the five shared Night Time Lakitu catalog links from the menu, under Master List. New bookings use the saved links. Apply to tonight can update today’s Night Time sessions after a confirm that shows the count. Past nights stay as they are. Do not merge until David says push. Independent of PR #186.
+
+**Fix:** The Admin menu, under Master List, has Night Time Lakitu with the five fixed names and a link box for each. Save stores the links the same way other Admin settings are stored (this browser, then SessionState). The built-in links stay in place until a saved change loads. A new booking copies the saved link onto that session. Checklist, Performance, and Approval keep using the link stored on each session. Apply to tonight asks “Update tonight’s Lakitu links?” and names how many Night Time sessions booked for today (Pacific) will change. Cancel does nothing. Confirm updates only those sessions. A Reviewer does not see this block.
+
+**Version:** **1.3.100226a**. Selftest: `scripts/lakitu-catalog-selftest.js` (26 passed). Booking session-link checks still pass except an older version pin that was already behind.
+
+**PR:** draft on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100226a**. Sign in as Admin. Open the menu. Under **Master List**, you should see **Night Time Lakitu** and five link boxes. Change a link and click **Save**. Book a new Night Time session. That session should use the link you saved. Click **Apply to tonight**. A question should name how many of today’s Night Time sessions will change. **Cancel** leaves them alone. **Update tonight** changes only those. A session from an earlier night should keep its old link.
 
 ## 2026-10-01 · Grok · 9 AM auto-strike skips a finished team (1.3.100101c)
 
