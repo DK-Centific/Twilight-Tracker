@@ -10,7 +10,7 @@
 
 **Version:** **1.3.100226a**. Selftest: `scripts/lakitu-catalog-selftest.js` (26 passed). Booking session-link checks still pass except an older version pin that was already behind.
 
-**PR:** draft on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#192](https://github.com/DK-Centific/Twilight-Tracker/pull/192) on `cursor/night-time-lakitu-catalog-bc00`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. On your computer, start a local server in the project folder (`python3 -m http.server 8080`) and open http://localhost:8080/. Hard refresh until the corner says **1.3.100226a**. Sign in as Admin. Open the menu. Under **Master List**, you should see **Night Time Lakitu** and five link boxes. Change a link and click **Save**. Book a new Night Time session. That session should use the link you saved. Click **Apply to tonight**. A question should name how many of today’s Night Time sessions will change. **Cancel** leaves them alone. **Update tonight** changes only those. A session from an earlier night should keep its old link.
 
