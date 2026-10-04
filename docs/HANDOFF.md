@@ -12,7 +12,7 @@
 
 **Version:** **1.3.100426a**. Selftest: `scripts/mod-strike-booking-identity-selftest.js`. Strike, cancel, ghost, roster, and forward-gate checks still pass.
 
-**PR:** draft on `cursor/mod-strike-booking-identity-721a`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#196](https://github.com/DK-Centific/Twilight-Tracker/pull/196) on `cursor/mod-strike-booking-identity-721a`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100426a**. A moderator who is not on that night’s booking should stay at the same stars after 9:00 AM Pacific. A moderator who is on an unfinished booking can still lose one star. A team that already finished should stay put.
 
