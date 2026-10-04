@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Moderator cancel-session self-test (1.3.100226j)');
+console.log('Moderator cancel-session self-test (1.3.100426a)');
 
-assert('APP_VERSION 1.3.100226j',
-  /const APP_VERSION = '1\.3\.100226j'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100226j'));
+assert('APP_VERSION 1.3.100426a',
+  /const APP_VERSION = '1\.3\.100426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100426a'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
