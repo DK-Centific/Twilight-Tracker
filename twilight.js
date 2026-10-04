@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100226j';
-const APP_UPDATED_AT = '10/02/2026 16:45';
+const APP_VERSION = '1.3.100426a';
+const APP_UPDATED_AT = '10/04/2026 09:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -33092,8 +33092,17 @@ function buildModStrikeCheckpointReport(nowMs) {
   const offer = (team, booking) => {
     if (!booking || !eligible(booking)) return;
     const snaps = snapIds(booking);
-    const primaries = team ? (team.primaryIds || []).filter(Boolean) : [];
-    const crewIds = snaps.length === 2 ? snaps.slice() : (primaries.length === 2 ? primaries.slice() : []);
+    // The assignment's own moderator logins. A linked team roster is a
+    // different pair when the schedule was reassigned or teamId is stale
+    // (Oct 3: Brandon od_85fe50dc was Narendra x Sravya, and this
+    // checkpoint struck Manoj x Pradeepreddy). Use the team only when
+    // this assignment has no moderator logins of its own.
+    let crewIds = [];
+    if (snaps.length === 2) crewIds = snaps.slice();
+    else if (snaps.length === 0) {
+      const primaries = team ? (team.primaryIds || []).filter(Boolean) : [];
+      if (primaries.length === 2) crewIds = primaries.slice();
+    }
     if (crewIds.length !== 2) return;
     const crewKey = crewIds.map(id => String(id).trim().toLowerCase()).sort().join('|');
     if (!crewKey) return;
@@ -33148,8 +33157,11 @@ function buildModStrikeCheckpointReport(nowMs) {
       primaryIds: subject.crewIds,
     };
     const primaries = (subject.crewIds && subject.crewIds.length === 2)
-      ? subject.crewIds.slice()
-      : (t.primaryIds || []).filter(Boolean);
+      ? subject.crewIds.filter(id => {
+          if (typeof modStrikeOrbitIsBookedModerator !== 'function') return true;
+          return modStrikeOrbitIsBookedModerator(id, booking);
+        })
+      : [];
     if (primaries.length !== 2) continue;
     const evidence = modStrikeAssignmentEvidence(booking);
     const completed = evidence === 'complete';
@@ -33237,7 +33249,10 @@ function modStrikeCrewIds(booking) {
     ids.push(id);
   };
   ((booking && booking.modSnapshots) || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
-  if (ids.length < 2 && booking) {
+  // A short or extra snapshot list must not be filled from the team roster.
+  // That roster can be a different booking's crew. No snapshots at all is
+  // the legacy row: the linked team's two primaries are the crew.
+  if (ids.length === 0 && booking) {
     try {
       const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
       const team = teams.find(t => t && String(t.id) === String(booking.teamId));
@@ -33508,36 +33523,47 @@ function modStrikeCheckpointAutoStampCoversBooking(booking) {
   return false;
 }
 
-function modStrikePrimariesForBooking(booking) {
+// Moderator logins stored on this assignment. SessionState is not this
+// list. When the assignment has any snapshot, those logins are the crew
+// and a different team's roster is ignored. When it has none, the linked
+// team's primaries are the legacy crew.
+function modStrikeBookedModeratorIds(booking) {
   const ids = [];
   const seen = new Set();
   const add = (raw) => {
     const id = String(raw || '').trim();
-    if (!id) return;
-    const k = id.toLowerCase();
-    if (seen.has(k)) return;
-    seen.add(k);
+    const key = id.toLowerCase();
+    if (!id || seen.has(key)) return;
+    seen.add(key);
     ids.push(id);
   };
-  // Prefer the booking's own co-mod snapshots. A wrong teamId must not
-  // pull an unrelated team's primaries onto this assignment (Matthew was
-  // auto-struck for Venkata×Rohith / Manish aid od_466726cb).
-  const snapIds = [];
-  if (booking) {
-    (booking.modSnapshots || []).forEach(s => {
-      const id = s && (s.orbitLoginId || s.orbitId);
-      if (id) snapIds.push(String(id).trim());
-    });
-  }
-  if (snapIds.length) {
-    snapIds.forEach(add);
-    return ids;
-  }
-  if (booking && booking.teamId != null && typeof adminState !== 'undefined' && adminState) {
+  if (!booking) return ids;
+  (booking.modSnapshots || []).forEach(s => add(s && (s.orbitLoginId || s.orbitId)));
+  if (ids.length) return ids;
+  if (booking.teamId != null && typeof adminState !== 'undefined' && adminState) {
     const team = (adminState.teams || []).find(t => t && String(t.id) === String(booking.teamId));
     if (team) (team.primaryIds || []).forEach(add);
   }
   return ids;
+}
+
+function modStrikeOrbitIsBookedModerator(orbitId, booking) {
+  const key = String(orbitId || '').trim().toLowerCase();
+  if (!key || !booking) return false;
+  const booked = modStrikeBookedModeratorIds(booking);
+  if (!booked.length) return false;
+  for (let i = 0; i < booked.length; i++) {
+    if (String(booked[i]).toLowerCase() === key) return true;
+  }
+  return false;
+}
+
+function modStrikePrimariesForBooking(booking) {
+  // Prefer the booking's own co-mod snapshots. A wrong teamId must not
+  // pull an unrelated team's primaries onto this assignment (Matthew was
+  // auto-struck for Venkata×Rohith / Manish aid od_466726cb). An empty
+  // snapshot list must not fall through to that roster either.
+  return modStrikeBookedModeratorIds(booking);
 }
 
 // Past 9:00 AM PT, hide the incomplete alert when the auto-strike gate
@@ -33917,6 +33943,7 @@ function modStrikeAttemptAutoStrike(booking, primaryIds, nowMs, ckRow, reason) {
   const ids = primaryIds || [];
   for (let i = 0; i < ids.length; i++) {
     const orbitId = ids[i];
+    if (!modStrikeOrbitIsBookedModerator(orbitId, booking)) continue;
     const orbitKey = (typeof modStrikeOrbitKey === 'function') ? modStrikeOrbitKey(orbitId) : '';
     if (!orbitKey || seenOrbit.has(orbitKey)) continue;
     seenOrbit.add(orbitKey);
@@ -33955,11 +33982,15 @@ function modStrikeApplyForwardAutoStrikes(nowMs, ckRow) {
     const ymd = modStrikeBookingYmd(booking);
     const primaries = (typeof modStrikePrimariesForBooking === 'function')
       ? modStrikePrimariesForBooking(booking) : [];
-    let teamName = '';
+    let teamName = String((booking.teamName || booking.team) || '').trim();
     try {
       const teams = (typeof adminState !== 'undefined' && adminState && adminState.teams) || [];
       const team = teams.find(t => t && String(t.id) === String(booking.teamId));
-      if (team && team.name) teamName = team.name;
+      const bookedKey = modStrikeBookedModeratorIds(booking)
+        .map(id => String(id).toLowerCase()).sort().join('|');
+      const teamKey = ((team && team.primaryIds) || [])
+        .map(id => String(id || '').trim().toLowerCase()).filter(Boolean).sort().join('|');
+      if (team && team.name && bookedKey && teamKey === bookedKey) teamName = team.name;
     } catch (_) {}
     struck += modStrikeAttemptAutoStrike(
       booking,
@@ -33974,6 +34005,7 @@ function modStrikeApplyForwardAutoStrikes(nowMs, ckRow) {
 
 function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (!booking || !orbitId) return false;
+  if (!modStrikeOrbitIsBookedModerator(orbitId, booking)) return false;
   const now = nowMs != null ? nowMs : Date.now();
   if (!isPastModStrikeCheckpointHour(now)) return false;
   // Older than yesterday is frozen. Yesterday catch-up and today both

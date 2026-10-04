@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-02 · Grok · Empty SessionState shells cannot wipe real progress (1.3.100226j)
+**Last updated:** 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
+
+## 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
+
+**Ask:** On Oct 3 the 9 AM check took a star from Manoj, Pradeepreddy, Jashit, and Matthew for sessions they were not booked on. Brandon Soltero (`od_85fe50dc…`) was Narendra and Sravya. Emmanuel Akoto (`od_cda4f783…`) was Matthew and Pradeepreddy. An earlier case put Matthew on Manish’s booking id. Do not write SharePoint, OneData, or the live strike blob. Do not merge until David says push.
+
+**Cause:** When a booking’s moderator list was not exactly two people, the checkpoint used the linked team’s roster instead. That roster can be a different pair. The strike was then saved on the original assignment id, so the people who were actually booked were skipped.
+
+**Fix:** A star comes off only for a login stored on that assignment. If the assignment already lists its moderators, a different team’s names are ignored. A booking with no moderator list still uses its team. A finished co-mod, a cancel, a time before 9:00 AM Pacific, and an older night still do not strike. A manual admin strike is left as it is.
+
+**Version:** **1.3.100426a**. Selftest: `scripts/mod-strike-booking-identity-selftest.js`. Strike, cancel, ghost, roster, and forward-gate checks still pass.
+
+**PR:** draft [#196](https://github.com/DK-Centific/Twilight-Tracker/pull/196) on `cursor/mod-strike-booking-identity-721a`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100426a**. A moderator who is not on that night’s booking should stay at the same stars after 9:00 AM Pacific. A moderator who is on an unfinished booking can still lose one star. A team that already finished should stay put.
 
 ## 2026-10-02 · Grok · Empty SessionState shells cannot wipe real progress (1.3.100226j)
 
