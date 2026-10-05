@@ -14,7 +14,7 @@
 
 **Version:** **1.3.100526a**. Selftest: `scripts/overview-donut-perf-parity-selftest.js`. Related Overview and Performance checks still pass.
 
-**PR:** draft on `cursor/overview-donut-perf-parity-8fc6`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#198](https://github.com/DK-Centific/Twilight-Tracker/pull/198) on `cursor/overview-donut-perf-parity-8fc6`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100526a**. Open **Overview**. The booked chart **Incomplete** number should match **Performance** with **All time** selected. Both should be the same unfinished nights. Team 01, the old Muhammed lineup, and Cancel button demo should not add to that number.
 
