@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100426a';
-const APP_UPDATED_AT = '10/04/2026 09:30';
+const APP_VERSION = '1.3.100426b';
+const APP_UPDATED_AT = '10/05/2026 13:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -13294,15 +13294,35 @@ function sessionStateCountsAsTeamComplete(parsed, row, bookingYmd) {
     || ''
   ).trim();
   if (booked && sd && sd < booked) return false;
-  if (sessionStateStampsAllBeforeBooking(parsed, booked)) return false;
+  let judgedParsed = parsed;
+  let judgedRow = row;
+  if (typeof applySessionProgressUpperBound === 'function') {
+    let asgn = null;
+    const asgnId = row && (row.assignmentId || row.AssignmentId);
+    if (asgnId != null && asgnId !== ''
+        && typeof adminState !== 'undefined' && adminState
+        && Array.isArray(adminState.assignments)) {
+      asgn = adminState.assignments.find(a => a && (
+        (typeof assignmentIdsMatch === 'function')
+          ? assignmentIdsMatch(a.id, asgnId)
+          : String(a.id) === String(asgnId)
+      )) || null;
+    }
+    if (asgn) {
+      const bounded = applySessionProgressUpperBound(parsed, row, asgn);
+      if (bounded && bounded.parsed) judgedParsed = bounded.parsed;
+      if (bounded && bounded.row) judgedRow = bounded.row;
+    }
+  }
+  if (sessionStateStampsAllBeforeBooking(judgedParsed, booked)) return false;
   if (booked && typeof sessionStateProgressForeignToBooking === 'function'
-      && sessionStateProgressForeignToBooking(parsed, booked)) {
+      && sessionStateProgressForeignToBooking(judgedParsed, booked)) {
     return false;
   }
-  const best = sessionStateBestTeamStatus(parsed, row);
-  const probe = Object.assign({}, parsed || {});
+  const best = sessionStateBestTeamStatus(judgedParsed, judgedRow);
+  const probe = Object.assign({}, judgedParsed || {});
   if (best) probe.sessionStatus = best;
-  return sessionStateParsedIsHappypathComplete(probe, row);
+  return sessionStateParsedIsHappypathComplete(probe, judgedRow);
 }
 
 function assignmentSessionStateRowsForHappypath(a) {
@@ -13355,9 +13375,17 @@ function assignmentHasSessionDoneStamp(a) {
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
       parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
         preserveSessionCompletion: true,
+        assignment: a,
+        row: r,
       });
     }
     if (String(sessionStateStatusHint(parsed, r) || '').toLowerCase() === 'cancelled') return false;
+    if (parsed && parsed._postWindowStatus != null) {
+      const boundedSt = String(parsed.sessionStatus || '').toLowerCase();
+      if (parsed.sessionCompletedAt && (boundedSt === 'session_done' || boundedSt === 'office_checkout')) return true;
+      if (boundedSt === 'session_done' || boundedSt === 'office_checkout') return true;
+      continue;
+    }
     if (sessionStateCompletionStamp(parsed, r)) return true;
     const st = String(sessionStateStatusHint(parsed, r) || '').toLowerCase();
     if (st === 'session_done' || st === 'office_checkout') return true;
@@ -13426,12 +13454,24 @@ function isAssignmentTeamHappypathComplete(a) {
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
       parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
         preserveSessionCompletion: true,
+        assignment: a,
+        row: r,
       });
     }
-    if (sessionStateParsedIsHappypathComplete(parsed, r)) return remember(true);
-    const stamp = sessionStateCompletionStamp(parsed, r);
+    let rowForJudge = r;
+    if (parsed && parsed._postWindowStatus != null) {
+      rowForJudge = Object.assign({}, r || {});
+      rowForJudge.sessionStatus = String(parsed._postWindowStatus || '');
+      rowForJudge.SessionStatus = rowForJudge.sessionStatus;
+      if (!parsed.sessionCompletedAt) {
+        rowForJudge.sessionCompletedAt = null;
+        rowForJudge.SessionCompletedAt = null;
+      }
+    }
+    if (sessionStateParsedIsHappypathComplete(parsed, rowForJudge)) return remember(true);
+    const stamp = sessionStateCompletionStamp(parsed, rowForJudge);
     if (stamp && !merged.sessionCompletedAt) merged.sessionCompletedAt = stamp;
-    const hint = sessionStateStatusHint(parsed, r);
+    const hint = sessionStateStatusHint(parsed, rowForJudge);
     if (hint) {
       const curIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(merged.sessionStatus) : -1;
       const nextIdx = (typeof statusOrderIdx === 'function') ? statusOrderIdx(hint) : -1;
@@ -45694,6 +45734,20 @@ async function postSessionStatePayloadDirect(payload) {
       confirmedReset: !!(payload.confirmedReset || (typeof sessionStateConfirmedResetActive === 'function' && sessionStateConfirmedResetActive())),
       adminHealForce: !!(payload.adminHealForce || payload.allowRegressiveWipe),
     });
+    if (decision && !decision.refuse && typeof sessionStatePostWindowWriteDecision === 'function') {
+      const asgnForGate = (typeof lookupAssignmentByIdForSessionWrite === 'function')
+        ? lookupAssignmentByIdForSessionWrite(payload.assignmentId)
+        : { id: payload.assignmentId };
+      const postWindow = sessionStatePostWindowWriteDecision(asgnForGate, directSyncable, {
+        orbitLoginId: payload.orbitLoginId,
+        adminHealForce: !!(payload.adminHealForce || payload.allowRegressiveWipe),
+        confirmedReset: !!(payload.confirmedReset || (typeof sessionStateConfirmedResetActive === 'function' && sessionStateConfirmedResetActive())),
+      });
+      if (postWindow && postWindow.refuse) {
+        try { console.warn('[Twilight] SessionState direct write skipped · ' + postWindow.reason); } catch (e) {}
+        return { ok: false, reason: postWindow.reason || 'refuse-post-window' };
+      }
+    }
     if (decision && decision.refuse) {
       try { console.warn('[Twilight] SessionState direct write skipped · ' + decision.reason); } catch (e) {}
       return { ok: false, reason: decision.reason || 'refuse-regressive' };
@@ -47766,6 +47820,303 @@ function sessionCompletionStampBelongsToBooking(stamp, bookingYmd) {
   return false;
 }
 
+// Station / wrap-up progress still counts for a few hours after the
+// booked end (a 7 PM–2 AM session can finish around 3–6 AM). A tap
+// the next night does not. Four hours is the upper bound. The lower
+// bound (before the booking day / start) is unchanged.
+const SESSION_PROGRESS_AFTER_END_GRACE_MS = 4 * 60 * 60 * 1000;
+
+function sessionStateStampMs(stamp) {
+  if (stamp == null || stamp === '') return 0;
+  if (typeof parseLastActiveMs === 'function') {
+    const ms = parseLastActiveMs(stamp);
+    if (ms) return ms;
+  }
+  const t = Date.parse(String(stamp));
+  return isNaN(t) ? 0 : t;
+}
+
+function assignmentProgressDeadlineMs(asgn) {
+  if (!asgn || typeof assignmentBookingSessionEndMs !== 'function') return NaN;
+  const endMs = assignmentBookingSessionEndMs(asgn);
+  if (!Number.isFinite(endMs)) return NaN;
+  const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
+    ? SESSION_PROGRESS_AFTER_END_GRACE_MS
+    : (4 * 60 * 60 * 1000);
+  return endMs + grace;
+}
+
+function sessionStateStampAfterProgressDeadline(stamp, deadlineMs) {
+  if (!Number.isFinite(deadlineMs)) return false;
+  const ms = sessionStateStampMs(stamp);
+  if (!ms) return false;
+  return ms > deadlineMs;
+}
+
+function sessionProgressStatusRank(st) {
+  const s = String(st || '').trim().toLowerCase();
+  if (s === 'office_checkout') return 10;
+  if (s === 'session_done') return 9;
+  if (s === 'station_4_done') return 8;
+  if (s === 'station_3_done') return 7;
+  if (s === 'station_2_done') return 6;
+  if (s === 'station_1_done') return 5;
+  if (s === 'arrived' || s === 'office_checkin') return 1;
+  return 0;
+}
+
+function sessionProgressStatusFromRank(rank) {
+  if (rank >= 10) return 'office_checkout';
+  if (rank >= 9) return 'session_done';
+  if (rank >= 8) return 'station_4_done';
+  if (rank >= 7) return 'station_3_done';
+  if (rank >= 6) return 'station_2_done';
+  if (rank >= 5) return 'station_1_done';
+  if (rank >= 1) return 'arrived';
+  return '';
+}
+
+function canonicalStationProgressKey(raw) {
+  const low = String(raw || '').trim().toLowerCase().replace(/_/g, '');
+  const m = low.match(/^station([1-4])$/);
+  return m ? ('station' + m[1]) : '';
+}
+
+function stationProgressStampKeys(canon) {
+  if (canon === 'station4') return ['station4', 'Station4'];
+  if (canon === 'station3') return ['station3', 'Station3'];
+  if (canon === 'station2') return ['station2', 'Station2'];
+  if (canon === 'station1') return ['station1', 'Station1'];
+  return [];
+}
+
+function stationMapHasInWindowStamp(sca, canon) {
+  const keys = stationProgressStampKeys(canon);
+  for (let i = 0; i < keys.length; i++) {
+    if (sca && sca[keys[i]]) return true;
+  }
+  return false;
+}
+
+// Clock for a finish that has no station / session stamp.
+// progressAt / updatedAt win over a later lastActive heartbeat.
+function sessionStateFinishClockMs(parsed, row) {
+  if (parsed && parsed.progressAt) return sessionStateStampMs(parsed.progressAt);
+  if (parsed && parsed.updatedAt) return sessionStateStampMs(parsed.updatedAt);
+  if (row && row.updatedAt) return sessionStateStampMs(row.updatedAt);
+  if (row && row.lastActive) return sessionStateStampMs(row.lastActive);
+  if (row && (row.Modified || row.modified)) return sessionStateStampMs(row.Modified || row.modified);
+  return 0;
+}
+
+// Drop station progress dated after booking end + grace. In-window
+// stamps stay. A stamp-less Station 4 still counts when its only clock
+// is inside the grace. Returns copies; does not mutate the inputs.
+function applySessionProgressUpperBound(parsed, row, asgn) {
+  const src = (parsed && typeof parsed === 'object') ? parsed : {};
+  const out = Object.assign({}, src);
+  const rowOut = row ? Object.assign({}, row) : null;
+  if (!asgn) return { parsed: out, row: rowOut || row };
+  const deadline = assignmentProgressDeadlineMs(asgn);
+  if (!Number.isFinite(deadline)) return { parsed: out, row: rowOut || row };
+  const late = (stamp) => sessionStateStampAfterProgressDeadline(stamp, deadline);
+
+  const scaIn = (src.stationCompletedAt && typeof src.stationCompletedAt === 'object')
+    ? src.stationCompletedAt : {};
+  const sca = Object.assign({}, scaIn);
+  Object.keys(scaIn).forEach(k => {
+    if (scaIn[k] && late(scaIn[k])) delete sca[k];
+  });
+  out.stationCompletedAt = sca;
+
+  if (src.sessionCompletedAt && late(src.sessionCompletedAt)) out.sessionCompletedAt = null;
+  if (src.officeCheckedOutAt && late(src.officeCheckedOutAt)) out.officeCheckedOutAt = null;
+
+  const origSt4 = scaIn.Station4 || scaIn.station4 || '';
+  const origDone = src.sessionCompletedAt || '';
+  const origStatus = String(src.sessionStatus || '');
+  const origRank = sessionProgressStatusRank(origStatus);
+  const inWindowFinish = (origDone && !late(origDone)) || (origSt4 && !late(origSt4));
+  const clock = sessionStateFinishClockMs(src, row);
+  const clockLate = !!(clock && clock > deadline);
+  let scenariosComplete = false;
+  if (!inWindowFinish && typeof sessionStateAllStationsHappypath === 'function') {
+    try { scenariosComplete = !!sessionStateAllStationsHappypath(src); } catch (_) { scenariosComplete = false; }
+  }
+  const lateFinish = !inWindowFinish && (
+    (origDone && late(origDone))
+    || (origSt4 && late(origSt4))
+    || (clockLate && (origRank >= 8 || scenariosComplete))
+  );
+
+  if (lateFinish && src.stations && typeof src.stations === 'object') {
+    const stations = {};
+    Object.keys(src.stations).forEach(k => {
+      const canon = canonicalStationProgressKey(k);
+      const keep = canon && stationMapHasInWindowStamp(sca, canon);
+      if (keep) {
+        stations[k] = src.stations[k];
+      } else {
+        const copy = Object.assign({}, src.stations[k] || {});
+        copy.scenarios = {};
+        stations[k] = copy;
+      }
+    });
+    out.stations = stations;
+  }
+
+  if (lateFinish) {
+    let supported = 0;
+    if (out.sessionCompletedAt) supported = Math.max(supported, 9);
+    if (out.officeCheckedOutAt) supported = Math.max(supported, 10);
+    if (stationMapHasInWindowStamp(sca, 'station4')) supported = Math.max(supported, 8);
+    if (stationMapHasInWindowStamp(sca, 'station3')) supported = Math.max(supported, 7);
+    if (stationMapHasInWindowStamp(sca, 'station2')) supported = Math.max(supported, 6);
+    if (stationMapHasInWindowStamp(sca, 'station1')) supported = Math.max(supported, 5);
+    if (supported < 1 && src.arrivedAt && !late(src.arrivedAt)) supported = 1;
+    if (origRank > supported) out.sessionStatus = sessionProgressStatusFromRank(supported);
+    out._postWindowStatus = String(out.sessionStatus || '');
+    if (rowOut) {
+      const rowDone = rowOut.sessionCompletedAt || rowOut.SessionCompletedAt;
+      if (rowDone && late(rowDone)) {
+        rowOut.sessionCompletedAt = null;
+        rowOut.SessionCompletedAt = null;
+      }
+      const rowRank = sessionProgressStatusRank(rowOut.sessionStatus || rowOut.SessionStatus);
+      if (rowRank > sessionProgressStatusRank(out.sessionStatus)) {
+        rowOut.sessionStatus = out.sessionStatus || '';
+        rowOut.SessionStatus = out.sessionStatus || '';
+        if (!out.sessionCompletedAt) {
+          rowOut.sessionCompletedAt = null;
+          rowOut.SessionCompletedAt = null;
+        }
+      }
+    }
+  }
+  return { parsed: out, row: rowOut || row };
+}
+
+function assignmentOrbitOnBooking(a, orbit) {
+  const id = String(orbit || '').trim().toLowerCase();
+  if (!id || !a) return false;
+  const snaps = a.modSnapshots || [];
+  for (let i = 0; i < snaps.length; i++) {
+    const s = snaps[i];
+    const oid = String((s && (s.orbitLoginId || s.orbitId)) || '').trim().toLowerCase();
+    if (oid && oid === id) return true;
+  }
+  let team = null;
+  try {
+    const teams = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams))
+      ? adminState.teams : [];
+    if (a.teamId != null) {
+      team = teams.find(t => t && String(t.id) === String(a.teamId)) || null;
+    }
+  } catch (_) { team = null; }
+  if (!team) return false;
+  const ids = [].concat(team.primaryIds || [], team.backupIds || []);
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i] || '').trim().toLowerCase() === id) return true;
+  }
+  return false;
+}
+
+function bookingWindowHasStarted(a, nowMs) {
+  if (!a) return false;
+  const now = nowMs != null ? nowMs : Date.now();
+  if (typeof assignmentBookingSessionStartMs === 'function') {
+    const start = assignmentBookingSessionStartMs(a);
+    if (Number.isFinite(start)) return now >= start;
+  }
+  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
+  const d = String(a.date || '');
+  return !!(d && today && d <= today);
+}
+
+// A later booking counts only after that booking's own start. A future
+// night already on the calendar does not close the grace wrap-up.
+function moderatorHasNewerStartedBooking(asgn, orbitLoginId, nowMs) {
+  if (!asgn) return false;
+  const orbit = String(
+    orbitLoginId
+    || (typeof state !== 'undefined' && state && state.modProfile && state.modProfile.orbitLoginId)
+    || ''
+  ).trim().toLowerCase();
+  if (!orbit) return false;
+  const mineDate = String(asgn.date || '');
+  const mineStart = Number(asgn.startMin) || 0;
+  const mineId = String(asgn.id);
+  const now = nowMs != null ? nowMs : Date.now();
+  const lists = [];
+  if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments)) {
+    lists.push(adminState.assignments);
+  }
+  try {
+    if (typeof getOperatorAssignments === 'function') {
+      const op = getOperatorAssignments() || [];
+      if (op.length) lists.push(op);
+    }
+  } catch (_) {}
+  const seen = {};
+  for (let L = 0; L < lists.length; L++) {
+    const list = lists[L];
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (!b || b.id == null) continue;
+      const bid = String(b.id);
+      if (seen[bid]) continue;
+      seen[bid] = true;
+      if (bid === mineId) continue;
+      if (b.status === 'Cancelled' || b.status === 'Unassigned') continue;
+      if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(b.comment)) continue;
+      if (!assignmentOrbitOnBooking(b, orbit)) continue;
+      const d = String(b.date || '');
+      if (!d || !mineDate) continue;
+      const later = d > mineDate || (d === mineDate && (Number(b.startMin) || 0) > mineStart);
+      if (!later) continue;
+      if (!bookingWindowHasStarted(b, now)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Refuse a checklist / SessionState save once the booked window has
+// ended and either the grace has passed, or a newer booking for this
+// moderator has already started. Cancel, Reset, and Admin heal still post.
+function sessionStatePostWindowWriteDecision(asgn, syncable, opts) {
+  opts = opts || {};
+  if (!asgn || asgn.id == null || asgn.id === '' || asgn._geoPresenceOnly) {
+    return { refuse: false, reason: 'not-booking' };
+  }
+  if (opts.adminHealForce || opts.allowRegressiveWipe) return { refuse: false, reason: 'admin-heal' };
+  if (opts.confirmedReset) return { refuse: false, reason: 'confirmed-reset' };
+  if (syncable && typeof sessionStateBlobIsModCancelWipe === 'function'
+      && sessionStateBlobIsModCancelWipe(syncable)) {
+    return { refuse: false, reason: 'mod-cancel' };
+  }
+  const now = opts.nowMs != null ? opts.nowMs : Date.now();
+  const endMs = (typeof assignmentBookingSessionEndMs === 'function')
+    ? assignmentBookingSessionEndMs(asgn) : NaN;
+  if (!Number.isFinite(endMs)) return { refuse: false, reason: 'no-end' };
+  if (now < endMs) return { refuse: false, reason: 'in-window' };
+  const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
+    ? SESSION_PROGRESS_AFTER_END_GRACE_MS
+    : (4 * 60 * 60 * 1000);
+  const pastGrace = now > (endMs + grace);
+  const newer = (typeof moderatorHasNewerStartedBooking === 'function')
+    && moderatorHasNewerStartedBooking(asgn, opts.orbitLoginId, now);
+  if (pastGrace || newer) {
+    return {
+      refuse: true,
+      reason: 'refuse-post-window',
+      pastGrace: !!pastGrace,
+      newerBooking: !!newer,
+    };
+  }
+  return { refuse: false, reason: 'grace' };
+}
+
 function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
   if (!parsed || typeof parsed !== 'object') return parsed || {};
   // Cancelled is not an open Booked day. Do not demote it to arrived / blank
@@ -47793,6 +48144,10 @@ function scrubSessionStateProgressToBooking(parsed, bookingYmd, opts) {
     const keptCancel = Object.assign({}, parsed);
     keptCancel.sessionStatus = 'Cancelled';
     return keptCancel;
+  }
+  if (opts.assignment && typeof applySessionProgressUpperBound === 'function') {
+    const bounded = applySessionProgressUpperBound(parsed, opts.row || null, opts.assignment);
+    if (bounded && bounded.parsed) parsed = bounded.parsed;
   }
   // Admin Performance / strike still evaluate yesterday's completed rows.
   // Day-gate scrub for the OPEN booking must not erase sessionCompletedAt
@@ -47910,12 +48265,12 @@ function scrubSyncableStateForOpenBooking(syncable) {
   if (!booked || typeof scrubSessionStateProgressToBooking !== 'function') {
     return Object.assign({}, syncable);
   }
-  let out = scrubSessionStateProgressToBooking(Object.assign({}, syncable), booked);
   let asgn = null;
   try {
     asgn = (typeof getAssignedOpenSession === 'function') ? getAssignedOpenSession() : null;
     if (!asgn && typeof getActiveOperatorAssignment === 'function') asgn = getActiveOperatorAssignment();
   } catch (_) { asgn = null; }
+  let out = scrubSessionStateProgressToBooking(Object.assign({}, syncable), booked, { assignment: asgn });
   if (asgn && typeof sessionStateStampBelongsToAssignment === 'function') {
     const sca = out.stationCompletedAt;
     let foreign = false;
@@ -48626,7 +48981,7 @@ function buildSessionStateCloudPayload(asgn, reason) {
       clearOperatorProgressForNewBooking('cloud-write-scrub:' + bookingYmd);
       syncable = extractSyncableState(state);
     } else {
-      syncable = scrubSessionStateProgressToBooking(syncable, bookingYmd);
+      syncable = scrubSessionStateProgressToBooking(syncable, bookingYmd, { assignment: asgn });
       if (asgn && typeof sessionStateStampBelongsToAssignment === 'function') {
         const sca = syncable.stationCompletedAt;
         let dropped = false;
@@ -49036,6 +49391,16 @@ async function sessionStatePrepareGuardedPayload(asgn, reason, opts) {
   });
   if (!decision.refuse && confirmed && decision.reason === 'confirmed-reset') {
     clearSessionStateConfirmedReset();
+  }
+  if (!decision.refuse && typeof sessionStatePostWindowWriteDecision === 'function') {
+    const postWindow = sessionStatePostWindowWriteDecision(asgn, syncable, {
+      nowMs: opts.nowMs,
+      orbitLoginId: payload && payload.orbitLoginId,
+      adminHealForce: heal,
+      allowRegressiveWipe: !!opts.allowRegressiveWipe,
+      confirmedReset: confirmed,
+    });
+    if (postWindow && postWindow.refuse) decision = postWindow;
   }
   if (decision.refuse) {
     try {
@@ -49869,7 +50234,9 @@ function mergeTeammateState(syncableState, opts) {
   if (opts.allowMirror && opts.assignment && opts.assignment.date
       && typeof scrubSessionStateProgressToBooking === 'function') {
     const booked = String(opts.assignment.date).trim().slice(0, 10);
-    syncableState = scrubSessionStateProgressToBooking(Object.assign({}, syncableState), booked);
+    syncableState = scrubSessionStateProgressToBooking(Object.assign({}, syncableState), booked, {
+      assignment: opts.assignment,
+    });
   } else if (typeof scrubSyncableStateForOpenBooking === 'function') {
     syncableState = scrubSyncableStateForOpenBooking(syncableState);
   }
@@ -50149,6 +50516,17 @@ function sendSessionStateBeacon(reason) {
         orbitLoginId: payload.orbitLoginId,
       })
       : { refuse: false };
+    if (decision && !decision.refuse && typeof sessionStatePostWindowWriteDecision === 'function') {
+      const postWindow = sessionStatePostWindowWriteDecision(asgn, syncable, {
+        orbitLoginId: payload.orbitLoginId,
+        syncReason: reason || 'app_close',
+        confirmedReset: (typeof sessionStateConfirmedResetActive === 'function') && sessionStateConfirmedResetActive(),
+      });
+      if (postWindow && postWindow.refuse) {
+        try { console.warn('[Twilight] SessionState beacon skipped · ' + postWindow.reason); } catch (e) {}
+        return false;
+      }
+    }
     if (decision && decision.refuse) {
       try {
         console.warn('[Twilight] SessionState beacon skipped · ' + decision.reason);
@@ -50530,15 +50908,33 @@ function deriveLatestStatusFromSessionState(asgnId) {
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
       // Preserve wrap-up stamps on prior bookings Admin still scores for
       // incomplete/flag (day-gate must not wipe sessionCompletedAt).
+      // Post-window station taps are dropped first so a late Station 4
+      // cannot become the live pill.
+      let bookingAsgn = null;
+      if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments)) {
+        bookingAsgn = adminState.assignments.find(x => x && (
+          (typeof assignmentIdsMatch === 'function')
+            ? assignmentIdsMatch(x.id, asgnId)
+            : String(x.id) === String(asgnId)
+        )) || null;
+      }
       parsed = scrubSessionStateProgressToBooking(parsed, bookingYmd, {
         preserveSessionCompletion: true,
+        assignment: bookingAsgn,
+        row: r,
       });
     }
     // Row-level PA columns count even when stateJson omitted them.
     const rowStatus = String((r.sessionStatus != null ? r.sessionStatus : '')
       || r.SessionStatus || '').trim();
-    const rowCompletedAt = r.sessionCompletedAt || r.SessionCompletedAt || null;
-    const stHint = String(parsed.sessionStatus || rowStatus || '').trim();
+    let rowCompletedAt = r.sessionCompletedAt || r.SessionCompletedAt || null;
+    // A late Station 4 leaves the in-window status, including blank.
+    // The Excel sessionStatus column must not put that finish back.
+    let stHint = String(parsed.sessionStatus || rowStatus || '').trim();
+    if (parsed && parsed._postWindowStatus != null) {
+      stHint = String(parsed._postWindowStatus || '').trim();
+      if (!parsed.sessionCompletedAt) rowCompletedAt = null;
+    }
     if (stHint.toLowerCase() === 'cancelled') {
       const who = String((r && r.orbitLoginId) || '');
       const result = {

@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
+**Last updated:** 2026-10-05 · Grok · late checklist cannot false-complete Admin (1.3.100426b)
+
+## 2026-10-05 · Grok · late checklist cannot false-complete Admin (1.3.100426b)
+
+**Ask:** A late checklist save on an already-ended booking can flip Admin Performance to Completed and clear Flagged. Venkata × Adidela, participant Renyu Chen, booking `od_56991291-58d9-42ef-af2a-6f1a7ddcafee` (Sat Oct 3, 7 PM–2 AM PT). On Oct 4 it was correctly incomplete. At about 12:42 AM PT Mon Oct 5, Venkata’s app reopened that booking and marked Station 4 done (SessionState row 599). Leave that row as it is. Do not change strike rules. Do not merge until David says push.
+
+**Cause:** Progress from before the booking day was already ignored. There was no cutoff after the session ended, so a tap the next night still counted as Station 4 done for the whole team.
+
+**Fix:** Station progress counts only through 4 hours after the booked end. A finish about 2:30 AM on a 2:00 AM end still counts. A Station 4 tap the next night does not, so Performance stays not Completed and Flagged stays on. The app also refuses the save once that 4-hour window has passed, or sooner if a newer booking for that moderator has already started. Cancel session can still be saved. Progress from before the booking day is still ignored.
+
+**Not done:** No change to SessionState row 599. The optional “keep a Booked row open because SessionState changed today” rule was left as it is.
+
+**Version:** **1.3.100426b**. Selftest: `scripts/sessionstate-post-window-selftest.js`. Related SessionState, Performance, strike, and refuse-empty checks still pass.
+
+**PR:** draft on `cursor/post-window-progress-7b0e`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100426b**. Open **Performance** for Venkata × Adidela on the Oct 3 night (Renyu Chen). It should not say **Completed** or **Done** from the late Station 4. **Flagged** should still be on if that night was incomplete. A session that really finished within a few hours of its end should still say **Completed**.
 
 ## 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
 
