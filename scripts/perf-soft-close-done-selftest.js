@@ -45,11 +45,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Performance soft-close Done carve-out (1.3.100426c)');
+console.log('Performance soft-close Done carve-out (1.3.100526a)');
 
-assert('APP_VERSION 1.3.100426c',
-  /const APP_VERSION = '1\.3\.100426c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100426c'));
+assert('APP_VERSION 1.3.100526a',
+  /const APP_VERSION = '1\.3\.100526a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100526a'));
 assert('soft-close and mod-cancel plain-text the comment before the marker',
   /function assignmentCommentIsOdSoftClose/.test(src)
   && /od-sync-soft-close/.test(extractFn('assignmentCommentIsOdSoftClose'))
@@ -403,13 +403,15 @@ assert('donut keeps unfinished soft-close and mod-cancel as Cancelled',
 const donutRows = [rebecca, rebeccaHtml, patrick, modCancel, modCancelHtml, adminCancel, stillBooked, unassigned];
 const donut = ctx.computeOverviewDonutCounts(donutRows);
 assert('donut splits past unfinished Booked into Incomplete',
-  donut.completedCount === 2
+  donut.completedCount === 1
   && donut.cancelledCount === 4
   && donut.incompleteCount === 1
   && donut.openCount === 0
-  && donut.progressTotal === 7
+  && donut.progressTotal === 6
   && (donut.openCount + donut.incompleteCount) === donut.progressTotal - donut.completedCount - donut.cancelledCount,
   JSON.stringify(donut));
+assert('HTML soft-close copy shares Rebecca’s id and is not a second booking',
+  rebeccaHtml.id === rebecca.id && donut.completedCount === 1);
 
 const historyIds = ctx.perfHistoryAssignments().map(a => String(a.id));
 assert('admin cancel without soft-close stays out of history',

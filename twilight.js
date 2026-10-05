@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100426c';
-const APP_UPDATED_AT = '10/05/2026 14:00';
+const APP_VERSION = '1.3.100526a';
+const APP_UPDATED_AT = '10/05/2026 16:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6214,6 +6214,29 @@ async function persistTeamSessionAssignment(asgn) {
   return { ok: succeeded > 0 };
 }
 
+// Cached team-session rows survive an Assignment read that omitted
+// them. Once the merged team list is known, drop any of those rows
+// whose team is gone or TeamLog has deleted that id. Otherwise a
+// purged demo booking stays in this browser forever.
+function dropCachedTeamSessionsForMissingTeams(assignments, kept, teams, deletedIds) {
+  const keepIds = new Set();
+  (kept || []).forEach(a => {
+    if (a && a.id != null && String(a.id) !== '') keepIds.add(String(a.id));
+  });
+  if (!keepIds.size) return Array.isArray(assignments) ? assignments.slice() : [];
+  const live = new Set();
+  (teams || []).forEach(t => {
+    if (!t || t.id == null || t.id === '') return;
+    live.add(String(t.id));
+  });
+  return (assignments || []).filter(a => {
+    if (!a || a.id == null || !keepIds.has(String(a.id))) return true;
+    if (typeof teamIdIsDeleted === 'function' && teamIdIsDeleted(a.teamId, deletedIds)) return false;
+    if (a.teamId == null || a.teamId === '') return false;
+    return live.has(String(a.teamId));
+  });
+}
+
 function isTeamSessionAssignment(a) {
   if (!a) return false;
   if (a.source === 'team-session') return true;
@@ -10344,11 +10367,26 @@ function overviewAssignmentIsCompletedForDonut(a) {
 
 // Total booked for the donut: rows in the Overview filter, excluding
 // demo and Unassigned. Cancelled stays in the total so the ring can
-// show Completed and Cancelled of that total.
+// show Completed and Cancelled of that total. The team must still be
+// in adminState.teams. Performance walks that same live list, so a
+// booking whose team was purged does not count on either surface.
+function overviewAssignmentTeamIsLive(a) {
+  if (!a || a.teamId == null || a.teamId === '') return false;
+  const teams = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams))
+    ? adminState.teams : [];
+  const tid = String(a.teamId);
+  for (let i = 0; i < teams.length; i++) {
+    const t = teams[i];
+    if (t && String(t.id) === tid) return true;
+  }
+  return false;
+}
+
 function overviewAssignmentInDonutBookedScope(a) {
   if (!a) return false;
   if (a.status === 'Unassigned') return false;
   if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  if (!overviewAssignmentTeamIsLive(a)) return false;
   return true;
 }
 
@@ -10361,13 +10399,28 @@ function overviewAssignmentIsIncompleteForDonut(a) {
     && classifyBookingForPerf(a) === 'incomplete';
 }
 
+// One pass over the Overview filter. Duplicate assignment ids count
+// once (String id), matching Performance's seen-set. Every slice uses
+// this set, so Incomplete, Completed, Cancelled, and Open stay on the
+// same bookings.
+function forEachOverviewDonutBooking(filteredAsgns, fn) {
+  const seen = new Set();
+  (filteredAsgns || []).forEach(a => {
+    if (!a || a.id == null || String(a.id) === '') return;
+    const key = String(a.id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    if (!overviewAssignmentInDonutBookedScope(a)) return;
+    fn(a, key);
+  });
+}
+
 function computeOverviewDonutCounts(filteredAsgns) {
   let completedCount = 0;
   let cancelledCount = 0;
   let incompleteCount = 0;
   let openCount = 0;
-  (filteredAsgns || []).forEach(a => {
-    if (!overviewAssignmentInDonutBookedScope(a)) return;
+  forEachOverviewDonutBooking(filteredAsgns, a => {
     if (overviewAssignmentIsCancelledForDonut(a)) cancelledCount += 1;
     else if (overviewAssignmentIsCompletedForDonut(a)) completedCount += 1;
     else if (overviewAssignmentIsIncompleteForDonut(a)) incompleteCount += 1;
@@ -30737,6 +30790,9 @@ async function fetchAssignmentsFromPA() {
   // Team sessions can miss Excel reconstruction (empty participant,
   // date parse, or a write still in flight). Never drop a local
   // team-session just because the last Assignment read didn't see it.
+  // dropCachedTeamSessionsForMissingTeams runs after the merged team
+  // list (and TeamLog deletions) is known, and drops these when the
+  // team is gone so a purged demo booking cannot come back forever.
   const localTeamSessionsKeep = (local.assignments || []).filter(a => {
     if (!a || !a.id || remoteIds.has(a.id)) return false;
     if (a.source !== 'team-session') return false;
@@ -31123,6 +31179,9 @@ async function fetchAssignmentsFromPA() {
       console.log(`[Twilight] OD team materialize: ${createdOdTeams.length} new, ${updatedOdTeams.length} renamed/synced, ${mat.stamped} OD assignment(s) stamped`);
     }
   }
+
+  mergedAssignments = dropCachedTeamSessionsForMissingTeams(
+    mergedAssignments, localTeamSessionsKeep, mergedTeams, teamLogDeletedIds);
 
   const prevSyncFp = (typeof adminState !== 'undefined')
     ? assignmentSyncFingerprint(adminState.assignments, adminState.teams)
