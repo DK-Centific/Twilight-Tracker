@@ -14,7 +14,7 @@
 
 **Version:** **1.3.100426b**. Selftest: `scripts/sessionstate-post-window-selftest.js`. Related SessionState, Performance, strike, and refuse-empty checks still pass.
 
-**PR:** draft on `cursor/post-window-progress-7b0e`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#197](https://github.com/DK-Centific/Twilight-Tracker/pull/197) on `cursor/post-window-progress-7b0e`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100426b**. Open **Performance** for Venkata × Adidela on the Oct 3 night (Renyu Chen). It should not say **Completed** or **Done** from the late Station 4. **Flagged** should still be on if that night was incomplete. A session that really finished within a few hours of its end should still say **Completed**.
 
