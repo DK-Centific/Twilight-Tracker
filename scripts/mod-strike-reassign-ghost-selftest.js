@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * 1.3.100426a · Venkata×Rohith Manish false strike regression.
+ * 1.3.100426c · Venkata×Rohith Manish false strike regression.
  * - Prefer live team-complete booking over a deleted/reassigned ghost
  *   (Ryan od_4b0f085d vs Manish od_466726cb on the same crew/night).
  * - Primaries come from modSnapshots, not a wrong teamId.
@@ -29,11 +29,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Auto-strike reassign-ghost / team-complete picker (1.3.100426a)');
+console.log('Auto-strike reassign-ghost / team-complete picker (1.3.100426c)');
 
-assert('version 1.3.100426a',
-  /const APP_VERSION = '1\.3\.100426a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100426a'));
+assert('version 1.3.100426c',
+  /const APP_VERSION = '1\.3\.100426c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100426c'));
 assert('teamBookingOnDateForStrike prefers complete / crew match',
   /Prefer team-complete \/ live progress over a deleted-reassign ghost/.test(src)
   && /crewMatch = hit === primarySet.size/.test(src));

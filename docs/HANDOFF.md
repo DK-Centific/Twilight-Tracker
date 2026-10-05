@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
+**Last updated:** 2026-10-05 · Grok · late checklist stays Incomplete (1.3.100426c)
+
+## 2026-10-05 · Grok · late checklist stays Incomplete (1.3.100426c)
+
+**Ask:** A late checklist save on an already-ended booking can flip Admin Performance to Completed and clear Flagged. Venkata × Adidela, participant Renyu Chen, booking `od_56991291-58d9-42ef-af2a-6f1a7ddcafee` (Sat Oct 3, 7 PM–2 AM PT). On Oct 4 it was correctly incomplete. At about 12:42 AM PT Mon Oct 5, Venkata’s app reopened that booking and marked Station 4 done (SessionState row 599). Leave that row as it is. Also show **Incomplete** on Performance so an unfinished night stays findable. Do not change strike rules. Do not merge until David says push.
+
+**Cause:** Progress from before the booking day was already ignored. There was no cutoff after the session ended, so a tap the next night still counted as Station 4 done for the whole team. Unfinished nights after the booked end were filed under Next, so they were easy to lose.
+
+**Fix:** Station progress counts only through 4 hours after the booked end. A finish about 2:30 AM on a 2:00 AM end still counts as Done. A Station 4 tap the next night does not. The app also refuses that late save, or sooner if a newer booking for that moderator has already started. Cancel session can still be saved. After the booked end, a night that is not Done and not Cancelled is **Incomplete**. Performance has an Incomplete tile, an Incomplete chip on each team and moderator card, and an Incomplete pill on the row. Overview’s booked chart counts Incomplete next to Completed, Cancelled, and Open. Flagged is unchanged.
+
+**Not done:** No change to SessionState row 599. Strike rules are unchanged. Vendor Materials is unchanged.
+
+**Version:** **1.3.100426c**. Selftests: `scripts/sessionstate-post-window-selftest.js`, `scripts/perf-panel-past-incomplete-selftest.js`. Related SessionState, Performance, Overview, strike, and refuse-empty checks still pass.
+
+**PR:** draft [#197](https://github.com/DK-Centific/Twilight-Tracker/pull/197) on `cursor/post-window-progress-7b0e`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100426c**. Open **Performance**, set the date to a range that includes Oct 3, and open Venkata × Adidela (Renyu Chen). It should say **Incomplete**, not **Completed** or **Done**. **Flagged** should still be on if that night was incomplete. Click the **Incomplete** tile to see unfinished nights. A session that really finished within a few hours of its end should still say **Completed**. On **Overview**, the booked chart should list **Incomplete** as its own count.
 
 ## 2026-10-04 · Grok · 9 AM strike stays on the booked moderators (1.3.100426a)
 
