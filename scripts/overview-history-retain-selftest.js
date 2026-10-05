@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview / Performance history after List hygiene (1.3.100426b).
+ * Overview / Performance history after List hygiene (1.3.100426c).
  *
  * List may drop older rows (reschedule hard-delete of leftover
  * non-Cancelled, or a short read). The donut and Performance history
@@ -105,11 +105,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview history retain self-test (1.3.100426b)');
+console.log('Overview history retain self-test (1.3.100426c)');
 
-assert('APP_VERSION 1.3.100426b',
-  src.includes("const APP_VERSION = '1.3.100426b'")
-  && html.includes('twilight.js?v=twilight-1.3.100426b'));
+assert('APP_VERSION 1.3.100426c',
+  src.includes("const APP_VERSION = '1.3.100426c'")
+  && html.includes('twilight.js?v=twilight-1.3.100426c'));
 
 const rememberAt = src.indexOf('rememberAssignmentHistory([].concat(local.assignments');
 const dropAt = src.indexOf('Dropped ${droppedStale} stale local assignment');
@@ -186,7 +186,7 @@ assert('donut cancelled is mod-cancel plus unfinished soft-close',
 assert('open bookings were not invented from dropped leftovers',
   counts.openCount === 0);
 assert('slices sum to total booked',
-  counts.completedCount + counts.cancelledCount + counts.openCount === counts.progressTotal);
+  counts.completedCount + counts.cancelledCount + (counts.incompleteCount || 0) + counts.openCount === counts.progressTotal);
 
 const hist = ctx.perfHistoryAssignments();
 const histIds = hist.map(a => a.id);

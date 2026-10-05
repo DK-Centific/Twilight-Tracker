@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Post-window checklist ignore (1.3.100426b).
+ * Post-window checklist ignore (1.3.100426c).
  *
  * Venkata × Adidela, Renyu Chen, booking od_56991291… Sat Oct 3
  * 7 PM–2 AM PT. A Station 4 tap at 12:42 AM PT Mon Oct 5 must not
@@ -27,11 +27,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Post-window SessionState ignore (1.3.100426b)');
+console.log('Post-window SessionState ignore (1.3.100426c)');
 
-assert('APP_VERSION 1.3.100426b',
-  /const APP_VERSION = '1\.3\.100426b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100426b'));
+assert('APP_VERSION 1.3.100426c',
+  /const APP_VERSION = '1\.3\.100426c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100426c'));
 assert('four-hour grace after booked end',
   /SESSION_PROGRESS_AFTER_END_GRACE_MS = 4 \* 60 \* 60 \* 1000/.test(src)
   && /function applySessionProgressUpperBound/.test(src)
@@ -222,6 +222,7 @@ const names = [
   'isAssignmentCompleteForFlagged',
   'isAssignmentFlaggedForPerf',
   'classifyBookingForPerf',
+  'perfLiveStatusDisplay',
   'deriveLatestStatusFromSessionState',
   'getLatestStatusForAssignment',
 ];
@@ -303,6 +304,12 @@ assert('Flagged stays on',
 assert('Performance does not classify Done',
   ctx.classifyBookingForPerf(booking) !== 'completed',
   ctx.classifyBookingForPerf(booking));
+assert('late Station 4 classifies Incomplete',
+  ctx.classifyBookingForPerf(booking) === 'incomplete',
+  ctx.classifyBookingForPerf(booking));
+assert('Incomplete pill is Incomplete',
+  ctx.perfLiveStatusDisplay(booking).label === 'Incomplete',
+  ctx.perfLiveStatusDisplay(booking).label);
 const derived = ctx.deriveLatestStatusFromSessionState(AID);
 assert('derived live status is not station 4',
   derived && derived.status === 'station_2_done',
@@ -328,7 +335,8 @@ ctx._derivedStatusCache = { sourceRef: null, byAsgnId: {} };
 assert('finish 30 minutes after end still completes',
   ctx.isAssignmentTeamHappypathComplete(booking) === true
   && ctx.isAssignmentFlaggedForPerf(booking) === false
-  && ctx.classifyBookingForPerf(booking) === 'completed');
+  && ctx.classifyBookingForPerf(booking) === 'completed'
+  && ctx.perfLiveStatusDisplay(booking).label === 'Completed');
 
 const priorBlob = {
   sessionDate: '2026-10-02',

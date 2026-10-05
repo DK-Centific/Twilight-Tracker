@@ -50,7 +50,8 @@ assert('flag gate: session_done OR station_4_done',
   && /function assignmentLiveStatusForStrike/.test(src));
 
 assert('classifyBookingForPerf past-end station_4_done',
-  /pastEnd && live && \(live\.status === 'station_4_done'/.test(src));
+  /if \(teamDone && pastEnd\) return remember\('completed'\)/.test(src)
+  && /return remember\('incomplete'\)/.test(src));
 
 assert('Admin scrub preserveSessionCompletion',
   /preserveSessionCompletion:\s*true/.test(src)

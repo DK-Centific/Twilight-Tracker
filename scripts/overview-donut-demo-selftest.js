@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview donut: total booked = Completed + Cancelled + Open.
+ * Overview donut: total booked = Completed + Cancelled + Incomplete + Open.
  * Demo and Unassigned are out. Not checked-in is not a slice.
  * Soft-close + happypath (Performance Done) is Completed.
  * Hard cancel, mod-cancel, and unfinished soft-close are Cancelled.
@@ -148,12 +148,12 @@ assert('demo and Unassigned are outside total booked', counts.progressTotal === 
 assert('completed includes soft-close plus happypath', counts.completedCount === 5);
 assert('cancelled is hard cancel, mod-cancel, and unfinished soft-close', counts.cancelledCount === 3);
 assert('open is live and not-started bookings', counts.openCount === 2);
-assert('open is booked minus completed minus cancelled',
-  counts.openCount === counts.progressTotal - counts.completedCount - counts.cancelledCount);
+assert('open is booked minus completed minus cancelled minus incomplete',
+  counts.openCount === counts.progressTotal - counts.completedCount - counts.cancelledCount - (counts.incompleteCount || 0));
 assert('slices sum to total booked',
-  counts.completedCount + counts.cancelledCount + counts.openCount === counts.progressTotal);
+  counts.completedCount + counts.cancelledCount + (counts.incompleteCount || 0) + counts.openCount === counts.progressTotal);
 assert('not-checked-in is not the opposing count',
-  counts.remainingCount === counts.cancelledCount + counts.openCount
+  counts.remainingCount === counts.cancelledCount + (counts.incompleteCount || 0) + counts.openCount
   && !('checkedInCount' in counts));
 
 const onlyOpen = ctx.computeOverviewDonutCounts([realOpen]);

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100426b';
-const APP_UPDATED_AT = '10/05/2026 13:30';
+const APP_VERSION = '1.3.100426c';
+const APP_UPDATED_AT = '10/05/2026 14:00';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -9038,15 +9038,15 @@ const adminState = {
   //   use the history source so completed + skipped sessions stay
   //   reviewable. Today uses Pacific-day overlap. Past uses the booked
   //   session end inside the rolling last 24 hours.
-  // perfStatusFilter: { [tileId]: 'completed' | 'inprogress' | 'scheduled' }
+  // perfStatusFilter: { [tileId]: 'completed' | 'inprogress' | 'scheduled' | 'incomplete' }
   //   · per-tile drill filter set by clicking a stat chip in the tile
   //   header. Stacks on top of perfDateRange + perfSearch but only
   //   affects the tile body (not the tile-level counts, which remain
   //   the authoritative scoreboard for that date range). Clicking the
   //   active chip again clears the filter.
-  // perfStatusScope: 'all' | 'completed' | 'inprogress' | 'scheduled'
+  // perfStatusScope: 'all' | 'completed' | 'inprogress' | 'scheduled' | 'incomplete' | 'flagged'
   //   · global status filter set by clicking a status tile in the
-  //   toolbar (Done / Live / Next). Different from perfStatusFilter
+  //   toolbar (Done / Live / Next / Incomplete / Flagged). Different from perfStatusFilter
   //   in scope: this hides whole TILES whose bookings don't include
   //   the chosen status under the active date range, AND narrows the
   //   bookings count + body to that status. Used together with
@@ -10352,22 +10352,34 @@ function overviewAssignmentInDonutBookedScope(a) {
   return true;
 }
 
+// Past end, not team-complete, not cancelled. Same bucket as the
+// Performance Incomplete tile. Still-open nights stay in Open.
+function overviewAssignmentIsIncompleteForDonut(a) {
+  if (!a || overviewAssignmentIsCancelledForDonut(a)) return false;
+  if (overviewAssignmentIsCompletedForDonut(a)) return false;
+  return (typeof classifyBookingForPerf === 'function')
+    && classifyBookingForPerf(a) === 'incomplete';
+}
+
 function computeOverviewDonutCounts(filteredAsgns) {
   let completedCount = 0;
   let cancelledCount = 0;
+  let incompleteCount = 0;
   let openCount = 0;
   (filteredAsgns || []).forEach(a => {
     if (!overviewAssignmentInDonutBookedScope(a)) return;
     if (overviewAssignmentIsCancelledForDonut(a)) cancelledCount += 1;
     else if (overviewAssignmentIsCompletedForDonut(a)) completedCount += 1;
+    else if (overviewAssignmentIsIncompleteForDonut(a)) incompleteCount += 1;
     else openCount += 1;
   });
-  const progressTotal = completedCount + cancelledCount + openCount;
+  const progressTotal = completedCount + cancelledCount + incompleteCount + openCount;
   return {
     completedCount,
     cancelledCount,
+    incompleteCount,
     openCount,
-    remainingCount: cancelledCount + openCount,
+    remainingCount: cancelledCount + incompleteCount + openCount,
     progressTotal,
   };
 }
@@ -10845,11 +10857,12 @@ function computeOverviewMetrics() {
 
   // ----- Total booked donut
   // Booking rows in this filter (demo and Unassigned out). Segments are
-  // Completed, Cancelled, and Open (still booked: live, not started,
-  // incomplete). Open exists so the slices add up to total booked.
+  // Completed, Cancelled, Incomplete (past end, not finished), and Open
+  // (still booked: live or not started). The slices add up to total booked.
   const donut = computeOverviewDonutCounts(filteredAsgns);
   const completedCount = donut.completedCount;
   const cancelledCount = donut.cancelledCount;
+  const incompleteCount = donut.incompleteCount || 0;
   const openCount = donut.openCount;
   const remainingCount = donut.remainingCount;
   const progressTotal = donut.progressTotal;
@@ -10861,7 +10874,7 @@ function computeOverviewMetrics() {
   return {
     totalMods, totalLiveTeams, totalParticipants, totalBookings,
     modStarCounts,
-    series, completedCount, cancelledCount, openCount, remainingCount,
+    series, completedCount, cancelledCount, incompleteCount, openCount, remainingCount,
     // Expose the donut-specific denominator so the subtitle and
     // tooltip can read "K of N" with N matching what the donut
     // actually divides into. Without this exported field, the
@@ -12654,11 +12667,13 @@ function classifyBookingForPerf(a) {
   const teamDone = (typeof isAssignmentTeamHappypathComplete === 'function')
     && isAssignmentTeamHappypathComplete(a);
   if (teamDone && pastEnd) return remember('completed');
-  // Booked end has passed and the team did not finish. Not Live.
-  // Team-cancel already returned above, so this is Next (or hidden soft-close).
+  // Booked end has passed and the team did not finish. Not Live, not
+  // Next, and not Done. Team-cancel already returned above. Soft-close
+  // without a real finish stays hidden. Everything else is Incomplete
+  // so the night stays on the Incomplete tile after the session ends.
   if (pastEnd) {
     if (softClose) return remember(null);
-    return remember('scheduled');
+    return remember('incomplete');
   }
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
   // -----------------------------------------
@@ -12746,6 +12761,12 @@ function perfLiveStatusDisplay(a) {
     : null;
   if (live && String(live.status || '').toLowerCase() === 'cancelled') {
     return { key: 'cancelled', label: 'Cancelled' };
+  }
+  // Past end, not team-complete, not cancelled. The row says Incomplete
+  // even when a co-mod stopped mid-station. The panel still lists stations.
+  if (typeof classifyBookingForPerf === 'function'
+      && classifyBookingForPerf(a) === 'incomplete') {
+    return { key: 'incomplete', label: 'Incomplete' };
   }
   if (a.status === 'Completed' || (live && live.status === 'session_done')) {
     return { key: 'completed', label: 'Completed' };
@@ -14555,7 +14576,7 @@ function wireFlaggedHistoryView(root) {
 // range) but NOT search-filtered (so the numbers don't churn as
 // admin types into the search box · the strip is for orientation,
 // not for showing search hits). Returns { all, completed, inprogress,
-// scheduled } using the same classifier as the tile chips.
+// scheduled, incomplete, flagged } using the same classifier as the tile chips.
 //
 // Today (ops): Live/Next come from the live admin queue; Done comes
 // from history so today's completed sessions stay clickable. The All
@@ -14572,17 +14593,25 @@ function perfStatusToolbarCounts() {
   const seenDone = new Set();
   const seenLive = new Set();
   const seenNext = new Set();
-  const countAssignment = (a, allowed) => {
+  const seenIncomplete = new Set();
+  const seenLiveIncomplete = new Set();
+  const countAssignment = (a, allowed, liveIncomplete) => {
     if (!a || !a.id) return;
     if (!perfDateInRange(a, dateRange)) return;
     const bucket = classifyBookingForPerf(a);
     if (!bucket || !allowed[bucket]) return;
+    if (liveIncomplete && bucket === 'incomplete') {
+      if (seenLiveIncomplete.has(a.id)) return;
+      seenLiveIncomplete.add(a.id);
+      return;
+    }
     const seen = bucket === 'completed' ? seenDone
-      : (bucket === 'inprogress' ? seenLive : seenNext);
+      : (bucket === 'inprogress' ? seenLive
+        : (bucket === 'incomplete' ? seenIncomplete : seenNext));
     if (seen.has(a.id)) return;
     seen.add(a.id);
   };
-  const walk = (source, allowed) => {
+  const walk = (source, allowed, liveIncomplete) => {
     if (view === 'mods') {
       for (const m of (adminState.moderators || [])) {
         if (!m) continue;
@@ -14591,7 +14620,7 @@ function perfStatusToolbarCounts() {
         const list = (typeof perfModAssignmentsForSource === 'function')
           ? perfModAssignmentsForSource(orbitId, source, { dateFirst: true })
           : perfModBookings(orbitId);
-        for (const a of list) countAssignment(a, allowed);
+        for (const a of list) countAssignment(a, allowed, liveIncomplete);
       }
     } else {
       for (const t of (adminState.teams || [])) {
@@ -14599,21 +14628,23 @@ function perfStatusToolbarCounts() {
         const list = (typeof perfTeamAssignmentsForSource === 'function')
           ? perfTeamAssignmentsForSource(t.id, source, { dateFirst: true })
           : perfTeamBookings(t.id);
-        for (const a of list) countAssignment(a, allowed);
+        for (const a of list) countAssignment(a, allowed, liveIncomplete);
       }
     }
   };
-  walk('history', { completed: true });
+  walk('history', { completed: true, incomplete: true });
   walk(liveSource, { inprogress: true, scheduled: true });
+  if (dateRange === 'today') walk(liveSource, { incomplete: true }, true);
   const completed = seenDone.size;
   const inprogress = seenLive.size;
   const scheduled = seenNext.size;
+  const incomplete = seenIncomplete.size;
   const flagged = (typeof perfFlaggedAssignmentsInDateRange === 'function')
     ? perfFlaggedAssignmentsInDateRange().length : 0;
   const all = dateRange === 'today'
-    ? (inprogress + scheduled)
-    : (completed + inprogress + scheduled);
-  return { all, completed, inprogress, scheduled, flagged };
+    ? (inprogress + scheduled + seenLiveIncomplete.size)
+    : (completed + inprogress + scheduled + incomplete);
+  return { all, completed, inprogress, scheduled, incomplete, flagged };
 }
 
 function applyPerfStatusTileCounts(counts) {
@@ -14626,7 +14657,8 @@ function applyPerfStatusTileCounts(counts) {
       : (key === 'completed' ? counts.completed
         : (key === 'inprogress' ? counts.inprogress
           : (key === 'scheduled' ? counts.scheduled
-            : (key === 'flagged' ? (counts.flagged || 0) : null))));
+            : (key === 'incomplete' ? (counts.incomplete || 0)
+              : (key === 'flagged' ? (counts.flagged || 0) : null)))));
     if (next == null) return;
     numEl.textContent = String(next);
     const isActive = (adminState.perfStatusScope || 'all') === key;
@@ -14811,7 +14843,7 @@ function perfUsesHistoryBookings() {
   const scope = (typeof adminState !== 'undefined' && adminState)
     ? (adminState.perfStatusScope || 'all')
     : 'all';
-  if (scope === 'completed') return true;
+  if (scope === 'completed' || scope === 'incomplete') return true;
   return range !== 'today';
 }
 
@@ -15745,6 +15777,7 @@ function renderPerformance(body, opts) {
       ${renderStatusTile('completed',  statusCounts.completed,  'Done')}
       ${renderStatusTile('inprogress', statusCounts.inprogress, 'Live')}
       ${renderStatusTile('scheduled',  statusCounts.scheduled,  'Next')}
+      ${renderStatusTile('incomplete', statusCounts.incomplete || 0, 'Incomplete')}
       ${renderStatusTile('flagged',    statusCounts.flagged || 0, 'Flagged')}
     </div>
     ${statusScope !== 'flagged' ? `
@@ -15991,7 +16024,9 @@ function exportPerformanceXLSX() {
   const inScope = a => perfDateInRange(a, dateRange) &&
     (statusScope === 'all' || classifyBookingForPerf(a) === statusScope);
 
-  const statusLabel = s => s === 'completed' ? 'Done' : s === 'inprogress' ? 'Live' : s === 'scheduled' ? 'Next' : '';
+  const statusLabel = s => (typeof perfStatusScopeLabel === 'function')
+    ? (s === 'all' ? '' : perfStatusScopeLabel(s))
+    : '';
   const partName = a => {
     const pd = a && a.participantData;
     return pd ? [pd.firstName, pd.lastName].filter(Boolean).join(' ').trim() : '';
@@ -16035,6 +16070,7 @@ function exportPerformanceXLSX() {
     e.done  = e.bookings.filter(a => classifyBookingForPerf(a) === 'completed').length;
     e.live  = e.bookings.filter(a => classifyBookingForPerf(a) === 'inprogress').length;
     e.next  = e.bookings.filter(a => classifyBookingForPerf(a) === 'scheduled').length;
+    e.incomplete = e.bookings.filter(a => classifyBookingForPerf(a) === 'incomplete').length;
     e.total = e.bookings.length;
   });
 
@@ -16051,23 +16087,26 @@ function exportPerformanceXLSX() {
   const wb = XLSX.utils.book_new();
 
   // ---- Summary sheet ----
-  const grand = entries.reduce((a, e) => ({ done: a.done + e.done, live: a.live + e.live, next: a.next + e.next, total: a.total + e.total }), { done: 0, live: 0, next: 0, total: 0 });
+  const grand = entries.reduce((a, e) => ({
+    done: a.done + e.done, live: a.live + e.live, next: a.next + e.next,
+    incomplete: a.incomplete + e.incomplete, total: a.total + e.total,
+  }), { done: 0, live: 0, next: 0, incomplete: 0, total: 0 });
   const summary = [
     ['Project Twilight · Performance Export'],
     [`Version ${APP_VERSION}`],
     ['Generated', new Date().toLocaleString()],
     ['View', view === 'teams' ? 'Teams' : 'Moderators'],
     ['Date range', rangeLabel],
-    ['Status filter', statusScope === 'all' ? 'All' : statusLabel(statusScope)],
+    ['Status filter', perfStatusScopeLabel(statusScope)],
     ['Search', adminState.perfSearch || '(none)'],
     [],
-    [entityLabel, view === 'teams' ? 'Members' : 'Email', 'Done', 'Live', 'Next', 'Total'],
-    ...entries.map(e => [e.name, e.sub || '', e.done, e.live, e.next, e.total]),
+    [entityLabel, view === 'teams' ? 'Members' : 'Email', 'Done', 'Live', 'Next', 'Incomplete', 'Total'],
+    ...entries.map(e => [e.name, e.sub || '', e.done, e.live, e.next, e.incomplete, e.total]),
     [],
-    ['TOTAL', '', grand.done, grand.live, grand.next, grand.total],
+    ['TOTAL', '', grand.done, grand.live, grand.next, grand.incomplete, grand.total],
   ];
   const wsSummary = XLSX.utils.aoa_to_sheet(summary);
-  wsSummary['!cols'] = [{ wch: 28 }, { wch: 42 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }];
+  wsSummary['!cols'] = [{ wch: 28 }, { wch: 42 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 8 }];
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
   // ---- Bookings sheet ----
@@ -16107,6 +16146,15 @@ function exportPerformanceXLSX() {
   } finally {
     if (typeof perfMemoEnd === 'function') perfMemoEnd();
   }
+}
+
+function perfStatusScopeLabel(scope) {
+  if (scope === 'completed') return 'Done';
+  if (scope === 'inprogress') return 'Live';
+  if (scope === 'incomplete') return 'Incomplete';
+  if (scope === 'scheduled') return 'Next';
+  if (scope === 'flagged') return 'Flagged';
+  return 'All';
 }
 
 function perfEmptyWidenHint(dateRange) {
@@ -16169,7 +16217,7 @@ function renderPerfTeamTilesHTML(search) {
 
   if (filtered.length === 0) {
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
-    const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
+    const statusNote = statusScope !== 'all' ? ` for "${perfStatusScopeLabel(statusScope)}"` : '';
     return `<div class="perf-empty" style="grid-column: 1 / -1;">${
       search
         ? `No teams match "${escapeHTML(search)}"${dateNote}${statusNote}.`
@@ -16202,6 +16250,7 @@ function renderPerfTeamTilesHTML(search) {
     const completed  = bookings.filter(a => classifyBookingForPerf(a) === 'completed').length;
     const inprogress = bookings.filter(a => classifyBookingForPerf(a) === 'inprogress').length;
     const scheduled  = bookings.filter(a => classifyBookingForPerf(a) === 'scheduled').length;
+    const incomplete = bookings.filter(a => classifyBookingForPerf(a) === 'incomplete').length;
     const memberCount = primary.length + backup.length;
     const memberSub = memberCount > 0
       ? `${memberCount} member${memberCount === 1 ? '' : 's'}`
@@ -16226,6 +16275,7 @@ function renderPerfTeamTilesHTML(search) {
               ${perfStatChipHTML(tileId, 'completed', completed, 'done', chipsOpen, activeFilter)}
               ${perfStatChipHTML(tileId, 'inprogress', inprogress, 'live', chipsOpen, activeFilter)}
               ${perfStatChipHTML(tileId, 'scheduled', scheduled, 'next', chipsOpen, activeFilter)}
+              ${perfStatChipHTML(tileId, 'incomplete', incomplete, 'incomplete', chipsOpen, activeFilter)}
             </div>
             ${adminProgressMirrorLiveEntryHTML(bookings)}
           </div>
@@ -16243,7 +16293,7 @@ function renderPerfTeamTilesHTML(search) {
   // surface a friendly empty state instead of silently rendering
   // nothing.
   if (filteredTilesHTML.trim() === '') {
-    const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
+    const statusNote = statusScope !== 'all' ? ` for "${perfStatusScopeLabel(statusScope)}"` : '';
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
     return `<div class="perf-empty" style="grid-column: 1 / -1;">No teams have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}</div>`;
   }
@@ -16284,7 +16334,7 @@ function renderPerfModTilesHTML(search) {
 
   if (filtered.length === 0) {
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
-    const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
+    const statusNote = statusScope !== 'all' ? ` for "${perfStatusScopeLabel(statusScope)}"` : '';
     return `<div class="perf-empty" style="grid-column: 1 / -1;">${
       search
         ? `No moderators match "${escapeHTML(search)}"${dateNote}${statusNote}.`
@@ -16323,6 +16373,7 @@ function renderPerfModTilesHTML(search) {
     const completed  = bookings.filter(a => classifyBookingForPerf(a) === 'completed').length;
     const inprogress = bookings.filter(a => classifyBookingForPerf(a) === 'inprogress').length;
     const scheduled  = bookings.filter(a => classifyBookingForPerf(a) === 'scheduled').length;
+    const incomplete = bookings.filter(a => classifyBookingForPerf(a) === 'incomplete').length;
     // Suppress per-tile drill while global status scope is active ·
     // see team renderer for rationale.
     const activeFilter = statusScope === 'all'
@@ -16347,6 +16398,7 @@ function renderPerfModTilesHTML(search) {
               ${perfStatChipHTML(tileId, 'completed', completed, 'done', chipsOpen, activeFilter)}
               ${perfStatChipHTML(tileId, 'inprogress', inprogress, 'live', chipsOpen, activeFilter)}
               ${perfStatChipHTML(tileId, 'scheduled', scheduled, 'next', chipsOpen, activeFilter)}
+              ${perfStatChipHTML(tileId, 'incomplete', incomplete, 'incomplete', chipsOpen, activeFilter)}
             </div>
             ${adminProgressMirrorLiveEntryHTML(bookings)}
           </div>
@@ -16360,7 +16412,7 @@ function renderPerfModTilesHTML(search) {
   }).join('');
 
   if (filteredTilesHTML.trim() === '') {
-    const statusNote = statusScope !== 'all' ? ` for "${statusScope === 'completed' ? 'Done' : statusScope === 'inprogress' ? 'Live' : 'Next'}"` : '';
+    const statusNote = statusScope !== 'all' ? ` for "${perfStatusScopeLabel(statusScope)}"` : '';
     const dateNote = dateRange !== 'all' ? ` in this date range` : '';
     return `<div class="perf-empty" style="grid-column: 1 / -1;">No moderators have sessions${statusNote}${dateNote}.${perfEmptyWidenHint(dateRange)}</div>`;
   }
@@ -16379,6 +16431,7 @@ function perfStatChipHTML(tileId, statusKey, count, label, isOpen, activeFilter)
   const isActive = activeFilter === statusKey && !isZero;
   const friendlyLabel = statusKey === 'completed' ? 'Completed sessions'
                      : statusKey === 'inprogress' ? 'In-progress sessions'
+                     : statusKey === 'incomplete' ? 'Incomplete sessions'
                      : 'Scheduled sessions';
   // Inert variant · collapsed tiles, zero counts, missing tile context.
   // Keeps the original markup (span) so the existing perf-stat-chip
@@ -16421,6 +16474,7 @@ function renderPerfTileBodyHTML(tileId, bookings, team, search) {
   // sort row so it never gets visually confused with sort options.
   const filterLabel = statusFilter === 'completed' ? 'completed'
                    : statusFilter === 'inprogress' ? 'in-progress'
+                   : statusFilter === 'incomplete' ? 'incomplete'
                    : statusFilter === 'scheduled' ? 'scheduled'
                    : '';
   const drillBannerHTML = statusFilter ? `
@@ -16823,8 +16877,8 @@ function wirePerfTileBody(tile) {
 // =====================================================================
 
 // A live status that means the team actually checked in or advanced a
-// station. Used so a past incomplete session (classify still 'scheduled')
-// is not described as "hasn't started".
+// station. Used so a past Incomplete session is not described as
+// "hasn't started".
 function perfLiveStatusIsPartialProgress(status) {
   const s = String(status || '').trim().toLowerCase();
   if (!s) return false;
@@ -16894,13 +16948,14 @@ function perfPanelSessionHasStarted(a) {
 
 // Station body for every Performance booking. The empty "hasn't started"
 // copy is only when no co-mod has checked in or recorded station work.
-// A past incomplete session stays classified scheduled and still gets
-// the same station list Live and Completed panels use.
+// A past Incomplete session uses that same gate and still gets the
+// station list Live and Completed panels use once work has started.
 function perfPanelStationDetailHTML(a, cls) {
   const bucket = (cls !== undefined)
     ? cls
     : ((typeof classifyBookingForPerf === 'function') ? classifyBookingForPerf(a) : null);
-  if (bucket !== 'scheduled' || perfPanelSessionHasStarted(a)) {
+  const waiting = bucket === 'scheduled' || bucket === 'incomplete';
+  if (!waiting || perfPanelSessionHasStarted(a)) {
     return (typeof renderPerfStationListHTML === 'function')
       ? renderPerfStationListHTML(a)
       : '';
@@ -16969,9 +17024,9 @@ function openPerformancePanel(asgnId) {
   // See renderPerfLakituPillHTML for the full behavior matrix.
   const lakituPillHTML = renderPerfLakituPillHTML(a, cls, 'panel');
 
-  // Per-station detail. Scheduled bookings with no check-in and no
-  // station rows keep the empty copy. A past incomplete session stays
-  // classified scheduled, but still shows the merged station list.
+  // Per-station detail. Scheduled and Incomplete bookings with no
+  // check-in and no station rows keep the empty copy. A past
+  // Incomplete session that already started still shows the station list.
   const stationDetailHTML = perfPanelStationDetailHTML(a, cls);
 
   panel.innerHTML = `
@@ -19237,6 +19292,10 @@ function donutChartShellHTML() {
                   stroke="rgba(239, 68, 68, 0.78)" stroke-width="16" stroke-linecap="butt"
                   stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
                   transform="rotate(-90 80 80)" id="ovDonutArcCancel"/>
+          <circle cx="80" cy="80" r="${r}" fill="none"
+                  stroke="rgb(217, 119, 6)" stroke-width="16" stroke-linecap="butt"
+                  stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
+                  transform="rotate(-90 80 80)" id="ovDonutArcIncomplete"/>
           <circle cx="80" cy="80" r="${r}" fill="transparent" id="ovDonutHover" style="cursor: pointer;"/>
         </svg>
         <div class="ov-donut-center">
@@ -19251,6 +19310,7 @@ function donutChartShellHTML() {
       <div class="ov-donut-legend">
         <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Completed</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
         <div class="ov-donut-legend-row" id="ovLegendCancel"><span class="ov-donut-swatch ov-sw-cancel"></span><span>Cancelled</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
+        <div class="ov-donut-legend-row" id="ovLegendIncomplete"><span class="ov-donut-swatch ov-sw-incomplete"></span><span>Incomplete</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
         <div class="ov-donut-legend-row" id="ovLegendOpen"><span class="ov-donut-swatch ov-sw-rem"></span><span>Open</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
       </div>
     </div>
@@ -19344,9 +19404,9 @@ function updateOverviewMetrics() {
   // 4. Donut · Completed and Cancelled of total booked (Open is the rest)
   const donutSub = document.getElementById('ovDonutSub');
   if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} completed · ${m.cancelledCount || 0} cancelled · ${m.openCount || 0} open · ${m.progressTotal} booked`
+    ? `${m.completedCount} completed · ${m.cancelledCount || 0} cancelled · ${m.incompleteCount || 0} incomplete · ${m.openCount || 0} open · ${m.progressTotal} booked`
     : 'No bookings in scope';
-  animateDonutChart(m.completedCount, m.cancelledCount || 0, m.openCount || 0);
+  animateDonutChart(m.completedCount, m.cancelledCount || 0, m.incompleteCount || 0, m.openCount || 0);
 
   // Cache for next animation
   window._ovPrev = m;
@@ -19596,29 +19656,35 @@ function paintDonutSegment(el, len, offset, C) {
   el.setAttribute('stroke-dashoffset', (offset || 0).toFixed(2));
 }
 
-function animateDonutChart(completed, cancelled, openCount) {
+function animateDonutChart(completed, cancelled, incompleteCount, openCount) {
   const arc = document.getElementById('ovDonutArc');
   const cancelArc = document.getElementById('ovDonutArcCancel');
+  const incompleteArc = document.getElementById('ovDonutArcIncomplete');
   const pctEl = document.getElementById('ovDonutPct');
   const legendDone = document.querySelector('#ovLegendDone .ov-donut-num');
   const legendCancel = document.querySelector('#ovLegendCancel .ov-donut-num');
+  const legendIncomplete = document.querySelector('#ovLegendIncomplete .ov-donut-num');
   const legendOpen = document.querySelector('#ovLegendOpen .ov-donut-num');
   if (!arc || !pctEl) return;
 
   const doneN = Number(completed) || 0;
   const cancelN = Number(cancelled) || 0;
+  const incompleteN = Number(incompleteCount) || 0;
   const openN = Number(openCount) || 0;
-  const total = doneN + cancelN + openN;
+  const total = doneN + cancelN + incompleteN + openN;
   const r = 58;
   const C = 2 * Math.PI * r;
   const doneLen = total === 0 ? 0 : (doneN / total) * C;
   const cancelLen = total === 0 ? 0 : (cancelN / total) * C;
+  const incompleteLen = total === 0 ? 0 : (incompleteN / total) * C;
 
   if (window._ovDonutRaf) cancelAnimationFrame(window._ovDonutRaf);
   const startDashStr = arc.getAttribute('stroke-dasharray') || '0 0';
   const startDone = parseFloat(startDashStr.split(' ')[0]) || 0;
   const startCancelStr = cancelArc ? (cancelArc.getAttribute('stroke-dasharray') || '0 0') : '0 0';
   const startCancel = parseFloat(startCancelStr.split(' ')[0]) || 0;
+  const startIncompleteStr = incompleteArc ? (incompleteArc.getAttribute('stroke-dasharray') || '0 0') : '0 0';
+  const startIncomplete = parseFloat(startIncompleteStr.split(' ')[0]) || 0;
   const startTotal = parseFloat(pctEl.textContent) || 0;
   const t0 = performance.now();
   const duration = 700;
@@ -19628,9 +19694,11 @@ function animateDonutChart(completed, cancelled, openCount) {
     const e = ease(t);
     const doneDash = startDone + (doneLen - startDone) * e;
     const cancelDash = startCancel + (cancelLen - startCancel) * e;
+    const incompleteDash = startIncomplete + (incompleteLen - startIncomplete) * e;
     paintDonutSegment(arc, doneDash, 0, C);
     // Cancelled starts where Completed ends (clockwise from the top).
     paintDonutSegment(cancelArc, cancelDash, -doneDash, C);
+    paintDonutSegment(incompleteArc, incompleteDash, -(doneDash + cancelDash), C);
     const curTotal = startTotal + (total - startTotal) * e;
     pctEl.textContent = String(Math.round(curTotal));
     if (t < 1) window._ovDonutRaf = requestAnimationFrame(tick);
@@ -19640,18 +19708,20 @@ function animateDonutChart(completed, cancelled, openCount) {
 
   if (legendDone) tweenNumber(legendDone, doneN);
   if (legendCancel) tweenNumber(legendCancel, cancelN);
+  if (legendIncomplete) tweenNumber(legendIncomplete, incompleteN);
   if (legendOpen) tweenNumber(legendOpen, openN);
 
-  setupDonutHover(doneN, cancelN, openN, total);
+  setupDonutHover(doneN, cancelN, incompleteN, openN, total);
 }
 
-function setupDonutHover(completed, cancelled, openCount, total) {
+function setupDonutHover(completed, cancelled, incompleteCount, openCount, total) {
   const hoverEl = document.getElementById('ovDonutHover');
   const tooltip = document.getElementById('ovDonutTooltip');
   const tooltipTitle = document.getElementById('ovDonutTooltipTitle');
   const tooltipNum = document.getElementById('ovDonutTooltipNum');
   const legendDone = document.getElementById('ovLegendDone');
   const legendCancel = document.getElementById('ovLegendCancel');
+  const legendIncomplete = document.getElementById('ovLegendIncomplete');
   const legendOpen = document.getElementById('ovLegendOpen');
   if (!hoverEl || !tooltip) return;
 
@@ -19662,6 +19732,9 @@ function setupDonutHover(completed, cancelled, openCount, total) {
     } else if (kind === 'cancel') {
       tooltipTitle.textContent = 'Cancelled';
       tooltipNum.textContent = cancelled;
+    } else if (kind === 'incomplete') {
+      tooltipTitle.textContent = 'Incomplete';
+      tooltipNum.textContent = incompleteCount;
     } else if (kind === 'open') {
       tooltipTitle.textContent = 'Open';
       tooltipNum.textContent = openCount;
@@ -19674,7 +19747,7 @@ function setupDonutHover(completed, cancelled, openCount, total) {
   const hideTip = () => { tooltip.style.display = 'none'; };
 
   ['mouseenter','mouseleave'].forEach(ev => {
-    [hoverEl, legendDone, legendCancel, legendOpen].forEach(el => {
+    [hoverEl, legendDone, legendCancel, legendIncomplete, legendOpen].forEach(el => {
       if (!el) return;
       const key = '_ovDonutH_' + ev;
       if (el[key]) el.removeEventListener(ev, el[key]);
@@ -19692,6 +19765,12 @@ function setupDonutHover(completed, cancelled, openCount, total) {
     legendCancel._ovDonutH_mouseleave = hideTip;
     legendCancel.addEventListener('mouseenter', legendCancel._ovDonutH_mouseenter);
     legendCancel.addEventListener('mouseleave', legendCancel._ovDonutH_mouseleave);
+  }
+  if (legendIncomplete) {
+    legendIncomplete._ovDonutH_mouseenter = () => showTip('incomplete');
+    legendIncomplete._ovDonutH_mouseleave = hideTip;
+    legendIncomplete.addEventListener('mouseenter', legendIncomplete._ovDonutH_mouseenter);
+    legendIncomplete.addEventListener('mouseleave', legendIncomplete._ovDonutH_mouseleave);
   }
   if (legendOpen) {
     legendOpen._ovDonutH_mouseenter = () => showTip('open');

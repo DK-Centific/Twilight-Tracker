@@ -49,9 +49,9 @@ function assert(name, cond, detail) {
 
 console.log('Performance panel past-incomplete self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.100426b',
-  /const APP_VERSION = '1\.3\.100426b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100426b'));
+assert('APP_VERSION 1.3.100426c',
+  /const APP_VERSION = '1\.3\.100426c'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100426c'));
 
 assert('panel gate is not cls === scheduled alone',
   /function perfPanelStationDetailHTML\(/.test(src)
@@ -350,11 +350,11 @@ vm.runInContext('var _ssAssignIndex = { sourceRef: null, byId: null };\n' + [
 const EMPTY = "Session hasn't started yet";
 
 const anyPanel = ctx.perfPanelStationDetailHTML(anyTeam);
-assert('any past partial team classifies scheduled',
-  ctx.classifyBookingForPerf(anyTeam) === 'scheduled',
+assert('any past partial team classifies Incomplete',
+  ctx.classifyBookingForPerf(anyTeam) === 'incomplete',
   ctx.classifyBookingForPerf(anyTeam));
-assert('any past partial team pill is In session · St 1',
-  ctx.perfLiveStatusDisplay(anyTeam).label === 'In session · St 1');
+assert('any past partial team pill is Incomplete',
+  ctx.perfLiveStatusDisplay(anyTeam).label === 'Incomplete');
 assert('any past partial team shows station progress',
   ctx.perfPanelSessionHasStarted(anyTeam) === true
   && anyPanel.indexOf(EMPTY) === -1
@@ -366,11 +366,11 @@ assert('any past partial team keeps the richer co-mod',
 const panel = ctx.perfPanelStationDetailHTML(amanda);
 const pill = ctx.perfLiveStatusDisplay(amanda);
 
-assert('Amanda classifies scheduled (past incomplete stays Next)',
-  ctx.classifyBookingForPerf(amanda) === 'scheduled',
+assert('Amanda classifies Incomplete',
+  ctx.classifyBookingForPerf(amanda) === 'incomplete',
   ctx.classifyBookingForPerf(amanda));
-assert('mini pill still In session · St 2',
-  pill && pill.label === 'In session · St 2',
+assert('mini pill is Incomplete',
+  pill && pill.label === 'Incomplete',
   pill && pill.label);
 assert('panel gate says the session started',
   ctx.perfPanelSessionHasStarted(amanda) === true);
@@ -384,12 +384,12 @@ assert('richer co-mod wins over newer blank map',
   panel.includes('18/18 complete') && !panel.includes('0/18 complete'));
 
 assert('never-started booking keeps the empty copy',
-  ctx.classifyBookingForPerf(neverStarted) === 'scheduled'
+  ctx.classifyBookingForPerf(neverStarted) === 'incomplete'
   && ctx.perfPanelSessionHasStarted(neverStarted) === false
   && ctx.perfPanelStationDetailHTML(neverStarted).includes(EMPTY));
 
 assert('past end + arrived is not "hasn\'t started"',
-  ctx.classifyBookingForPerf(arrivedOnly) === 'scheduled'
+  ctx.classifyBookingForPerf(arrivedOnly) === 'incomplete'
   && ctx.perfPanelSessionHasStarted(arrivedOnly) === true
   && ctx.perfPanelStationDetailHTML(arrivedOnly).indexOf(EMPTY) === -1);
 
