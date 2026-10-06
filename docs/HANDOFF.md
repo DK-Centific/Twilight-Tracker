@@ -1,6 +1,36 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-05 · Grok · late checklist stays Incomplete (1.3.100426c)
+**Last updated:** 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
+
+## 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
+
+**Ask:** David decided a Rescheduled night should not count as Incomplete on the Overview booked chart or on Performance. A Rescheduled night the team actually finished should still say Completed. Keep this on the same pull request. Do not merge until David says push.
+
+**Fix:** After the booked end, a Rescheduled night with no team finish is left off Incomplete. It sits with Cancelled on the booked chart. If someone on that team finished Station 4 in time, that night still says Completed. The chart and Performance All time now share one Incomplete night: Venkata × Adidela (`od_56991291-58d9-42ef-af2a-6f1a7ddcafee`). Narendra × Satya on Sep 23 (`od_3f751074-0fc8-4d85-9a3b-e9f16e77dc39`) is arrived only and Rescheduled, so it is not Incomplete.
+
+**Not done:** Vendor Materials is unchanged. The live site still shows 1.3.100426c until this is merged.
+
+**Version:** **1.3.100526b**. Selftest: `scripts/overview-donut-perf-parity-selftest.js`.
+
+**PR:** draft [#198](https://github.com/DK-Centific/Twilight-Tracker/pull/198) on `cursor/overview-donut-perf-parity-8fc6`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100526b**. Open **Overview** and **Performance** with **All time**. **Incomplete** should match, and it should be the Venkata × Adidela night only. Narendra × Satya on Sep 23 should not be in Incomplete. A Rescheduled night that really finished should still say **Completed**.
+
+## 2026-10-05 · Grok · Overview donut Incomplete matches Performance (1.3.100526a)
+
+**Ask:** On the live site the Overview booked chart said Incomplete 5, and Performance set to All time said Incomplete 2. Make the chart use the same bookings as Performance. Do not change how a Rescheduled night is classified. Do not merge until David says push.
+
+**Cause:** The chart counted every saved booking, including three whose teams were removed today, and it counted the same booking twice when the id was repeated. Performance only walks teams that are still on the team list, and it skips an id it has already counted. The three extras were Team 01 (`asgn_1788926966277_dxlxy8`), the big Muhammed lineup (`asgn_1789014509536_tc4j6t`), and Cancel button demo (`asgn_1790319380654_8atmr0`). A later Assignment read was also keeping those cached team bookings after the team was gone.
+
+**Fix:** The booked chart now counts a booking only when that team is still in the team list. A repeated booking id counts once. The same rule covers Completed, Cancelled, Incomplete, and Open. The next Assignment read drops a cached team booking when that team is no longer in the merged list or TeamLog says it was deleted. Rescheduled vs Incomplete is unchanged.
+
+**Not done:** No change to how Rescheduled nights are classified. Vendor Materials is unchanged. The live site still shows 1.3.100426c until this is merged.
+
+**Version:** **1.3.100526a**. Selftest: `scripts/overview-donut-perf-parity-selftest.js`. Related Overview and Performance checks still pass.
+
+**PR:** draft [#198](https://github.com/DK-Centific/Twilight-Tracker/pull/198) on `cursor/overview-donut-perf-parity-8fc6`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100526a**. Open **Overview**. The booked chart **Incomplete** number should match **Performance** with **All time** selected. Both should be the same unfinished nights. Team 01, the old Muhammed lineup, and Cancel button demo should not add to that number.
 
 ## 2026-10-05 · Grok · late checklist stays Incomplete (1.3.100426c)
 

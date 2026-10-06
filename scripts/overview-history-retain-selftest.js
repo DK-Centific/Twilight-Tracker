@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview / Performance history after List hygiene (1.3.100426c).
+ * Overview / Performance history after List hygiene (1.3.100526b).
  *
  * List may drop older rows (reschedule hard-delete of leftover
  * non-Cancelled, or a short read). The donut and Performance history
@@ -59,7 +59,11 @@ const ctx = {
   adminState: {
     overview: { timeScope: 'all', teamId: 'all', moderatorId: 'all' },
     assignments: [],
-    teams: [],
+    teams: ['9', '1', '2', '3', '4', '5', '20', '21', '22'].map(id => ({
+      id: id,
+      primaryIds: [],
+      backupIds: [],
+    })),
     perfSessionStateRows: [],
   },
   assignmentIsDemoBooking: (a) => !!(a && (a.isDemo || String(a.teamId || '').indexOf('demo-team-') === 0)),
@@ -105,11 +109,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview history retain self-test (1.3.100426c)');
+console.log('Overview history retain self-test (1.3.100526b)');
 
-assert('APP_VERSION 1.3.100426c',
-  src.includes("const APP_VERSION = '1.3.100426c'")
-  && html.includes('twilight.js?v=twilight-1.3.100426c'));
+assert('APP_VERSION 1.3.100526b',
+  src.includes("const APP_VERSION = '1.3.100526b'")
+  && html.includes('twilight.js?v=twilight-1.3.100526b'));
 
 const rememberAt = src.indexOf('rememberAssignmentHistory([].concat(local.assignments');
 const dropAt = src.indexOf('Dropped ${droppedStale} stale local assignment');

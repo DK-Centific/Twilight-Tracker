@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Post-window checklist ignore (1.3.100426c).
+ * Post-window checklist ignore (1.3.100526b).
  *
  * Venkata × Adidela, Renyu Chen, booking od_56991291… Sat Oct 3
  * 7 PM–2 AM PT. A Station 4 tap at 12:42 AM PT Mon Oct 5 must not
@@ -27,11 +27,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Post-window SessionState ignore (1.3.100426c)');
+console.log('Post-window SessionState ignore (1.3.100526b)');
 
-assert('APP_VERSION 1.3.100426c',
-  /const APP_VERSION = '1\.3\.100426c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100426c'));
+assert('APP_VERSION 1.3.100526b',
+  /const APP_VERSION = '1\.3\.100526b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100526b'));
 assert('four-hour grace after booked end',
   /SESSION_PROGRESS_AFTER_END_GRACE_MS = 4 \* 60 \* 60 \* 1000/.test(src)
   && /function applySessionProgressUpperBound/.test(src)
