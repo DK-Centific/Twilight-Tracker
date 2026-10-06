@@ -25,11 +25,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Yesterday checkpoint roster (1.3.100526b)');
+console.log('Yesterday checkpoint roster (1.3.100626b)');
 
-assert('version 1.3.100526b',
-  /const APP_VERSION = '1\.3\.100526b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100526b'));
+assert('version 1.3.100626b',
+  /const APP_VERSION = '1\.3\.100626b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100626b'));
 assert('checkpoint walks bookings, not every saved team',
   /One row per booked two-mod crew on the checkpoint night/.test(src)
   && /snaps\.length === primarySet\.size/.test(src));

@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100526b';
-const APP_UPDATED_AT = '10/05/2026 17:05';
+const APP_VERSION = '1.3.100626b';
+const APP_UPDATED_AT = '10/06/2026 10:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10449,6 +10449,175 @@ function computeOverviewDonutCounts(filteredAsgns) {
   };
 }
 
+// PRODUCTION1_STATUS_COUNTS_START
+// Admin Overview ring. One row on Production1 (column D Session Kit is a
+// real kit, column K Status is filled) counts as 1 session. Kit numbers
+// are not added together. "Select" is an empty future slot. Blank Status
+// is not a session. "Not complete" and "Not Complete" are one slice.
+// Performance still uses computeOverviewDonutCounts above.
+const PRODUCTION1_SHEET_ID = '1zJWzg3b9qOC-weB0VZ_4MuNdd1GI557JUlsh-t5cogc';
+const PRODUCTION1_SHEET_GID = '0';
+// Public sheet link. Today this answers 401 because the sheet is private.
+// Names and addresses stay off the website until a counts-only proxy is set.
+const PRODUCTION1_CSV_URL = 'https://docs.google.com/spreadsheets/d/'
+  + PRODUCTION1_SHEET_ID + '/gviz/tq?tqx=out:csv&gid=' + PRODUCTION1_SHEET_GID;
+// Counts only. No names or addresses. Tried before the private sheet link.
+const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json';
+const PRODUCTION1_STATUS_REFRESH_MS = 60 * 1000;
+const PRODUCTION1_SESSION_KIT_COL = 3;
+const PRODUCTION1_STATUS_COL = 10;
+const PRODUCTION1_STATUS_LABELS = {
+  cancelled: 'Cancelled',
+  completed: 'Completed',
+  confirmed: 'Confirmed',
+  'not complete': 'Not complete',
+};
+
+function production1NormalizeStatusKey(raw) {
+  return String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function production1StatusDisplayLabel(raw, existingLabel) {
+  const key = production1NormalizeStatusKey(raw);
+  if (!key) return '';
+  if (PRODUCTION1_STATUS_LABELS[key]) return PRODUCTION1_STATUS_LABELS[key];
+  if (existingLabel) return existingLabel;
+  return String(raw == null ? '' : raw).trim().replace(/\s+/g, ' ');
+}
+
+function production1KitIsRealSession(kit) {
+  const t = String(kit == null ? '' : kit).trim();
+  if (!t) return false;
+  if (t.toLowerCase() === 'select') return false;
+  return true;
+}
+
+function parseProduction1Csv(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  const s = String(text == null ? '' : text).replace(/^\uFEFF/, '');
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (s[i + 1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (c === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else if (c !== '\r') {
+      cell += c;
+    }
+  }
+  if (cell.length || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  while (rows.length && rows[rows.length - 1].every(v => String(v || '').trim() === '')) {
+    rows.pop();
+  }
+  return rows;
+}
+
+function production1StatusRank(label) {
+  const key = production1NormalizeStatusKey(label);
+  const rank = { completed: 0, confirmed: 1, 'not complete': 2, cancelled: 3 };
+  return Object.prototype.hasOwnProperty.call(rank, key) ? rank[key] : 50;
+}
+
+function countProduction1StatusSlices(input) {
+  if (input == null) return { total: 0, slices: [] };
+  if (typeof input === 'string') return countProduction1StatusSlices(parseProduction1Csv(input));
+  const source = Array.isArray(input) ? input : [];
+  if (source.length && source[0] && !Array.isArray(source[0]) && typeof source[0] === 'object') {
+    const matrix = [['Session Kit', 'Status']];
+    source.forEach(r => {
+      const kit = r.sessionKit != null ? r.sessionKit
+        : (r.session_kit != null ? r.session_kit : (r.kit != null ? r.kit : ''));
+      const status = r.status != null ? r.status : (r.Status != null ? r.Status : '');
+      matrix.push([kit, status]);
+    });
+    return countProduction1StatusSlices(matrix);
+  }
+  let kitCol = PRODUCTION1_SESSION_KIT_COL;
+  let statusCol = PRODUCTION1_STATUS_COL;
+  let start = 0;
+  if (source.length && Array.isArray(source[0])) {
+    const header = source[0].map(c => String(c == null ? '' : c).trim().toLowerCase());
+    const kitIdx = header.indexOf('session kit');
+    let statusIdx = -1;
+    for (let i = 0; i < header.length; i++) {
+      if (header[i] === 'status') { statusIdx = i; break; }
+    }
+    if (kitIdx >= 0 && statusIdx >= 0) {
+      kitCol = kitIdx;
+      statusCol = statusIdx;
+      start = 1;
+    }
+  }
+  const order = [];
+  const counts = new Map();
+  for (let r = start; r < source.length; r++) {
+    const row = Array.isArray(source[r]) ? source[r] : [];
+    if (!row.length || row.every(c => String(c == null ? '' : c).trim() === '')) continue;
+    const kit = row[kitCol];
+    const statusRaw = row[statusCol];
+    const statusKey = production1NormalizeStatusKey(statusRaw);
+    if (!production1KitIsRealSession(kit) || !statusKey) continue;
+    let entry = counts.get(statusKey);
+    if (!entry) {
+      entry = { status: production1StatusDisplayLabel(statusRaw, ''), count: 0 };
+      counts.set(statusKey, entry);
+      order.push(statusKey);
+    } else {
+      entry.status = production1StatusDisplayLabel(statusRaw, entry.status);
+    }
+    entry.count += 1;
+  }
+  const slices = order.map(k => counts.get(k));
+  slices.sort((a, b) => {
+    const d = production1StatusRank(a.status) - production1StatusRank(b.status);
+    if (d) return d;
+    return String(a.status).localeCompare(String(b.status));
+  });
+  const total = slices.reduce((n, s) => n + s.count, 0);
+  return { total, slices };
+}
+
+function production1CountsFromFeed(text) {
+  const raw = String(text == null ? '' : text).replace(/^\uFEFF/, '').trim();
+  if (!raw || raw.charAt(0) === '<') return null;
+  if (raw.charAt(0) === '{' || raw.charAt(0) === '[') {
+    let data;
+    try { data = JSON.parse(raw); } catch (_) { return null; }
+    if (Array.isArray(data)) return countProduction1StatusSlices(data);
+    if (data && Array.isArray(data.rows)) return countProduction1StatusSlices(data.rows);
+    if (data && Array.isArray(data.slices)) {
+      const rows = [];
+      data.slices.forEach(s => {
+        const n = Math.max(0, Math.floor(Number(s && s.count) || 0));
+        const status = s && (s.status != null ? s.status : s.label);
+        for (let i = 0; i < n; i++) rows.push({ sessionKit: '1', status: status });
+      });
+      return countProduction1StatusSlices(rows);
+    }
+    return null;
+  }
+  if (raw.indexOf('Session Kit') < 0 && raw.indexOf(',') < 0) return null;
+  return countProduction1StatusSlices(raw);
+}
+// PRODUCTION1_STATUS_COUNTS_END
+
 // Overview Live teams + list mirror Performance Today: in-progress classifier
 // and same-team 9 AM admin queue visibility (not raw arrival alone).
 function overviewAssignmentIsPerfLive(a) {
@@ -10920,10 +11089,9 @@ function computeOverviewMetrics() {
     }
   }
 
-  // ----- Total booked donut
-  // Booking rows in this filter (demo and Unassigned out). Segments are
-  // Completed, Cancelled, Incomplete (past end, not finished), and Open
-  // (still booked: live or not started). The slices add up to total booked.
+  // ----- Booking counts for the Bookings tile (not the Overview ring).
+  // The ring reads Production1 status counts. These booking buckets stay
+  // so the Bookings tile and Performance still share one Incomplete rule.
   const donut = computeOverviewDonutCounts(filteredAsgns);
   const completedCount = donut.completedCount;
   const cancelledCount = donut.cancelledCount;
@@ -19040,8 +19208,8 @@ function renderOverview(body) {
         </div>
         <div class="ov-chart-card ov-chart-donut">
           <div class="ov-chart-head">
-            <div class="ov-chart-title">Total booked</div>
-            <div class="ov-chart-sub" id="ovDonutSub"> · </div>
+            <div class="ov-chart-title" id="ovDonutTitle">Production status</div>
+            <div class="ov-chart-sub" id="ovDonutSub">Reading the production sheet…</div>
           </div>
           ${donutChartShellHTML()}
         </div>
@@ -19148,6 +19316,7 @@ function renderOverview(body) {
   // Reset cached "previous values" so the first render animates from 0
   window._ovPrev = null;
   updateOverviewMetrics();
+  if (typeof startProduction1StatusPoll === 'function') startProduction1StatusPoll();
   if (typeof ensurePerfSessionStateRows === 'function') {
     ensurePerfSessionStateRows().then(() => {
       if (adminState.tab === 'overview' && typeof updateOverviewMetrics === 'function') {
@@ -19355,35 +19524,19 @@ function donutChartShellHTML() {
       <div class="ov-donut-svg-wrap">
         <svg class="ov-donut-svg" id="ovDonutSvg" viewBox="0 0 160 160">
           <circle cx="80" cy="80" r="${r}" fill="none" stroke="var(--bg4)" stroke-width="16" id="ovDonutBg"/>
-          <circle cx="80" cy="80" r="${r}" fill="none"
-                  stroke="var(--accent)" stroke-width="16" stroke-linecap="butt"
-                  stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
-                  transform="rotate(-90 80 80)" id="ovDonutArc"/>
-          <circle cx="80" cy="80" r="${r}" fill="none"
-                  stroke="rgba(239, 68, 68, 0.78)" stroke-width="16" stroke-linecap="butt"
-                  stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
-                  transform="rotate(-90 80 80)" id="ovDonutArcCancel"/>
-          <circle cx="80" cy="80" r="${r}" fill="none"
-                  stroke="rgb(217, 119, 6)" stroke-width="16" stroke-linecap="butt"
-                  stroke-dasharray="0 ${(2 * Math.PI * r).toFixed(2)}"
-                  transform="rotate(-90 80 80)" id="ovDonutArcIncomplete"/>
+          <g id="ovDonutArcs"></g>
           <circle cx="80" cy="80" r="${r}" fill="transparent" id="ovDonutHover" style="cursor: pointer;"/>
         </svg>
         <div class="ov-donut-center">
           <div class="ov-donut-pct" id="ovDonutPct">0</div>
-          <div class="ov-donut-cap">booked</div>
+          <div class="ov-donut-cap">sessions</div>
         </div>
         <div class="ov-donut-tooltip" id="ovDonutTooltip" style="display:none;">
-          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Booked</div>
-          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">bookings</span></div>
+          <div class="ov-tooltip-date" id="ovDonutTooltipTitle">Sessions</div>
+          <div class="ov-tooltip-row"><span class="ov-tooltip-num" id="ovDonutTooltipNum">0</span><span class="ov-tooltip-label">sessions</span></div>
         </div>
       </div>
-      <div class="ov-donut-legend">
-        <div class="ov-donut-legend-row" id="ovLegendDone"><span class="ov-donut-swatch ov-sw-done"></span><span>Completed</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendCancel"><span class="ov-donut-swatch ov-sw-cancel"></span><span>Cancelled</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendIncomplete"><span class="ov-donut-swatch ov-sw-incomplete"></span><span>Incomplete</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-        <div class="ov-donut-legend-row" id="ovLegendOpen"><span class="ov-donut-swatch ov-sw-rem"></span><span>Open</span><span class="ov-donut-num" data-ov-count="0">0</span></div>
-      </div>
+      <div class="ov-donut-legend" id="ovDonutLegend"></div>
     </div>
   `;
 }
@@ -19472,12 +19625,9 @@ function updateOverviewMetrics() {
   // 3. Animate the line chart
   animateLineChart(m.series);
 
-  // 4. Donut · Completed and Cancelled of total booked (Open is the rest)
-  const donutSub = document.getElementById('ovDonutSub');
-  if (donutSub) donutSub.textContent = m.progressTotal > 0
-    ? `${m.completedCount} completed · ${m.cancelledCount || 0} cancelled · ${m.incompleteCount || 0} incomplete · ${m.openCount || 0} open · ${m.progressTotal} booked`
-    : 'No bookings in scope';
-  animateDonutChart(m.completedCount, m.cancelledCount || 0, m.incompleteCount || 0, m.openCount || 0);
+  // 4. Overview ring · Production1 status counts, not booking Incomplete.
+  if (typeof paintProduction1OverviewDonut === 'function') paintProduction1OverviewDonut();
+  if (typeof refreshProduction1OverviewStatus === 'function') refreshProduction1OverviewStatus(false);
 
   // Cache for next animation
   window._ovPrev = m;
@@ -19718,6 +19868,204 @@ function setupLineHover(series, xFor, yFor, padL, padR, W, H, padT, innerH) {
   wrap.addEventListener('mouseleave', wrap._ovLeaveHandler);
 }
 
+// ----- Production1 ring ------------------------------------------------
+let _production1Status = { at: 0, counts: null, error: '', pending: null };
+
+function production1StatusStyle(label, extraIndex) {
+  const key = production1NormalizeStatusKey(label);
+  const known = {
+    completed: { stroke: 'var(--accent)', swatch: 'ov-sw-done' },
+    cancelled: { stroke: 'rgba(239, 68, 68, 0.78)', swatch: 'ov-sw-cancel' },
+    'not complete': { stroke: 'rgb(217, 119, 6)', swatch: 'ov-sw-incomplete' },
+    confirmed: { stroke: 'var(--blue)', swatch: 'ov-sw-confirmed' },
+  };
+  if (known[key]) return known[key];
+  const extra = ['#8b7cf6', '#2dd4bf', '#eab308', '#f472b6'];
+  const stroke = extra[(extraIndex || 0) % extra.length];
+  return { stroke: stroke, swatch: '' };
+}
+
+function production1StatusFeedUrls() {
+  const urls = [];
+  const proxy = String(PRODUCTION1_STATUS_PROXY_URL || '').trim();
+  if (proxy) urls.push(proxy);
+  const csv = String(PRODUCTION1_CSV_URL || '').trim();
+  if (csv) urls.push(csv);
+  return urls;
+}
+
+function paintProduction1OverviewDonut() {
+  const pctEl = document.getElementById('ovDonutPct');
+  const legend = document.getElementById('ovDonutLegend');
+  const donutSub = document.getElementById('ovDonutSub');
+  const title = document.getElementById('ovDonutTitle');
+  if (title) title.textContent = 'Production status';
+  const counts = _production1Status.counts;
+  if (!pctEl) return;
+  if (!counts) {
+    if (donutSub) {
+      donutSub.textContent = _production1Status.error || 'Reading the production sheet…';
+    }
+    drawProduction1DonutArcs([]);
+    pctEl.textContent = '0';
+    pctEl.setAttribute('data-ov-count', '0');
+    if (legend) legend.innerHTML = '';
+    setupProduction1DonutHover([], 0);
+    return;
+  }
+  if (donutSub) {
+    donutSub.textContent = counts.total > 0
+      ? ('Production1 · ' + counts.total + (counts.total === 1 ? ' session' : ' sessions'))
+      : 'No sessions on the production sheet';
+  }
+  const slices = (counts.slices || []).filter(s => s && s.count > 0);
+  drawProduction1DonutArcs(slices);
+  if (typeof tweenNumber === 'function') tweenNumber(pctEl, counts.total);
+  else pctEl.textContent = String(counts.total);
+  if (legend) {
+    let extra = 0;
+    legend.innerHTML = slices.map(s => {
+      const style = production1StatusStyle(s.status, extra);
+      if (!style.swatch) extra += 1;
+      const swatch = style.swatch
+        ? ('<span class="ov-donut-swatch ' + style.swatch + '"></span>')
+        : ('<span class="ov-donut-swatch" style="background:' + style.stroke + '"></span>');
+      return '<div class="ov-donut-legend-row" data-ov-slice="' + escapeHTML(s.status) + '">'
+        + swatch
+        + '<span>' + escapeHTML(s.status) + '</span>'
+        + '<span class="ov-donut-num" data-ov-count="' + s.count + '">' + s.count + '</span>'
+        + '</div>';
+    }).join('');
+  }
+  setupProduction1DonutHover(slices, counts.total);
+}
+
+function drawProduction1DonutArcs(slices) {
+  const svg = document.getElementById('ovDonutSvg');
+  if (!svg) return;
+  let arcsG = document.getElementById('ovDonutArcs');
+  if (!arcsG) {
+    arcsG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    arcsG.id = 'ovDonutArcs';
+    const hover = document.getElementById('ovDonutHover');
+    if (hover) svg.insertBefore(arcsG, hover);
+    else svg.appendChild(arcsG);
+  }
+  while (arcsG.firstChild) arcsG.removeChild(arcsG.firstChild);
+  const list = slices || [];
+  const total = list.reduce((n, s) => n + (Number(s.count) || 0), 0);
+  const r = 58;
+  const C = 2 * Math.PI * r;
+  let offset = 0;
+  let extra = 0;
+  list.forEach(s => {
+    const style = production1StatusStyle(s.status, extra);
+    if (!style.swatch) extra += 1;
+    const len = total === 0 ? 0 : (Number(s.count) / total) * C;
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', '80');
+    circle.setAttribute('cy', '80');
+    circle.setAttribute('r', String(r));
+    circle.setAttribute('fill', 'none');
+    circle.setAttribute('stroke', style.stroke);
+    circle.setAttribute('stroke-width', '16');
+    circle.setAttribute('stroke-linecap', 'butt');
+    circle.setAttribute('transform', 'rotate(-90 80 80)');
+    const gap = Math.max(0, C - len);
+    circle.setAttribute('stroke-dasharray', len.toFixed(2) + ' ' + gap.toFixed(2));
+    circle.setAttribute('stroke-dashoffset', (-offset).toFixed(2));
+    arcsG.appendChild(circle);
+    offset += len;
+  });
+}
+
+function setupProduction1DonutHover(slices, total) {
+  const hoverEl = document.getElementById('ovDonutHover');
+  const tooltip = document.getElementById('ovDonutTooltip');
+  const tooltipTitle = document.getElementById('ovDonutTooltipTitle');
+  const tooltipNum = document.getElementById('ovDonutTooltipNum');
+  const legend = document.getElementById('ovDonutLegend');
+  if (!tooltip || !tooltipTitle || !tooltipNum) return;
+  const byLabel = {};
+  (slices || []).forEach(s => { byLabel[s.status] = s.count; });
+  const showTip = (label) => {
+    if (label && Object.prototype.hasOwnProperty.call(byLabel, label)) {
+      tooltipTitle.textContent = label;
+      tooltipNum.textContent = String(byLabel[label]);
+    } else {
+      tooltipTitle.textContent = 'Sessions';
+      tooltipNum.textContent = String(total || 0);
+    }
+    tooltip.style.display = 'block';
+  };
+  const hideTip = () => { tooltip.style.display = 'none'; };
+  const bind = (el, label) => {
+    if (!el) return;
+    if (el._ovDonutH_mouseenter) el.removeEventListener('mouseenter', el._ovDonutH_mouseenter);
+    if (el._ovDonutH_mouseleave) el.removeEventListener('mouseleave', el._ovDonutH_mouseleave);
+    el._ovDonutH_mouseenter = () => showTip(label);
+    el._ovDonutH_mouseleave = hideTip;
+    el.addEventListener('mouseenter', el._ovDonutH_mouseenter);
+    el.addEventListener('mouseleave', el._ovDonutH_mouseleave);
+  };
+  bind(hoverEl, '');
+  if (legend) {
+    legend.querySelectorAll('[data-ov-slice]').forEach(row => {
+      bind(row, row.getAttribute('data-ov-slice') || '');
+    });
+  }
+}
+
+function refreshProduction1OverviewStatus(force) {
+  const settled = !!(_production1Status.counts || _production1Status.error);
+  const fresh = settled && (Date.now() - _production1Status.at) < PRODUCTION1_STATUS_REFRESH_MS;
+  if (!force && fresh) return Promise.resolve(_production1Status.counts);
+  if (_production1Status.pending) return _production1Status.pending;
+  const urls = production1StatusFeedUrls();
+  const run = (async () => {
+    let lastErr = 'The production sheet is not connected yet.';
+    for (let i = 0; i < urls.length; i++) {
+      try {
+        const opts = { method: 'GET', cache: 'no-store', credentials: 'omit' };
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          opts.signal = AbortSignal.timeout(12000);
+        }
+        const res = await fetch(urls[i], opts);
+        if (!res.ok) continue;
+        const text = await res.text();
+        const counts = production1CountsFromFeed(text);
+        if (!counts) continue;
+        _production1Status.at = Date.now();
+        _production1Status.counts = counts;
+        _production1Status.error = '';
+        if (typeof paintProduction1OverviewDonut === 'function') paintProduction1OverviewDonut();
+        return counts;
+      } catch (_) {}
+    }
+    if (!_production1Status.counts) {
+      _production1Status.error = lastErr;
+      _production1Status.at = Date.now();
+      if (typeof paintProduction1OverviewDonut === 'function') paintProduction1OverviewDonut();
+    }
+    return _production1Status.counts;
+  })();
+  _production1Status.pending = run;
+  run.then(() => { _production1Status.pending = null; }, () => { _production1Status.pending = null; });
+  return run;
+}
+
+function startProduction1StatusPoll() {
+  if (typeof window === 'undefined') return;
+  if (window._production1Poll) clearInterval(window._production1Poll);
+  window._production1Poll = setInterval(() => {
+    if (typeof adminState === 'undefined' || !adminState || adminState.tab !== 'overview') return;
+    refreshProduction1OverviewStatus(true);
+  }, PRODUCTION1_STATUS_REFRESH_MS);
+}
+
+// Older booking ring. Overview no longer calls this. Performance still
+// uses computeOverviewDonutCounts. Kept so a booking-only caller does
+// not throw if the old arcs are absent.
 // ----- Donut animation ------------------------------------------------
 function paintDonutSegment(el, len, offset, C) {
   if (!el) return;

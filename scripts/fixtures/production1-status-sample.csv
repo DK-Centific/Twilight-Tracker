@@ -1,0 +1,15 @@
+Date,Moderator 1,Moderator 2,Session Kit,Participant Name,Home Type,Zillow Verify,Wi-Fi Speed Confirmation,Contact Number,Participant Address,Status,Notes
+"Monday, October 6, 2026",Mod A,Mod B,1,Alex Example,House,,,,"12 Example St, Apt 2",Completed,"kept as one row
+even with a comma, inside notes"
+"Monday, October 6, 2026",Mod A,Mod B,12,Blake Example,House,,,,,Not complete,Kit 12 counts as one session
+"Monday, October 6, 2026",Mod A,Mod B,3,Casey Example,House,,,,,Not Complete,Same slice as Not complete
+"Monday, October 6, 2026",Mod A,Mod B,4,Dana Example,House,,,,,Confirmed,Upcoming
+"Monday, October 6, 2026",Mod A,Mod B,5,Evan Example,House,,,,,Cancelled,Called off
+"Monday, October 6, 2026",Mod A,Mod B,6,Fran Example,House,,,,,On hold,Its own slice
+"Monday, October 6, 2026",Mod A,Mod B,Select,Future Example,House,,,,,Confirmed,Placeholder kit
+"Monday, October 6, 2026",Mod A,Mod B,7,Gray Example,House,,,,,,Empty status
+"Monday, October 6, 2026",Mod A,Mod B,8,Harper Example,House,,,,,"  completed  ",Casing merges
+"Tuesday, October 7, 2026",Mod A,Mod B,2,Quinn Example,House,,,,,Completed,Second completed
+,,,,
+"Monday, October 6, 2026",Mod A,Mod B,   ,Indigo Example,House,,,,,Completed,Blank kit
+"Monday, October 6, 2026",Mod A,Mod B,SELECT,Jordan Example,House,,,,,Cancelled,Select in any case

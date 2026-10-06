@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * SessionState refuse-empty / refuse-regressive write barrier (1.3.100526b).
+ * SessionState refuse-empty / refuse-regressive write barrier (1.3.100626b).
  * An empty Not-Started shell must not overwrite a richer row for the same
  * assignment. Mirrors the Venkata app_close and Manoj app_resume wipes.
  */
@@ -43,11 +43,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('SessionState refuse-empty shell (1.3.100526b)');
+console.log('SessionState refuse-empty shell (1.3.100626b)');
 
-assert('APP_VERSION 1.3.100526b',
-  /const APP_VERSION = '1\.3\.100526b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100526b'));
+assert('APP_VERSION 1.3.100626b',
+  /const APP_VERSION = '1\.3\.100626b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100626b'));
 
 const flushSrc = extractFn('flushSessionStateSync');
 const beaconSrc = extractFn('sendSessionStateBeacon');

@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin Overview sunset line + tonight weather chip (1.3.100526b).
+ * Admin Overview sunset line + tonight weather chip (1.3.100626b).
  * Sunset is the HQ solar altitude crossing −0.83° in America/Los_Angeles.
  * Tonight's chip reads the same Open-Meteo payload Booking already uses.
  */
@@ -24,11 +24,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview sunset + tonight weather (1.3.100526b)');
+console.log('Overview sunset + tonight weather (1.3.100626b)');
 
-assert('APP_VERSION 1.3.100526b',
-  /const APP_VERSION = '1\.3\.100526b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100526b'));
+assert('APP_VERSION 1.3.100626b',
+  /const APP_VERSION = '1\.3\.100626b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100626b'));
 
 const start = src.indexOf('const OVERVIEW_HQ_LAT');
 const end = src.indexOf('function applyOverviewHeliosWeather');
