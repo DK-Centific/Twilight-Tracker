@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview donut vs Performance All-time Incomplete (1.3.100526b).
+ * Overview donut vs Performance All-time Incomplete (1.3.100626a).
  *
  * The donut and the Performance Incomplete tile use the same
  * classifier. The donut was also counting bookings whose team had
@@ -34,11 +34,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview donut / Performance Incomplete parity (1.3.100526b)');
+console.log('Overview donut / Performance Incomplete parity (1.3.100626a)');
 
-assert('APP_VERSION 1.3.100526b',
-  /const APP_VERSION = '1\.3\.100526b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100526b'));
+assert('APP_VERSION 1.3.100626a',
+  /const APP_VERSION = '1\.3\.100626a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100626a'));
 
 assert('donut keeps a booking only when its team is still live',
   /function overviewAssignmentTeamIsLive/.test(src)

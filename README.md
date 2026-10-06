@@ -60,6 +60,10 @@ Fonts and Excel export load from the public internet (Google Fonts, jsDelivr `xl
 
 Cloud saves still call the live Power Automate URLs. SessionState Read/Write currently send `Access-Control-Allow-Origin: *`, so **localhost can talk to live PA**. If a later flow locks CORS to GitHub Pages only, the local UI still opens; cloud read/write would fail in the browser console and drafts would stay on this device.
 
+### Overview ring
+
+The **Production status** ring on Admin → Overview reads the Google Sheet **Mirror of Parakeet Nighttime Tracker**, tab **Production1**. The sheet is private, so the ring says it is not connected until a counts-only link is pasted into `PRODUCTION1_STATUS_PROXY_URL` in `twilight.js`. Do not publish the whole sheet (it has names and addresses) and do not commit a Google password. Steps: `docs/production1-overview-pie.md`. **Performance** still uses Twilight bookings.
+
 ## Files
 
 - `index.html` — Twilight home / login

@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
+**Last updated:** 2026-10-06 · Grok · Overview ring reads Production1 status (1.3.100626a)
+
+## 2026-10-06 · Grok · Overview ring reads Production1 status (1.3.100626a)
+
+**Ask:** The Admin Overview ring should count sessions from the Google Sheet **Mirror of Parakeet Nighttime Tracker**, tab **Production1**, instead of Twilight Incomplete / booking Assignment logic. One row with a real Session Kit is one session. Slices are column K Status. Not complete and Not Complete are one slice. Leave Performance as it is. Do not merge until David says push.
+
+**Fix:** The ring title is **Production status**. The middle number is the counted sessions. The legend uses the sheet’s Status names. The sheet is private (a public link answers not allowed), and it contains names and addresses, so those rows are not published and no Google password is stored in the app. The ring asks a counts-only address first (`PRODUCTION1_STATUS_PROXY_URL`, empty until pasted) and otherwise tries the sheet link. It tries again about once a minute. Until that link exists, the line under the title says the production sheet is not connected yet. Performance, the bookings line, and the left-hand numbers still use Twilight bookings.
+
+**Not done:** The live sheet is not connected yet. Someone needs to add a counts-only Power Automate link. Vendor Materials is unchanged. Not on the live site until this is merged.
+
+**Version:** **1.3.100626a**. Selftest: `scripts/production1-status-donut-selftest.js`.
+
+**PR:** on `cursor/production1-overview-pie-6806`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100626a**. Sign in as Admin. Open **Overview**. The ring on the right should say **Production status**, and the word under the number should say **sessions**. Until the sheet link is added, the line under the title says **The production sheet is not connected yet.** Open **Performance**. Incomplete should still be the same unfinished nights as before. The chart on the left of Overview (bookings by day) should still follow the filters.
 
 ## 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
 
