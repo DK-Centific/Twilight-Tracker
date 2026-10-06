@@ -12,9 +12,11 @@
 
 **Version:** **1.3.100626a**. Selftest: `scripts/production1-status-donut-selftest.js`.
 
-**PR:** on `cursor/production1-overview-pie-6806`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** [#199](https://github.com/DK-Centific/Twilight-Tracker/pull/199) on `cursor/production1-overview-pie-6806`. Do **not** merge until David says push. Not on the live site until then.
 
-**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100626a**. Sign in as Admin. Open **Overview**. The ring on the right should say **Production status**, and the word under the number should say **sessions**. Until the sheet link is added, the line under the title says **The production sheet is not connected yet.** Open **Performance**. Incomplete should still be the same unfinished nights as before. The chart on the left of Overview (bookings by day) should still follow the filters.
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100626a**. The ring says **Production status**, the word under the number says **sessions**, and the line says **The production sheet is not connected yet.** A practice file shaped like the sheet draws **8** sessions: Completed 3, Confirmed 1, Not complete 2, Cancelled 1, On hold 1. **Performance** still shows the **INCOMPLETE** tile. Coming back to Overview keeps **Production status**.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100626a**. Sign in as Admin. Open **Overview**. The ring on the right should say **Production status**, and the word under the number should say **sessions**. Until the sheet link is added, the line under the title says **The production sheet is not connected yet.** Open **Performance**. The **INCOMPLETE** tile should still be there. The chart on the left of Overview (bookings by day) should still follow the filters.
 
 ## 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
 
