@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100526a';
-const APP_UPDATED_AT = '10/05/2026 16:45';
+const APP_VERSION = '1.3.100526b';
+const APP_UPDATED_AT = '10/05/2026 17:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10341,6 +10341,9 @@ function overviewAssignmentHasTeamCheckIn(a) {
 // already classifies as Done, that row is Completed, not Cancelled.
 // Soft-close without that Done result stays Cancelled. A true
 // Cancel session never classifies as Done, so it stays Cancelled.
+// A past Rescheduled night with no team finish sits with Cancelled,
+// not Incomplete. A Rescheduled night the team actually finished
+// stays Completed (classify already returned completed above).
 function overviewAssignmentIsCancelledForDonut(a) {
   if (!a) return false;
   if (typeof classifyBookingForPerf === 'function'
@@ -10348,6 +10351,15 @@ function overviewAssignmentIsCancelledForDonut(a) {
     return false;
   }
   if (a.status === 'Cancelled') return true;
+  const resched = String(a.status || '').trim().toLowerCase() === 'rescheduled'
+    || String(a.odStatus || '').trim().toLowerCase() === 'rescheduled';
+  if (resched
+      && typeof isPastAssignmentSessionEnd === 'function'
+      && isPastAssignmentSessionEnd(a)
+      && !(typeof isAssignmentTeamHappypathComplete === 'function'
+        && isAssignmentTeamHappypathComplete(a))) {
+    return true;
+  }
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return true;
   if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return true;
@@ -12722,10 +12734,16 @@ function classifyBookingForPerf(a) {
   if (teamDone && pastEnd) return remember('completed');
   // Booked end has passed and the team did not finish. Not Live, not
   // Next, and not Done. Team-cancel already returned above. Soft-close
-  // without a real finish stays hidden. Everything else is Incomplete
-  // so the night stays on the Incomplete tile after the session ends.
+  // without a real finish stays hidden. A past Rescheduled night with
+  // no team finish stays hidden the same way (not Incomplete). A
+  // Rescheduled night the team finished already returned Completed
+  // above. Everything else is Incomplete so the night stays on the
+  // Incomplete tile after the session ends.
   if (pastEnd) {
     if (softClose) return remember(null);
+    const resched = String(a.status || '').trim().toLowerCase() === 'rescheduled'
+      || String(a.odStatus || '').trim().toLowerCase() === 'rescheduled';
+    if (resched) return remember(null);
     return remember('incomplete');
   }
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)

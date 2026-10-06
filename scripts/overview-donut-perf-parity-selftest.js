@@ -2,18 +2,19 @@
 'use strict';
 
 /**
- * Overview donut vs Performance All-time Incomplete (1.3.100526a).
+ * Overview donut vs Performance All-time Incomplete (1.3.100526b).
  *
  * The donut and the Performance Incomplete tile use the same
  * classifier. The donut was also counting bookings whose team had
  * been purged, and it counted a repeated assignment id twice.
  * Performance walks live teams and skips an id it has already seen.
  *
- * All time Incomplete is the late Station 4 night and the arrived-only
- * Rescheduled night. The three purged-team bookings, the old co-mod
- * orphan, and the duplicate id stay out. Today uses the same booking
- * set. This week is a different window on each screen, so it is not
- * compared here.
+ * All time Incomplete is only the late Station 4 night. An arrived-only
+ * past Rescheduled night is not Incomplete. A Rescheduled night the
+ * team finished inside the window stays Completed. The three purged-team
+ * bookings, the old co-mod orphan, and the duplicate id stay out.
+ * Today uses the same booking set. This week is a different window on
+ * each screen, so it is not compared here.
  */
 
 const fs = require('fs');
@@ -33,11 +34,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview donut / Performance Incomplete parity (1.3.100526a)');
+console.log('Overview donut / Performance Incomplete parity (1.3.100526b)');
 
-assert('APP_VERSION 1.3.100526a',
-  /const APP_VERSION = '1\.3\.100526a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100526a'));
+assert('APP_VERSION 1.3.100526b',
+  /const APP_VERSION = '1\.3\.100526b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100526b'));
 
 assert('donut keeps a booking only when its team is still live',
   /function overviewAssignmentTeamIsLive/.test(src)
@@ -92,7 +93,8 @@ const ORPHAN_IDS = [
 const COMOD_ID = 'asgn_old_comod_orphan';
 const TONIGHT_ID = 'od_tonight_20261005';
 const SOFT_ID = 'od_soft_close_unfinished';
-const EXPECT_INCOMPLETE = [ARRIVED_ID, LATE_ID].sort();
+const RESCHED_DONE_ID = 'od_resched_station4_done';
+const EXPECT_INCOMPLETE = [LATE_ID];
 
 const FIXED_NOW = Date.parse('2026-10-05T23:30:00.000Z');
 const RealDate = Date;
@@ -203,6 +205,17 @@ const tonight = {
   odStatus: 'Scheduled',
   modSnapshots: [{ orbitLoginId: 'Matthew-tw' }, { orbitLoginId: 'Pradeepreddy-tw' }],
 };
+const reschedDone = {
+  id: RESCHED_DONE_ID,
+  teamId: 100023,
+  teamName: 'Narendra x Satya',
+  date: '2026-09-20',
+  startMin: 19 * 60,
+  endMin: 2 * 60,
+  status: 'Rescheduled',
+  odStatus: 'Rescheduled',
+  modSnapshots: [{ orbitLoginId: 'Narendra-tw' }, { orbitLoginId: 'Satya-tw' }],
+};
 const softClose = {
   id: SOFT_ID,
   teamId: 100050,
@@ -216,7 +229,7 @@ const softClose = {
 };
 
 const assignments = [
-  late, arrived, orphanTeam01, orphanBig, orphanCancelDemo,
+  late, arrived, reschedDone, orphanTeam01, orphanBig, orphanCancelDemo,
   lateDup, coModOrphan, tonight, softClose,
 ];
 
@@ -301,6 +314,23 @@ const ctx = {
           sessionDate: '2026-09-23',
           sessionStatus: 'arrived',
           arrivedAt: '2026-09-24T03:10:00.000Z',
+        }),
+      }),
+      ssRow({
+        id: 710,
+        orbitLoginId: 'Narendra-tw',
+        assignmentId: RESCHED_DONE_ID,
+        sessionDate: '2026-09-20',
+        sessionStatus: 'station_4_done',
+        lastActive: '2026-09-21T09:30:00.000Z',
+        stateJson: JSON.stringify({
+          sessionDate: '2026-09-20',
+          sessionStatus: 'station_4_done',
+          stationCompletedAt: {
+            Station4: '2026-09-21T09:30:00.000Z',
+            station4: '2026-09-21T09:30:00.000Z',
+          },
+          stations: { station4: stationMap(4) },
         }),
       }),
       ssRow({
@@ -525,9 +555,18 @@ assert('demo check still misses the purged team bookings',
 assert('late Station 4 stays Incomplete',
   ctx.classifyBookingForPerf(late) === 'incomplete',
   ctx.classifyBookingForPerf(late));
-assert('arrived-only Rescheduled stays Incomplete',
-  ctx.classifyBookingForPerf(arrived) === 'incomplete',
+assert('arrived-only past Rescheduled is not Incomplete',
+  ctx.classifyBookingForPerf(arrived) == null,
   ctx.classifyBookingForPerf(arrived));
+assert('odStatus Rescheduled alone is not Incomplete',
+  ctx.classifyBookingForPerf(Object.assign({}, arrived, {
+    id: 'od_status_booked_od_resched',
+    status: 'Booked',
+    odStatus: 'Rescheduled',
+  })) == null);
+assert('finished Rescheduled still counts as Completed',
+  ctx.classifyBookingForPerf(reschedDone) === 'completed',
+  ctx.classifyBookingForPerf(reschedDone));
 assert('tonight is not Incomplete',
   ctx.classifyBookingForPerf(tonight) !== 'incomplete',
   ctx.classifyBookingForPerf(tonight));
@@ -541,14 +580,14 @@ const allMetrics = ctx.computeOverviewMetrics();
 const allPerfIds = perfIncompleteIds();
 const allPerfCounts = ctx.perfStatusToolbarCounts();
 
-assert('All time donut Incomplete ids are the two live-team nights',
+assert('All time donut Incomplete is only the late Station 4 night',
   sameIds(allSlices.incomplete, EXPECT_INCOMPLETE),
   allSlices.incomplete.join(','));
-assert('All time donut Incomplete count is 2',
-  allMetrics.incompleteCount === 2 && allSlices.incomplete.length === 2,
+assert('All time donut Incomplete count is 1',
+  allMetrics.incompleteCount === 1 && allSlices.incomplete.length === 1,
   'metrics=' + allMetrics.incompleteCount + ' ids=' + allSlices.incomplete.join(','));
 assert('All time Performance Incomplete ids match the donut',
-  sameIds(allPerfIds, allSlices.incomplete) && allPerfCounts.incomplete === 2,
+  sameIds(allPerfIds, allSlices.incomplete) && allPerfCounts.incomplete === 1,
   'perf=' + allPerfIds.join(',') + ' count=' + allPerfCounts.incomplete);
 assert('duplicate id is stored twice and counted once',
   assignments.filter(a => a.id === LATE_ID).length === 2
@@ -562,13 +601,14 @@ assert('purged-team bookings and the old co-mod orphan are outside every donut s
     && allSlices.open.indexOf(id) < 0
     && allPerfIds.indexOf(id) < 0
   ));
-assert('All time Open is tonight and Cancelled is the soft-close',
+assert('All time Open is tonight, Cancelled includes the unfinished Rescheduled night, and the finished Rescheduled night is Completed',
   sameIds(allSlices.open, [TONIGHT_ID])
-  && sameIds(allSlices.cancelled, [SOFT_ID])
-  && allSlices.completed.length === 0
+  && sameIds(allSlices.cancelled, [ARRIVED_ID, SOFT_ID])
+  && sameIds(allSlices.completed, [RESCHED_DONE_ID])
   && allMetrics.openCount === 1
-  && allMetrics.cancelledCount === 1
-  && allMetrics.completedCount === 0,
+  && allMetrics.cancelledCount === 2
+  && allMetrics.completedCount === 1
+  && allSlices.incomplete.indexOf(ARRIVED_ID) < 0,
   JSON.stringify(allSlices));
 
 const shared = [

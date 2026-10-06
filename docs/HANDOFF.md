@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-05 · Grok · Overview donut Incomplete matches Performance (1.3.100526a)
+**Last updated:** 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
+
+## 2026-10-05 · Grok · Rescheduled nights stay off Incomplete (1.3.100526b)
+
+**Ask:** David decided a Rescheduled night should not count as Incomplete on the Overview booked chart or on Performance. A Rescheduled night the team actually finished should still say Completed. Keep this on the same pull request. Do not merge until David says push.
+
+**Fix:** After the booked end, a Rescheduled night with no team finish is left off Incomplete. It sits with Cancelled on the booked chart. If someone on that team finished Station 4 in time, that night still says Completed. The chart and Performance All time now share one Incomplete night: Venkata × Adidela (`od_56991291-58d9-42ef-af2a-6f1a7ddcafee`). Narendra × Satya on Sep 23 (`od_3f751074-0fc8-4d85-9a3b-e9f16e77dc39`) is arrived only and Rescheduled, so it is not Incomplete.
+
+**Not done:** Vendor Materials is unchanged. The live site still shows 1.3.100426c until this is merged.
+
+**Version:** **1.3.100526b**. Selftest: `scripts/overview-donut-perf-parity-selftest.js`.
+
+**PR:** draft [#198](https://github.com/DK-Centific/Twilight-Tracker/pull/198) on `cursor/overview-donut-perf-parity-8fc6`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100526b**. Open **Overview** and **Performance** with **All time**. **Incomplete** should match, and it should be the Venkata × Adidela night only. Narendra × Satya on Sep 23 should not be in Incomplete. A Rescheduled night that really finished should still say **Completed**.
 
 ## 2026-10-05 · Grok · Overview donut Incomplete matches Performance (1.3.100526a)
 
