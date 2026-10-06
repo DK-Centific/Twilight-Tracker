@@ -62,7 +62,7 @@ Cloud saves still call the live Power Automate URLs. SessionState Read/Write cur
 
 ### Overview ring
 
-The **Production status** ring on Admin → Overview reads the Google Sheet **Mirror of Parakeet Nighttime Tracker**, tab **Production1**. The sheet is private, so the ring says it is not connected until a counts-only link is pasted into `PRODUCTION1_STATUS_PROXY_URL` in `twilight.js`. Do not publish the whole sheet (it has names and addresses) and do not commit a Google password. Steps: `docs/production1-overview-pie.md`. **Performance** still uses Twilight bookings.
+The **Production status** ring on Admin → Overview reads a counts-only file for the Google Sheet **Mirror of Parakeet Nighttime Tracker**, tab **Production1**. The address is `PRODUCTION1_STATUS_PROXY_URL` in `twilight.js`. That file has status counts only. Do not publish the whole sheet (it has names and addresses) and do not commit a Google password. Steps: `docs/production1-overview-pie.md`. **Performance** still uses Twilight bookings.
 
 ## Files
 

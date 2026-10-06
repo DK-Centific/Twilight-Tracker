@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-06 · Grok · Overview ring reads Production1 status (1.3.100626a)
+**Last updated:** 2026-10-06 · Grok · Overview ring uses the counts-only link (1.3.100626b)
+
+## 2026-10-06 · Grok · Overview ring uses the counts-only link (1.3.100626b)
+
+**Ask:** Point the Overview ring at the counts-only file Power Automate published. No names or addresses. Do not merge until David says push.
+
+**Fix:** The ring now reads `https://dk-centific.github.io/twilight-production1-status/production1-status.json` first, about once a minute. That file lists status counts. A sample of that shape totals **73**: Completed 52, Confirmed 16, Not complete 4, Cancelled 1. Performance is unchanged.
+
+**Not done:** Vendor Materials is unchanged. Not on the live site until this is merged.
+
+**Version:** **1.3.100626b**. Selftest: `scripts/production1-status-donut-selftest.js`.
+
+**PR:** [#199](https://github.com/DK-Centific/Twilight-Tracker/pull/199) on `cursor/production1-overview-pie-6806`. Do **not** merge until David says push. Not on the live site until then.
+
+**Checked:** Local preview, signed in as Admin. Corner **1.3.100626b**. The ring said **Production status**, **73** sessions: Completed 52, Confirmed 16, Not complete 4, Cancelled 1.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100626b**. Sign in as Admin. Open **Overview**. The ring should say **Production status**. The middle number should be about **73**, with Completed, Confirmed, Not complete, and Cancelled. Open **Performance**. The **INCOMPLETE** tile should still be there.
 
 ## 2026-10-06 · Grok · Overview ring reads Production1 status (1.3.100626a)
 

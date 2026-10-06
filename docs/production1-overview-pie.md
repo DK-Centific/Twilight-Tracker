@@ -13,7 +13,11 @@ It does **not** use Twilight bookings. **Performance** is unchanged.
 - A row counts as **one** session when column D (Session Kit) is a real kit and column K (Status) is filled in. The kit number itself is not added up. **Select** and a blank Status are left out.
 - The chart tries again about once a minute while Overview is open.
 
-Until the sheet is connected, the line under the title says **The production sheet is not connected yet.** The middle number stays **0**. That is expected. The sheet is private, and this app must not store a Google password.
+The ring reads this counts-only address first:
+
+`https://dk-centific.github.io/twilight-production1-status/production1-status.json`
+
+That file has status counts only. It does not include names or addresses. The app does not store a Google password. If that address cannot be read, the line under the title says **The production sheet is not connected yet.**
 
 ## How to connect it
 
@@ -37,7 +41,7 @@ Either of these answers is fine:
 { "slices": [ { "status": "Completed", "count": 40 } ] }
 ```
 
-Then paste that flow’s web address into `PRODUCTION1_STATUS_PROXY_URL` in `twilight.js` (it is an empty quote today). Do not paste a Google password or a key file into the repo.
+That address is already stored as `PRODUCTION1_STATUS_PROXY_URL` in `twilight.js`. If the file moves, replace that line with the new address. Do not paste a Google password or a key file into the repo.
 
 The flow must allow the Twilight website to call it (the same kind of open reply the other Twilight flows already use).
 

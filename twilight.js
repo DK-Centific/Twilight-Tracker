@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100626a';
-const APP_UPDATED_AT = '10/06/2026 09:55';
+const APP_VERSION = '1.3.100626b';
+const APP_UPDATED_AT = '10/06/2026 10:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10461,9 +10461,8 @@ const PRODUCTION1_SHEET_GID = '0';
 // Names and addresses stay off the website until a counts-only proxy is set.
 const PRODUCTION1_CSV_URL = 'https://docs.google.com/spreadsheets/d/'
   + PRODUCTION1_SHEET_ID + '/gviz/tq?tqx=out:csv&gid=' + PRODUCTION1_SHEET_GID;
-// Paste a Power Automate (or other) URL here when it can return status
-// counts only. See docs/production1-overview-pie.md. Leave empty until then.
-const PRODUCTION1_STATUS_PROXY_URL = '';
+// Counts only. No names or addresses. Tried before the private sheet link.
+const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json';
 const PRODUCTION1_STATUS_REFRESH_MS = 60 * 1000;
 const PRODUCTION1_SESSION_KIT_COL = 3;
 const PRODUCTION1_STATUS_COL = 10;

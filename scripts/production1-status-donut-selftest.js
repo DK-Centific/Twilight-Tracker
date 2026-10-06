@@ -26,11 +26,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Production1 status donut (1.3.100626a)');
+console.log('Production1 status donut (1.3.100626b)');
 
-assert('APP_VERSION 1.3.100626a',
-  /const APP_VERSION = '1\.3\.100626a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100626a'));
+assert('APP_VERSION 1.3.100626b',
+  /const APP_VERSION = '1\.3\.100626b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100626b'));
 
 const begin = src.indexOf('// PRODUCTION1_STATUS_COUNTS_START');
 const end = src.indexOf('// PRODUCTION1_STATUS_COUNTS_END');
@@ -94,6 +94,19 @@ assert('pre-counted slices still merge status casing',
   fromSlices && fromSlices.total === 5 && fromSlices.slices[0].status === 'Not complete' && fromSlices.slices[0].count === 5,
   JSON.stringify(fromSlices));
 
+const proxyShape = ctx.production1CountsFromFeed(JSON.stringify({
+  slices: [
+    { status: 'Completed', count: 52 },
+    { status: 'Confirmed', count: 16 },
+    { status: 'Not complete', count: 4 },
+    { status: 'Cancelled', count: 1 },
+  ],
+}));
+assert('counts-only proxy slices add up to 73',
+  proxyShape && proxyShape.total === 73
+  && proxyShape.slices.map(s => s.status + ':' + s.count).join(',') === 'Completed:52,Confirmed:16,Not complete:4,Cancelled:1',
+  JSON.stringify(proxyShape));
+
 assert('an HTML login page is not a sheet', ctx.production1CountsFromFeed('<!DOCTYPE html><html></html>') === null);
 assert('Select is not a real kit', ctx.production1KitIsRealSession('Select') === false);
 assert('a numeric kit is one session', ctx.production1KitIsRealSession('12') === true);
@@ -110,8 +123,8 @@ assert('Performance booking donut helper is still in the file',
 assert('the ring refreshes on a short timer',
   src.includes('PRODUCTION1_STATUS_REFRESH_MS = 60 * 1000')
   && src.includes('function startProduction1StatusPoll'));
-assert('no proxy URL is committed',
-  /const PRODUCTION1_STATUS_PROXY_URL = ''/.test(src));
+assert('proxy URL is the counts-only feed',
+  src.includes("const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json'"));
 
 if (failed) {
   console.error(failed + ' failed');
