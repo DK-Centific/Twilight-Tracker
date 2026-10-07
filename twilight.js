@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100726b';
-const APP_UPDATED_AT = '10/07/2026 05:30';
+const APP_VERSION = '1.3.100726c';
+const APP_UPDATED_AT = '10/07/2026 11:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -12905,6 +12905,56 @@ let _perfCancelledScan = null;
 let _perfHappyStore = null;
 let _perfCancelStore = null;
 let _perfFactWatch = { ss: null, ssLen: -2, asg: null, asgLen: -2 };
+// Completed and checklist Cancelled already seen this visit. A later
+// paint with no SessionState rows for that booking must not turn them
+// into Incomplete / Flagged. Rows that are still here and say otherwise
+// clear the note.
+let _perfSettledBookings = null;
+
+function perfSettledBookingsMap() {
+  if (!_perfSettledBookings) _perfSettledBookings = new Map();
+  return _perfSettledBookings;
+}
+
+function perfNoteSettledBooking(a, kind) {
+  if (!a || a.id == null) return;
+  if (kind !== 'completed' && kind !== 'cancelled') return;
+  const map = perfSettledBookingsMap();
+  const key = String(a.id);
+  const prev = map.get(key);
+  if (prev === kind) return;
+  if (prev === 'cancelled') return;
+  if (prev === 'completed' && kind !== 'cancelled') return;
+  map.set(key, kind);
+}
+
+function perfSettledBookingKind(a) {
+  if (!a || a.id == null || !_perfSettledBookings) return '';
+  return _perfSettledBookings.get(String(a.id)) || '';
+}
+
+function perfClearSettledBooking(a) {
+  if (!a || a.id == null || !_perfSettledBookings) return;
+  _perfSettledBookings.delete(String(a.id));
+}
+
+// SessionState is the completion record. The 9 AM strike already
+// refuses to call a Booked night incomplete before that list has
+// loaded. Performance uses the same wait: an empty list that is not
+// a successful read is not Incomplete and not Flagged.
+function perfSettledStatusAwaitingSessionState() {
+  if (typeof adminState === 'undefined' || !adminState) return false;
+  const rows = adminState.perfSessionStateRows;
+  if (Array.isArray(rows) && rows.length > 0) return false;
+  if (adminState._perfSSOk === true) return false;
+  return true;
+}
+
+function perfAssignmentHasHappypathRows(a) {
+  if (!a || typeof assignmentSessionStateRowsForHappypath !== 'function') return false;
+  const rows = assignmentSessionStateRowsForHappypath(a);
+  return !!(rows && rows.length);
+}
 
 function perfFactInputsChanged() {
   const ss = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.perfSessionStateRows))
@@ -12964,7 +13014,10 @@ function classifyBookingForPerf(a) {
   const remember = (v) => { if (_map && _key) _map.set(_key, v); return v; };
   if (_key && _map.has(_key)) return _map.get(_key);
   if (!a) return remember(null);
-  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return remember(null);
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) {
+    if (typeof perfNoteSettledBooking === 'function') perfNoteSettledBooking(a, 'cancelled');
+    return remember(null);
+  }
   // Overnight soft-close writes List status Cancelled with comment
   // od-sync-soft-close so the carousel can move on. That is not a
   // moderator cancel. Done may still count it when the team happypath
@@ -12975,14 +13028,20 @@ function classifyBookingForPerf(a) {
   if (!softClose && typeof assignmentIsModCancelForQueue === 'function' && assignmentIsModCancelForQueue(a)) return remember(null);
   // List Completed is Done. Team-cancel already returned above, including
   // a SessionState Cancelled row, so this does not need another status walk.
-  if (a.status === 'Completed') return remember('completed');
+  if (a.status === 'Completed') {
+    if (typeof perfNoteSettledBooking === 'function') perfNoteSettledBooking(a, 'completed');
+    return remember('completed');
+  }
   // Past sessions only need the team happypath. Skip the live-status
   // walk until a session might still be in its window.
   const pastEnd = (typeof isPastAssignmentSessionEnd === 'function')
     && isPastAssignmentSessionEnd(a);
   const teamDone = (typeof isAssignmentTeamHappypathComplete === 'function')
     && isAssignmentTeamHappypathComplete(a);
-  if (teamDone && pastEnd) return remember('completed');
+  if (teamDone && pastEnd) {
+    if (typeof perfNoteSettledBooking === 'function') perfNoteSettledBooking(a, 'completed');
+    return remember('completed');
+  }
   // Booked end has passed and the team did not finish. Not Live, not
   // Next, and not Done. Team-cancel already returned above. Soft-close
   // without a real finish stays hidden. A past Rescheduled night with
@@ -12995,6 +13054,19 @@ function classifyBookingForPerf(a) {
     const resched = String(a.status || '').trim().toLowerCase() === 'rescheduled'
       || String(a.odStatus || '').trim().toLowerCase() === 'rescheduled';
     if (resched) return remember(null);
+    const settled = (typeof perfSettledBookingKind === 'function') ? perfSettledBookingKind(a) : '';
+    const hasRows = (typeof perfAssignmentHasHappypathRows === 'function')
+      && perfAssignmentHasHappypathRows(a);
+    if ((settled === 'completed' || settled === 'cancelled') && !hasRows) {
+      return remember(settled === 'completed' ? 'completed' : null);
+    }
+    if (settled && hasRows && typeof perfClearSettledBooking === 'function') {
+      perfClearSettledBooking(a);
+    }
+    if (typeof perfSettledStatusAwaitingSessionState === 'function'
+        && perfSettledStatusAwaitingSessionState()) {
+      return remember('scheduled');
+    }
     return remember('incomplete');
   }
   // LIVE / NEXT / DONE CONTRACT (1.3.091821d)
@@ -13030,6 +13102,7 @@ function classifyBookingForPerf(a) {
   if (teamDone) {
     const liveStatus = live ? String(live.status || '').toLowerCase() : '';
     if (liveStatus === 'session_done' || liveStatus === 'office_checkout') {
+      if (typeof perfNoteSettledBooking === 'function') perfNoteSettledBooking(a, 'completed');
       return remember('completed');
     }
   }
@@ -13087,6 +13160,14 @@ function perfLiveStatusDisplay(a) {
     ? getLatestStatusForAssignment(a.id)
     : null;
   if (live && String(live.status || '').toLowerCase() === 'cancelled') {
+    return { key: 'cancelled', label: 'Cancelled' };
+  }
+  if (typeof classifyBookingForPerf === 'function'
+      && classifyBookingForPerf(a) === 'completed') {
+    return { key: 'completed', label: 'Completed' };
+  }
+  if (typeof perfSettledBookingKind === 'function'
+      && perfSettledBookingKind(a) === 'cancelled') {
     return { key: 'cancelled', label: 'Cancelled' };
   }
   // Past end, not team-complete, not cancelled. The row says Incomplete
@@ -13879,6 +13960,12 @@ function isAssignmentFlaggedForPerf(a) {
   if (typeof isPastAssignmentSessionEnd === 'function') {
     if (!isPastAssignmentSessionEnd(a)) return remember(false);
   }
+  const settled = (typeof perfSettledBookingKind === 'function') ? perfSettledBookingKind(a) : '';
+  const hasRows = (typeof perfAssignmentHasHappypathRows === 'function')
+    && perfAssignmentHasHappypathRows(a);
+  if ((settled === 'completed' || settled === 'cancelled') && !hasRows) return remember(false);
+  if (typeof perfSettledStatusAwaitingSessionState === 'function'
+      && perfSettledStatusAwaitingSessionState()) return remember(false);
   if (isAssignmentCompleteForFlagged(a)) return remember(false);
   if (isAssignmentSkipOrResolvedForFlagged(a)) return remember(false);
   // Past 9 AM, a team the auto-strike gate already processed for this

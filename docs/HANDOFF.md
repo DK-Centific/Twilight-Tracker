@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-07 · Grok · Moderator queue drops prior nights after 9 AM (1.3.100726b)
+**Last updated:** 2026-10-07 · Grok · Performance keeps settled Completed and Cancelled (1.3.100726c)
+
+## 2026-10-07 · Grok · Performance keeps settled Completed and Cancelled (1.3.100726c)
+
+**Ask:** Yesterday’s teams were showing Incomplete and Flagged. Venkata × Muhammad and Jashit × Amy should say Completed. Narendra × Pradeepreddy should say Cancelled, with no star taken away. Do not merge until David says push.
+
+**Cause:** Those nights are still Booked on the assignment list (OneData does not hear about a finish or a checklist cancel). Performance treated a past Booked night as Incomplete and Flagged before the session progress list had loaded. The same wrong label came back if that progress list was dropped after the night had already been Completed or Cancelled.
+
+**Fix:** Performance waits for the session progress list before it calls a past Booked night Incomplete or Flagged. The same wait was already used for the 9:00 AM star check. Once a night has been seen as Completed or as a checklist Cancelled, a later paint without those progress rows keeps that status. A night that really never finished still says Incomplete after the list has loaded. OneData Booked echo still does not undo Cancelled or Completed. An already auto-struck team stays off the incomplete alert.
+
+**Not done:** OneData is not written. Vendor Materials is unchanged. Not on the live site until this is merged.
+
+**Version:** **1.3.100726c**. Selftest: `scripts/perf-settled-status-guard-selftest.js`. Cancel echo, soft-close, past incomplete, strike-clear, and happypath checks still pass.
+
+**PR:** on `cursor/perf-settled-status-guard-78fe`. Do **not** merge until David says push.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100726c**. Sign in as Admin. Open **Performance**. Set the date so **October 6** is included. **Venkata × Muhammad** and **Jashit × Amy** should say **Completed**. **Narendra × Pradeepreddy** should say **Cancelled**. None of those three should say **Incomplete** or sit on **Flagged**.
 
 ## 2026-10-07 · Grok · Moderator queue drops prior nights after 9 AM (1.3.100726b)
 
