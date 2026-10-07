@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Moderator cancel-session self-test (1.3.100726a)');
+console.log('Moderator cancel-session self-test (1.3.100726b)');
 
-assert('APP_VERSION 1.3.100726a',
-  /const APP_VERSION = '1\.3\.100726a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100726a'));
+assert('APP_VERSION 1.3.100726b',
+  /const APP_VERSION = '1\.3\.100726b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100726b'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
@@ -197,19 +197,29 @@ function row(date, extra) {
     String([satya, amy][snap].id) === '218', String(snap));
 }
 
-// Incomplete last night still pins when it is not cancelled.
+// Before 9 AM an incomplete last night still pins. After 9 AM it does not.
 {
   const satya = row('2026-09-23', { id: '115', status: 'Rescheduled', teamName: 'Narendra x Satya' });
   const amy = row('2026-09-25', { id: '218', status: 'Booked', teamName: 'Narendra x Amy' });
-  const q = runQueue({
+  const before = runQueue({
     today: '2026-09-24',
-    gateOpen: true,
+    gateOpen: false,
     assignments: [satya, amy],
     getLatestStatusForAssignment: () => ({ status: 'arrived' }),
   });
-  assert('incomplete overnight still pins',
-    q.pin && String(q.pin.id) === '115' && q.ids.indexOf('218') < 0,
-    q.ids.join(',') + ' pin=' + (q.pin && q.pin.id));
+  assert('incomplete overnight still pins before 9 AM',
+    before.pin && String(before.pin.id) === '115' && before.ids.indexOf('218') < 0,
+    before.ids.join(',') + ' pin=' + (before.pin && before.pin.id));
+  const after = runQueue({
+    today: '2026-09-24',
+    gateOpen: true,
+    assignments: [satya, amy],
+    state: { sessionDate: '2026-09-23', arrivedAt: '2026-09-24T06:00:00.000Z' },
+    getLatestStatusForAssignment: () => ({ status: 'arrived' }),
+  });
+  assert('incomplete overnight does not pin after 9 AM',
+    after.ids.indexOf('115') < 0 && (!after.pin || String(after.pin.id) !== '115'),
+    after.ids.join(',') + ' pin=' + (after.pin && after.pin.id));
 }
 
 // Comment prefix drops the pin even if a sync bounce put status back to Booked.
@@ -229,20 +239,31 @@ function row(date, extra) {
     q.ids.join(','));
 }
 
-// Soft-close comment is not a mod cancel.
+// Soft-close comment is not a mod cancel. The 9 AM day gate still
+// removes a prior night from the moderator queue.
 {
   const night = row('2026-09-23', {
     id: 'soft', status: 'Booked', comment: 'od-sync-soft-close',
   });
-  const q = runQueue({
+  const before = runQueue({
+    today: '2026-09-24',
+    gateOpen: false,
+    assignments: [night],
+    getLatestStatusForAssignment: () => ({ status: 'arrived' }),
+  });
+  assert('od-sync-soft-close does not drop an incomplete night before 9 AM',
+    before.ids.indexOf('soft') >= 0 && before.pin && String(before.pin.id) === 'soft'
+    && before.ctx.assignmentIsModCancelForQueue(night) === false,
+    before.ids.join(','));
+  const after = runQueue({
     today: '2026-09-24',
     gateOpen: true,
     assignments: [night],
     getLatestStatusForAssignment: () => ({ status: 'arrived' }),
   });
-  assert('od-sync-soft-close does not drop an incomplete night',
-    q.ids.indexOf('soft') >= 0 && q.pin && String(q.pin.id) === 'soft',
-    q.ids.join(','));
+  assert('after 9 AM that prior night is off the mod queue',
+    after.ids.indexOf('soft') < 0 && after.ctx.assignmentIsModCancelForQueue(night) === false,
+    after.ids.join(','));
 }
 
 // SessionState cancel marker drops the pin without List status Cancelled.

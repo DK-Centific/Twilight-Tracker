@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-07 · Grok · Performance shows checklist Confirm Cancel as Cancelled (1.3.100726a)
+**Last updated:** 2026-10-07 · Grok · Moderator queue drops prior nights after 9 AM (1.3.100726b)
+
+## 2026-10-07 · Grok · Moderator queue drops prior nights after 9 AM (1.3.100726b)
+
+**Ask:** When David opens Narendra, My Session still shows the October 5 night with Amy. After 9:00 AM Pacific, a moderator should only see today’s booking. Older nights, including an unfinished night or an Admin Skip, stay on Admin Performance for review. Do not merge until David says push.
+
+**Cause:** After 9:00 AM, if nothing was booked to start today, the moderator list kept last night until someone finished it. October 5 with Amy is that leftover night. A saved checklist from that night could also stay on screen.
+
+**Fix:** After 9:00 AM Pacific, My Session, the checklist, and the session the moderator is working only use a booking that starts today. A booking later than today can still show as the next one. It does not get chosen because of the old night. Before 9:00 AM, last night can still be the session. Admin Performance, the Cancelled status from Confirm Cancel, soft-close Completed, and Rescheduled staying off Incomplete are unchanged. Activities Today is unchanged.
+
+**Not done:** OneData is not written. Vendor Materials is unchanged. Not on the live site until this is merged.
+
+**Version:** **1.3.100726b**. Selftest: `scripts/mod-overnight-stale-team-selftest.js`. Cancel, soft-close, booking queue, and the Performance Cancelled check still pass.
+
+**PR:** [#200](https://github.com/DK-Centific/Twilight-Tracker/pull/200) on `cursor/perf-mod-cancel-status-1e28`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100726b**. Sign in as the moderator **Narendra**. After **9:00 AM Pacific**, My Session should not show **October 5** or the team with **Amy**. It should show today’s team, or **No session yet** if today has no booking. Sign in as Admin. Open **Performance**. A team that confirmed **Cancel session** should still say **Cancelled**, with no new star taken away.
 
 ## 2026-10-07 · Grok · Performance shows checklist Confirm Cancel as Cancelled (1.3.100726a)
 

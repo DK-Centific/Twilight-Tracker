@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100726a';
-const APP_UPDATED_AT = '10/07/2026 04:20';
+const APP_VERSION = '1.3.100726b';
+const APP_UPDATED_AT = '10/07/2026 05:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -6077,7 +6077,8 @@ function getAssignedOpenSession() {
   const preferToday = !!(gateOpen && hasTodayStart);
   const allow = (a) => {
     if (!isOpen(a)) return false;
-    if (preferToday && today && String(a.date || '') < today) return false;
+    // After 9 AM, never bind Booking / Session / checklist to a prior night.
+    if (gateOpen && today && String(a.date || '') < today) return false;
     if (night && !preferToday && today && String(a.date || '') > today) return false;
     return true;
   };
@@ -58114,8 +58115,9 @@ if (typeof window !== 'undefined') {
 
 /* BOOKING_QUEUE_BEGIN */
 // --- Moderator booking queue (overnight + 9 AM PT gate) ---
-// Aligns with the Performance auto-strike checkpoint: yesterday's session
-// must clear (or pass the gate) before today's next booking surfaces.
+// Before 9 AM PT, last night can still be My Session. After 9 AM the
+// moderator Booking / Session / checklist queue is today only. Prior
+// nights stay on Admin Performance for review.
 
 function assignmentQueueNormalizedEndMin(a) {
   if (!a) return 0;
@@ -58132,8 +58134,9 @@ function assignmentQueueEndCalendarYmd(a) {
 
 // Last-night overnight: start calendar is before today, but the booked
 // window ends on today's calendar (7 PM–2 AM dated on the start night)
-// or the end instant has not passed yet. Incomplete rows stay eligible
-// after 9 AM until wrap-up. A future Booked row is not this.
+// or the end instant has not passed yet. Before 9 AM PT this can still
+// be the moderator's current session. After 9 AM the moderator queue
+// does not keep it. A future Booked row is not this.
 function assignmentIsLastNightOvernight(a, todayStr) {
   if (!a) return false;
   const today = String(todayStr || '');
@@ -58257,26 +58260,28 @@ function assignmentIsModCancelForQueue(a) {
   return false;
 }
 
-// After the booked end, once 9 AM has passed on the next calendar day,
-// a prior start does not stay just because endYmd == yesterday.
-// Last night (end day is today) stays until wrap-up. A cancelled
-// assignment does not stay, so the next Booked row can bind.
+// Before 9 AM PT, last night (end day is today) can stay. After 9 AM
+// the moderator queue is bookings that start today or later. A prior
+// night does not stay because it is incomplete, Admin Skip, or still
+// has checklist activity. Admin Performance still reads those nights.
+// A cancelled assignment does not stay, so the next Booked row can bind.
 function operatorPriorStartStillEligible(a, todayStr, gateOpen) {
   if (!a) return false;
   if (assignmentIsModCancelForQueue(a)) return false;
   const startYmd = String(a.date || '');
   if (!startYmd) return false;
-  if (startYmd >= String(todayStr || '')) return true;
+  const today = String(todayStr || '');
+  if (gateOpen) return startYmd >= today;
+  if (startYmd >= today) return true;
   const endDay = String(
     (typeof assignmentQueueEndCalendarYmd === 'function'
       ? assignmentQueueEndCalendarYmd(a)
       : startYmd) || startYmd
   );
   const floorYmd = (typeof addDaysToYmd === 'function')
-    ? addDaysToYmd(String(todayStr || ''), -1)
+    ? addDaysToYmd(today, -1)
     : '';
   if (floorYmd && endDay < floorYmd) return false;
-  if (gateOpen && endDay < String(todayStr || '')) return false;
   return true;
 }
 
@@ -58367,49 +58372,30 @@ function operatorInProgressAssignment(candidates) {
   // preferToday would be false and SS progress would otherwise pin
   // Amanda (SS 481 Modified 15:58Z > SS 498 06:15Z).
   const list = (candidates || []).filter(a => operatorPriorStartStillEligible(a, today, gateOpen));
-  // Only a booking that STARTS today hides last night. A future Booked
-  // (Sep 25/26) must not.
+  // After 9 AM, prior nights are already gone. A future Booked row
+  // (date > today) must not become the in-progress pin.
   const hasTodayStart = bookingQueueHasTodayStart(list, today);
   const preferTodayStart = !!(gateOpen && hasTodayStart);
-  if (gateOpen && !hasTodayStart) {
-    const nights = list.filter(a => {
-      if (!assignmentIsLastNightOvernight(a, today)) return false;
-      // Wrapped last night is no longer bindable. A future Booked row
-      // may show after that; it must not show before. Cancelled is
-      // already removed by operatorPriorStartStillEligible.
-      try {
-        if (typeof isSessionWrapUpDone === 'function' && isSessionWrapUpDone(a)) return false;
-      } catch (_) {}
-      return true;
-    });
-    if (nights.length) {
-      let best = null;
-      for (const a of nights) {
-        if (operatorOpenRowIsFresher(a, best)) best = a;
-      }
-      if (best) return best;
-    }
-  }
   for (const a of list) {
     if (preferTodayStart && String(a.date || '') < today) continue;
-    // Future never pins ahead of a current row. Newer SessionState
-    // Modified on an older booking must not pin it either.
-    if (gateOpen && String(a.date || '') > today) continue;
+    // Future never pins ahead of a current row, before or after 9 AM.
+    // Newer SessionState on an older booking must not pin it either.
+    if (String(a.date || '') > today) continue;
     if (operatorRowLosesToNewerAssignment(a, list)) continue;
     if (operatorProgressOnAssignment(a)) return a;
   }
   for (const a of list) {
     if (preferTodayStart && String(a.date || '') < today) continue;
-    if (gateOpen && String(a.date || '') > today) continue;
+    if (String(a.date || '') > today) continue;
     if (operatorRowLosesToNewerAssignment(a, list)) continue;
     if (assignmentSessionStartedNotDone(a)) return a;
   }
   const sd = String((state && state.sessionDate) || '').trim();
   if (state && sd && sd < today && !state.sessionCompletedAt) {
-    // Stale sessionDate (SS 481 sessionDate 2026-09-22) must not pin
-    // Amanda when a later Assignment date exists, even though that
-    // later row is also before today (Jodie starts 2026-09-23).
-    if (preferTodayStart) return null;
+    // After 9 AM, activity saved before the gate must not pin a prior
+    // night. Before 9 AM, a stale sessionDate still must not beat a
+    // later Assignment date (Amanda Sep 22 vs Jodie Sep 23).
+    if (gateOpen || preferTodayStart) return null;
     const match = list.find(x => x && String(x.date) === sd);
     if (match && !operatorRowLosesToNewerAssignment(match, list)) {
       try {
@@ -58566,13 +58552,12 @@ function bookingQueueGateBlocker(candidates, todayPst) {
 function applyBookingQueueGate(list, todayPst) {
   const today = String(todayPst || getPSTDateString());
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function') && isPastModStrikeCheckpointHour();
-  const hasTodayStart = bookingQueueHasTodayStart(list, today);
 
-  // After 9 AM PT, a booking that STARTS today scopes My session to
-  // today+ and drops prior-day rows. Future Booked rows (date > today)
-  // must not do that — last night's incomplete overnight stays until
-  // wrap-up. Before 9 AM: keep that overnight as the live session.
-  const scoped = (gateOpen && hasTodayStart)
+  // After 9 AM PT the moderator queue is today or later. Prior nights
+  // drop even when nothing starts today, and even when that night is
+  // still incomplete or Admin Skip. Future rows stay as upcoming.
+  // Before 9 AM, last night stays the live session.
+  const scoped = gateOpen
     ? (list || []).filter(a => a && String(a.date || '') >= today)
     : (list || []);
 
@@ -58609,9 +58594,9 @@ function operatorCarouselCandidateAssignments() {
     } catch (_) {}
     const startYmd = String(a.date || '');
     if (!startYmd) return;
-    // After booked end + 9 AM on the next calendar day, endYmd == yesterday
-    // does not keep a prior start (Amanda Sep 22 → end Sep 23 on Sep 24).
-    // Last night (end day === today) stays until wrap-up.
+    // After 9 AM, a start before today is out (Oct 5 Amy on the next
+    // morning). Before 9 AM, last night can stay. Older than that floor
+    // is already out (Amanda Sep 22 on Sep 24).
     const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
       && isPastModStrikeCheckpointHour();
     if (!operatorPriorStartStillEligible(a, todayStr, gateOpen)) return;
@@ -58628,10 +58613,9 @@ function operatorCarouselCandidateAssignments() {
   return applyBookingQueueGate(sequenced, todayStr);
 }
 
-// Sticky carousel index must not keep a future Booked row (Amy Sep 25,
-// Manpreet Sep 26) or a dropped leftover (Isaiah / Zekelia) while last
-// night's incomplete overnight is the pin. A hydrate that arrives late
-// must not leave the old index in place.
+// Sticky carousel index must not keep a prior night after 9 AM, or a
+// future Booked row while an earlier open row is the pin. A hydrate
+// that arrives late must not leave the old index in place.
 function reconcileOperatorCarouselIdx(all, idx) {
   const list = all || [];
   if (!list.length) return 0;
@@ -58641,6 +58625,7 @@ function reconcileOperatorCarouselIdx(all, idx) {
   const firstOpenIdx = () => list.findIndex(a => a && !assignmentIsModCancelForQueue(a));
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
     && isPastModStrikeCheckpointHour();
+  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
   if (!gateOpen) {
     if (!shownCancelled) return clamped;
     const nextOpen = firstOpenIdx();
@@ -58649,6 +58634,15 @@ function reconcileOperatorCarouselIdx(all, idx) {
   const preferred = (typeof operatorOpenBookingAssignment === 'function')
     ? operatorOpenBookingAssignment(list)
     : null;
+  if (today && shownEarly && String(shownEarly.date || '') < today) {
+    if (preferred && String(preferred.date || '') >= today) {
+      const priorPref = list.findIndex(a => a && String(a.id) === String(preferred.id));
+      if (priorPref >= 0) return priorPref;
+    }
+    const nextToday = list.findIndex(a =>
+      a && String(a.date || '') >= today && !assignmentIsModCancelForQueue(a));
+    if (nextToday >= 0) return nextToday;
+  }
   if (!preferred) {
     if (!shownCancelled) return clamped;
     const nextOpen = firstOpenIdx();
@@ -58659,7 +58653,6 @@ function reconcileOperatorCarouselIdx(all, idx) {
   const shown = list[clamped];
   if (shownCancelled) return prefIdx;
   if (!shown || String(shown.id) === String(preferred.id)) return prefIdx;
-  const today = (typeof getPSTDateString === 'function') ? String(getPSTDateString() || '') : '';
   if (String(shown.date || '') !== String(preferred.date || '')) return prefIdx;
   if (today && String(shown.date || '') > today) return prefIdx;
   return clamped;
@@ -58667,6 +58660,11 @@ function reconcileOperatorCarouselIdx(all, idx) {
 
 function operatorHasOvernightSessionInProgress(todayPst) {
   const today = String(todayPst || getPSTDateString());
+  const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
+    && isPastModStrikeCheckpointHour();
+  // After 9 AM, a saved sessionDate from last night must not keep that
+  // checklist or block the switch onto today's booking.
+  if (gateOpen) return false;
   const sd = String((state && state.sessionDate) || '').trim();
   if (!state || !sd || sd >= today || state.sessionCompletedAt) return false;
   return true;
@@ -58809,9 +58807,9 @@ function defaultCarouselIdx(assignments) {
   const todayStr = getPSTDateString();  // PST team-reference day (see getOperatorCarouselAssignments)
   const gateOpen = (typeof isPastModStrikeCheckpointHour === 'function')
     && isPastModStrikeCheckpointHour();
-  // Last night's overnight (start date is yesterday, end day is today)
-  // beats a future Booked row. Do not land on Sep 25/26 first.
-  if (gateOpen && typeof assignmentIsLastNightOvernight === 'function') {
+  // Before 9 AM, last night beats a future Booked row. After 9 AM the
+  // queue is today only, so do not land on a prior night.
+  if (!gateOpen && typeof assignmentIsLastNightOvernight === 'function') {
     let bestIdx = -1;
     let best = null;
     assignments.forEach((a, i) => {
@@ -58837,6 +58835,11 @@ function defaultCarouselIdx(assignments) {
 function renderMySessionSection() {
   const el = document.getElementById('mySessionSection');
   if (!el) return;
+  // After 9 AM, drop a restored Oct 5 checklist before the welcome
+  // page and stations paint. The admin progress mirror must not reset.
+  try {
+    if (typeof maybeResetStaleSession === 'function') maybeResetStaleSession();
+  } catch (_) {}
   // Filter out terminal-status assignments (Cancelled / Unassigned) from
   // the sidebar's "Upcoming session" view. Cancelled sessions used to
   // still appear here (greyed-out with a banner) because the carousel
@@ -59818,6 +59821,7 @@ function resetOperatorSessionState(opts) {
 // theme, and equipment, and refilling the entry fields from today's
 // assignment via resetOperatorSessionState(). Returns true if it reset.
 function maybeResetStaleSession() {
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) return false;
   if (!state || !state.modProfile || !state.modProfile.orbitLoginId) return false;
   const today = getPSTDateString();
   const sd = state.sessionDate || '';

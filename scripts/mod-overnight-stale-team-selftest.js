@@ -47,9 +47,9 @@ function extractFn(name) {
 
 console.log('Moderator overnight stale-team self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.100726a',
-  /const APP_VERSION = '1\.3\.100726a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100726a'));
+assert('APP_VERSION 1.3.100726b',
+  /const APP_VERSION = '1\.3\.100726b'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100726b'));
 
 const parseCtx = { console, String, parseInt };
 vm.createContext(parseCtx);
@@ -105,10 +105,9 @@ function idStr(row) {
 
 // Narendra-tw — calendar today 2026-09-24 after 9 AM PT.
 // Id116 Booked leftover ends Sep 23 → DROP.
-// Id115 Rescheduled last night stays bindable (incomplete).
-// Id218 Sep 25 is date>=today and must not arm the today-start scope.
-// SS481 Modified is newer than SS498. SS494 (Isaiah orbit on the Satya
-// schedule) is not a pin.
+// Id115 last night is prior and must not stay on the mod queue.
+// Id218 Sep 25 may remain as a future row but must not be the pin.
+// SS481 Modified is newer than SS498. SS494 is not a pin.
 {
   const row116 = rowFromAssignedDate('2026-09-22 8 PM – 3 AM', {
     id: 116, status: 'Booked', odStatus: 'Scheduled', teamName: 'Narendra x Isaiah',
@@ -169,18 +168,15 @@ function idStr(row) {
     && !q.ctx.assignmentIsLastNightOvernight(row116, '2026-09-24'));
   assert('Id218 date>=today does not arm today-start',
     !q.ctx.bookingQueueHasTodayStart(assignments, '2026-09-24'));
-  assert('Narendra: Id115 Satya is selected and bindable',
-    q.ids.map(String).indexOf('115') >= 0
-    && idStr(q.pin) === '115'
-    && q.pin.teamName === 'Narendra x Satya'
-    && String(q.pin.odScheduleId).indexOf('3f751074') === 0,
-    JSON.stringify(q.ids));
+  assert('Narendra: Id115 Satya is not on the mod queue after 9 AM',
+    q.ids.map(String).indexOf('115') < 0 && idStr(q.pin) !== '115' && idStr(q.rawPin) !== '115',
+    JSON.stringify(q.ids) + ' pin=' + idStr(q.pin));
   assert('Narendra: Id116 Isaiah leftover is dropped',
     q.ids.map(String).indexOf('116') < 0, JSON.stringify(q.ids));
-  assert('Narendra: Id218 Amy does not steal the pin',
-    idStr(q.pin) !== '218' && q.ids.map(String)[0] !== '218', JSON.stringify(q.ids));
+  assert('Narendra: Id218 Amy does not become the in-progress pin',
+    idStr(q.pin) !== '218' && idStr(q.rawPin) !== '218', JSON.stringify(q.ids));
   assert('Narendra: SS481 newer Modified does not pin Id116',
-    idStr(q.rawPin) === '115' && idStr(q.rawPin) !== '116',
+    idStr(q.rawPin) !== '116',
     idStr(q.rawPin));
   assert('Narendra: SS494 Isaiah orbit is not the pin',
     idStr(q.pin) !== '494' && idStr(q.rawPin) !== '116');
@@ -188,10 +184,12 @@ function idStr(row) {
   const idx218 = assignments.findIndex(a => String(a.id) === '218');
   const snapFromIsaiah = q.ctx.reconcileOperatorCarouselIdx(assignments, idx116);
   const snapFromAmy = q.ctx.reconcileOperatorCarouselIdx(assignments, idx218);
-  assert('sticky index on Id116 snaps to Id115',
-    String(assignments[snapFromIsaiah].id) === '115', String(snapFromIsaiah));
-  assert('sticky index on Id218 snaps to Id115',
-    String(assignments[snapFromAmy].id) === '115', String(snapFromAmy));
+  assert('sticky index on Id116 does not stay on a prior night',
+    String(assignments[snapFromIsaiah].id) !== '116'
+    && String(assignments[snapFromIsaiah].id) !== '115',
+    String(assignments[snapFromIsaiah].id));
+  assert('sticky index on Id218 does not land on Satya',
+    String(assignments[snapFromAmy].id) !== '115', String(snapFromAmy));
 }
 
 // Pradeepreddy-tw smoking gun — Id217 Sep 26 must not drop Id227.
@@ -223,24 +221,26 @@ function idStr(row) {
       return null;
     },
   });
-  assert('Pradeepreddy: Id217 present and Id227 still selected',
+  assert('Pradeepreddy: Id227 last night is off the mod queue after 9 AM',
     assignments.some(a => String(a.id) === '217')
-    && idStr(q.pin) === '227'
-    && q.ids.map(String).indexOf('227') >= 0,
+    && q.ids.map(String).indexOf('227') < 0
+    && idStr(q.pin) !== '227'
+    && idStr(q.rawPin) !== '227',
     JSON.stringify(q.ids));
   assert('Pradeepreddy: Id149 never wins',
     q.ids.map(String).indexOf('149') < 0 && idStr(q.pin) !== '149' && idStr(q.rawPin) !== '149',
     JSON.stringify(q.ids) + ' pin=' + idStr(q.pin));
   assert('Pradeepreddy: SS511 does not pin Id217',
-    idStr(q.rawPin) === '227' && idStr(q.pin) !== '217', idStr(q.rawPin));
+    idStr(q.rawPin) !== '217' && idStr(q.pin) !== '217', idStr(q.rawPin));
   assert('Id217 date>=today does not arm today-start',
     !q.ctx.bookingQueueHasTodayStart(assignments, '2026-09-24'));
   const idx149 = assignments.findIndex(a => String(a.id) === '149');
   const idx217 = assignments.findIndex(a => String(a.id) === '217');
-  assert('sticky index on Id149 snaps to Id227',
-    String(assignments[q.ctx.reconcileOperatorCarouselIdx(assignments, idx149)].id) === '227');
-  assert('sticky index on Id217 snaps to Id227',
-    String(assignments[q.ctx.reconcileOperatorCarouselIdx(assignments, idx217)].id) === '227');
+  assert('sticky index on Id149 does not stay on a prior night',
+    String(assignments[q.ctx.reconcileOperatorCarouselIdx(assignments, idx149)].id) !== '149'
+    && String(assignments[q.ctx.reconcileOperatorCarouselIdx(assignments, idx149)].id) !== '227');
+  assert('sticky index on Id217 does not land on Id227',
+    String(assignments[q.ctx.reconcileOperatorCarouselIdx(assignments, idx217)].id) !== '227');
 
   const teamCtx = {
     console, String, Object,
@@ -254,7 +254,7 @@ function idStr(row) {
   };
   vm.createContext(teamCtx);
   vm.runInContext(extractFn('teamForAssignment'), teamCtx);
-  const labeled = teamCtx.teamForAssignment(Object.assign({}, q.pin, { teamId: 100227 }));
+  const labeled = teamCtx.teamForAssignment(Object.assign({}, row227, { teamId: 100227 }));
   assert('team label matches Id227 Assignment team',
     labeled && labeled.name === 'Adidela x Pradeepreddy', labeled && labeled.name);
 
@@ -283,13 +283,22 @@ function idStr(row) {
   };
   const q = runQueue({
     today: '2026-09-24',
-    gateOpen: true,
+    gateOpen: false,
     assignments: [older, newer],
     state: { sessionDate: '2026-09-23', arrivedAt: '2026-09-24T01:00:00.000Z' },
     getMyLatestStatusForAssignment: (id) => (id === 'older-booked' ? { status: 'arrived' } : null),
   });
   assert('newer Rescheduled beats older Booked on the same night',
     q.ids[0] === 'newer-resched' && !q.ids.includes('older-booked'), JSON.stringify(q.ids));
+  const afterGate = runQueue({
+    today: '2026-09-24',
+    gateOpen: true,
+    assignments: [older, newer],
+    state: { sessionDate: '2026-09-23', arrivedAt: '2026-09-24T01:00:00.000Z' },
+  });
+  assert('after 9 AM that prior night is off the mod queue',
+    afterGate.ids.indexOf('newer-resched') < 0 && afterGate.ids.indexOf('older-booked') < 0,
+    JSON.stringify(afterGate.ids));
 }
 
 // Same start clock. Booked row carries the newer timestamp. Rescheduled still wins.
@@ -306,7 +315,7 @@ function idStr(row) {
   };
   const q = runQueue({
     today: '2026-09-24',
-    gateOpen: true,
+    gateOpen: false,
     assignments: [booked, resched],
     getLatestStatusForAssignment: (id) => (id === 'tie-booked'
       ? { status: 'arrived', lastActive: '2026-09-24T15:58:54Z' }
@@ -365,6 +374,55 @@ function idStr(row) {
   assert('matching TeamLog name is kept',
     agree && agree.name === 'Narendra x Isaiah' && agree.primaryIds && agree.primaryIds.length === 2,
     agree && agree.name);
+}
+
+// Oct 6 after 9 AM: Narendra's Oct 5 Amy night must not show, even when
+// it is incomplete, Admin Skip, and local activity is still on that night.
+// A booking that starts today stays. Before 9 AM, Oct 5 can still bind.
+{
+  const amy = {
+    id: 'oct5-amy', date: '2026-10-05', startMin: PM7, endMin: AM2,
+    status: 'Booked', teamName: 'Narendra x Amy', _adminSkip: true,
+  };
+  const todayTeam = {
+    id: 'oct6-today', date: '2026-10-06', startMin: PM7, endMin: AM2,
+    status: 'Booked', teamName: 'Narendra x Rohith',
+  };
+  const after = runQueue({
+    today: '2026-10-06',
+    gateOpen: true,
+    assignments: [amy, todayTeam],
+    state: { sessionDate: '2026-10-05', arrivedAt: '2026-10-06T06:00:00.000Z' },
+    getLatestStatusForAssignment: (id) => (String(id) === 'oct5-amy' ? { status: 'arrived' } : null),
+    getMyLatestStatusForAssignment: (id) => (String(id) === 'oct5-amy' ? { status: 'arrived' } : null),
+  });
+  assert('after 9 AM Oct 5 Amy is not in the mod queue',
+    after.ids.indexOf('oct5-amy') < 0 && idStr(after.pin) !== 'oct5-amy' && idStr(after.rawPin) !== 'oct5-amy',
+    JSON.stringify(after.ids) + ' pin=' + idStr(after.pin));
+  assert('after 9 AM today team stays',
+    after.ids.indexOf('oct6-today') >= 0 && after.ids.indexOf('oct5-amy') < 0,
+    JSON.stringify(after.ids) + ' pin=' + idStr(after.pin));
+  const onlyPrior = runQueue({
+    today: '2026-10-06',
+    gateOpen: true,
+    assignments: [amy],
+    state: { sessionDate: '2026-10-05', arrivedAt: '2026-10-06T06:00:00.000Z' },
+    getLatestStatusForAssignment: () => ({ status: 'arrived' }),
+  });
+  assert('after 9 AM Oct 5 Amy is absent even with no today booking',
+    onlyPrior.ids.indexOf('oct5-amy') < 0 && idStr(onlyPrior.pin) !== 'oct5-amy',
+    JSON.stringify(onlyPrior.ids));
+  assert('after 9 AM prior sessionDate does not count as overnight in progress',
+    onlyPrior.ctx.operatorHasOvernightSessionInProgress('2026-10-06') === false);
+  const before = runQueue({
+    today: '2026-10-06',
+    gateOpen: false,
+    assignments: [amy, todayTeam],
+    state: { sessionDate: '2026-10-05', arrivedAt: '2026-10-06T06:00:00.000Z' },
+  });
+  assert('before 9 AM Oct 5 Amy can still bind',
+    before.ids.indexOf('oct5-amy') >= 0 && before.ids.indexOf('oct6-today') < 0,
+    JSON.stringify(before.ids));
 }
 
 console.log(failed ? ('FAILED ' + failed) : 'All checks passed');
