@@ -14,7 +14,7 @@
 
 **Version:** **1.3.100726c**. Selftest: `scripts/perf-settled-status-guard-selftest.js`. Cancel echo, soft-close, past incomplete, strike-clear, and happypath checks still pass.
 
-**PR:** on `cursor/perf-settled-status-guard-78fe`. Do **not** merge until David says push.
+**PR:** [#201](https://github.com/DK-Centific/Twilight-Tracker/pull/201) on `cursor/perf-settled-status-guard-78fe`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100726c**. Sign in as Admin. Open **Performance**. Set the date so **October 6** is included. **Venkata × Muhammad** and **Jashit × Amy** should say **Completed**. **Narendra × Pradeepreddy** should say **Cancelled**. None of those three should say **Incomplete** or sit on **Flagged**.
 
