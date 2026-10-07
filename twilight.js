@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.100626b';
-const APP_UPDATED_AT = '10/06/2026 10:15';
+const APP_VERSION = '1.3.100726a';
+const APP_UPDATED_AT = '10/07/2026 04:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10398,6 +10398,7 @@ function overviewAssignmentInDonutBookedScope(a) {
   if (!a) return false;
   if (a.status === 'Unassigned') return false;
   if (typeof assignmentIsDemoBooking === 'function' && assignmentIsDemoBooking(a)) return false;
+  if (typeof assignmentIsModCancelEchoDuplicate === 'function' && assignmentIsModCancelEchoDuplicate(a)) return false;
   if (!overviewAssignmentTeamIsLive(a)) return false;
   return true;
 }
@@ -12761,6 +12762,8 @@ function sessionStateRowSaysCancelled(row) {
   } catch (_) { parsed = null; }
   if (!parsed || typeof parsed !== 'object') return false;
   if (String(parsed.sessionStatus || '').trim().toLowerCase() === 'cancelled') return true;
+  if (parsed.checklistCleared === true) return true;
+  if (parsed.sessionCancelledAt) return true;
   if (typeof assignmentCommentIsModCancel === 'function'
       && assignmentCommentIsModCancel(parsed.cancelComment)) return true;
   return false;
@@ -12785,7 +12788,83 @@ function assignmentSessionStateSaysCancelled(a) {
 function perfBookingFactKey(a) {
   return String(a.id) + '\n' + String(a.status || '') + '\n' + String(a.comment || '') + '\n'
     + String(a.date || '') + '\n' + String(a.startMin == null ? '' : a.startMin) + '\n'
-    + String(a.endMin == null ? '' : a.endMin);
+    + String(a.endMin == null ? '' : a.endMin) + '\n' + String(a.odScheduleId || '');
+}
+
+// Same OneData schedule, or the same team night when only one of the
+// rows has a schedule id. Two different schedule ids are different
+// sessions even when the team and start match.
+function assignmentSameModCancelSlot(a, b) {
+  if (!a || !b || a === b) return false;
+  if (a.id != null && b.id != null && String(a.id) === String(b.id)) return false;
+  const odA = String(a.odScheduleId || '').trim();
+  const odB = String(b.odScheduleId || '').trim();
+  if (odA && odB) return odA === odB;
+  const teamA = a.teamId != null && a.teamId !== '' ? String(a.teamId) : '';
+  const teamB = b.teamId != null && b.teamId !== '' ? String(b.teamId) : '';
+  if (!teamA || teamA !== teamB) return false;
+  if (String(a.date || '').slice(0, 10) !== String(b.date || '').slice(0, 10)) return false;
+  if (a.startMin == null || b.startMin == null) return false;
+  return Number(a.startMin) === Number(b.startMin);
+}
+
+function assignmentRowHasDirectModCancel(a) {
+  if (!a) return false;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return true;
+  if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return true;
+  return false;
+}
+
+function assignmentListsForModCancelSlot() {
+  const lists = [];
+  if (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments)) {
+    lists.push(adminState.assignments);
+  }
+  if (typeof loadAssignmentHistoryLedger === 'function') {
+    try {
+      const ledger = loadAssignmentHistoryLedger();
+      if (Array.isArray(ledger) && ledger.length) lists.push(ledger);
+    } catch (_) {}
+  }
+  return lists;
+}
+
+// Another row for this same team session was confirmed Cancel in the
+// checklist. A later OneData echo (status Booked, comment od-sync) must
+// not bring the night back as Live or Incomplete.
+function assignmentSlotHasModCancel(a) {
+  if (!a) return false;
+  const lists = assignmentListsForModCancelSlot();
+  for (let li = 0; li < lists.length; li++) {
+    const list = lists[li];
+    for (let i = 0; i < list.length; i++) {
+      const other = list[i];
+      if (!assignmentSameModCancelSlot(a, other)) continue;
+      if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(other.comment)) return true;
+      if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(other)) return true;
+    }
+  }
+  return false;
+}
+
+function assignmentLiveSiblingHasModCancel(a) {
+  if (!a || typeof adminState === 'undefined' || !adminState || !Array.isArray(adminState.assignments)) return false;
+  const list = adminState.assignments;
+  for (let i = 0; i < list.length; i++) {
+    const other = list[i];
+    if (!assignmentSameModCancelSlot(a, other)) continue;
+    if (assignmentRowHasDirectModCancel(other)) return true;
+  }
+  return false;
+}
+
+// The checklist cancel row is the one to show. A second Booked echo for
+// the same schedule would otherwise count again as Live or Incomplete.
+function assignmentIsModCancelEchoDuplicate(a) {
+  if (!a) return false;
+  if (typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a)) return false;
+  if (assignmentRowHasDirectModCancel(a)) return false;
+  return assignmentLiveSiblingHasModCancel(a);
 }
 
 function perfAssignmentIsTeamCancelled(a) {
@@ -12796,6 +12875,9 @@ function perfAssignmentIsTeamCancelled(a) {
   if (a) {
     if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) result = true;
     else if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) result = true;
+    else if (!(typeof assignmentIsOdSoftClose === 'function' && assignmentIsOdSoftClose(a))
+        && typeof assignmentSlotHasModCancel === 'function'
+        && assignmentSlotHasModCancel(a)) result = true;
   }
   if (_key) _map.set(_key, result);
   return result;
@@ -12985,6 +13067,11 @@ function perfLiveStatusDisplay(a) {
       && typeof classifyBookingForPerf === 'function'
       && classifyBookingForPerf(a) === 'completed') {
     return { key: 'completed', label: 'Completed' };
+  }
+  // Checklist Confirm Cancel, including when a later OneData echo left
+  // this row Booked. Soft-close + happypath already returned Completed.
+  if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) {
+    return { key: 'cancelled', label: 'Cancelled' };
   }
   if (a.status === 'Cancelled')  return { key: 'cancelled', label: 'Cancelled' };
   if (a.status === 'Unassigned') return { key: 'cancelled', label: 'Unassigned' };
@@ -15138,6 +15225,7 @@ function perfTeamAssignmentsForSource(teamId, source, opts) {
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     if (!a) continue;
+    if (typeof assignmentIsModCancelEchoDuplicate === 'function' && assignmentIsModCancelEchoDuplicate(a)) continue;
     if (dateFirst && range !== 'all' && typeof perfDateInRange === 'function' && !perfDateInRange(a, range)) continue;
     if ((typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a))
         || classifyBookingForPerf(a)) visible.push(a);
@@ -15186,6 +15274,7 @@ function perfModAssignmentsForSource(modOrbitId, source, opts) {
   for (let i = 0; i < matched.length; i++) {
     const a = matched[i];
     if (!a) continue;
+    if (typeof assignmentIsModCancelEchoDuplicate === 'function' && assignmentIsModCancelEchoDuplicate(a)) continue;
     if (dateFirst && range !== 'all' && typeof perfDateInRange === 'function' && !perfDateInRange(a, range)) continue;
     if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) {
       visible.push(a);
@@ -15230,6 +15319,7 @@ function perfMergeTeamCancelledBookings(list, pred) {
   for (let i = 0; i < scan.length; i++) {
     const a = scan[i];
     if (!a || a.id == null || seen.has(String(a.id))) continue;
+    if (typeof assignmentIsModCancelEchoDuplicate === 'function' && assignmentIsModCancelEchoDuplicate(a)) continue;
     if (pred && !pred(a)) continue;
     if (!prefiltered && (typeof perfAssignmentIsTeamCancelled !== 'function' || !perfAssignmentIsTeamCancelled(a))) continue;
     seen.add(String(a.id));
@@ -22394,7 +22484,8 @@ function shouldReplaceLocalGeoPing(existing, incoming) {
 function isSilentGeoSaveReason(reason) {
   const key = String(reason || '');
   return key === 'inflight' || key === 'nochange'
-    || key === 'refuse-regressive' || key === 'refuse-empty-beacon' || key === 'refuse-empty-resume';
+    || key === 'refuse-regressive' || key === 'refuse-empty-beacon' || key === 'refuse-empty-resume'
+    || key === 'refuse-cancel-overwrite';
 }
 
 function shouldWaitForSessionStateInflight(opts) {
@@ -30926,6 +31017,12 @@ async function fetchAssignmentsFromPA() {
           g.status = r.status;
           if (r.comment) g.comment = r.comment;
         }
+      }
+      // A later OneData echo (comment od-sync, status Booked/Scheduled)
+      // must not erase a checklist Confirm Cancel on this same assignment.
+      // An admin revive writes Booked with an empty comment and still wins.
+      if (typeof applyAssignmentGroupModCancelStick === 'function') {
+        applyAssignmentGroupModCancelStick(g, r);
       }
       // STRICTLY OLDER rows (rowTs < groupTs): they're historical, do
       // NOT touch g.status. Their mods might still be useful below if
@@ -46437,6 +46534,16 @@ async function persistModeratorCancelSession(asgn) {
     if (typeof clearOperatorProgressForNewBooking === 'function') {
       clearOperatorProgressForNewBooking('mod-cancel-session');
     }
+    // The clear above blanks sessionStatus. Put the cancel markers back
+    // so the next checklist save posts the wipe again instead of an
+    // empty shell that drops Cancelled on Performance.
+    if (typeof state !== 'undefined' && state) {
+      state.sessionStatus = 'Cancelled';
+      state.cancelComment = comment;
+      state.checklistCleared = true;
+      state.sessionCancelledAt = iso;
+      state.sessionCancelledBy = actor || '';
+    }
     if (typeof state !== 'undefined' && state) {
       state.equipment = state.equipment && typeof state.equipment === 'object' ? state.equipment : {};
       Object.keys(state.equipment).forEach(k => { state.equipment[k] = false; });
@@ -48163,6 +48270,10 @@ function extractSyncableState(s) {
     // modal to show the "Today's session is completed" prompt.
     sessionCompletedAt: s.sessionCompletedAt || null,
     sessionStatus: s.sessionCompletedAt ? 'session_done' : (s.sessionStatus || ''),
+    cancelComment: s.cancelComment || '',
+    checklistCleared: s.checklistCleared === true,
+    sessionCancelledAt: s.sessionCancelledAt || '',
+    sessionCancelledBy: s.sessionCancelledBy || '',
     stationCompletedAt: s.stationCompletedAt || {},
     // Arrival marker · useful for teammates to know "the team is
     // on-site, not still en route." Synced to cloud so teammates
@@ -49800,6 +49911,37 @@ function resolveSessionStateLastGoodBaseline(asgnId, opts) {
   return { source: first.source, syncable: first.syncable, score: emptyScore, hasRealProgress: false, knownEmpty: true };
 }
 
+// True when this assignment id's last good SessionState is a checklist
+// cancel and the List row has not been explicitly revived. An od-sync
+// Booked echo is not a revive.
+function assignmentWriteMayReplaceModCancel(asgnId) {
+  const id = String(asgnId || '');
+  if (!id) return false;
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  let hit = null;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].id) === id) { hit = list[i]; break; }
+  }
+  if (!hit) return false;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(hit.comment)) return false;
+  if (String(hit.status || '') === 'Cancelled') return false;
+  const plain = (typeof assignmentCommentPlainForMarker === 'function')
+    ? assignmentCommentPlainForMarker(hit.comment)
+    : String(hit.comment || '').trim();
+  if (plain.indexOf('od-sync') === 0) return false;
+  return true;
+}
+
+function sessionStateBaselineIsProtectedModCancel(asgnId, opts) {
+  if (typeof resolveSessionStateLastGoodBaseline !== 'function') return false;
+  if (typeof sessionStateBlobIsModCancelWipe !== 'function') return false;
+  const baseline = resolveSessionStateLastGoodBaseline(asgnId, opts || {});
+  if (!baseline || !baseline.syncable || !sessionStateBlobIsModCancelWipe(baseline.syncable)) return false;
+  if (assignmentWriteMayReplaceModCancel(asgnId)) return false;
+  return true;
+}
+
 // Refuse when this payload is an empty shell and the same assignment
 // still has real progress. Allowed on purpose: moderator Cancel,
 // Admin heal force, and a confirmed Reset. A brand-new booking is
@@ -49812,6 +49954,12 @@ function sessionStateRegressiveWriteDecision(localSyncable, asgnId, opts) {
   if (opts.confirmedReset) return { refuse: false, reason: 'confirmed-reset' };
   if (typeof sessionStateBlobIsModCancelWipe === 'function' && sessionStateBlobIsModCancelWipe(local)) {
     return { refuse: false, reason: 'mod-cancel' };
+  }
+  // A later empty shell or co-mod heartbeat must not replace a checklist
+  // cancel. Admin revive (Booked, comment not od-sync) may write again.
+  if (typeof sessionStateBaselineIsProtectedModCancel === 'function'
+      && sessionStateBaselineIsProtectedModCancel(asgnId, opts)) {
+    return { refuse: true, reason: 'refuse-cancel-overwrite' };
   }
   if (!sessionStateIsEmptyOrRegressiveShell(local)) {
     return { refuse: false, reason: 'not-empty-shell' };
@@ -58061,6 +58209,26 @@ function assignmentCommentPlainForMarker(comment) {
 
 function assignmentCommentIsModCancel(comment) {
   return assignmentCommentPlainForMarker(comment).indexOf('mod-cancel-session') >= 0;
+}
+
+// Newest Excel row is an OneData echo, and an older row in the same
+// assignment group is the checklist Confirm Cancel. Keep Cancelled.
+// od-sync-soft-close also starts with od-sync, so a later soft-close
+// does not erase a real mod-cancel. An empty comment (admin revive)
+// does not start with od-sync and is left alone.
+function assignmentOdEchoShouldYieldToModCancel(winningComment, olderComment) {
+  if (typeof assignmentCommentIsModCancel !== 'function' || !assignmentCommentIsModCancel(olderComment)) return false;
+  if (assignmentCommentIsModCancel(winningComment)) return false;
+  const plain = assignmentCommentPlainForMarker(winningComment);
+  return plain.indexOf('od-sync') === 0;
+}
+
+function applyAssignmentGroupModCancelStick(group, row) {
+  if (!group || !row) return group;
+  if (!assignmentOdEchoShouldYieldToModCancel(group.comment, row.comment)) return group;
+  group.status = 'Cancelled';
+  group.comment = row.comment;
+  return group;
 }
 
 // Overnight sync marks a finished (or unfinished) List row Cancelled

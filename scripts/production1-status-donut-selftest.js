@@ -26,11 +26,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Production1 status donut (1.3.100626b)');
+console.log('Production1 status donut (1.3.100726a)');
 
-assert('APP_VERSION 1.3.100626b',
-  /const APP_VERSION = '1\.3\.100626b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100626b'));
+assert('APP_VERSION 1.3.100726a',
+  /const APP_VERSION = '1\.3\.100726a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100726a'));
 
 const begin = src.indexOf('// PRODUCTION1_STATUS_COUNTS_START');
 const end = src.indexOf('// PRODUCTION1_STATUS_COUNTS_END');

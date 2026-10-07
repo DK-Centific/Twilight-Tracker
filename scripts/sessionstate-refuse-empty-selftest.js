@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * SessionState refuse-empty / refuse-regressive write barrier (1.3.100626b).
+ * SessionState refuse-empty / refuse-regressive write barrier (1.3.100726a).
  * An empty Not-Started shell must not overwrite a richer row for the same
  * assignment. Mirrors the Venkata app_close and Manoj app_resume wipes.
  */
@@ -43,11 +43,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('SessionState refuse-empty shell (1.3.100626b)');
+console.log('SessionState refuse-empty shell (1.3.100726a)');
 
-assert('APP_VERSION 1.3.100626b',
-  /const APP_VERSION = '1\.3\.100626b'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100626b'));
+assert('APP_VERSION 1.3.100726a',
+  /const APP_VERSION = '1\.3\.100726a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.100726a'));
 
 const flushSrc = extractFn('flushSessionStateSync');
 const beaconSrc = extractFn('sendSessionStateBeacon');
@@ -129,6 +129,10 @@ const names = [
   'sessionStateRememberSelfFromRows',
   'sessionStateSelfRowFromCache',
   'resolveSessionStateLastGoodBaseline',
+  'assignmentCommentPlainForMarker',
+  'assignmentCommentIsModCancel',
+  'assignmentWriteMayReplaceModCancel',
+  'sessionStateBaselineIsProtectedModCancel',
   'sessionStateRegressiveWriteDecision',
 ];
 names.forEach(name => {
@@ -291,6 +295,24 @@ const cancelWrite = ctx.sessionStateRegressiveWriteDecision(cancelBlob, ASGN, { 
 assert('moderator Cancel may clear the checklist',
   cancelWrite.refuse === false && cancelWrite.reason === 'mod-cancel',
   JSON.stringify(cancelWrite));
+
+resetBaseline();
+ctx._sessionStateSyncState.lastSyncedAsgnId = ASGN;
+ctx._sessionStateSyncState.lastSyncedStateJson = JSON.stringify(cancelBlob);
+ctx.adminState.assignments = [{ id: ASGN, status: 'Booked', comment: 'od-sync', odScheduleId: 'OD-1' }];
+const echoOverwrite = ctx.sessionStateRegressiveWriteDecision(empty, ASGN, { syncReason: '' });
+assert('empty shell does not overwrite a checklist cancel when OneData echoed Booked',
+  echoOverwrite.refuse === true && echoOverwrite.reason === 'refuse-cancel-overwrite',
+  JSON.stringify(echoOverwrite));
+
+resetBaseline();
+ctx._sessionStateSyncState.lastSyncedAsgnId = ASGN;
+ctx._sessionStateSyncState.lastSyncedStateJson = JSON.stringify(cancelBlob);
+ctx.adminState.assignments = [{ id: ASGN, status: 'Booked', comment: '' }];
+const revivedOverwrite = ctx.sessionStateRegressiveWriteDecision(empty, ASGN, { syncReason: '' });
+assert('an admin revive may write the checklist again',
+  revivedOverwrite.refuse === false,
+  JSON.stringify(revivedOverwrite));
 
 resetBaseline();
 ctx._sessionStateSyncState.lastSyncedAsgnId = ASGN;

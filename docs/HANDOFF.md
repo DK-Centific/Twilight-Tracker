@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-06 · Grok · Overview ring uses the counts-only link (1.3.100626b)
+**Last updated:** 2026-10-07 · Grok · Performance shows checklist Confirm Cancel as Cancelled (1.3.100726a)
+
+## 2026-10-07 · Grok · Performance shows checklist Confirm Cancel as Cancelled (1.3.100726a)
+
+**Ask:** Admin Performance should say **Cancelled** and not take a star when a moderator confirmed Cancel session in the checklist for that team. Example: Team Narendra × Pradeepreddy cancelled today’s session. Do not merge until David says push.
+
+**Cause:** Confirm Cancel writes Assignment status Cancelled and the comment `mod-cancel-session`, and it marks SessionState Cancelled. A later OneData echo for the same booking is a newer Excel row with comment `od-sync` and status Booked (OneData is not told about the cancel). The read kept that newer Booked row, so Performance classified the night as Live or Incomplete. A follow-up empty checklist save could also drop the SessionState cancel markers. A second Booked row for the same schedule could still show Live next to the Cancelled row.
+
+**Fix:** On the same assignment, an older checklist cancel wins over a newer `od-sync` echo. An admin edit that sets the booking back to Booked with a blank comment still wins. Performance and the Overview booked chart treat that schedule as Cancelled, skip the extra Booked echo, and do not flag or strike it. `checklistCleared` or `sessionCancelledAt` still counts as Cancelled when the status word was dropped. The next checklist save keeps the cancel markers. A finished soft-close stays Completed. A past Rescheduled night with no finish stays off Incomplete. A different schedule the same night is unchanged.
+
+**Not done:** OneData is not written. Vendor Materials is unchanged. Not on the live site until this is merged.
+
+**Version:** **1.3.100726a**. Selftest: `scripts/perf-mod-cancel-echo-selftest.js`. Related cancel, soft-close, donut, strike, and refuse-empty checks still pass.
+
+**PR:** draft on `cursor/perf-mod-cancel-status-1e28`. Do **not** merge until David says push. Not on the live site until then.
+
+**Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100726a**. Sign in as Admin. Open **Performance**. Find the team that confirmed **Cancel session** (Narendra × Pradeepreddy, today). The status should say **Cancelled**. It should not say **Incomplete** or **Live**. Stars should stay the same. A team that finished and was soft-closed should still say **Completed**. A Rescheduled night that was not finished should still stay off **Incomplete**.
 
 ## 2026-10-06 · Grok · Overview ring uses the counts-only link (1.3.100626b)
 
