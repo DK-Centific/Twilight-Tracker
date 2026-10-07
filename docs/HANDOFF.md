@@ -14,7 +14,7 @@
 
 **Version:** **1.3.100726a**. Selftest: `scripts/perf-mod-cancel-echo-selftest.js`. Related cancel, soft-close, donut, strike, and refuse-empty checks still pass.
 
-**PR:** draft on `cursor/perf-mod-cancel-status-1e28`. Do **not** merge until David says push. Not on the live site until then.
+**PR:** draft [#200](https://github.com/DK-Centific/Twilight-Tracker/pull/200) on `cursor/perf-mod-cancel-status-1e28`. Do **not** merge until David says push. Not on the live site until then.
 
 **Verify (David):** This build is on the pull request, not the live site. After it is merged, hard refresh until the corner says **1.3.100726a**. Sign in as Admin. Open **Performance**. Find the team that confirmed **Cancel session** (Narendra × Pradeepreddy, today). The status should say **Cancelled**. It should not say **Incomplete** or **Live**. Stars should stay the same. A team that finished and was soft-closed should still say **Completed**. A Rescheduled night that was not finished should still stay off **Incomplete**.
 
