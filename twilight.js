@@ -5431,7 +5431,7 @@ function lakituCatalogSessionSkipped(asgn) {
   if (!asgn) return true;
   const st = asgn.status || 'Booked';
   if (st === 'Cancelled' || st === 'Unassigned') return true;
-  if (asgn.source === 'team-session') return true;
+  if (asgn.source === 'team-session' && !(typeof assignmentHasParticipant === 'function' && assignmentHasParticipant(asgn))) return true;
   if (typeof isTeamSessionAssignment === 'function' && isTeamSessionAssignment(asgn)) return true;
   return false;
 }
@@ -6238,16 +6238,25 @@ function dropCachedTeamSessionsForMissingTeams(assignments, kept, teams, deleted
   });
 }
 
-function isTeamSessionAssignment(a) {
+function assignmentHasParticipant(a) {
   if (!a) return false;
-  if (a.source === 'team-session') return true;
   const pd = a.participantData || {};
-  const hasPart = !!(
+  return !!(
     (a.participantOrbitId && String(a.participantOrbitId).trim()) ||
     (pd.firstName && String(pd.firstName).trim()) ||
     (pd.lastName && String(pd.lastName).trim())
   );
-  return !hasPart && a.teamId != null && a.teamId !== '';
+}
+
+// A booking with a participant is never a team session, even when an
+// older build tagged it 'team-session' (Excel comment) after the team's
+// "New session" pointer landed on it. Otherwise My Session shows the
+// team name instead of the participant on manual Admin bookings.
+function isTeamSessionAssignment(a) {
+  if (!a) return false;
+  if (assignmentHasParticipant(a)) return false;
+  if (a.source === 'team-session') return true;
+  return a.teamId != null && a.teamId !== '';
 }
 
 // Participant contact as stored on the assignment. Show these whenever
@@ -6329,7 +6338,7 @@ function ensureTeamSessionAssignments() {
     const existing = adminState.assignments.find(a => a && String(a.id) === String(team.currentSessionId));
     if (existing) {
       const isOd = (typeof assignmentIsOdOrigin === 'function') && assignmentIsOdOrigin(existing);
-      if (!existing.source && !isOd) existing.source = 'team-session';
+      if (!existing.source && !isOd && !assignmentHasParticipant(existing)) existing.source = 'team-session';
       if (team.sessionStatus === 'complete'
           && existing.status !== 'Cancelled'
           && existing.status !== 'Unassigned'
@@ -31028,7 +31037,8 @@ async function fetchAssignmentsFromPA() {
         savedAt: r.lastActive || new Date().toISOString(),
         source: (r.comment === 'od-sync' || odKeys.odScheduleId || odKeys.bookingGroupId || odKeys.odStatus)
           ? 'od-sync'
-          : ((r.comment === 'team-session' || (!r.assignedTo && r.teamId)) ? 'team-session' : undefined),
+          : (((r.comment === 'team-session' || (!r.assignedTo && r.teamId)) && !pid && !firstName && !lastName)
+              ? 'team-session' : undefined),
         // Tag this assignment as having come from a remote fetch. Used by
         // the local-only merge below to distinguish "pending write" from
         // "previously synced but now deleted from Excel". Without this
@@ -47294,7 +47304,7 @@ function buildAssignmentExcelRow(a) {
       participantLastName:  (a.participantData && a.participantData.lastName) || '',
       teamId:             a.teamId,
       status:             a.status          || 'Booked',
-      comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+      comment:            commentForExcel || (isTeamSessionAssignment(a) && a.source === 'team-session' ? 'team-session' : ''),
       lakituProjectKey:   a.lakituProjectKey || '',
       lakituProjectUrl:   a.lakituProjectUrl || '',
       ringDashboardKey:   a.ringDashboardKey || '',
@@ -47331,7 +47341,7 @@ function buildAssignmentExcelRow(a) {
     participantLastName:  (a.participantData && a.participantData.lastName) || '',
     teamId:             a.teamId,
     status:             a.status          || 'Booked',
-    comment:            commentForExcel || (a.source === 'team-session' ? 'team-session' : ''),
+    comment:            commentForExcel || (isTeamSessionAssignment(a) && a.source === 'team-session' ? 'team-session' : ''),
     lakituProjectKey:   a.lakituProjectKey || '',
     lakituProjectUrl:   a.lakituProjectUrl || '',
     ringDashboardKey:   a.ringDashboardKey || '',
