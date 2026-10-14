@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-07 · Grok · Performance keeps settled Completed and Cancelled (1.3.100726c)
+**Last updated:** 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
+
+## 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
+
+**Ask:** A session booked by hand in the Admin booking app showed the team name in the moderator's My Session instead of the participant. OneData-synced bookings were fine. David tested on localhost and said push.
+
+**Cause:** When a team's New session pointer landed on a hand-made booking, the app tagged it as a team session. It also wrote `team-session` into the Excel comment, so the tag came back on every read. My Session shows the team name for team sessions.
+
+**Fix:** A booking with a participant (id or name) is never a team session. This applies when tagging, reading Excel, writing Excel and in the Lakitu Night Time skip. Bookings already tagged show the participant again without editing Excel. Real team sessions with no participant are unchanged.
+
+**Not done:** Old `team-session` comments stay in Excel until the booking is saved again. They are harmless now.
+
+**Version:** **1.3.101326a**. Selftest: `scripts/manual-booking-participant-name-selftest.js`. Full suite matches main (50 pass; the other 28 failed on main before this change).
+
+**PR:** [#202](https://github.com/DK-Centific/Twilight-Tracker/pull/202) on `fix/manual-booking-participant-name`. David said push; merged.
+
+**Verify (David):** Hard refresh until the corner says **1.3.101326a**. Book a session by hand in Admin Booking. Sign in as a moderator on that team. **My Session** should show the participant's name, not the team name.
 
 ## 2026-10-07 · Grok · Performance keeps settled Completed and Cancelled (1.3.100726c)
 
