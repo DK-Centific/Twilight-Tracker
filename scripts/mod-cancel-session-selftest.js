@@ -691,6 +691,7 @@ async function runAhP() {
     'writeModCancelSessionState',
     'markModCancelAssignmentRowLocal',
     'writeModCancelAssignmentListRow',
+    'postAssignmentRowWithRetry',
     'loadPendingModCancels',
     'savePendingModCancels',
     'rememberPendingModCancel',

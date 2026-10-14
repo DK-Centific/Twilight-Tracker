@@ -51,7 +51,7 @@ const FNS = [
   'sessionStateRehydrateBlockedForModCancel', 'dropPendingQueueWritesForModCancel',
   'patchStateJsonModCancel', 'modCancelSessionStateTargets', 'postSessionStatePayloadDirect',
   'writeModCancelSessionState', 'markModCancelAssignmentRowLocal',
-  'writeModCancelAssignmentListRow', 'loadPendingModCancels', 'savePendingModCancels',
+  'writeModCancelAssignmentListRow', 'postAssignmentRowWithRetry', 'loadPendingModCancels', 'savePendingModCancels',
   'rememberPendingModCancel', 'clearPendingModCancel', 'persistModeratorCancelSession',
   'resumePendingModCancels', 'assignmentCommentPlainForMarker', 'assignmentCommentIsModCancel',
 ];
@@ -60,7 +60,9 @@ function makeCtx(asgn, opts) {
   opts = opts || {};
   const store = {};
   const ctx = {
-    console: { log() {}, warn() {} }, Date, JSON, String, Number, Array, Object, Promise, setTimeout() {},
+    console: { log() {}, warn() {} }, Date, JSON, String, Number, Array, Object, Promise,
+    // Retry backoff runs at once; the 30 s resend timer does not.
+    setTimeout(fn, ms) { if (typeof fn === 'function' && ms < 20000) fn(); return 0; },
     calls: [],
     rendered: [],
     fetchImpl: null,
