@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101426a';
-const APP_UPDATED_AT = '10/14/2026 10:15';
+const APP_VERSION = '1.3.101426b';
+const APP_UPDATED_AT = '10/14/2026 11:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -46661,19 +46661,13 @@ async function writeModCancelAssignmentListRow(asgn, comment, iso) {
   if (typeof ASSIGNMENT_PA_WRITE_URL !== 'undefined' && ASSIGNMENT_PA_WRITE_URL
       && typeof buildAssignmentExcelRow === 'function') {
     const excelRows = buildAssignmentExcelRow(adminState.assignments[idx]);
-    await Promise.all(excelRows.map(async (row) => {
+    // One after another with retry: parallel adds to the same Excel
+    // table make Power Automate answer 429 / 5xx.
+    for (const row of excelRows) {
       if (odStatus != null && row.odStatus !== odStatus) row.odStatus = odStatus;
-      try {
-        const res = await fetch(ASSIGNMENT_PA_WRITE_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row),
-        });
-        if (!(res && (res.ok || res.status === 202))) error = 'HTTP ' + (res && res.status);
-      } catch (e) {
-        error = (e && e.message) || String(e);
-      }
-    }));
+      const sent = await postAssignmentRowWithRetry(row);
+      if (!sent.ok) error = sent.error;
+    }
   }
   return { ok: !error, error: error, row: adminState.assignments[idx] };
 }
@@ -46851,6 +46845,35 @@ async function resumePendingModCancels() {
 // first (optimistic), so even if the PA write fails the cancel still
 // "happens" from the admin's perspective and will sync when the queue
 // catches up.
+async function postAssignmentRowWithRetry(row) {
+  const ASSIGNMENT_ROW_RETRY_STATUS = [408, 429, 500, 502, 503, 504];
+  const ASSIGNMENT_ROW_RETRY_MS = [1500, 4000, 9000];
+  let error = null;
+  for (let attempt = 0; attempt <= ASSIGNMENT_ROW_RETRY_MS.length; attempt++) {
+    let status = 0;
+    try {
+      const res = await fetch(ASSIGNMENT_PA_WRITE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(row),
+      });
+      if (res.ok || res.status === 202) return { ok: true, error: null };
+      status = res.status;
+      let body = '';
+      try { body = await res.text(); } catch (_) {}
+      error = 'HTTP ' + res.status;
+      if (body) console.warn('[Twilight] Assignment write ' + error + ':', String(body).slice(0, 400));
+      if (ASSIGNMENT_ROW_RETRY_STATUS.indexOf(status) < 0) return { ok: false, error: error };
+    } catch (e) {
+      error = (e && e.message) || String(e);
+    }
+    if (attempt < ASSIGNMENT_ROW_RETRY_MS.length) {
+      await new Promise(r => setTimeout(r, ASSIGNMENT_ROW_RETRY_MS[attempt]));
+    }
+  }
+  return { ok: false, error: error };
+}
+
 async function cancelAssignmentSilent(asgnId, comment) {
   if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
     return { ok: false, error: 'admin-progress-mirror' };
@@ -46873,15 +46896,13 @@ async function cancelAssignmentSilent(asgnId, comment) {
   if (ASSIGNMENT_PA_WRITE_URL) {
     const rows = buildAssignmentExcelRow(adminState.assignments[idx]);
     let failed = 0;
+    // One row per moderator, sent one after another. Power Automate
+    // answers 429 / 5xx when the Excel table is busy (the first row is
+    // still being added). Booking saves already retry those; Cancel did
+    // not, so the second row often failed with an HTTP error.
     for (const row of rows) {
-      try {
-        const res = await fetch(ASSIGNMENT_PA_WRITE_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row),
-        });
-        if (!res.ok && res.status !== 202) { failed++; error = `HTTP ${res.status}`; }
-      } catch (e) { failed++; error = e.message || String(e); }
+      const sent = await postAssignmentRowWithRetry(row);
+      if (!sent.ok) { failed++; error = sent.error; }
     }
     if (failed > 0) {
       console.warn('[Twilight] cancelAssignmentSilent: ' + failed + ' row write(s) failed:', error);

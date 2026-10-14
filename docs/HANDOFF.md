@@ -1,6 +1,18 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-14 · Claude · 1.3.101426a released: strike check, checklist + admin Cancel, Production status live label (PR #203, #204 merged)
+**Last updated:** 2026-10-14 · Claude · 1.3.101426b: booking Cancel retries Power Automate 502s
+
+## 2026-10-14 · Claude · Booking Cancel showed HTTP 502 (1.3.101426b)
+
+**Ask:** Cancelling a booked session in the Admin booking app showed an HTTP error (David: HTTP 502).
+
+**Cause:** Cancel writes one Assignment List row per moderator, back to back, with a bare `fetch` and no retry. Power Automate answers 502 (and sometimes 429 or other 5xx) while it is still adding the previous row to the Excel table. Booking saves already retry those answers; Cancel did not, so the second row failed and the toast said "Excel sync failed: HTTP 502". The checklist Cancel sent its rows in parallel, which makes this more likely.
+
+**Fix:** New `postAssignmentRowWithRetry`: per row, retry 408/429/5xx and network errors up to 3 more times (1.5 s, 4 s, 9 s); other errors are reported at once. Used by `cancelAssignmentSilent` (booking app) and `writeModCancelAssignmentListRow` (checklist, now one row after another).
+
+**Selftest:** new `scripts/admin-cancel-retry-selftest.js`. `mod-cancel-save-order-selftest.js` setTimeout stub now runs short timers (it would otherwise stop silently mid-test with exit 0). Suite: main plus the new tests, 52 pass.
+
+**Version:** **1.3.101426b**. David gave the 502 and asked for the fix.
 
 ## 2026-10-14 · Claude · Admin booking Cancel no longer comes back as Booked
 
