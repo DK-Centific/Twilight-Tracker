@@ -33733,7 +33733,10 @@ function modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking) {
 function modStrikeSessionStateReady() {
   if (typeof adminState === 'undefined' || !adminState) return false;
   if (adminState._perfSSOk !== true) return false;
-  return Array.isArray(adminState.perfSessionStateRows);
+  // An empty or failed Read is not proof that nobody finished. Treating
+  // it as loaded made every team that night incomplete, finished or not.
+  return Array.isArray(adminState.perfSessionStateRows)
+    && adminState.perfSessionStateRows.length > 0;
 }
 
 // 9:00 AM PT on the morning after the booking date. That is the deadline
@@ -34799,14 +34802,10 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (modStrikeAssignmentMutedBySkipOrResolve(booking)) return false;
   const deadline = assignmentAutoStrikeDeadlineMs(booking);
   const morningAfterOpen = Number.isFinite(deadline) && now >= deadline;
-  const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
-  const sessionDate = modStrikeBookingYmd(booking);
-  // Today: after 9:00 AM PT and after the booked end.
-  // Yesterday: morningAfterOpen is 9:00 AM PT today (the catch-up).
-  const sameDayDeadlineOpen = sessionDate === today
-    && (typeof isPastAssignmentSessionEnd === 'function')
-    && isPastAssignmentSessionEnd(booking, now);
-  if (!morningAfterOpen && !sameDayDeadlineOpen) return false;
+  // The rule is: not finished by 9:00 AM PT the morning after the booking
+  // day. A session booked today is not struck at its booked end; a team
+  // working past a short Twilight end time lost a star mid-session.
+  if (!morningAfterOpen) return false;
   // Team-OR: happypath, station_4_done, session_done, sessionCompletedAt,
   // or soft-close Completed on any co-mod completes the assignment.
   // A same-crew soft-close sibling counts. A true cancel stays out.
@@ -34951,13 +34950,16 @@ function modStrikeCheckpointBookingForTeam(teamId) {
     return { assignmentId: row.assignmentId, booking: booking };
   }
   const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
+  // Yesterday is the night the 9 AM check strikes. When the report files
+  // that crew under a sibling team id, Skip still has to land on it.
+  const floor = (today && typeof addDaysToYmd === 'function') ? (addDaysToYmd(today, -1) || today) : today;
   let hit = null;
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     if (!a || String(a.teamId) !== id) continue;
     if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') continue;
     const ymd = String(a.date || '').split('T')[0];
-    if (today && ymd && ymd < today) continue;
+    if (floor && ymd && ymd < floor) continue;
     if (!hit || String(a.date || '') < String(hit.date || '')) hit = a;
   }
   if (!hit) return { assignmentId: '', booking: null };
@@ -48685,7 +48687,13 @@ function assignmentProgressDeadlineMs(asgn) {
   const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
     ? SESSION_PROGRESS_AFTER_END_GRACE_MS
     : (4 * 60 * 60 * 1000);
-  return endMs + grace;
+  // Progress counts until the strike check: 9:00 AM PT the morning after
+  // the booking day, or end + grace when that is later. A Twilight booking
+  // saved with a short end time (team session 8 AM to 5 PM, or a guessed
+  // 9 PM end) dropped a 2 AM finish, and that finished team was struck.
+  const strikeMs = (typeof assignmentAutoStrikeDeadlineMs === 'function')
+    ? assignmentAutoStrikeDeadlineMs(asgn) : NaN;
+  return Number.isFinite(strikeMs) ? Math.max(endMs + grace, strikeMs) : endMs + grace;
 }
 
 function sessionStateStampAfterProgressDeadline(stamp, deadlineMs) {
@@ -48942,10 +48950,13 @@ function sessionStatePostWindowWriteDecision(asgn, syncable, opts) {
     ? assignmentBookingSessionEndMs(asgn) : NaN;
   if (!Number.isFinite(endMs)) return { refuse: false, reason: 'no-end' };
   if (now < endMs) return { refuse: false, reason: 'in-window' };
+  // Same window the strike check reads, so a finish it would count is saved.
+  const progressDeadline = (typeof assignmentProgressDeadlineMs === 'function')
+    ? assignmentProgressDeadlineMs(asgn) : NaN;
   const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
     ? SESSION_PROGRESS_AFTER_END_GRACE_MS
     : (4 * 60 * 60 * 1000);
-  const pastGrace = now > (endMs + grace);
+  const pastGrace = now > (Number.isFinite(progressDeadline) ? progressDeadline : (endMs + grace));
   const newer = (typeof moderatorHasNewerStartedBooking === 'function')
     && moderatorHasNewerStartedBooking(asgn, opts.orbitLoginId, now);
   if (pastGrace || newer) {

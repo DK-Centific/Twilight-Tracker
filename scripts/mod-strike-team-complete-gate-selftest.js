@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
+// A loaded SessionState Read always has rows (settings, other bookings).
+// An empty Read is treated as not loaded, so fixtures carry one unrelated row.
+const OTHER_SS_ROW = { sessionStateId: 'ss_unrelated', assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' };
+
 /**
  * 9 AM auto-strike team-complete gate (1.3.101326a).
  * Completed, soft-close Completed, and either co-mod's finish
@@ -129,7 +133,7 @@ function reset(assignments, rows, checkpoints) {
   ];
   ctx.adminState.assignments = assignments || [];
   ctx.adminState._perfSSOk = true;
-  ctx.adminState.perfSessionStateRows = rows || [];
+  ctx.adminState.perfSessionStateRows = (rows || []).concat([OTHER_SS_ROW]);
   ctx.saveModStrikeStore({
     mods: {},
     checkpoints: checkpoints || {},
@@ -279,11 +283,11 @@ assert('overnight finish stamped the next morning does not strike',
   stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
 
 reset(
-  [booking({ date: TODAY, startMin: 6 * 60, endMin: 8 * 60 })],
+  [booking({ date: YESTERDAY, startMin: 6 * 60, endMin: 8 * 60 })],
   [row({ sessionStatus: 'station_4_done', sessionDate: OLDER })]
 );
 run();
-assert('prior-day station_4_done does not block tonight',
+assert('prior-day station_4_done does not block last night',
   stars().n === 3 && stars().a === 3, JSON.stringify(stars()));
 
 reset([booking()], [row({ sessionStatus: 'station_2_done' })]);

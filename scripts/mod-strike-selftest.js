@@ -766,7 +766,7 @@ ctx.adminState.assignments = [{
   startMin: 10 * 60, endMin: 12 * 60,
 }];
 ctx.adminState._perfSSOk = true;
-ctx.adminState.perfSessionStateRows = [];
+ctx.adminState.perfSessionStateRows = [{ assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' }];
 ctx.resetModStrikeStars('a-orbit');
 ctx.resetModStrikeStars('b-orbit');
 ctx.saveModStrikeStore({
@@ -803,7 +803,7 @@ ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 
 assert('truncated SessionState page does not strike a booking with no row',
   ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
 
-ctx.adminState.perfSessionStateRows = [];
+ctx.adminState.perfSessionStateRows = [{ assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' }];
 ctx.skipModStrikeCheckpointTeam('t1');
 const skipCk = ctx.loadModStrikeStore().checkpoints['2026-09-17'] || {};
 const skipBook = ctx.loadModStrikeStore().checkpoints['2026-09-16'] || {};

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 'use strict';
 
+// A loaded SessionState Read always has rows (settings, other bookings).
+// An empty Read is treated as not loaded, so fixtures carry one unrelated row.
+const OTHER_SS_ROW = { sessionStateId: 'ss_unrelated', assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' };
+
 /**
  * 9 AM auto-strike identity (Oct 3, 2026).
  * A strike may name only moderator logins stored on that assignment.
@@ -156,7 +160,7 @@ function reset(teams, assignments, rows, mods) {
   ctx.adminState.teams = teams || [];
   ctx.adminState.assignments = assignments || [];
   ctx.adminState._perfSSOk = true;
-  ctx.adminState.perfSessionStateRows = rows || [];
+  ctx.adminState.perfSessionStateRows = (rows || []).concat([OTHER_SS_ROW]);
   ctx.saveModStrikeStore({
     mods: mods || {},
     checkpoints: {},

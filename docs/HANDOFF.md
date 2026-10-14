@@ -1,6 +1,22 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-14 · Claude · Checklist Cancel session saves first and confirms (PR open, not merged)
+**Last updated:** 2026-10-14 · Claude · 9 AM strike check fixes + checklist Cancel session (PR #203 open, not merged)
+
+## 2026-10-14 · Claude · 9 AM strike check no longer strikes finished teams (PR #203)
+
+**Ask:** At 9 AM the day after, teams whose session was incomplete get a strike. David saw whole days of teams struck, including completed sessions, mostly on Twilight-booked sessions. Find the cause, fix it, and fix anything else illogical. Do not merge until David says push.
+
+**Causes (reproduced in a headless harness, 6 teams: all 12 moderators struck before, only the never-started team after):**
+1. **Late progress was thrown away.** `assignmentProgressDeadlineMs` stopped accepting progress at booked end + grace, and `sessionStatePostWindowWriteDecision` refused later saves. Twilight bookings often have a short end time, so a session that ran past it and finished read as incomplete. Progress now counts until the 9 AM check the next morning.
+2. **An empty SessionState read counted as "all incomplete".** `modStrikeSessionStateReady` only checked that the read did not error. A read that came back with zero rows made every team look unstarted and everyone was struck. It now also needs at least one row; otherwise the result is unknown and nobody is struck.
+3. **Same-day strikes.** `commitAutoModStrike` could also strike after 9 AM on the same day once the booked end passed, so a session still running that morning or afternoon was struck before it could finish. That path is removed; the rule is only 9 AM the morning after.
+4. **Skip missed yesterday's booking.** `modStrikeCheckpointBookingForTeam` skipped bookings before today, so Skip on a crew listed under a co-mod's team did not mute the booking that got struck. It now includes yesterday.
+
+**Not done:** Stars already removed by the old logic are not restored automatically. Use Reset on the moderator, or ask an agent to restore them.
+
+**Selftests:** strike tests updated to the next-morning rule and non-empty SessionState fixtures. Suite matches main plus the new cancel test (51 pass).
+
+**Version:** not bumped yet; bump on push.
 
 ## 2026-10-14 · Claude · Checklist Cancel session saves first and confirms (PR open)
 

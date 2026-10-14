@@ -59,7 +59,8 @@ function assignmentModalNormalizeEndMin(s, e) {
   return e <= s ? e + 24 * 60 : e;
 }
 function escapeHTML(s) { return String(s); }
-function getPSTDateString() { return '2026-09-25'; }
+// Strikes land at 9:00 AM PT the morning after the booking day (Sep 25 bookings, Sep 26 check).
+function getPSTDateString() { return '2026-09-26'; }
 function toast() {}
 function syncOverviewLiveStatusStrikeAttention() {}
 function modStrikeRefreshUi() {}
@@ -161,7 +162,7 @@ function logsForSession(orbit, od) {
   });
 }
 
-const now = ctx.pacificWallClockToMs('2026-09-25', 10 * 60);
+const now = ctx.pacificWallClockToMs('2026-09-26', 10 * 60);
 venkataFixture();
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now });
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now + 5 * 60 * 1000 });
@@ -223,7 +224,7 @@ function onlySeth() {
 }
 
 onlySeth();
-const beforeGate = ctx.pacificWallClockToMs('2026-09-25', 8 * 60 + 50);
+const beforeGate = ctx.pacificWallClockToMs('2026-09-26', 8 * 60 + 50);
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: beforeGate });
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: beforeGate });
 assert('before 9:00 AM PT neither co-mod row strikes',
@@ -339,7 +340,7 @@ ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: now + 11 * 1000 });
 const paV = autoLogs('Venkata-tw');
 const paJ = autoLogs('Jashit-tw');
 const paStore = ctx.loadModStrikeStore();
-const paMark = (paStore.checkpoints['2026-09-25'] || {}).teamAutoStrike || {};
+const paMark = (paStore.checkpoints['2026-09-26'] || {}).teamAutoStrike || {};
 const paKey = 'asgn:' + PA_OD + '|2026-09-25';
 assert('two team ids for one assignment take one star each',
   ctx.getModStrikeStars('Venkata-tw') === 3 && ctx.getModStrikeStars('Jashit-tw') === 3
