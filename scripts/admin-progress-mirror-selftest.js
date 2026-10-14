@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Admin progress mirror (1.3.101426c)
+ * Admin progress mirror (1.3.101426d)
  * Home picker keeps tonight's Booked/Rescheduled teams and Live kits, and drops
  * Cancelled, soft-close, mod-cancel, demo, orphans, and admin-skip.
  * Latest checklist wins over a newer empty or geo-only row.
@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(Math.max(0, start - 6), start) === 'async ' ? 'async ' + code : code;
 }
 
-console.log('Admin progress mirror (1.3.101426c)');
+console.log('Admin progress mirror (1.3.101426d)');
 
-assert('APP_VERSION 1.3.101426c',
-  /const APP_VERSION = '1\.3\.101426c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101426c'));
+assert('APP_VERSION 1.3.101426d',
+  /const APP_VERSION = '1\.3\.101426d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426d'));
 
 const mirrorStart = src.indexOf('Admin progress mirror (1.3.091825o)');
 const mirrorEnd = src.indexOf('function renderPerfStationListHTML', mirrorStart);
