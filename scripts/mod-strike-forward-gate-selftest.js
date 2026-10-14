@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
+// A loaded SessionState Read always has rows (settings, other bookings).
+// An empty Read is treated as not loaded, so fixtures carry one unrelated row.
+const OTHER_SS_ROW = { sessionStateId: 'ss_unrelated', assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' };
+
 /**
- * 9 AM auto-strike forward gate (1.3.101326a).
+ * 9 AM auto-strike forward gate (1.3.101426a).
  * Older than yesterday is never auto-struck. Yesterday unfinished catch-up
  * runs at today's 9:00 AM PT. Skipped, resolved, and team-complete still block.
  * Today strikes after the gate and after the booked end. Tomorrow is watch-only.
@@ -30,9 +34,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM auto-strike forward gate');
 
-assert('version 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('version 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 assert('forward gate helpers exist',
   /function modStrikeForwardAutoStrikeEligible/.test(src)
   && /function modStrikeAssignmentMutedBySkipOrResolve/.test(src)
@@ -59,7 +63,7 @@ function assignmentModalNormalizeEndMin(s, e) {
   return e <= s ? e + 24 * 60 : e;
 }
 function escapeHTML(s) { return String(s); }
-function getPSTDateString() { return '2026-09-26'; }
+function getPSTDateString() { return (typeof __todayYmd === 'string' && __todayYmd) || '2026-09-26'; }
 function toast() {}
 function syncOverviewLiveStatusStrikeAttention() {}
 function modStrikeRefreshUi() {}
@@ -99,6 +103,10 @@ const OLDER = '2026-09-24';
 const TOMORROW = '2026-09-27';
 const afterGate = ctx.pacificWallClockToMs(TODAY, 10 * 60);
 const beforeGate = ctx.pacificWallClockToMs(TODAY, 8 * 60 + 30);
+// The 9 AM check is for the night before: a session booked today is only
+// judged at 9 AM tomorrow.
+const nextMorning = ctx.pacificWallClockToMs(TOMORROW, 10 * 60);
+function atNextMorning(fn) { ctx.__todayYmd = TOMORROW; try { fn(); } finally { ctx.__todayYmd = ''; } }
 
 function stars() {
   return {
@@ -114,7 +122,7 @@ function reset(assignments, rows, checkpoints) {
   ];
   ctx.adminState.assignments = assignments || [];
   ctx.adminState._perfSSOk = true;
-  ctx.adminState.perfSessionStateRows = rows || [];
+  ctx.adminState.perfSessionStateRows = (rows || []).concat([OTHER_SS_ROW]);
   ctx.saveModStrikeStore({
     mods: {},
     checkpoints: checkpoints || {},
@@ -263,6 +271,9 @@ reset(
   })]
 );
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
+assert('same day: no strike before the morning after',
+  stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
+atNextMorning(() => ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: nextMorning }));
 assert('prior-day station_4_done does not block tonight and does not strike that old row',
   stars().n === 3 && stars().a === 3,
   JSON.stringify(stars()));
@@ -279,8 +290,13 @@ assert('today after the gate but before the booked end does not strike',
 
 reset([todayEarly], [row({ sessionStatus: 'station_2_done' })]);
 ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
-ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate + 5 * 60 * 1000 });
-assert('today after the gate and after the booked end strikes once each',
+assert('today after the booked end still waits for 9 AM tomorrow',
+  stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
+atNextMorning(() => {
+  ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: nextMorning });
+  ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: nextMorning + 5 * 60 * 1000 });
+});
+assert('next morning after the gate strikes once each',
   stars().n === 3 && stars().a === 3, JSON.stringify(stars()));
 
 reset([
@@ -294,8 +310,10 @@ ctx.adminState.teams = [
   { id: '200015', name: 'Narendra x Amy', primaryIds: ['Narendra-tw', 'Amy-tw'] },
   { id: '200016', name: 'Narendra x Amy', primaryIds: ['Amy-tw', 'Narendra-tw'] },
 ];
-ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate });
-ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: afterGate + 10000 });
+atNextMorning(() => {
+  ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: nextMorning });
+  ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: nextMorning + 10000 });
+});
 assert('two co-mod rows are one strike per moderator',
   stars().n === 3 && stars().a === 3, JSON.stringify(stars()));
 

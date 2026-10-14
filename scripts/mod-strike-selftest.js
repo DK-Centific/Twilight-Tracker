@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 console.log('Moderator strike self-test');
 
 assert('version bump 091828a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -766,7 +766,7 @@ ctx.adminState.assignments = [{
   startMin: 10 * 60, endMin: 12 * 60,
 }];
 ctx.adminState._perfSSOk = true;
-ctx.adminState.perfSessionStateRows = [];
+ctx.adminState.perfSessionStateRows = [{ assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' }];
 ctx.resetModStrikeStars('a-orbit');
 ctx.resetModStrikeStars('b-orbit');
 ctx.saveModStrikeStore({
@@ -803,7 +803,7 @@ ctx.maybeRunModStrikeNineAmCheckpoint({ silent: true, nowMs: gateMs + 60 * 1000 
 assert('truncated SessionState page does not strike a booking with no row',
   ctx.getModStrikeStars('a-orbit') === 4 && ctx.getModStrikeStars('b-orbit') === 4);
 
-ctx.adminState.perfSessionStateRows = [];
+ctx.adminState.perfSessionStateRows = [{ assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' }];
 ctx.skipModStrikeCheckpointTeam('t1');
 const skipCk = ctx.loadModStrikeStore().checkpoints['2026-09-17'] || {};
 const skipBook = ctx.loadModStrikeStore().checkpoints['2026-09-16'] || {};

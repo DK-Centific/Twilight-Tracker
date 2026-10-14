@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 'use strict';
 
+// A loaded SessionState Read always has rows (settings, other bookings).
+// An empty Read is treated as not loaded, so fixtures carry one unrelated row.
+const OTHER_SS_ROW = { sessionStateId: 'ss_unrelated', assignmentId: 'unrelated-booking', orbitLoginId: 'someone-else', stateJson: '{}' };
+
 /**
- * 9 AM auto-strike team-complete gate (1.3.101326a).
+ * 9 AM auto-strike team-complete gate (1.3.101426a).
  * Completed, soft-close Completed, and either co-mod's finish
  * (happypath / station_4_done / session_done / sessionCompletedAt)
  * must not take a star. An unfinished overnight still can, once.
@@ -31,9 +35,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM team-complete gate');
 
-assert('version 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('version 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 assert('gate uses happypath helper and soft-close sibling',
   /function modStrikeCoModSessionDateOk/.test(src)
   && /sessionStateCountsAsTeamComplete/.test(src.slice(src.indexOf('function modStrikeCoModStatusBlocksStrike')))
@@ -129,7 +133,7 @@ function reset(assignments, rows, checkpoints) {
   ];
   ctx.adminState.assignments = assignments || [];
   ctx.adminState._perfSSOk = true;
-  ctx.adminState.perfSessionStateRows = rows || [];
+  ctx.adminState.perfSessionStateRows = (rows || []).concat([OTHER_SS_ROW]);
   ctx.saveModStrikeStore({
     mods: {},
     checkpoints: checkpoints || {},
@@ -279,11 +283,11 @@ assert('overnight finish stamped the next morning does not strike',
   stars().n === 4 && stars().a === 4, JSON.stringify(stars()));
 
 reset(
-  [booking({ date: TODAY, startMin: 6 * 60, endMin: 8 * 60 })],
+  [booking({ date: YESTERDAY, startMin: 6 * 60, endMin: 8 * 60 })],
   [row({ sessionStatus: 'station_4_done', sessionDate: OLDER })]
 );
 run();
-assert('prior-day station_4_done does not block tonight',
+assert('prior-day station_4_done does not block last night',
   stars().n === 3 && stars().a === 3, JSON.stringify(stars()));
 
 reset([booking()], [row({ sessionStatus: 'station_2_done' })]);

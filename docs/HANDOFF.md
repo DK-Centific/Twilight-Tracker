@@ -1,6 +1,57 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
+**Last updated:** 2026-10-14 · Claude · 1.3.101426a released: strike check, checklist + admin Cancel, Production status live label (PR #203, #204 merged)
+
+## 2026-10-14 · Claude · Admin booking Cancel no longer comes back as Booked
+
+**Ask:** Cancelling a session in the Admin booking app looked cancelled, but after a refresh or a new sign-in it showed Booked again.
+
+**Cause:** The Assignment List is read newest row first. The hourly OneData sync appends a fresh Booked/Scheduled row (comment `od-sync`) for every OneData booking. That newer row beat the admin's Cancelled row as soon as the 30 s terminal lock ran out. Checklist cancels were already protected (`mod-cancel-session` marker); admin cancels (any reason, or none) were not. Reproduced in a headless harness: Cancelled after 5 s, Booked after the next OneData row. A Twilight-only booking with no OneData rows stayed Cancelled in the same test.
+
+**Fix:** `applyAssignmentGroupModCancelStick` keeps any Twilight cancel (admin or checklist) over a later OneData echo. A Twilight write after the cancel (revive, edit) still wins, also for checklist cancels, which before this could be put back to Cancelled by an older cancel. OneData soft-close is unchanged.
+
+**Selftest:** `scripts/perf-mod-cancel-echo-selftest.js` extended.
+
+## 2026-10-14 · Claude · 9 AM strike check no longer strikes finished teams (PR #203)
+
+**Ask:** At 9 AM the day after, teams whose session was incomplete get a strike. David saw whole days of teams struck, including completed sessions, mostly on Twilight-booked sessions. Find the cause, fix it, and fix anything else illogical. Do not merge until David says push.
+
+**Causes (reproduced in a headless harness, 6 teams: all 12 moderators struck before, only the never-started team after):**
+1. **Late progress was thrown away.** `assignmentProgressDeadlineMs` stopped accepting progress at booked end + grace, and `sessionStatePostWindowWriteDecision` refused later saves. Twilight bookings often have a short end time, so a session that ran past it and finished read as incomplete. Progress now counts until the 9 AM check the next morning.
+2. **An empty SessionState read counted as "all incomplete".** `modStrikeSessionStateReady` only checked that the read did not error. A read that came back with zero rows made every team look unstarted and everyone was struck. It now also needs at least one row; otherwise the result is unknown and nobody is struck.
+3. **Same-day strikes.** `commitAutoModStrike` could also strike after 9 AM on the same day once the booked end passed, so a session still running that morning or afternoon was struck before it could finish. That path is removed; the rule is only 9 AM the morning after.
+4. **Skip missed yesterday's booking.** `modStrikeCheckpointBookingForTeam` skipped bookings before today, so Skip on a crew listed under a co-mod's team did not mute the booking that got struck. It now includes yesterday.
+
+**Not done:** Stars already removed by the old logic are not restored automatically. Use Reset on the moderator, or ask an agent to restore them.
+
+**Selftests:** strike tests updated to the next-morning rule and non-empty SessionState fixtures. Suite matches main plus the new cancel test (51 pass).
+
+**Version:** **1.3.101426a** (David said push).
+
+## 2026-10-14 · Claude · Checklist Cancel session saves first and confirms (PR #203, merged)
+
+**Ask:** A moderator pressed Cancel session and Confirm on a checked-in session (Muhammad × Sravya, Tue Oct 13, booked by hand in Twilight). The checklist did not change, Admin booking did not show it, and Performance showed no cancel. David also wants a confirmation on the checklist after cancelling. Do not merge until David says push.
+
+**Cause:** The cancel code is the same for Twilight and OneData bookings (only the matching of co-mod rows differs, by slot instead of OneData id). The problem was the order: on Confirm nothing changed on screen until every save finished. It first waited up to 8 s for a running checklist sync, then saved SessionState once per teammate one after another (each up to 20 s and two tries), and only then wrote the Assignment List row that Admin and Performance read. If the page was reloaded or closed in that gap, the List row was never sent, and nothing was kept to send it later. Errors were swallowed and a failed List write showed nothing. `appAlert` also showed a stray Cancel button.
+
+**Fix:** Confirm marks the booking Cancelled on this device and repaints at once. The List rows go out first and in parallel, then the SessionState rows in parallel. The cancel is kept in this browser (`twilight_pending_mod_cancel_v1`) until the List write succeeds, and is resent after a reload, when the connection comes back, and every 30 s. A dialog then says **Session cancelled** (participant and date) or **Cancel not saved yet**. `appAlert` now shows only OK.
+
+**Selftest:** new `scripts/mod-cancel-save-order-selftest.js`; `mod-cancel-session-selftest.js` updated for the split local mark. Suite otherwise matches main (51 pass with the new test).
+
+**Version:** **1.3.101426a** (David said push).
+## 2026-10-14 · Claude · Production status ring was frozen on Oct 6 numbers (PR #204)
+
+**Ask:** Admin → Overview → Production status ring numbers come from the Google Sheet but do not look live.
+
+**Cause:** The ring reads `dk-centific.github.io/twilight-production1-status/production1-status.json` first. That file was committed by hand on Oct 6 and nothing updates it. The app re-read it every minute but always got the Oct 6 counts and showed them as if live.
+
+**Fix:** New `docs/production1-status-apps-script.gs`: an Apps Script web app that reads Production1 on each call (30 s cache) and answers counts only with `updatedAt`. The app tries `PRODUCTION1_STATUS_LIVE_URL` first (empty until David deploys the script), then the old file, then the sheet link. The line under the title shows when the counts were taken: `updated 9:41 AM`, or `not live, last counted Oct 6 11:09 AM` when older than 15 min.
+
+**Waiting on David:** deploy the script (click steps in `docs/production1-overview-pie.md`) and send the `/exec` URL; paste it into `PRODUCTION1_STATUS_LIVE_URL`. PR #203 (cancel + strike fixes) is separate and also open.
+
+**Selftest:** `scripts/production1-status-donut-selftest.js` extended. Suite matches main. **Version:** **1.3.101426a** (David said push).
+
+**PR:** [#204](https://github.com/DK-Centific/Twilight-Tracker/pull/204), released inside #203. Live feed still waits for the Apps Script URL.
 
 ## 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
 

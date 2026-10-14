@@ -42,11 +42,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Moderator cancel-session self-test (1.3.101326a)');
+console.log('Moderator cancel-session self-test (1.3.101426a)');
 
-assert('APP_VERSION 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('APP_VERSION 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 
 assert('hold is 2 seconds',
   /const MOD_CANCEL_HOLD_MS = 2000/.test(src)
@@ -92,7 +92,8 @@ assert('stale richer shell loses to a cancel wipe',
 assert('cancel writer sets sessionStatus Cancelled',
   /sessionStatus = 'Cancelled'/.test(patch));
 assert('cancel uses terminal lock like admin cancel',
-  /_terminalLockUntil:\s*terminalLockUntil\(\)/.test(extractFn('writeModCancelAssignmentListRow')));
+  /_terminalLockUntil:\s*terminalLockUntil\(\)/.test(extractFn('markModCancelAssignmentRowLocal'))
+  && extractFn('writeModCancelAssignmentListRow').indexOf('markModCancelAssignmentRowLocal') >= 0);
 assert('cancel writer does not touch Skip or strikes',
   persist.indexOf('skippedTeams') < 0
   && persist.indexOf('resolvedTeams') < 0
@@ -688,7 +689,12 @@ async function runAhP() {
     'modCancelSessionStateTargets',
     'postSessionStatePayloadDirect',
     'writeModCancelSessionState',
+    'markModCancelAssignmentRowLocal',
     'writeModCancelAssignmentListRow',
+    'loadPendingModCancels',
+    'savePendingModCancels',
+    'rememberPendingModCancel',
+    'clearPendingModCancel',
     'persistModeratorCancelSession',
     'assignmentCommentPlainForMarker',
     'assignmentCommentIsModCancel',

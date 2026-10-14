@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101326a';
-const APP_UPDATED_AT = '10/13/2026 17:25';
+const APP_VERSION = '1.3.101426a';
+const APP_UPDATED_AT = '10/14/2026 10:15';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1700,11 +1700,57 @@ function openModCancelSessionConfirm() {
         variant: 'warning',
       })
     : Promise.resolve(false);
-  ask.then((ok) => {
+  ask.then(async (ok) => {
     if (!ok) return;
-    if (typeof persistModeratorCancelSession === 'function') {
-      persistModeratorCancelSession(asgn).catch(() => {});
+    if (typeof persistModeratorCancelSession !== 'function') return;
+    if (typeof toast === 'function') toast('Cancelling session…');
+    let res = null;
+    try {
+      res = await persistModeratorCancelSession(asgn);
+    } catch (e) {
+      console.warn('[Twilight] mod cancel failed', e);
+      res = { ok: false, reason: 'error' };
     }
+    if (typeof showModCancelResult === 'function') showModCancelResult(asgn, res);
+    if (res && !res.ok && res.reason !== 'busy' && res.reason !== 'admin-progress-mirror'
+        && typeof resumePendingModCancels === 'function') {
+      setTimeout(() => { resumePendingModCancels().catch(() => {}); }, 30000);
+    }
+  });
+}
+
+// Tell the moderator whether Confirm Cancel reached the Twilight team.
+function showModCancelResult(asgn, res) {
+  if (typeof appAlert !== 'function') return;
+  if (res && res.reason === 'busy') return;
+  const p = (asgn && asgn.participantData) || {};
+  const who = [p.firstName, p.lastName].filter(Boolean).join(' ');
+  const day = (asgn && asgn.date && typeof parseYMD === 'function' && parseYMD(asgn.date))
+    ? parseYMD(asgn.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+    : '';
+  const what = [who, day].filter(Boolean).join(' · ');
+  if (res && res.ok) {
+    appAlert({
+      title: 'Session cancelled',
+      message: (what ? what + ' is cancelled. ' : 'This session is cancelled. ')
+        + 'The Twilight team can see it in Admin and Performance.',
+      okLabel: 'OK',
+    });
+    return;
+  }
+  if (res && res.reason === 'admin-progress-mirror') {
+    appAlert({
+      title: 'Session not cancelled',
+      message: 'This is a read-only view, so nothing was saved.',
+      variant: 'warning',
+    });
+    return;
+  }
+  appAlert({
+    title: 'Cancel not saved yet',
+    message: 'This device shows the session as cancelled, but it has not reached the Twilight team. '
+      + 'Keep the app open with a connection and it will try again. Please let the Twilight team know.',
+    variant: 'warning',
   });
 }
 
@@ -10472,8 +10518,15 @@ const PRODUCTION1_SHEET_GID = '0';
 // Names and addresses stay off the website until a counts-only proxy is set.
 const PRODUCTION1_CSV_URL = 'https://docs.google.com/spreadsheets/d/'
   + PRODUCTION1_SHEET_ID + '/gviz/tq?tqx=out:csv&gid=' + PRODUCTION1_SHEET_GID;
-// Counts only. No names or addresses. Tried before the private sheet link.
+// Live counts: a Google Apps Script web app that reads Production1 on each
+// call and answers counts only (docs/production1-status-apps-script.gs).
+// Empty until it is deployed; then paste its /exec address here.
+const PRODUCTION1_STATUS_LIVE_URL = '';
+// Counts only. No names or addresses. This file is a hand-made copy and
+// does not update by itself, so it is only the fallback.
 const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json';
+// Counts older than this are shown with their date so a frozen feed is visible.
+const PRODUCTION1_STATUS_STALE_MS = 15 * 60 * 1000;
 const PRODUCTION1_STATUS_REFRESH_MS = 60 * 1000;
 const PRODUCTION1_SESSION_KIT_COL = 3;
 const PRODUCTION1_STATUS_COL = 10;
@@ -10603,6 +10656,35 @@ function countProduction1StatusSlices(input) {
   });
   const total = slices.reduce((n, s) => n + s.count, 0);
   return { total, slices };
+}
+
+// When the feed says when it was counted: JSON updatedAt, else the
+// Last-Modified header of the file. Returns ms or NaN.
+function production1FeedAsOfMs(text, lastModified) {
+  const raw = String(text == null ? '' : text).replace(/^\uFEFF/, '').trim();
+  if (raw.charAt(0) === '{') {
+    try {
+      const data = JSON.parse(raw);
+      const t = Date.parse(data && (data.updatedAt || data.updated_at || data.asOf));
+      if (Number.isFinite(t)) return t;
+    } catch (_) {}
+  }
+  const h = Date.parse(lastModified || '');
+  return Number.isFinite(h) ? h : NaN;
+}
+
+function production1FeedSubtitle(total, asOfMs, nowMs) {
+  const n = Number(total) || 0;
+  let line = n > 0
+    ? ('Production1 · ' + n + (n === 1 ? ' session' : ' sessions'))
+    : 'No sessions on the production sheet';
+  if (!Number.isFinite(asOfMs)) return line;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const d = new Date(asOfMs);
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+  if (now - asOfMs <= PRODUCTION1_STATUS_STALE_MS) return line + ' · updated ' + time;
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });
+  return line + ' · not live, last counted ' + day + ' ' + time;
 }
 
 function production1CountsFromFeed(text) {
@@ -20056,7 +20138,7 @@ function setupLineHover(series, xFor, yFor, padL, padR, W, H, padT, innerH) {
 }
 
 // ----- Production1 ring ------------------------------------------------
-let _production1Status = { at: 0, counts: null, error: '', pending: null };
+let _production1Status = { at: 0, counts: null, error: '', pending: null, asOf: NaN };
 
 function production1StatusStyle(label, extraIndex) {
   const key = production1NormalizeStatusKey(label);
@@ -20074,6 +20156,8 @@ function production1StatusStyle(label, extraIndex) {
 
 function production1StatusFeedUrls() {
   const urls = [];
+  const live = String((typeof PRODUCTION1_STATUS_LIVE_URL === 'string' && PRODUCTION1_STATUS_LIVE_URL) || '').trim();
+  if (live) urls.push(live);
   const proxy = String(PRODUCTION1_STATUS_PROXY_URL || '').trim();
   if (proxy) urls.push(proxy);
   const csv = String(PRODUCTION1_CSV_URL || '').trim();
@@ -20101,9 +20185,7 @@ function paintProduction1OverviewDonut() {
     return;
   }
   if (donutSub) {
-    donutSub.textContent = counts.total > 0
-      ? ('Production1 · ' + counts.total + (counts.total === 1 ? ' session' : ' sessions'))
-      : 'No sessions on the production sheet';
+    donutSub.textContent = production1FeedSubtitle(counts.total, _production1Status.asOf);
   }
   const slices = (counts.slices || []).filter(s => s && s.count > 0);
   drawProduction1DonutArcs(slices);
@@ -20222,6 +20304,9 @@ function refreshProduction1OverviewStatus(force) {
         const text = await res.text();
         const counts = production1CountsFromFeed(text);
         if (!counts) continue;
+        let lastModified = '';
+        try { lastModified = (res.headers && res.headers.get('Last-Modified')) || ''; } catch (_) {}
+        _production1Status.asOf = production1FeedAsOfMs(text, lastModified);
         _production1Status.at = Date.now();
         _production1Status.counts = counts;
         _production1Status.error = '';
@@ -31246,6 +31331,7 @@ async function fetchAssignmentsFromPA() {
     }
     delete g._latestActive;
     delete g._modHints;
+    delete g._twilightRowAfterCancel;
   }
   const remoteAssignments = [...grouped.values()];
 
@@ -33687,7 +33773,10 @@ function modStrikeCheckpointOccurrenceKey(teamId, assignmentId, booking) {
 function modStrikeSessionStateReady() {
   if (typeof adminState === 'undefined' || !adminState) return false;
   if (adminState._perfSSOk !== true) return false;
-  return Array.isArray(adminState.perfSessionStateRows);
+  // An empty or failed Read is not proof that nobody finished. Treating
+  // it as loaded made every team that night incomplete, finished or not.
+  return Array.isArray(adminState.perfSessionStateRows)
+    && adminState.perfSessionStateRows.length > 0;
 }
 
 // 9:00 AM PT on the morning after the booking date. That is the deadline
@@ -34753,14 +34842,10 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (modStrikeAssignmentMutedBySkipOrResolve(booking)) return false;
   const deadline = assignmentAutoStrikeDeadlineMs(booking);
   const morningAfterOpen = Number.isFinite(deadline) && now >= deadline;
-  const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
-  const sessionDate = modStrikeBookingYmd(booking);
-  // Today: after 9:00 AM PT and after the booked end.
-  // Yesterday: morningAfterOpen is 9:00 AM PT today (the catch-up).
-  const sameDayDeadlineOpen = sessionDate === today
-    && (typeof isPastAssignmentSessionEnd === 'function')
-    && isPastAssignmentSessionEnd(booking, now);
-  if (!morningAfterOpen && !sameDayDeadlineOpen) return false;
+  // The rule is: not finished by 9:00 AM PT the morning after the booking
+  // day. A session booked today is not struck at its booked end; a team
+  // working past a short Twilight end time lost a star mid-session.
+  if (!morningAfterOpen) return false;
   // Team-OR: happypath, station_4_done, session_done, sessionCompletedAt,
   // or soft-close Completed on any co-mod completes the assignment.
   // A same-crew soft-close sibling counts. A true cancel stays out.
@@ -34905,13 +34990,16 @@ function modStrikeCheckpointBookingForTeam(teamId) {
     return { assignmentId: row.assignmentId, booking: booking };
   }
   const today = String((typeof getPSTDateString === 'function') ? (getPSTDateString() || '') : '').split('T')[0];
+  // Yesterday is the night the 9 AM check strikes. When the report files
+  // that crew under a sibling team id, Skip still has to land on it.
+  const floor = (today && typeof addDaysToYmd === 'function') ? (addDaysToYmd(today, -1) || today) : today;
   let hit = null;
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     if (!a || String(a.teamId) !== id) continue;
     if (a.status === 'Cancelled' || a.status === 'Unassigned' || a.status === 'Completed') continue;
     const ymd = String(a.date || '').split('T')[0];
-    if (today && ymd && ymd < today) continue;
+    if (floor && ymd && ymd < floor) continue;
     if (!hit || String(a.date || '') < String(hit.date || '')) hit = a;
   }
   if (!hit) return { assignmentId: '', booking: null };
@@ -46489,14 +46577,16 @@ async function writeModCancelSessionState(asgn, iso, actor, comment) {
   let actorOk = false;
   const actorKey = String(actor || '').toLowerCase();
   const targets = modCancelSessionStateTargets(asgn);
-  for (const target of targets) {
-    if (!target || !target.orbit) continue;
+  // One upsert per teammate, sent together. One after another this took
+  // several Power Automate round trips before anything else saved.
+  await Promise.all(targets.map(async (target) => {
+    if (!target || !target.orbit) return;
     const row = target.row;
     const baseJson = row && row.stateJson ? row.stateJson : '{}';
     const nextJson = patchStateJsonModCancel(baseJson, iso, actor, comment);
     const sid = (row && row.sessionStateId)
       || ((typeof sessionStateStableId === 'function') ? sessionStateStableId(asgn, target.orbit) : '');
-    if (!sid) continue;
+    if (!sid) return;
     const payload = {
       sessionStateId: sid,
       assignmentId: String(asgn.id),
@@ -46526,7 +46616,7 @@ async function writeModCancelSessionState(asgn, iso, actor, comment) {
         _sessionStateSyncState.lastSyncedActive = iso;
       }
     }
-  }
+  }));
   try { _derivedStatusCache = { sourceRef: null, byAsgnId: {} }; } catch (_) {}
   try {
     if (typeof invalidateSessionStateAssignmentIndex === 'function') invalidateSessionStateAssignmentIndex();
@@ -46534,11 +46624,10 @@ async function writeModCancelSessionState(asgn, iso, actor, comment) {
   return { ok: actorOk };
 }
 
-async function writeModCancelAssignmentListRow(asgn, comment, iso) {
-  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
-    return { ok: false, reason: 'admin-progress-mirror' };
-  }
-  if (!asgn || typeof adminState === 'undefined' || !adminState) return { ok: false };
+// Mark the booking Cancelled in this browser only. Cancel paints this
+// before any Power Automate call so the checklist changes on Confirm.
+function markModCancelAssignmentRowLocal(asgn, comment, iso) {
+  if (!asgn || typeof adminState === 'undefined' || !adminState) return null;
   adminState.assignments = Array.isArray(adminState.assignments) ? adminState.assignments : [];
   let idx = adminState.assignments.findIndex(x => x && String(x.id) === String(asgn.id));
   if (idx === -1) {
@@ -46557,11 +46646,22 @@ async function writeModCancelAssignmentListRow(asgn, comment, iso) {
     _terminalLockUntil: terminalLockUntil(),
   });
   if (typeof saveAssignmentData === 'function') saveAssignmentData();
+  return adminState.assignments[idx];
+}
+
+async function writeModCancelAssignmentListRow(asgn, comment, iso) {
+  if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
+    return { ok: false, reason: 'admin-progress-mirror' };
+  }
+  const marked = markModCancelAssignmentRowLocal(asgn, comment, iso);
+  if (!marked) return { ok: false };
+  const idx = adminState.assignments.indexOf(marked);
+  const odStatus = marked.odStatus;
   let error = null;
   if (typeof ASSIGNMENT_PA_WRITE_URL !== 'undefined' && ASSIGNMENT_PA_WRITE_URL
       && typeof buildAssignmentExcelRow === 'function') {
     const excelRows = buildAssignmentExcelRow(adminState.assignments[idx]);
-    for (const row of excelRows) {
+    await Promise.all(excelRows.map(async (row) => {
       if (odStatus != null && row.odStatus !== odStatus) row.odStatus = odStatus;
       try {
         const res = await fetch(ASSIGNMENT_PA_WRITE_URL, {
@@ -46573,62 +46673,77 @@ async function writeModCancelAssignmentListRow(asgn, comment, iso) {
       } catch (e) {
         error = (e && e.message) || String(e);
       }
-    }
+    }));
   }
   return { ok: !error, error: error, row: adminState.assignments[idx] };
 }
 
+// A Confirm Cancel that has not reached Excel yet. Kept in this browser so
+// a reload, a closed tab, or a dropped connection sends it again instead
+// of losing it (Admin and Performance only see the Assignment row).
+const MOD_CANCEL_PENDING_KEY = 'twilight_pending_mod_cancel_v1';
+function loadPendingModCancels() {
+  try {
+    const raw = localStorage.getItem(MOD_CANCEL_PENDING_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch (_) { return []; }
+}
+function savePendingModCancels(list) {
+  try {
+    if (list && list.length) localStorage.setItem(MOD_CANCEL_PENDING_KEY, JSON.stringify(list));
+    else localStorage.removeItem(MOD_CANCEL_PENDING_KEY);
+  } catch (_) {}
+}
+function rememberPendingModCancel(asgn, iso, actor, comment) {
+  if (!asgn || asgn.id == null || asgn.id === '') return;
+  const id = String(asgn.id);
+  const list = loadPendingModCancels().filter(p => p && String(p.asgn && p.asgn.id) !== id);
+  list.push({ asgn: Object.assign({}, asgn), iso: iso, actor: actor || '', comment: comment });
+  savePendingModCancels(list);
+}
+function clearPendingModCancel(asgnId) {
+  const id = String(asgnId || '');
+  savePendingModCancels(loadPendingModCancels().filter(p => p && String(p.asgn && p.asgn.id) !== id));
+}
+
 let _modCancelPersistBusy = false;
-async function persistModeratorCancelSession(asgn) {
+async function persistModeratorCancelSession(asgn, opts) {
   if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
     return { ok: false, reason: 'admin-progress-mirror' };
   }
   if (!asgn || _modCancelPersistBusy) return { ok: false, reason: 'busy' };
+  opts = opts || {};
   _modCancelPersistBusy = true;
-  const iso = new Date().toISOString();
-  const actor = modCancelActorOrbit();
-  const comment = modCancelSessionComment(actor, iso);
+  // A resend keeps the original time and comment so Excel gets one cancel.
+  const iso = opts.iso || new Date().toISOString();
+  const actor = opts.actor != null ? opts.actor : modCancelActorOrbit();
+  const comment = opts.comment || modCancelSessionComment(actor, iso);
   const shareIds = assignmentsSharingModCancel(asgn).map(row => row && row.id).filter(id => id != null && id !== '');
   if (!shareIds.some(id => String(id) === String(asgn.id))) shareIds.push(asgn.id);
   shareIds.forEach(id => {
     try { blockModCancelAssignmentRehydrate(id); } catch (_) {}
     try { dropPendingQueueWritesForModCancel(id); } catch (_) {}
   });
+  if (typeof rememberPendingModCancel === 'function') rememberPendingModCancel(asgn, iso, actor, comment);
+  // Pick the List rows to write before marking them locally. A resend
+  // writes rows this browser already shows as cancelled.
+  const listTargets = assignmentsSharingModCancel(asgn).filter(row => {
+    if (!row) return false;
+    const st = String(row.status || '');
+    if (st === 'Unassigned') return false;
+    if (!opts.resend && st === 'Cancelled' && typeof assignmentCommentIsModCancel === 'function'
+        && assignmentCommentIsModCancel(row.comment)) return false;
+    return true;
+  });
   try {
-    try {
-      if (typeof waitForSessionStateSyncIdle === 'function') await waitForSessionStateSyncIdle(8000);
-    } catch (_) {}
-    if (typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
-      if (_sessionStateSyncState.timer) {
-        clearTimeout(_sessionStateSyncState.timer);
-        _sessionStateSyncState.timer = null;
-      }
-      _sessionStateSyncState.pendingAgain = false;
-      _sessionStateSyncState.pendingForce = false;
-      _sessionStateSyncState.pendingPersistCompletion = false;
-    }
-    await writeModCancelSessionState(asgn, iso, actor, comment);
-    const targets = assignmentsSharingModCancel(asgn);
-    let wrote = 0;
-    for (const row of targets) {
-      if (!row) continue;
-      const st = String(row.status || '');
-      if (st === 'Unassigned') continue;
-      if (st === 'Cancelled' && typeof assignmentCommentIsModCancel === 'function'
-          && assignmentCommentIsModCancel(row.comment)) continue;
-      const result = await writeModCancelAssignmentListRow(row, comment, iso);
-      if (result && result.ok) wrote++;
+    // Show the cancel on this device right away. The saves below used to
+    // finish before anything changed on screen, so a reload in that gap
+    // dropped the cancel with no sign it had not been saved.
+    if (typeof markModCancelAssignmentRowLocal === 'function') {
+      listTargets.forEach(row => { try { markModCancelAssignmentRowLocal(row, comment, iso); } catch (_) {} });
     }
     try { if (typeof window !== 'undefined') window._mySessionCarouselIdx = null; } catch (_) {}
-    if (typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
-      if (_sessionStateSyncState.timer) {
-        clearTimeout(_sessionStateSyncState.timer);
-        _sessionStateSyncState.timer = null;
-      }
-      _sessionStateSyncState.pendingAgain = false;
-      _sessionStateSyncState.pendingForce = false;
-      _sessionStateSyncState.pendingPersistCompletion = false;
-    }
     if (typeof clearOperatorProgressForNewBooking === 'function') {
       clearOperatorProgressForNewBooking('mod-cancel-session');
     }
@@ -46662,10 +46777,65 @@ async function persistModeratorCancelSession(asgn) {
         renderApp();
       }
     } catch (_) {}
-    if (wrote > 0 && typeof toast === 'function') toast('Session cancelled');
-    return { ok: wrote > 0, wrote: wrote, comment: comment };
+
+    // Assignment List first: Admin booking and Performance read it.
+    const listResults = await Promise.all(listTargets.map(row =>
+      writeModCancelAssignmentListRow(row, comment, iso).catch(e => ({ ok: false, error: (e && e.message) || String(e) }))
+    ));
+    const wrote = listResults.filter(r => r && r.ok).length;
+    const failed = listResults.length - wrote;
+
+    try {
+      if (typeof waitForSessionStateSyncIdle === 'function') await waitForSessionStateSyncIdle(8000);
+    } catch (_) {}
+    if (typeof _sessionStateSyncState !== 'undefined' && _sessionStateSyncState) {
+      if (_sessionStateSyncState.timer) {
+        clearTimeout(_sessionStateSyncState.timer);
+        _sessionStateSyncState.timer = null;
+      }
+      _sessionStateSyncState.pendingAgain = false;
+      _sessionStateSyncState.pendingForce = false;
+      _sessionStateSyncState.pendingPersistCompletion = false;
+    }
+    let ssOk = false;
+    try {
+      const ss = await writeModCancelSessionState(asgn, iso, actor, comment);
+      ssOk = !!(ss && ss.ok);
+    } catch (e) {
+      console.warn('[Twilight] mod cancel SessionState write failed', e && e.message);
+    }
+    const ok = wrote > 0 && failed === 0;
+    if (ok && typeof clearPendingModCancel === 'function') clearPendingModCancel(asgn.id);
+    if (!ok) console.warn('[Twilight] mod cancel: Assignment List write did not finish', listResults);
+    return { ok: ok, wrote: wrote, failed: failed, sessionStateOk: ssOk, comment: comment };
   } finally {
     _modCancelPersistBusy = false;
+  }
+}
+
+// Send any Confirm Cancel that did not reach Excel before the page closed.
+let _modCancelResumeBusy = false;
+async function resumePendingModCancels() {
+  if (_modCancelResumeBusy) return;
+  const list = (typeof loadPendingModCancels === 'function') ? loadPendingModCancels() : [];
+  if (!list.length) return;
+  _modCancelResumeBusy = true;
+  let saved = 0;
+  try {
+    for (const p of list) {
+      if (!p || !p.asgn || p.asgn.id == null) continue;
+      const res = await persistModeratorCancelSession(p.asgn, {
+        iso: p.iso, actor: p.actor, comment: p.comment, resend: true,
+      });
+      if (res && res.ok) saved++;
+    }
+  } catch (_) {
+  } finally {
+    _modCancelResumeBusy = false;
+  }
+  if (saved > 0 && typeof toast === 'function') toast('Cancelled session saved');
+  if (loadPendingModCancels().length) {
+    setTimeout(() => { resumePendingModCancels().catch(() => {}); }, 30000);
   }
 }
 
@@ -47149,7 +47319,8 @@ function appConfirm(opts) {
     const message     = o.message || '';
     const isHtml      = !!o.html;
     const confirmText = o.confirmLabel || 'Continue';
-    const cancelText  = o.cancelLabel  || 'Cancel';
+    // appAlert passes '' to hide Cancel; '' must not fall back to 'Cancel'.
+    const cancelText  = (o.cancelLabel === '') ? '' : (o.cancelLabel || 'Cancel');
     const variant     = o.variant      || 'default';
 
     const titleEl   = document.getElementById('appConfirmTitle');
@@ -48556,7 +48727,13 @@ function assignmentProgressDeadlineMs(asgn) {
   const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
     ? SESSION_PROGRESS_AFTER_END_GRACE_MS
     : (4 * 60 * 60 * 1000);
-  return endMs + grace;
+  // Progress counts until the strike check: 9:00 AM PT the morning after
+  // the booking day, or end + grace when that is later. A Twilight booking
+  // saved with a short end time (team session 8 AM to 5 PM, or a guessed
+  // 9 PM end) dropped a 2 AM finish, and that finished team was struck.
+  const strikeMs = (typeof assignmentAutoStrikeDeadlineMs === 'function')
+    ? assignmentAutoStrikeDeadlineMs(asgn) : NaN;
+  return Number.isFinite(strikeMs) ? Math.max(endMs + grace, strikeMs) : endMs + grace;
 }
 
 function sessionStateStampAfterProgressDeadline(stamp, deadlineMs) {
@@ -48813,10 +48990,13 @@ function sessionStatePostWindowWriteDecision(asgn, syncable, opts) {
     ? assignmentBookingSessionEndMs(asgn) : NaN;
   if (!Number.isFinite(endMs)) return { refuse: false, reason: 'no-end' };
   if (now < endMs) return { refuse: false, reason: 'in-window' };
+  // Same window the strike check reads, so a finish it would count is saved.
+  const progressDeadline = (typeof assignmentProgressDeadlineMs === 'function')
+    ? assignmentProgressDeadlineMs(asgn) : NaN;
   const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
     ? SESSION_PROGRESS_AFTER_END_GRACE_MS
     : (4 * 60 * 60 * 1000);
-  const pastGrace = now > (endMs + grace);
+  const pastGrace = now > (Number.isFinite(progressDeadline) ? progressDeadline : (endMs + grace));
   const newer = (typeof moderatorHasNewerStartedBooking === 'function')
     && moderatorHasNewerStartedBooking(asgn, opts.orbitLoginId, now);
   if (pastGrace || newer) {
@@ -52108,7 +52288,10 @@ function renderSyncIndicator() {
   }
 }
 
-window.addEventListener('online', () => flushSyncQueue());
+window.addEventListener('online', () => {
+  flushSyncQueue();
+  if (typeof resumePendingModCancels === 'function') resumePendingModCancels().catch(() => {});
+});
 
 // ---------- Admin polling ----------
 let _worklogPollInterval = null;
@@ -58323,11 +58506,36 @@ function assignmentOdEchoShouldYieldToModCancel(winningComment, olderComment) {
   return plain.indexOf('od-sync') === 0;
 }
 
+// Admin Cancel in the booking app writes Cancelled with the admin's own
+// reason (often empty). The hourly OneData sync then appends a newer
+// Booked/Scheduled row with comment od-sync, which used to win and put
+// the booking back to Booked. Any Twilight cancel (admin or checklist)
+// now beats a later OneData echo. A Twilight row written after the
+// cancel (admin revive or edit) still wins: rows arrive newest first,
+// so the group remembers it saw one before reaching the cancel.
+function assignmentCommentIsOdEcho(comment) {
+  return assignmentCommentPlainForMarker(comment).indexOf('od-sync') === 0;
+}
+
 function applyAssignmentGroupModCancelStick(group, row) {
   if (!group || !row) return group;
-  if (!assignmentOdEchoShouldYieldToModCancel(group.comment, row.comment)) return group;
-  group.status = 'Cancelled';
-  group.comment = row.comment;
+  if (group._twilightRowAfterCancel) return group;
+  const rowIsTwilightCancel = String(row.status || '') === 'Cancelled'
+    && !assignmentCommentIsOdEcho(row.comment);
+  const yieldToCancel = assignmentOdEchoShouldYieldToModCancel(group.comment, row.comment)
+    || (rowIsTwilightCancel
+      && String(group.status || '') !== 'Cancelled'
+      && assignmentCommentIsOdEcho(group.comment));
+  if (yieldToCancel) {
+    group.status = 'Cancelled';
+    group.comment = row.comment;
+    return group;
+  }
+  // A newer Twilight write that is not a cancel (revive, edit) blocks
+  // older cancels further down the list.
+  if (String(row.status || '') !== 'Cancelled' && !assignmentCommentIsOdEcho(row.comment)) {
+    group._twilightRowAfterCancel = true;
+  }
   return group;
 }
 
@@ -61748,6 +61956,10 @@ function startAppAfterLogin() {
   if (typeof flushAvailabilityQueue === 'function') flushAvailabilityQueue();
   // Try to flush any pending session sync from previous offline period
   setTimeout(() => flushSyncQueue(), 1500);
+  // Resend a Confirm Cancel that did not reach Excel before the page closed.
+  if (typeof resumePendingModCancels === 'function') {
+    setTimeout(() => { resumePendingModCancels().catch(() => {}); }, 2500);
+  }
   // Apply theme
   document.documentElement.setAttribute('data-theme', state.theme || 'dark');
   document.getElementById('themeDesc').textContent = (state.theme === 'light') ? 'Currently light' : 'Currently dark';

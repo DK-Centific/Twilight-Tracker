@@ -43,11 +43,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Performance checklist cancel vs OneData echo (1.3.101326a)');
+console.log('Performance checklist cancel vs OneData echo (1.3.101426a)');
 
-assert('APP_VERSION 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('APP_VERSION 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 
 const CANCEL_COMMENT = 'mod-cancel-session:narendra.tw:2026-10-07T04:00:00.000Z';
 const echo = {
@@ -185,6 +185,7 @@ vm.createContext(ctx);
   'assignmentCommentIsOdSoftClose',
   'assignmentIsOdSoftClose',
   'assignmentOdEchoShouldYieldToModCancel',
+  'assignmentCommentIsOdEcho',
   'applyAssignmentGroupModCancelStick',
   'sessionStateRowSaysCancelled',
   'assignmentSessionStateSaysCancelled',
@@ -267,6 +268,29 @@ ctx.applyAssignmentGroupModCancelStick(revived, {
 });
 assert('an admin revive is not put back to Cancelled',
   revived.status === 'Booked' && revived.comment === '');
+
+// Admin Cancel in the booking app (any reason, even empty) beats a later
+// OneData echo; a later Twilight revive still wins over that cancel.
+const adminCancel = { status: 'Booked', comment: 'od-sync' };
+ctx.applyAssignmentGroupModCancelStick(adminCancel, { status: 'Cancelled', comment: '' });
+assert('admin cancel with no reason wins over a newer OneData echo',
+  adminCancel.status === 'Cancelled');
+const adminReason = { status: 'Scheduled', comment: 'od-sync' };
+ctx.applyAssignmentGroupModCancelStick(adminReason, { status: 'Cancelled', comment: 'participant sick' });
+assert('admin cancel with a reason wins over a newer OneData echo',
+  adminReason.status === 'Cancelled' && adminReason.comment === 'participant sick');
+const reviveThenEcho = { status: 'Booked', comment: 'od-sync' };
+ctx.applyAssignmentGroupModCancelStick(reviveThenEcho, { status: 'Booked', comment: '' });
+ctx.applyAssignmentGroupModCancelStick(reviveThenEcho, { status: 'Cancelled', comment: 'participant sick' });
+assert('a revive after the cancel still wins when OneData echoes later',
+  reviveThenEcho.status === 'Booked');
+const softCloseGroup = { status: 'Cancelled', comment: 'od-sync-soft-close' };
+ctx.applyAssignmentGroupModCancelStick(softCloseGroup, { status: 'Cancelled', comment: 'x' });
+assert('OneData soft-close keeps its own comment', softCloseGroup.comment === 'od-sync-soft-close');
+const odCancelOnly = { status: 'Booked', comment: 'od-sync' };
+ctx.applyAssignmentGroupModCancelStick(odCancelOnly, { status: 'Cancelled', comment: 'od-sync-soft-close' });
+assert('an older OneData soft-close does not override a newer OneData booking',
+  odCancelOnly.status === 'Booked');
 
 const synced = ctx.extractSyncableState({
   sessionStatus: 'Cancelled',
