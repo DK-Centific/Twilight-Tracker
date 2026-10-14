@@ -13,7 +13,25 @@ It does **not** use Twilight bookings. **Performance** is unchanged.
 - A row counts as **one** session when column D (Session Kit) is a real kit and column K (Status) is filled in. The kit number itself is not added up. **Select** and a blank Status are left out.
 - The chart tries again about once a minute while Overview is open.
 
-The ring reads this counts-only address first:
+## Why the numbers looked frozen (2026-10-14)
+
+The counts-only file below is a copy made by hand on Oct 6. Nothing updates it, so the ring kept showing those numbers even though the app re-reads it every minute. The ring now shows when the counts were taken. Until the live link below is set, the line under the title says **not live, last counted Oct 6 …**.
+
+## Make it live (Google Apps Script, about 5 minutes)
+
+1. Open **https://script.google.com**, signed in with a Google account that can open the Production1 sheet.
+2. Click **New project**. Delete what is in the editor.
+3. Paste everything from `docs/production1-status-apps-script.gs` in this repo. Click **Save**.
+4. Click **Deploy → New deployment**. Click the gear next to **Select type** and pick **Web app**.
+5. Set **Execute as** to **Me** and **Who has access** to **Anyone**. Click **Deploy**.
+6. Google asks you to allow access to your spreadsheets. Click **Authorize access**, pick your account, then **Allow** (if it says the app isn't verified, click **Advanced → Go to project**).
+7. Copy the **Web app URL** (it ends in `/exec`) and send it to an agent. It goes in `PRODUCTION1_STATUS_LIVE_URL` in `twilight.js`.
+
+The script answers counts only (no names, addresses or phone numbers) and reads the sheet fresh on each call, with a 30-second cache. Opening the `/exec` address in a browser should show something like `{"updatedAt":"…","slices":[{"status":"Completed","count":45}, …]}`.
+
+The ring tries the live link first, then the file below, then the private sheet link.
+
+The ring reads this counts-only file as a fallback:
 
 `https://dk-centific.github.io/twilight-production1-status/production1-status.json`
 

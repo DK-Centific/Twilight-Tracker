@@ -47,11 +47,11 @@ function extractFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Settled Performance status guard (1.3.101326a)');
+console.log('Settled Performance status guard (1.3.101426a)');
 
-assert('APP_VERSION 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('APP_VERSION 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 
 assert('Incomplete waits for SessionState, same as the 9 AM strike',
   /function perfSettledStatusAwaitingSessionState/.test(src)

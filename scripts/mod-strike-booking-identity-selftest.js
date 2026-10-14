@@ -36,9 +36,9 @@ function assert(name, cond, detail) {
 
 console.log('9 AM strike stays on the booked moderators');
 
-assert('version 1.3.101326a',
-  /const APP_VERSION = '1\.3\.101326a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101326a'));
+assert('version 1.3.101426a',
+  /const APP_VERSION = '1\.3\.101426a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426a'));
 assert('auto-strike checks the assignment moderator logins',
   /function modStrikeOrbitIsBookedModerator/.test(src)
   && /modStrikeOrbitIsBookedModerator\(orbitId, booking\)/.test(src));
