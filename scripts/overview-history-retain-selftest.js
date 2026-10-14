@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Overview / Performance history after List hygiene (1.3.101426c).
+ * Overview / Performance history after List hygiene (1.3.101426d).
  *
  * List may drop older rows (reschedule hard-delete of leftover
  * non-Cancelled, or a short read). The donut and Performance history
@@ -109,11 +109,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Overview history retain self-test (1.3.101426c)');
+console.log('Overview history retain self-test (1.3.101426d)');
 
-assert('APP_VERSION 1.3.101426c',
-  src.includes("const APP_VERSION = '1.3.101426c'")
-  && html.includes('twilight.js?v=twilight-1.3.101426c'));
+assert('APP_VERSION 1.3.101426d',
+  src.includes("const APP_VERSION = '1.3.101426d'")
+  && html.includes('twilight.js?v=twilight-1.3.101426d'));
 
 const rememberAt = src.indexOf('rememberAssignmentHistory([].concat(local.assignments');
 const dropAt = src.indexOf('Dropped ${droppedStale} stale local assignment');

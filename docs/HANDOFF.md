@@ -1,6 +1,16 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-14 · Claude · 1.3.101426c: moderators are told when their session is cancelled elsewhere
+**Last updated:** 2026-10-14 · Claude · 1.3.101426d: booking-app Cancel on a OneData booking no longer snaps back to Booked
+
+## 2026-10-14 · Claude · OneData booking Cancel stays Cancelled (1.3.101426d)
+
+**Ask:** Team Narendra x Muhammad's booking for Dillon Edwards kept showing Booked after Cancel in the booking app.
+
+**Root cause:** The booking came from OneData, and its Assignment List rows have no `assignmentId`. `fetchAssignmentsFromPA` groups those rows under `od|<odScheduleId>` and gives the card a made-up id `asgn_remote_<hash>`. Cancel writes its rows with that made-up id as `assignmentId`, so on the next read they formed a second group with the same card id. The Booked OneData group won, so a reload showed Booked until a newer OneData echo happened to sort after it. Reproduced headless (fresh browser, Booked 5 s after Cancel). Not checked against Dillon's live rows: the Mac blocked reading the saved list.
+
+**Fix:** In `fetchAssignmentsFromPA`, a row whose `assignmentId` starts with `asgn_remote_` and that carries an `odScheduleId` is grouped under `od|<odScheduleId>`. The cancel then joins the OneData group and the existing cancel-stick rule keeps it Cancelled. Card id is unchanged. Real Twilight ids are untouched.
+
+**Selftest:** new `scripts/od-cancel-group-selftest.js`. Suite: 54 pass, same version-unrelated failures as before.
 
 ## 2026-10-14 · Claude · Moderators are told when a session is cancelled (1.3.101426c)
 

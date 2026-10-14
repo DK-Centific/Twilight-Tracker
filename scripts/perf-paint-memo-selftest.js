@@ -29,9 +29,9 @@ function assert(name, cond, detail) {
 
 console.log('Performance paint memo self-test');
 
-assert('APP_VERSION 1.3.101426c',
-  /const APP_VERSION = '1\.3\.101426c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101426c'));
+assert('APP_VERSION 1.3.101426d',
+  /const APP_VERSION = '1\.3\.101426d'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101426d'));
 
 const memoStart = src.indexOf('let _perfMemoDepth = 0;');
 const memoEnd = src.indexOf('function classifyBookingForPerf(a)', memoStart);

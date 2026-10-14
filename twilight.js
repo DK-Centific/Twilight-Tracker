@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101426c';
-const APP_UPDATED_AT = '10/14/2026 11:35';
+const APP_VERSION = '1.3.101426d';
+const APP_UPDATED_AT = '10/14/2026 12:10';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -31129,7 +31129,14 @@ async function fetchAssignmentsFromPA() {
       : { odScheduleId: '', bookingGroupId: '', odStatus: '' };
     if (!dateInfo && !r.assignmentId && !odKeys.odScheduleId) continue;
     const fallbackDate = (typeof getPSTDateString === 'function') ? getPSTDateString() : '';
-    const groupKey = r.assignmentId
+    // A Twilight write (Cancel, edit, email) on a OneData booking carries
+    // the card's made-up id asgn_remote_<hash of od|odScheduleId> as its
+    // assignmentId. Keep it in the OneData group, or the cancel and the
+    // OneData Booked rows become two cards with the same id and whichever
+    // is grouped last wins (Dillon Edwards, 2026-10-14).
+    const remoteOdId = !!(r.assignmentId && odKeys.odScheduleId
+      && String(r.assignmentId).indexOf('asgn_remote_') === 0);
+    const groupKey = (r.assignmentId && !remoteOdId)
       ? String(r.assignmentId)
       : (odKeys.odScheduleId
           ? `od|${odKeys.odScheduleId}`
