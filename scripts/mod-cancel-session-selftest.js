@@ -92,7 +92,8 @@ assert('stale richer shell loses to a cancel wipe',
 assert('cancel writer sets sessionStatus Cancelled',
   /sessionStatus = 'Cancelled'/.test(patch));
 assert('cancel uses terminal lock like admin cancel',
-  /_terminalLockUntil:\s*terminalLockUntil\(\)/.test(extractFn('writeModCancelAssignmentListRow')));
+  /_terminalLockUntil:\s*terminalLockUntil\(\)/.test(extractFn('markModCancelAssignmentRowLocal'))
+  && extractFn('writeModCancelAssignmentListRow').indexOf('markModCancelAssignmentRowLocal') >= 0);
 assert('cancel writer does not touch Skip or strikes',
   persist.indexOf('skippedTeams') < 0
   && persist.indexOf('resolvedTeams') < 0
@@ -688,7 +689,12 @@ async function runAhP() {
     'modCancelSessionStateTargets',
     'postSessionStatePayloadDirect',
     'writeModCancelSessionState',
+    'markModCancelAssignmentRowLocal',
     'writeModCancelAssignmentListRow',
+    'loadPendingModCancels',
+    'savePendingModCancels',
+    'rememberPendingModCancel',
+    'clearPendingModCancel',
     'persistModeratorCancelSession',
     'assignmentCommentPlainForMarker',
     'assignmentCommentIsModCancel',
