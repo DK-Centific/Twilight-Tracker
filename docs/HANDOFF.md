@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
+**Last updated:** 2026-10-14 · Claude · Production status ring shows when it was counted; live Apps Script feed ready (PR #204 open, not merged)
+
+## 2026-10-14 · Claude · Production status ring was frozen on Oct 6 numbers (PR #204)
+
+**Ask:** Admin → Overview → Production status ring numbers come from the Google Sheet but do not look live.
+
+**Cause:** The ring reads `dk-centific.github.io/twilight-production1-status/production1-status.json` first. That file was committed by hand on Oct 6 and nothing updates it. The app re-read it every minute but always got the Oct 6 counts and showed them as if live.
+
+**Fix:** New `docs/production1-status-apps-script.gs`: an Apps Script web app that reads Production1 on each call (30 s cache) and answers counts only with `updatedAt`. The app tries `PRODUCTION1_STATUS_LIVE_URL` first (empty until David deploys the script), then the old file, then the sheet link. The line under the title shows when the counts were taken: `updated 9:41 AM`, or `not live, last counted Oct 6 11:09 AM` when older than 15 min.
+
+**Waiting on David:** deploy the script (click steps in `docs/production1-overview-pie.md`) and send the `/exec` URL; paste it into `PRODUCTION1_STATUS_LIVE_URL`. PR #203 (cancel + strike fixes) is separate and also open.
+
+**Selftest:** `scripts/production1-status-donut-selftest.js` extended. Suite matches main. Version not bumped yet; bump on push.
+
+**PR:** draft [#204](https://github.com/DK-Centific/Twilight-Tracker/pull/204) on `fix/production-status-live`. Do not merge until David says push.
 
 ## 2026-10-13 · Claude · Manual bookings show the participant in My Session (1.3.101326a)
 
