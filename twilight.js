@@ -10472,8 +10472,15 @@ const PRODUCTION1_SHEET_GID = '0';
 // Names and addresses stay off the website until a counts-only proxy is set.
 const PRODUCTION1_CSV_URL = 'https://docs.google.com/spreadsheets/d/'
   + PRODUCTION1_SHEET_ID + '/gviz/tq?tqx=out:csv&gid=' + PRODUCTION1_SHEET_GID;
-// Counts only. No names or addresses. Tried before the private sheet link.
+// Live counts: a Google Apps Script web app that reads Production1 on each
+// call and answers counts only (docs/production1-status-apps-script.gs).
+// Empty until it is deployed; then paste its /exec address here.
+const PRODUCTION1_STATUS_LIVE_URL = '';
+// Counts only. No names or addresses. This file is a hand-made copy and
+// does not update by itself, so it is only the fallback.
 const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json';
+// Counts older than this are shown with their date so a frozen feed is visible.
+const PRODUCTION1_STATUS_STALE_MS = 15 * 60 * 1000;
 const PRODUCTION1_STATUS_REFRESH_MS = 60 * 1000;
 const PRODUCTION1_SESSION_KIT_COL = 3;
 const PRODUCTION1_STATUS_COL = 10;
@@ -10603,6 +10610,35 @@ function countProduction1StatusSlices(input) {
   });
   const total = slices.reduce((n, s) => n + s.count, 0);
   return { total, slices };
+}
+
+// When the feed says when it was counted: JSON updatedAt, else the
+// Last-Modified header of the file. Returns ms or NaN.
+function production1FeedAsOfMs(text, lastModified) {
+  const raw = String(text == null ? '' : text).replace(/^\uFEFF/, '').trim();
+  if (raw.charAt(0) === '{') {
+    try {
+      const data = JSON.parse(raw);
+      const t = Date.parse(data && (data.updatedAt || data.updated_at || data.asOf));
+      if (Number.isFinite(t)) return t;
+    } catch (_) {}
+  }
+  const h = Date.parse(lastModified || '');
+  return Number.isFinite(h) ? h : NaN;
+}
+
+function production1FeedSubtitle(total, asOfMs, nowMs) {
+  const n = Number(total) || 0;
+  let line = n > 0
+    ? ('Production1 · ' + n + (n === 1 ? ' session' : ' sessions'))
+    : 'No sessions on the production sheet';
+  if (!Number.isFinite(asOfMs)) return line;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const d = new Date(asOfMs);
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+  if (now - asOfMs <= PRODUCTION1_STATUS_STALE_MS) return line + ' · updated ' + time;
+  const day = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });
+  return line + ' · not live, last counted ' + day + ' ' + time;
 }
 
 function production1CountsFromFeed(text) {
@@ -20056,7 +20092,7 @@ function setupLineHover(series, xFor, yFor, padL, padR, W, H, padT, innerH) {
 }
 
 // ----- Production1 ring ------------------------------------------------
-let _production1Status = { at: 0, counts: null, error: '', pending: null };
+let _production1Status = { at: 0, counts: null, error: '', pending: null, asOf: NaN };
 
 function production1StatusStyle(label, extraIndex) {
   const key = production1NormalizeStatusKey(label);
@@ -20074,6 +20110,8 @@ function production1StatusStyle(label, extraIndex) {
 
 function production1StatusFeedUrls() {
   const urls = [];
+  const live = String((typeof PRODUCTION1_STATUS_LIVE_URL === 'string' && PRODUCTION1_STATUS_LIVE_URL) || '').trim();
+  if (live) urls.push(live);
   const proxy = String(PRODUCTION1_STATUS_PROXY_URL || '').trim();
   if (proxy) urls.push(proxy);
   const csv = String(PRODUCTION1_CSV_URL || '').trim();
@@ -20101,9 +20139,7 @@ function paintProduction1OverviewDonut() {
     return;
   }
   if (donutSub) {
-    donutSub.textContent = counts.total > 0
-      ? ('Production1 · ' + counts.total + (counts.total === 1 ? ' session' : ' sessions'))
-      : 'No sessions on the production sheet';
+    donutSub.textContent = production1FeedSubtitle(counts.total, _production1Status.asOf);
   }
   const slices = (counts.slices || []).filter(s => s && s.count > 0);
   drawProduction1DonutArcs(slices);
@@ -20222,6 +20258,9 @@ function refreshProduction1OverviewStatus(force) {
         const text = await res.text();
         const counts = production1CountsFromFeed(text);
         if (!counts) continue;
+        let lastModified = '';
+        try { lastModified = (res.headers && res.headers.get('Last-Modified')) || ''; } catch (_) {}
+        _production1Status.asOf = production1FeedAsOfMs(text, lastModified);
         _production1Status.at = Date.now();
         _production1Status.counts = counts;
         _production1Status.error = '';

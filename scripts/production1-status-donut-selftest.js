@@ -126,6 +126,43 @@ assert('the ring refreshes on a short timer',
 assert('proxy URL is the counts-only feed',
   src.includes("const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json'"));
 
+// Live feed: the hand-made JSON never refreshed, so the ring showed old
+// numbers as if live. It now tries the Apps Script feed first and shows
+// when the counts were taken.
+const now = Date.parse('2026-10-14T17:00:00Z');
+assert('updatedAt in the feed is the count time',
+  ctx.production1FeedAsOfMs('{"updatedAt":"2026-10-14T16:59:00Z","slices":[]}', '') === Date.parse('2026-10-14T16:59:00Z'));
+assert('Last-Modified is the fallback count time',
+  ctx.production1FeedAsOfMs('{"slices":[]}', 'Tue, 06 Oct 2026 18:09:52 GMT') === Date.parse('2026-10-06T18:09:52Z'));
+const freshLine = ctx.production1FeedSubtitle(66, now - 60 * 1000, now);
+assert('fresh counts say updated', /66 sessions · updated /.test(freshLine) && !/not live/.test(freshLine), freshLine);
+const staleLine = ctx.production1FeedSubtitle(66, Date.parse('2026-10-06T18:09:52Z'), now);
+assert('old counts say not live with the date', /not live, last counted Oct 6/.test(staleLine), staleLine);
+assert('no time known keeps the plain line', ctx.production1FeedSubtitle(1, NaN, now) === 'Production1 · 1 session');
+assert('live Apps Script address is tried before the static file',
+  /if \(live\) urls\.push\(live\);\s*const proxy/.test(src));
+
+// The Apps Script counts the same way as the ring.
+const gs = fs.readFileSync(path.join(root, 'docs', 'production1-status-apps-script.gs'), 'utf8');
+const matrix = ctx.parseProduction1Csv(fixture);
+const gctx = {
+  SpreadsheetApp: { openById: () => ({
+    getSheets: () => [{ getSheetId: () => 0, getDataRange: () => ({ getDisplayValues: () => matrix }) }],
+  }) },
+  CacheService: { getScriptCache: () => ({ get: () => null, put() {} }) },
+  ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ setMimeType: () => t }) },
+};
+vm.createContext(gctx);
+vm.runInContext(gs, gctx);
+const gsOut = JSON.parse(gctx.doGet());
+const viaFeed = ctx.production1CountsFromFeed(JSON.stringify(gsOut));
+assert('Apps Script feed matches the ring count',
+  viaFeed && viaFeed.total === counts.total
+  && viaFeed.slices.map(s => s.status + ':' + s.count).join(',') === counts.slices.map(s => s.status + ':' + s.count).join(','),
+  JSON.stringify(viaFeed));
+assert('Apps Script feed carries updatedAt and no row data',
+  !!gsOut.updatedAt && Object.keys(gsOut).sort().join(',') === 'slices,updatedAt');
+
 if (failed) {
   console.error(failed + ' failed');
   process.exit(1);
