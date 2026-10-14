@@ -2,6 +2,16 @@
 
 **Last updated:** 2026-10-14 · Claude · 9 AM strike check fixes + checklist Cancel session (PR #203 open, not merged)
 
+## 2026-10-14 · Claude · Admin booking Cancel no longer comes back as Booked
+
+**Ask:** Cancelling a session in the Admin booking app looked cancelled, but after a refresh or a new sign-in it showed Booked again.
+
+**Cause:** The Assignment List is read newest row first. The hourly OneData sync appends a fresh Booked/Scheduled row (comment `od-sync`) for every OneData booking. That newer row beat the admin's Cancelled row as soon as the 30 s terminal lock ran out. Checklist cancels were already protected (`mod-cancel-session` marker); admin cancels (any reason, or none) were not. Reproduced in a headless harness: Cancelled after 5 s, Booked after the next OneData row. A Twilight-only booking with no OneData rows stayed Cancelled in the same test.
+
+**Fix:** `applyAssignmentGroupModCancelStick` keeps any Twilight cancel (admin or checklist) over a later OneData echo. A Twilight write after the cancel (revive, edit) still wins, also for checklist cancels, which before this could be put back to Cancelled by an older cancel. OneData soft-close is unchanged.
+
+**Selftest:** `scripts/perf-mod-cancel-echo-selftest.js` extended.
+
 ## 2026-10-14 · Claude · 9 AM strike check no longer strikes finished teams (PR #203)
 
 **Ask:** At 9 AM the day after, teams whose session was incomplete get a strike. David saw whole days of teams struck, including completed sessions, mostly on Twilight-booked sessions. Find the cause, fix it, and fix anything else illogical. Do not merge until David says push.

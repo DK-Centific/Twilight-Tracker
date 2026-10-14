@@ -31292,6 +31292,7 @@ async function fetchAssignmentsFromPA() {
     }
     delete g._latestActive;
     delete g._modHints;
+    delete g._twilightRowAfterCancel;
   }
   const remoteAssignments = [...grouped.values()];
 
@@ -58466,11 +58467,36 @@ function assignmentOdEchoShouldYieldToModCancel(winningComment, olderComment) {
   return plain.indexOf('od-sync') === 0;
 }
 
+// Admin Cancel in the booking app writes Cancelled with the admin's own
+// reason (often empty). The hourly OneData sync then appends a newer
+// Booked/Scheduled row with comment od-sync, which used to win and put
+// the booking back to Booked. Any Twilight cancel (admin or checklist)
+// now beats a later OneData echo. A Twilight row written after the
+// cancel (admin revive or edit) still wins: rows arrive newest first,
+// so the group remembers it saw one before reaching the cancel.
+function assignmentCommentIsOdEcho(comment) {
+  return assignmentCommentPlainForMarker(comment).indexOf('od-sync') === 0;
+}
+
 function applyAssignmentGroupModCancelStick(group, row) {
   if (!group || !row) return group;
-  if (!assignmentOdEchoShouldYieldToModCancel(group.comment, row.comment)) return group;
-  group.status = 'Cancelled';
-  group.comment = row.comment;
+  if (group._twilightRowAfterCancel) return group;
+  const rowIsTwilightCancel = String(row.status || '') === 'Cancelled'
+    && !assignmentCommentIsOdEcho(row.comment);
+  const yieldToCancel = assignmentOdEchoShouldYieldToModCancel(group.comment, row.comment)
+    || (rowIsTwilightCancel
+      && String(group.status || '') !== 'Cancelled'
+      && assignmentCommentIsOdEcho(group.comment));
+  if (yieldToCancel) {
+    group.status = 'Cancelled';
+    group.comment = row.comment;
+    return group;
+  }
+  // A newer Twilight write that is not a cancel (revive, edit) blocks
+  // older cancels further down the list.
+  if (String(row.status || '') !== 'Cancelled' && !assignmentCommentIsOdEcho(row.comment)) {
+    group._twilightRowAfterCancel = true;
+  }
   return group;
 }
 
