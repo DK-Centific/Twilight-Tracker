@@ -43,11 +43,11 @@ function extractFn(name) {
   return src.slice(from, i);
 }
 
-console.log('Performance checklist cancel vs OneData echo (1.3.100726c)');
+console.log('Performance checklist cancel vs OneData echo (1.3.101326a)');
 
-assert('APP_VERSION 1.3.100726c',
-  /const APP_VERSION = '1\.3\.100726c'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.100726c'));
+assert('APP_VERSION 1.3.101326a',
+  /const APP_VERSION = '1\.3\.101326a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101326a'));
 
 const CANCEL_COMMENT = 'mod-cancel-session:narendra.tw:2026-10-07T04:00:00.000Z';
 const echo = {
