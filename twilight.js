@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101426b';
-const APP_UPDATED_AT = '10/14/2026 11:20';
+const APP_VERSION = '1.3.101426c';
+const APP_UPDATED_AT = '10/14/2026 11:35';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -1752,6 +1752,71 @@ function showModCancelResult(asgn, res) {
       + 'Keep the app open with a connection and it will try again. Please let the Twilight team know.',
     variant: 'warning',
   });
+}
+
+// A session on this moderator's checklist was cancelled somewhere else
+// (Admin booking app, or a teammate's checklist). The list refresh drops
+// it; this says why, once per session per device. The moderator's own
+// Confirm Cancel already has its own dialog, so it is skipped here.
+const MOD_SEEN_CANCEL_KEY = 'twilight_mod_seen_cancel_v1';
+
+function modCancelNoticeSnapshot() {
+  try {
+    if (typeof state === 'undefined' || !state || !state.modProfile) return [];
+    if (typeof getOperatorCarouselAssignments !== 'function') return [];
+    return getOperatorCarouselAssignments().map(a => ({ id: a && a.id }));
+  } catch (_) { return []; }
+}
+
+function modCancelNoticeBy(asgn, myOrbit) {
+  const plain = (typeof assignmentCommentPlainForMarker === 'function')
+    ? assignmentCommentPlainForMarker(asgn && asgn.comment)
+    : String((asgn && asgn.comment) || '');
+  const m = /^mod-cancel-session:([^:]+):/i.exec(plain);
+  if (!m) return { self: false, label: 'the Twilight team' };
+  const who = String(m[1] || '').trim();
+  if (myOrbit && who.toLowerCase() === myOrbit) return { self: true, label: '' };
+  let name = (typeof getOperatorTeammateFirstName === 'function') ? getOperatorTeammateFirstName(who) : who;
+  name = String(name || '').replace(/[-._](tw|orbit)$/i, '');
+  if (name) name = name.charAt(0).toUpperCase() + name.slice(1);
+  return { self: false, label: name || 'your teammate' };
+}
+
+function notifyModOfCancelledSessions(before) {
+  if (!Array.isArray(before) || !before.length) return [];
+  if (typeof state === 'undefined' || !state || !state.modProfile) return [];
+  if (typeof adminState === 'undefined' || !adminState || !Array.isArray(adminState.assignments)) return [];
+  const myOrbit = String(state.modProfile.orbitLoginId || '').trim().toLowerCase();
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem(MOD_SEEN_CANCEL_KEY) || '[]') || []; } catch (_) { seen = []; }
+  const seenSet = new Set(seen.map(String));
+  const hits = [];
+  before.forEach(prev => {
+    const id = prev && prev.id != null ? String(prev.id) : '';
+    if (!id || seenSet.has(id)) return;
+    const cur = adminState.assignments.find(a => a && String(a.id) === id);
+    if (!cur || String(cur.status || '') !== 'Cancelled') return;
+    seenSet.add(id);
+    const by = modCancelNoticeBy(cur, myOrbit);
+    if (!by.self) hits.push({ asgn: cur, by: by.label });
+  });
+  try { localStorage.setItem(MOD_SEEN_CANCEL_KEY, JSON.stringify(Array.from(seenSet).slice(-200))); } catch (_) {}
+  if (!hits.length || typeof appAlert !== 'function') return hits;
+  const lines = hits.map(h => {
+    const p = h.asgn.participantData || {};
+    const who = [p.firstName, p.lastName].filter(Boolean).join(' ');
+    const day = (h.asgn.date && typeof parseYMD === 'function' && parseYMD(h.asgn.date))
+      ? parseYMD(h.asgn.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+      : '';
+    const what = [who, day].filter(Boolean).join(' · ') || 'This session';
+    return what + ' was cancelled by ' + h.by + '.';
+  });
+  appAlert({
+    title: hits.length === 1 ? 'Session cancelled' : 'Sessions cancelled',
+    message: lines.join(' ') + ' It is no longer on your checklist, so you do not need to run it.',
+    okLabel: 'OK',
+  });
+  return hits;
 }
 
 // A status banner shown near the top of the welcome page that mirrors the
@@ -58043,6 +58108,7 @@ async function refreshModAssignments(opts) {
 
   _modAsgnFetchPromise = (async () => {
     try {
+      const cancelWatch = (typeof modCancelNoticeSnapshot === 'function') ? modCancelNoticeSnapshot() : [];
       await fetchAssignmentsFromPA();
       _modAsgnLastFetchAt = Date.now();
       // Re-render the operator-visible UI: nav chip (team), entry bar
@@ -58069,6 +58135,9 @@ async function refreshModAssignments(opts) {
           if (typeof renderApp === 'function') renderApp();
         }
         if (welcomeOpen) replaceLoginWelcomeAfterHydrate();
+        if (!loginVisible && typeof notifyModOfCancelledSessions === 'function') {
+          notifyModOfCancelledSessions(cancelWatch);
+        }
         // The mod calendar's body is safe to re-render even if other
         // modals are open · it lives inside its own overlay and reads
         // fresh data directly. Skipping its update would leave it stale.

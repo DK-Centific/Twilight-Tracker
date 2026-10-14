@@ -1,6 +1,16 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-14 · Claude · 1.3.101426b: booking Cancel retries Power Automate 502s
+**Last updated:** 2026-10-14 · Claude · 1.3.101426c: moderators are told when their session is cancelled elsewhere
+
+## 2026-10-14 · Claude · Moderators are told when a session is cancelled (1.3.101426c)
+
+**Ask:** When a booking is cancelled in the Admin booking app, the team's moderators should not see it on their checklist. Checked: the checklist list, the session it opens, and the moderator calendar already skip Cancelled bookings (headless test, Twilight and OneData bookings: gone on the next 3-minute refresh or reload). Moderators saw cancelled sessions before because of the 502 and OneData-echo bugs fixed earlier today. David then asked for a message so a moderator knows why it disappeared.
+
+**Fix:** `refreshModAssignments` snapshots the checklist list before each read. `notifyModOfCancelledSessions` shows one "Session cancelled" message for any of those that are now Cancelled: "<participant · day> was cancelled by the Twilight team" (Admin) or "by <teammate>" (checklist cancel). The moderator's own Confirm Cancel is skipped (it has its own dialog). Shown once per session per device (`twilight_mod_seen_cancel_v1`).
+
+**Selftest:** new `scripts/mod-cancel-notice-selftest.js`.
+
+**Version:** **1.3.101426c**. David said push.
 
 ## 2026-10-14 · Claude · Booking Cancel showed HTTP 502 (1.3.101426b)
 
