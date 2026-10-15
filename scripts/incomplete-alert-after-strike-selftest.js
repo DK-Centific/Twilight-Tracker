@@ -31,9 +31,9 @@ function assert(name, cond, detail) {
 
 console.log('Incomplete alert clears after auto-strike');
 
-assert('version 1.3.101426d',
-  /const APP_VERSION = '1\.3\.101426d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101426d'));
+assert('version 1.3.101526a',
+  /const APP_VERSION = '1\.3\.101526a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101526a'));
 
 assert('Overview and Performance share the auto-strike clear',
   /function modStrikeAutoStrikeClearsIncompleteAlert/.test(src)
@@ -212,8 +212,8 @@ assert('healed 3-star mods with kind=auto still clear the alert',
 const snaps = ctx.computeOverviewLiveTeamSnapshots(ctx.adminState.assignments, 6);
 assert('Overview live status omits the auto-struck team',
   !snaps.some(r => String(r.teamId) === 't-vj' || /Venkata/.test(r.teamName)));
-assert('Overview live status still lists the unstruck incomplete team',
-  snaps.some(r => String(r.teamId) === 't-open' && r.kind === 'flagged'));
+assert('Overview live status does not list the unstruck incomplete team (Performance Flagged does)',
+  !snaps.some(r => String(r.teamId) === 't-open' || r.kind === 'flagged'));
 
 const banner = ctx.renderPerfStrikeCheckpointBannerHTML();
 assert('Performance banner omits the auto-struck team', !/Venkata/.test(banner));
@@ -231,8 +231,8 @@ ctx._pastGate = false;
 assert('before 9 AM the same kind=auto logs do not clear the alert',
   ctx.modStrikeAutoStrikeClearsIncompleteAlert(world.struck) === false);
 const early = ctx.computeOverviewLiveTeamSnapshots(ctx.adminState.assignments, 6);
-assert('before 9 AM Overview can still list that team',
-  early.some(r => String(r.teamId) === 't-vj'));
+assert('before 9 AM Overview live status still does not list an ended session',
+  !early.some(r => String(r.teamId) === 't-vj'));
 ctx._pastGate = true;
 
 setStarsAndLogs({
@@ -242,8 +242,8 @@ setStarsAndLogs({
 assert('one primary with kind=auto and no stamp still alerts',
   ctx.modStrikeAutoStrikeClearsIncompleteAlert(world.struck) === false);
 const partial = ctx.computeOverviewLiveTeamSnapshots(ctx.adminState.assignments, 6);
-assert('Overview keeps a partly struck team',
-  partial.some(r => String(r.teamId) === 't-vj'));
+assert('Overview live status does not list a partly struck ended session',
+  !partial.some(r => String(r.teamId) === 't-vj'));
 
 setStarsAndLogs({
   'Venkata-tw': [{ kind: 'manual', assignmentId: world.struck.id, sessionDate: '2026-09-24', sessionAliases: ctx.modStrikeSessionAliasKeys(world.struck) }],
@@ -306,8 +306,8 @@ assert('Cancelled stays off the incomplete alert',
   !/Cancel Crew/.test(skipBanner)
   && !skipSnaps.some(r => String(r.teamId) === 't-cancel')
   && ctx.isAssignmentFlaggedForPerf(world.cancelled) === false);
-assert('unstruck incomplete is not a special-case team name',
-  names(ctx.computeOverviewLiveTeamSnapshots(ctx.adminState.assignments, 6)).indexOf('North Crew') >= 0);
+assert('unstruck incomplete is still on the Performance banner',
+  /North Crew/.test(ctx.renderPerfStrikeCheckpointBannerHTML()));
 
 console.log('\n' + passed + ' passed, ' + failed + ' failed');
 process.exit(failed ? 1 : 0);

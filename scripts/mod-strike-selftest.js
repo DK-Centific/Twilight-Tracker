@@ -24,8 +24,8 @@ function assert(name, cond, detail) {
 console.log('Moderator strike self-test');
 
 assert('version bump 091828a',
-  /const APP_VERSION = '1\.3\.101426d'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101426d'));
+  /const APP_VERSION = '1\.3\.101526a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101526a'));
 assert('grid card stars replace the orbit id line',
   /class="mod-card-stars"/.test(src)
   && !/class="mod-id"/.test(src)
@@ -80,9 +80,9 @@ assert('skip keyed by assignment occurrence',
   && /function modStrikeCheckpointIsSkipped/.test(src)
   && /function stampModStrikeCheckpointOccurrence/.test(src)
   && /Do not also stamp bare teamId/.test(src));
-assert('live tile prefers new session over prior flag',
-  /A new Live assignment must not stay blanked/.test(src)
-  && /prev\.kind === 'flagged' && snap\.kind === 'inprogress'/.test(src));
+assert('live tile lists Live teams only, a prior flag never hides a new session',
+  /Live status lists only teams that are Live right now/.test(src)
+  && !/prev\.kind === 'flagged' && snap\.kind === 'inprogress'/.test(src));
 assert('banner gated by date filter + hides when resolved',
   /function modStrikeCheckpointRowMatchesPerfDateFilter/.test(src)
   && /After admin confirms Skip\/Strike for every incomplete, hide by default/.test(src)

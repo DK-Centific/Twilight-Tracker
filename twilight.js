@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101426d';
-const APP_UPDATED_AT = '10/14/2026 12:10';
+const APP_VERSION = '1.3.101526a';
+const APP_UPDATED_AT = '10/15/2026 11:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -11290,60 +11290,29 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
   const teams = adminState.teams || [];
   const entries = new Map();
 
-  const upsert = (teamId, snap) => {
-    const key = String(teamId);
-    const prev = entries.get(key);
-    if (!prev) { entries.set(key, snap); return; }
-    // A new Live assignment must not stay blanked/stuck behind a prior
-    // flagged incomplete for the same team (different booking/session).
-    if (prev.kind === 'flagged' && snap.kind === 'inprogress'
-        && String(prev.assignmentId || '') !== String(snap.assignmentId || '')) {
-      entries.set(key, snap);
-      return;
-    }
-    if (snap.rank < prev.rank) entries.set(key, snap);
-  };
-
-  if (typeof buildModStrikeCheckpointReport === 'function') {
-    const rep = buildModStrikeCheckpointReport();
-    (rep.teams || []).forEach(row => {
-      if (!teamMatch(row.teamId)) return;
-      if (typeof modStrikeCheckpointRowStillAlerts === 'function') {
-        if (!modStrikeCheckpointRowStillAlerts(row)) return;
-      } else if (row.skipped || row.resolved || !row.flagIncomplete) return;
-      const strikeAsgn = (row.assignmentId != null)
-        ? ((adminState.assignments || []).find(x => String(x.id) === String(row.assignmentId))
-          || (filteredAsgns || []).find(x => String(x.id) === String(row.assignmentId)))
-        : null;
-      if (typeof assignmentHasModeratorArrivalCheckIn === 'function'
-          && !assignmentHasModeratorArrivalCheckIn(strikeAsgn)) return;
-      const team = teams.find(t => String(t.id) === String(row.teamId));
-      const name = (team && team.name) || row.teamName || 'Team';
-      upsert(row.teamId, {
-        teamId: row.teamId,
-        teamName: name,
-        kind: 'flagged',
-        station: '',
-        rank: 0,
-        assignmentId: row.assignmentId != null ? row.assignmentId : (strikeAsgn && strikeAsgn.id),
-      });
-    });
-  }
-
+  // Live status lists only teams that are Live right now: checked in
+  // from the app and inside their booked start-to-end window (the same
+  // rule as the Live teams tile and Performance Live). Unfinished
+  // sessions from earlier (flagged / Not completed) stay on the
+  // Performance Flagged tile and banner, not here, so last night's
+  // teams are gone from this list once their session ends (David,
+  // 2026-10-15).
   (filteredAsgns || []).forEach(a => {
     if (!overviewAssignmentIsPerfLive(a)) return;
+    if (!teamMatch(a.teamId)) return;
     const key = String(a.teamId);
-    const prev = entries.get(key);
-    // Same flagged incomplete session stays flagged; a different live booking wins via upsert.
-    if (prev && prev.kind === 'flagged'
-        && String(prev.assignmentId || '') === String(a.id || '')) return;
+    if (entries.has(key)) return;
     const team = teams.find(t => String(t.id) === key);
     const name = (team && team.name) || a.teamName || 'Team';
     const st = overviewLiveStatusStationLabel(a);
-    upsert(a.teamId, {
+    const disp = (typeof perfLiveStatusDisplay === 'function') ? (perfLiveStatusDisplay(a) || {}) : {};
+    entries.set(key, {
       teamId: a.teamId,
       teamName: name,
       kind: 'inprogress',
+      // Same session status as the Performance row pill: checkin until
+      // the first station is done, then insession.
+      liveKey: disp.key || '',
       station: st || '',
       rank: 1,
       assignmentId: a.id,
@@ -11355,8 +11324,10 @@ function computeOverviewLiveTeamSnapshots(filteredAsgns, maxCount) {
     .slice(0, maxCount);
 }
 
-function overviewLiveStatusPillLabel(kind) {
+function overviewLiveStatusPillLabel(kind, liveKey) {
   if (kind === 'flagged') return 'Not completed';
+  if (kind === 'inprogress' && liveKey === 'checkin') return 'Checked in';
+  if (kind === 'inprogress' && liveKey === 'insession') return 'In session';
   if (kind === 'inprogress') return 'In progress';
   if (kind === 'completed') return 'Completed';
   return 'Scheduled';
@@ -11373,7 +11344,7 @@ function renderOverviewLiveStatusList(lines) {
     return;
   }
   const sig = lines.map(row => {
-    return [row.kind, row.teamId, row.assignmentId, row.teamName, row.station].map(x => String(x == null ? '' : x)).join(':');
+    return [row.kind, row.liveKey, row.teamId, row.assignmentId, row.teamName, row.station].map(x => String(x == null ? '' : x)).join(':');
   }).join('|');
   if (list.dataset.ovLsSig === sig) return;
   list.dataset.ovLsSig = sig;
@@ -11381,12 +11352,15 @@ function renderOverviewLiveStatusList(lines) {
     const kind = row.kind || 'scheduled';
     const teamName = escapeHTML(row.teamName || 'Team');
     const asgnId = row.assignmentId != null ? String(row.assignmentId) : '';
-    const isFresh = !!(asgnId && typeof isArrivalAlertSeen === 'function'
+    // "Just checked in" only while the team has not finished a station.
+    // A team at station 3 whose arrival alert nobody opened is In session.
+    const isFresh = !!(asgnId && row.liveKey === 'checkin'
+      && typeof isArrivalAlertSeen === 'function'
       && !isArrivalAlertSeen(asgnId)
       && typeof assignmentHasModeratorArrivalCheckIn === 'function'
       && (adminState.assignments || []).some(a => String(a.id) === asgnId
         && assignmentHasModeratorArrivalCheckIn(a)));
-    const statusText = isFresh ? 'Just checked in' : overviewLiveStatusPillLabel(kind);
+    const statusText = isFresh ? 'Just checked in' : overviewLiveStatusPillLabel(kind, row.liveKey);
     const pillLabel = escapeHTML(statusText);
     const stationRaw = row.station ? String(row.station).replace(/^ST\s*/i, '').trim() : '';
     const station = stationRaw ? escapeHTML(stationRaw) : '';
