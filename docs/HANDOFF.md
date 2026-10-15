@@ -1,6 +1,16 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-14 · Claude · 1.3.101426d: booking-app Cancel on a OneData booking no longer snaps back to Booked
+**Last updated:** 2026-10-15 · Claude · 1.3.101526a: Overview Live status lists only teams that are Live now
+
+## 2026-10-15 · Claude · Overview Live status lists only Live teams (1.3.101526a)
+
+**Ask:** Overview showed two "live" sessions the next morning. Live should only show teams that checked in, between their start and end time, and nothing from last night after 9 AM. The session status also looked off.
+
+**Cause:** The Live status card mixed two lists. Besides Live teams it added last night's unfinished sessions (strike checkpoint, "Not completed") and ranked them first, so they filled the 3 slots and could hide the team actually live. Its status also said "Just checked in" for any team whose arrival alert nobody had opened, even at station 3, and "In progress" for everything else. The Live teams tile and Performance Live were already correct (checked in and inside the booked window).
+
+**Fix:** `computeOverviewLiveTeamSnapshots` lists only `overviewAssignmentIsPerfLive` teams. Unfinished sessions stay on the Performance Flagged tile and banner. Status now reads Checked in (no station done yet) or In session, from `perfLiveStatusDisplay`; "Just checked in" shows only while checked in.
+
+**Selftest:** new `scripts/overview-live-status-window-selftest.js`; `incomplete-alert-after-strike` and `mod-strike` asserts updated to the new rule. Suite: 55 pass, same unrelated failures as before.
 
 ## 2026-10-14 · Claude · OneData booking Cancel stays Cancelled (1.3.101426d)
 
