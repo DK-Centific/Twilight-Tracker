@@ -79,6 +79,8 @@ If Write was append-only for a while, the table has many rows. Power Automate **
 19b. Turn **Pagination** **On**. Threshold `5000`.
 19c. Save.
 
+The 9 AM strike check needs every row. Before it writes a strike it reads SessionState again. If that Read returns exactly 256 rows, it asks for the next page with `&skip=256` on the same URL. A flow that ignores `skip` sends the first page again, and the check then writes no strike and logs a warning in the browser console. Turning Pagination on (19b) fixes this; nothing else in the flow has to change.
+
 ### C. Columns Twilight reads
 
 Each row should include at least:

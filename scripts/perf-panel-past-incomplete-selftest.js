@@ -49,9 +49,9 @@ function assert(name, cond, detail) {
 
 console.log('Performance panel past-incomplete self-test (1.3.091825d)');
 
-assert('APP_VERSION 1.3.101526a',
-  /const APP_VERSION = '1\.3\.101526a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101526a'));
+assert('APP_VERSION 1.3.101926a',
+  /const APP_VERSION = '1\.3\.101926a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101926a'));
 
 assert('panel gate is not cls === scheduled alone',
   /function perfPanelStationDetailHTML\(/.test(src)

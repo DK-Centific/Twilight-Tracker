@@ -36,9 +36,9 @@ function assert(name, cond, detail) {
 
 console.log('Team happypath Flag / strike self-test (1.3.091821b)');
 
-assert('APP_VERSION 1.3.101526a',
-  /const APP_VERSION = '1\.3\.101526a'/.test(src)
-  && /twilight\.js\?v=twilight-1\.3\.101526a/.test(html));
+assert('APP_VERSION 1.3.101926a',
+  /const APP_VERSION = '1\.3\.101926a'/.test(src)
+  && /twilight\.js\?v=twilight-1\.3\.101926a/.test(html));
 
 assert('team happypath helper present',
   /function isAssignmentTeamHappypathComplete/.test(src)
