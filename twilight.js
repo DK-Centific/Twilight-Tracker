@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101526a';
-const APP_UPDATED_AT = '10/15/2026 11:20';
+const APP_VERSION = '1.3.101926a';
+const APP_UPDATED_AT = '10/19/2026 10:30';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -13775,12 +13775,22 @@ function sessionStateParsedIsHappypathComplete(parsed, row) {
   return false;
 }
 
-// Primary orbits on this assignment. Backups and other logins do not
-// complete the team. No roster → no filter (teamId null still uses
-// the booking's mod snapshots).
+// Moderators on this assignment. The booking's own mod snapshots are the
+// crew, the same list the 9 AM check strikes. The linked team roster is
+// used only when the booking has no snapshots: teamId 200073 held
+// Pradeepreddy x Adidela while Manoj finished c4553535, and filtering by
+// that roster hid his finish. Backups and other logins do not complete
+// the team. No crew → no filter.
 function assignmentHappypathMemberOrbitIds(a) {
   const ids = new Set();
   if (!a) return ids;
+  if (Array.isArray(a.modSnapshots) && a.modSnapshots.length) {
+    a.modSnapshots.forEach(s => {
+      const id = String((s && (s.orbitLoginId || s.orbitId)) || '').trim().toLowerCase();
+      if (id) ids.add(id);
+    });
+    if (ids.size) return ids;
+  }
   let team = null;
   try {
     const teams = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.teams))
@@ -13806,8 +13816,6 @@ function assignmentHappypathMemberOrbitIds(a) {
   };
   if (team && Array.isArray(team.primaryIds) && team.primaryIds.length) {
     team.primaryIds.forEach(remember);
-  } else if (Array.isArray(a.modSnapshots)) {
-    a.modSnapshots.forEach(s => remember(s && (s.orbitLoginId || s.orbitId)));
   }
   return ids;
 }
@@ -13852,21 +13860,26 @@ function sessionStateCountsAsTeamComplete(parsed, row, bookingYmd) {
     || (row && (row.sessionDate || row.SessionDate))
     || ''
   ).trim();
-  if (booked && sd && sd < booked) return false;
+  let asgn = null;
+  const asgnId = row && (row.assignmentId || row.AssignmentId);
+  if (asgnId != null && asgnId !== ''
+      && typeof adminState !== 'undefined' && adminState
+      && Array.isArray(adminState.assignments)) {
+    asgn = adminState.assignments.find(a => a && (
+      (typeof assignmentIdsMatch === 'function')
+        ? assignmentIdsMatch(a.id, asgnId)
+        : String(a.id) === String(asgnId)
+    )) || null;
+  }
+  // A wrong sessionDate does not undo a finish stamped inside the window.
+  if (booked && sd && sd < booked
+      && !(typeof sessionStateFinishInsideBookingWindow === 'function'
+        && sessionStateFinishInsideBookingWindow(parsed, row, asgn))) {
+    return false;
+  }
   let judgedParsed = parsed;
   let judgedRow = row;
   if (typeof applySessionProgressUpperBound === 'function') {
-    let asgn = null;
-    const asgnId = row && (row.assignmentId || row.AssignmentId);
-    if (asgnId != null && asgnId !== ''
-        && typeof adminState !== 'undefined' && adminState
-        && Array.isArray(adminState.assignments)) {
-      asgn = adminState.assignments.find(a => a && (
-        (typeof assignmentIdsMatch === 'function')
-          ? assignmentIdsMatch(a.id, asgnId)
-          : String(a.id) === String(asgnId)
-      )) || null;
-    }
     if (asgn) {
       const bounded = applySessionProgressUpperBound(parsed, row, asgn);
       if (bounded && bounded.parsed) judgedParsed = bounded.parsed;
@@ -14007,7 +14020,13 @@ function isAssignmentTeamHappypathComplete(a) {
       || (r && (r.sessionDate || r.SessionDate))
       || ''
     ).trim();
-    if (bookingYmd && rowDay && rowDay < bookingYmd) continue;
+    if (bookingYmd && rowDay && rowDay < bookingYmd) {
+      const inWindow = String(sessionStateStatusHint(parsed, r) || '').toLowerCase() !== 'cancelled'
+        && typeof sessionStateFinishInsideBookingWindow === 'function'
+        && sessionStateFinishInsideBookingWindow(parsed, r, a);
+      if (inWindow) return remember(true);
+      continue;
+    }
     if (String(sessionStateStatusHint(parsed, r) || '').toLowerCase() === 'cancelled') return remember(false);
     if (sessionStateCountsAsTeamComplete(parsed, r, bookingYmd)) return remember(true);
     if (bookingYmd && typeof scrubSessionStateProgressToBooking === 'function') {
@@ -31994,6 +32013,8 @@ const MOD_STRIKE_LOCK_AT_LOST = 3;
 /** Hitting 0★ (4th strike) auto-deactivates — cannot sign in. */
 const MOD_STRIKE_LS_KEY = 'centific_moderator_strikes_v1';
 const MODERATOR_STRIKES_SETTING_ID = 'ss_app_setting_moderator_strikes';
+/** Power Automate "List rows" page size with pagination off. A Read of exactly this many rows may be cut off. */
+const SESSIONSTATE_READ_PAGE_CAP = 256;
 let _modStrikeIngestInFlight = false;
 let _modStrikeIngestApplying = false;
 let _modStrikePersistTimer = null;
@@ -33855,12 +33876,44 @@ function modStrikeCheckpointDaysForBooking(booking) {
   return days;
 }
 
+// Rescheduled by status or by OneData (fbc23553 moved to Oct 23).
+function modStrikeBookingIsRescheduled(a) {
+  if (!a) return false;
+  return String(a.status || '').trim().toLowerCase() === 'rescheduled'
+    || String(a.odStatus || '').trim().toLowerCase() === 'rescheduled';
+}
+
+// The booking is still on the Assignment List. A row removed since
+// (73fef94c, 63de7ab5, eb0f9d6c) is missing data, not a miss. An empty
+// or unloaded list cannot tell, so it does not count as missing.
+function modStrikeBookingStillListed(a) {
+  if (!a || a.id == null || a.id === '') return false;
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  if (!list.length) return true;
+  const id = String(a.id);
+  return list.some(x => x && String(x.id) === id);
+}
+
+// Cancelled after the booked end, like od-sync flipping a finished night
+// to Cancelled. That says nothing about whether the team finished.
+function modStrikeCancelLandedAfterSession(a) {
+  if (!a || a.status !== 'Cancelled') return false;
+  if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
+  const endMs = (typeof assignmentBookingSessionEndMs === 'function') ? assignmentBookingSessionEndMs(a) : NaN;
+  const at = Date.parse(String(a.savedAt || ''));
+  return Number.isFinite(endMs) && Number.isFinite(at) && at >= endMs;
+}
+
 // 'complete' · team-OR happypath (or Assignment Completed).
 // 'incomplete' · SessionState has been read and this booking is not done.
-// 'unknown' · rows not loaded, or a full 256-row page has no row for this
-// booking (completion may have fallen off the read). Never auto-strike unknown.
+// 'excluded' · Rescheduled and not finished. Never Incomplete.
+// 'unknown' · rows not loaded, a capped 256-row read has no row for this
+// booking, the booking is gone from the List, or it was Cancelled after
+// the session. Never auto-strike unknown.
 function modStrikeAssignmentEvidence(a) {
   if (!a) return 'unknown';
+  if (typeof modStrikeBookingStillListed === 'function' && !modStrikeBookingStillListed(a)) return 'unknown';
   // Soft-close + happypath / either co-mod finish is Completed, so it is
   // not an incomplete strike. Soft-close without that finish stays
   // cancelled (not invented Completed, and not a new incomplete).
@@ -33878,7 +33931,10 @@ function modStrikeAssignmentEvidence(a) {
     }
     return 'cancelled';
   }
-  if (a.status === 'Cancelled') return 'cancelled';
+  if (a.status === 'Cancelled') {
+    return (typeof modStrikeCancelLandedAfterSession === 'function' && modStrikeCancelLandedAfterSession(a))
+      ? 'unknown' : 'cancelled';
+  }
   if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return 'cancelled';
   if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return 'cancelled';
   if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return 'cancelled';
@@ -33896,9 +33952,12 @@ function modStrikeAssignmentEvidence(a) {
   if (typeof modStrikeCoModStatusBlocksStrike === 'function' && modStrikeCoModStatusBlocksStrike(a)) {
     return 'complete';
   }
+  if (typeof modStrikeBookingIsRescheduled === 'function' && modStrikeBookingIsRescheduled(a)) return 'excluded';
   if (!modStrikeSessionStateReady()) return 'unknown';
   const all = adminState.perfSessionStateRows;
-  if (all.length >= 256) {
+  // Exactly one capped page. A fully paged read (367 rows) is complete,
+  // so a booked team with no row there is a real miss.
+  if (all.length === (typeof SESSIONSTATE_READ_PAGE_CAP === 'number' ? SESSIONSTATE_READ_PAGE_CAP : 256)) {
     let matched = [];
     if (typeof sessionStateRowsForAssignment === 'function') {
       matched = sessionStateRowsForAssignment(a.id, all) || [];
@@ -33926,6 +33985,7 @@ function buildModStrikeCheckpointReport(nowMs) {
   const eligible = (a) => {
     if (!a || dayOf(a) !== String(yesterday || '')) return false;
     if (a.status === 'Cancelled' || a.status === 'Unassigned') return false;
+    if (typeof modStrikeBookingIsRescheduled === 'function' && modStrikeBookingIsRescheduled(a)) return false;
     if (typeof assignmentCommentIsModCancel === 'function' && assignmentCommentIsModCancel(a.comment)) return false;
     if (typeof assignmentSessionStateSaysCancelled === 'function' && assignmentSessionStateSaysCancelled(a)) return false;
     if (typeof perfAssignmentIsTeamCancelled === 'function' && perfAssignmentIsTeamCancelled(a)) return false;
@@ -34039,7 +34099,7 @@ function buildModStrikeCheckpointReport(nowMs) {
     if (primaries.length !== 2) continue;
     const evidence = modStrikeAssignmentEvidence(booking);
     const completed = evidence === 'complete';
-    const cancelled = evidence === 'cancelled';
+    const cancelled = evidence === 'cancelled' || evidence === 'excluded';
     const pastSessionEnd = isPastAssignmentSessionEnd(booking, now);
     const deadline = assignmentAutoStrikeDeadlineMs(booking);
     const strikeGateOpen = Number.isFinite(deadline) && now >= deadline;
@@ -34421,6 +34481,40 @@ function modStrikeBookedModeratorIds(booking) {
   return ids;
 }
 
+// Crew of the OneData booking: of the List assignments whose odScheduleId
+// matches, the newest one that names moderators. od-sync creates or
+// repairs co-mod rows later (Oct 15 2:11 AM), and that newer write is the
+// crew OneData booked. A Twilight-only booking has no match and keeps its
+// own logins. Amy was struck on 22086f11, booked Muhammad and Sravya.
+function modStrikeOdMatchedCrewIds(booking) {
+  return modStrikeBookedModeratorIds(modStrikeOdMatchedBooking(booking) || booking);
+}
+
+function modStrikeOdMatchedBooking(booking) {
+  const od = booking ? modStrikeMeaningfulToken(booking.odScheduleId).toLowerCase() : '';
+  if (!od) return null;
+  const list = (typeof adminState !== 'undefined' && adminState && Array.isArray(adminState.assignments))
+    ? adminState.assignments : [];
+  let best = null;
+  let bestAt = -Infinity;
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (!a || a.status === 'Unassigned') continue;
+    if (modStrikeMeaningfulToken(a.odScheduleId).toLowerCase() !== od) continue;
+    if (!(a.modSnapshots || []).some(s => s && (s.orbitLoginId || s.orbitId))) continue;
+    const at = Date.parse(String(a.savedAt || ''));
+    const rank = Number.isFinite(at) ? at : -1;
+    if (!best || rank > bestAt) { best = a; bestAt = rank; }
+  }
+  return best;
+}
+
+function modStrikeOrbitOnOdBooking(orbitId, booking) {
+  const key = String(orbitId || '').trim().toLowerCase();
+  if (!key || !booking) return false;
+  return modStrikeOdMatchedCrewIds(booking).some(id => String(id).toLowerCase() === key);
+}
+
 function modStrikeOrbitIsBookedModerator(orbitId, booking) {
   const key = String(orbitId || '').trim().toLowerCase();
   if (!key || !booking) return false;
@@ -34666,7 +34760,6 @@ function modStrikeCoModStatusBlocksStrike(booking) {
     const sd = String(
       (parsed && parsed.sessionDate) || row.sessionDate || row.SessionDate || ''
     ).split('T')[0].trim();
-    if (!modStrikeCoModSessionDateOk(sd, ymd)) continue;
     const who = String(
       row.orbitLoginId || row.OrbitLoginId || (parsed && parsed.orbitLoginId) || ''
     ).trim().toLowerCase();
@@ -34675,6 +34768,13 @@ function modStrikeCoModStatusBlocksStrike(booking) {
       (parsed && parsed.sessionStatus) || row.sessionStatus || row.SessionStatus || ''
     ).trim().toLowerCase();
     if (st === 'cancelled') continue;
+    if (!modStrikeCoModSessionDateOk(sd, ymd)) {
+      // Wrong sessionDate on the row (Rohith 9c56ecdd said 2026-10-17 for
+      // an Oct 13 finish). Stamps inside the booking window still count.
+      if (typeof sessionStateFinishInsideBookingWindow === 'function'
+          && sessionStateFinishInsideBookingWindow(parsed, row, booking)) return true;
+      continue;
+    }
     if (st === 'completed') return true;
     // Full app: the happypath helper is the authority (it also rejects
     // foreign stamps when sessionDate was rewritten). Do not fall
@@ -34799,6 +34899,18 @@ function modStrikeAttemptAutoStrike(booking, primaryIds, nowMs, ckRow, reason) {
     if (typeof modStrikeAssignmentEvidence === 'function' && modStrikeAssignmentEvidence(booking) === 'complete') return 0;
     if (typeof modStrikeCrewNightAlreadyComplete === 'function' && modStrikeCrewNightAlreadyComplete(booking)) return 0;
   } catch (_) {}
+  // A newer card for the same OneData booking names the crew OneData
+  // booked. Strike that crew, and only when that card is incomplete too.
+  const odBooking = modStrikeOdMatchedBooking(booking);
+  if (odBooking && odBooking !== booking) {
+    if (modStrikeAssignmentEvidence(booking) !== 'incomplete') return 0;
+    booking = odBooking;
+    primaryIds = modStrikeBookedModeratorIds(odBooking);
+    try {
+      if (modStrikeAssignmentEvidence(booking) === 'complete') return 0;
+      if (typeof modStrikeCrewNightAlreadyComplete === 'function' && modStrikeCrewNightAlreadyComplete(booking)) return 0;
+    } catch (_) {}
+  }
   const ymd = modStrikeBookingYmd(booking);
   const aid = booking.id != null && booking.id !== '' ? String(booking.id) : '';
   const sessionKey = aid && ymd ? (aid + '|' + ymd) : '';
@@ -34880,6 +34992,8 @@ function modStrikeApplyForwardAutoStrikes(nowMs, ckRow) {
 function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   if (!booking || !orbitId) return false;
   if (!modStrikeOrbitIsBookedModerator(orbitId, booking)) return false;
+  // Only a moderator OneData actually booked on this session.
+  if (!modStrikeOrbitOnOdBooking(orbitId, booking)) return false;
   const now = nowMs != null ? nowMs : Date.now();
   if (!isPastModStrikeCheckpointHour(now)) return false;
   // Older than yesterday is frozen. Yesterday catch-up and today both
@@ -34903,6 +35017,92 @@ function commitAutoModStrike(orbitId, booking, entry, nowMs) {
   return applyRecordedSessionStrike(orbitId, booking, entry);
 }
 
+// Is a strike due on the rows in memory? Each test here is one the strike
+// loops below also require. True starts the fresh read; nothing is
+// written from this answer.
+function modStrikeCheckpointMayStrike(report, nowMs) {
+  if (!report || !report.pastGate || !report.sessionStateReady) return false;
+  const list = (typeof adminState !== 'undefined' && adminState && adminState.assignments) || [];
+  const starLeft = (booking, ids) => {
+    const target = modStrikeOdMatchedBooking(booking) || booking;
+    const crew = target === booking ? (ids || []) : modStrikeBookedModeratorIds(target);
+    return crew.some(id => modStrikeOrbitIsBookedModerator(id, target)
+      && modStrikeOrbitOnOdBooking(id, target)
+      && !modAlreadyStruckForSession(id, target)
+      && getModStrikeStars(id) > 0);
+  };
+  const ck = loadModStrikeStore().checkpoints[report.todayPst];
+  const yesterdayClosed = !!(ck && ck.applied);
+  const due = !yesterdayClosed && (report.teams || []).some(t => {
+    if (!t || t.completed || t.skipped || t.resolved) return false;
+    if (t.evidence !== 'incomplete' || !t.pastSessionEnd || !t.strikeGateOpen) return false;
+    const booking = list.find(a => a && String(a.id) === String(t.assignmentId));
+    return !!booking && starLeft(booking, t.primaryIds);
+  });
+  if (due) return true;
+  const forward = modStrikeForwardCandidateBookings(nowMs) || [];
+  return forward.some(b => modStrikeAssignmentEvidence(b) === 'incomplete'
+    && !modStrikeAssignmentMutedBySkipOrResolve(b)
+    && isPastAssignmentSessionEnd(b, nowMs)
+    && starLeft(b, modStrikePrimariesForBooking(b)));
+}
+
+let _modStrikeFreshRun = null;
+let _modStrikeFreshRunAt = 0;
+// A fresh read that found nothing to strike is not repeated on every
+// Overview repaint.
+const MOD_STRIKE_FRESH_RETRY_MS = 2 * 60 * 1000;
+
+function modStrikeScheduleFreshCheckpoint(opts) {
+  if (_modStrikeFreshRun) return _modStrikeFreshRun;
+  const now = Date.now();
+  if (_modStrikeFreshRunAt && now - _modStrikeFreshRunAt < MOD_STRIKE_FRESH_RETRY_MS) return null;
+  _modStrikeFreshRunAt = now;
+  const job = runModStrikeCheckpointOnFreshRead(opts);
+  _modStrikeFreshRun = job;
+  const clear = () => { if (_modStrikeFreshRun === job) _modStrikeFreshRun = null; };
+  job.then(clear, clear);
+  return job;
+}
+
+async function runModStrikeCheckpointOnFreshRead(opts) {
+  const fresh = await modStrikeReadFreshForWrite();
+  if (!fresh.ok) {
+    console.warn('[Twilight] 9 AM strike check wrote nothing · ' + fresh.reason);
+    return { refused: fresh.reason, teams: [] };
+  }
+  return maybeRunModStrikeNineAmCheckpoint(Object.assign({}, opts || {}, { freshRead: true }));
+}
+
+// Read again right before writing a strike. The Assignment List gives the
+// current crews (a co-mod row od-sync added after the session) and drops
+// a booking deleted since. SessionState is read page by page; the strikes
+// row (ss_app_setting_moderator_strikes) and each crew row are picked by
+// Id from that read, and ingesting it folds in Skip, Strike and stars
+// another browser already wrote. A capped or failed read refuses.
+async function modStrikeReadFreshForWrite() {
+  if (typeof fetchAssignmentsFromPA === 'function'
+      && typeof ASSIGNMENT_PA_READ_URL !== 'undefined' && ASSIGNMENT_PA_READ_URL) {
+    try { await fetchAssignmentsFromPA(); } catch (_) { return { ok: false, reason: 'assignment-read-failed' }; }
+    const info = adminState && adminState._asgnFetchInfo;
+    if (!info || info.error) return { ok: false, reason: 'assignment-read-failed' };
+    if (info.rowCount === SESSIONSTATE_READ_PAGE_CAP) return { ok: false, reason: 'assignment-read-capped-256' };
+  }
+  if (typeof fetchSessionStateRowsAllPages !== 'function') return { ok: false, reason: 'no-sessionstate-reader' };
+  const res = await fetchSessionStateRowsAllPages();
+  if (!res || !res.ok) {
+    if (res && res.reason === 'capped-256') {
+      console.warn('[Twilight] SessionState read stopped at exactly 256 rows and could not page. No strike written. Turn on Pagination in the SessionState Read flow.');
+    }
+    return { ok: false, reason: (res && res.reason) || 'sessionstate-read-failed' };
+  }
+  if (!res.rows.some(r => modStrikeRowIsSetting(r))) return { ok: false, reason: 'strike-row-missing' };
+  adminState.perfSessionStateRows = res.rows;
+  adminState._perfSSFetchedAt = Date.now();
+  adminState._perfSSOk = true;
+  return { ok: true, rows: res.rows };
+}
+
 function maybeRunModStrikeNineAmCheckpoint(opts) {
   opts = opts || {};
   if (typeof adminProgressMirrorBlocksWrites === 'function' && adminProgressMirrorBlocksWrites()) {
@@ -34917,6 +35117,15 @@ function maybeRunModStrikeNineAmCheckpoint(opts) {
   // SessionState is the completion record. Striking before it loads
   // treats a finished team (Assignment still Booked) as incomplete.
   if (!report.sessionStateReady) return report;
+  // A strike is written only from data read just now: the Assignment
+  // List, every SessionState page, and the strikes row. Whichever browser
+  // opens the app after 9 AM runs this, and its rows can be hours old.
+  // This pass only reports; when a strike looks due it starts the fresh
+  // read, which runs this again with freshRead set.
+  if (!opts.freshRead && typeof fetchSessionStateRowsNow === 'function') {
+    if (modStrikeCheckpointMayStrike(report, nowMs)) modStrikeScheduleFreshCheckpoint(opts);
+    return report;
+  }
 
   const todayPst = getPSTDateString();
   const store = loadModStrikeStore();
@@ -48794,13 +49003,35 @@ function assignmentProgressDeadlineMs(asgn) {
   const grace = (typeof SESSION_PROGRESS_AFTER_END_GRACE_MS === 'number')
     ? SESSION_PROGRESS_AFTER_END_GRACE_MS
     : (4 * 60 * 60 * 1000);
-  // Progress counts until the strike check: 9:00 AM PT the morning after
-  // the booking day, or end + grace when that is later. A Twilight booking
-  // saved with a short end time (team session 8 AM to 5 PM, or a guessed
-  // 9 PM end) dropped a 2 AM finish, and that finished team was struck.
-  const strikeMs = (typeof assignmentAutoStrikeDeadlineMs === 'function')
-    ? assignmentAutoStrikeDeadlineMs(asgn) : NaN;
-  return Number.isFinite(strikeMs) ? Math.max(endMs + grace, strikeMs) : endMs + grace;
+  // Oct 5 rule: progress counts through booked end + 4 h. A checklist save
+  // after that window does not complete the session, even before the
+  // 9 AM check. The 9 AM gate itself is unchanged.
+  return endMs + grace;
+}
+
+// A wrap-up stamp (sessionCompletedAt, Station 4, office checkout, or the
+// progress clock of a station_4_done+ status) inside this booking's
+// window: start less the 2 h early-arrival grace, through the Oct 5
+// cutoff. sessionDate is not consulted. Rohith's 9c56ecdd row was
+// session_done at 11:06 PM Oct 13 but carried sessionDate 2026-10-17.
+function sessionStateFinishInsideBookingWindow(parsed, row, asgn) {
+  if (!asgn || typeof assignmentBookingSessionStartMs !== 'function') return false;
+  const startMs = assignmentBookingSessionStartMs(asgn);
+  const deadline = assignmentProgressDeadlineMs(asgn);
+  if (!Number.isFinite(startMs) || !Number.isFinite(deadline)) return false;
+  const from = startMs - 2 * 60 * 60 * 1000;
+  const p = (parsed && typeof parsed === 'object') ? parsed : {};
+  const sca = (p.stationCompletedAt && typeof p.stationCompletedAt === 'object') ? p.stationCompletedAt : {};
+  const stamps = [
+    p.sessionCompletedAt, sca.Station4, sca.station4, p.officeCheckedOutAt,
+    row && (row.sessionCompletedAt || row.SessionCompletedAt),
+  ];
+  const status = p.sessionStatus || (row && (row.sessionStatus || row.SessionStatus)) || '';
+  if (sessionProgressStatusRank(status) >= 8) stamps.push(p.progressAt);
+  return stamps.some(s => {
+    const ms = sessionStateStampMs(s);
+    return !!ms && ms >= from && ms <= deadline;
+  });
 }
 
 function sessionStateStampAfterProgressDeadline(stamp, deadlineMs) {
@@ -50796,12 +51027,14 @@ async function fetchSessionStateRows() {
   return job;
 }
 
-async function fetchSessionStateRowsNow() {
+async function fetchSessionStateRowsNow(opts) {
   if (!SESSIONSTATE_PA_READ_URL) return null;
   // A disabled PA flow may be turned back on while the app is open. Use a
   // one-minute cooldown after a disabled response instead of permanently
   // disabling cloud reads until the next page reload.
   if (_sessionStateReadRetryAt && Date.now() < _sessionStateReadRetryAt) return null;
+  const skip = opts && Number(opts.skip) > 0 ? Math.floor(Number(opts.skip)) : 0;
+  const readUrl = skip ? (SESSIONSTATE_PA_READ_URL + '&skip=' + skip) : SESSIONSTATE_PA_READ_URL;
   try {
     // Same resilient fetch as the write path. Read failures used to
     // silently return null and the polling loop would skip a beat ·
@@ -50812,13 +51045,13 @@ async function fetchSessionStateRowsNow() {
     // read doesn't block subsequent polls.
     let parsed;
     if (typeof fetchPaRead === 'function') {
-      parsed = await fetchPaRead(SESSIONSTATE_PA_READ_URL, {
+      parsed = await fetchPaRead(readUrl, {
         timeoutMs: 30000,
         maxAttempts: 3,
       });
     } else {
       // Legacy fallback for older builds without fetchWithRetry.
-      const res = await fetch(SESSIONSTATE_PA_READ_URL, { method: 'GET' });
+      const res = await fetch(readUrl, { method: 'GET' });
       if (!res.ok) {
         console.warn('[Twilight] SessionState read failed:', res.status);
         return null;
@@ -50833,7 +51066,7 @@ async function fetchSessionStateRowsNow() {
     if (Array.isArray(parsed)) rows = parsed;
     else if (parsed && Array.isArray(parsed.value)) rows = parsed.value;
     else return [];
-    if (rows.length === 256) {
+    if (rows.length === 256 && !skip) {
       console.warn('[Twilight] SessionState read returned exactly 256 rows. Append-only Write may have pushed today’s lastGeo off the page. Enable pagination on SessionState Read, or change Write to upsert by sessionStateId.');
     }
 
@@ -50916,6 +51149,31 @@ async function fetchSessionStateRowsNow() {
     }
     return null;
   }
+}
+
+// Every SessionState row, not just Power Automate's first 256. A Read with
+// Pagination on returns all rows at once (367 today). Otherwise each full
+// 256-row page asks for the next with &skip=. A flow that ignores skip
+// sends page one again; that read is capped and refused.
+async function fetchSessionStateRowsAllPages() {
+  const cap = SESSIONSTATE_READ_PAGE_CAP;
+  const rowKey = (r) => r ? [
+    r.sessionStateId || '', r.lastActive || '', r.ItemInternalId || r.__PowerAppsId__ || '',
+  ].join('|') : '';
+  const first = await fetchSessionStateRowsNow();
+  if (!Array.isArray(first)) return { ok: false, reason: 'sessionstate-read-failed', rows: null };
+  let all = first.slice();
+  let page = first;
+  while (page.length === cap) {
+    if (all.length >= 50 * cap) return { ok: false, reason: 'sessionstate-read-too-long', rows: all };
+    page = await fetchSessionStateRowsNow({ skip: all.length });
+    if (!Array.isArray(page)) return { ok: false, reason: 'sessionstate-read-failed', rows: all };
+    if (page.length && rowKey(page[0]) === rowKey(first[0])) {
+      return { ok: false, reason: 'capped-256', rows: first };
+    }
+    all = all.concat(page);
+  }
+  return { ok: true, rows: all };
 }
 
 function ingestGeoPingsFromSessionRows(rows) {

@@ -1,6 +1,20 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-15 · Claude · 1.3.101526a: Overview Live status lists only teams that are Live now
+**Last updated:** 2026-10-19 · Claude · 1.3.101926a: 9 AM strike uses the booked crew and a fresh read
+
+## 2026-10-19 · Claude · 9 AM strike uses the booked crew and a fresh read (1.3.101926a)
+
+**Ask:** Oct 11–17 had 14 false or wrong-person auto-strikes (David corrected the log by hand). Fix the code so it cannot recur. Twilight only. One small PR, do not merge.
+
+**Causes:** Completion filtered SessionState by the linked team roster while the strike used the booking's snapshots, so a finish by a booked mod was hidden (c4553535, 27615e41, 4004c7bc, e7dc0120). Rescheduled bookings were not excluded. A mod on a stale List card but not on the OneData booking could be struck (22086f11, 15625ddf, fbc23553, c4553535). A missing or later-Cancelled row read as incomplete. A capped 256-row SessionState read made a partner's blank row look incomplete. Any open browser struck from rows it read hours earlier. The completion window ran to 9 AM next day instead of the Oct 5 end + 4 h, and a wrong `sessionDate` rejected an in-window finish (9c56ecdd).
+
+**Fix:** Completion and strike both use the booking's `modSnapshots` (roster only with no snapshots). A login is struck only when it is on the newest List card with the same `odScheduleId`, and that card's crew is the target. Rescheduled (status or odStatus) is `excluded`. Missing from the List or Cancelled after the session is `unknown`. Before any strike the app re-reads the Assignment List and every SessionState page (`fetchSessionStateRowsAllPages`, `&skip=`), ingests the strikes row, and decides again on those rows; a failed read, a 256-row read that cannot page, or no strikes row writes nothing. Window ends at booked end + 4 h. A finish stamped inside the window counts whatever its `sessionDate`. 9 AM gate, time zone, star scale, `checkpoints`, `struckSessions`, and the refuse-empty/refuse-older persist guards are unchanged.
+
+**Waiting on David:** SessionState Read flow Pagination On (threshold 5000), see `docs/power-automate-sessionstate-read.md` B2. Until then the read stops at 256 and no strike is written.
+
+**Selftest:** new `scripts/mod-strike-booked-crew-fresh-read-selftest.js` (34 checks). Suite: 58 pass, same 27 failures as main.
+
+**PR:** draft [#209](https://github.com/DK-Centific/Twilight-Tracker/pull/209) on `fix/mod-strike-booked-crew-fresh-read`. Do **not** merge until David says push.
 
 ## 2026-10-15 · Claude · Overview Live status lists only Live teams (1.3.101526a)
 

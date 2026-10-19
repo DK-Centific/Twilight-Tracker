@@ -38,11 +38,11 @@ function sliceFn(name) {
   return src.slice(start, i);
 }
 
-console.log('Overview Live status: Live teams only (1.3.101526a)');
+console.log('Overview Live status: Live teams only (1.3.101926a)');
 
-assert('APP_VERSION 1.3.101526a',
-  /const APP_VERSION = '1\.3\.101526a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101526a'));
+assert('APP_VERSION 1.3.101926a',
+  /const APP_VERSION = '1\.3\.101926a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.101926a'));
 
 const live = { a_live: 'insession', a_checkin: 'checkin' };
 const ctx = {
