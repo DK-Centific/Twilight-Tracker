@@ -14,6 +14,8 @@
 
 **Selftest:** new `scripts/mod-strike-booked-crew-fresh-read-selftest.js` (34 checks). Suite: 58 pass, same 27 failures as main.
 
+**PR:** draft [#209](https://github.com/DK-Centific/Twilight-Tracker/pull/209) on `fix/mod-strike-booked-crew-fresh-read`. Do **not** merge until David says push.
+
 ## 2026-10-15 · Claude · Overview Live status lists only Live teams (1.3.101526a)
 
 **Ask:** Overview showed two "live" sessions the next morning. Live should only show teams that checked in, between their start and end time, and nothing from last night after 9 AM. The session status also looked off.
