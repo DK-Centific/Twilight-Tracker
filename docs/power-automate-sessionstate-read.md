@@ -24,7 +24,7 @@ Do **not** make a new HTTP URL unless you also paste it into `SESSIONSTATE_PA_RE
 1. Open **https://make.powerautomate.com**
 2. Sign in.
 3. Click **My flows** (left side).
-4. Open the **SessionState Read** flow (the one Twilight already points at).
+4. Open the **Orbit Read SessionState** flow (the one Twilight already points at; the docs call it SessionState Read).
 5. Look at the **On / Off** switch at the top.
    - If it is **Off**, click it so it is **On**.
    - Go back to Twilight → Admin → Moderators → **Activities** and tap **Refresh**.
