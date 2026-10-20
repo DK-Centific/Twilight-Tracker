@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.101926a';
-const APP_UPDATED_AT = '10/19/2026 10:30';
+const APP_VERSION = '1.3.102026a';
+const APP_UPDATED_AT = '10/20/2026 07:20';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -10585,8 +10585,8 @@ const PRODUCTION1_CSV_URL = 'https://docs.google.com/spreadsheets/d/'
   + PRODUCTION1_SHEET_ID + '/gviz/tq?tqx=out:csv&gid=' + PRODUCTION1_SHEET_GID;
 // Live counts: a Google Apps Script web app that reads Production1 on each
 // call and answers counts only (docs/production1-status-apps-script.gs).
-// Empty until it is deployed; then paste its /exec address here.
-const PRODUCTION1_STATUS_LIVE_URL = '';
+// Deployed 2026-10-20 (Apps Script project "Twilight Production1 status counts").
+const PRODUCTION1_STATUS_LIVE_URL = 'https://script.google.com/macros/s/AKfycbyZTV6g3DJ_5cIAOYxCy5705fBnuFCOnd3uoLZa-YBiPTS4LAJ0k5t9knNMgjPUpBk/exec';
 // Counts only. No names or addresses. This file is a hand-made copy and
 // does not update by itself, so it is only the fallback.
 const PRODUCTION1_STATUS_PROXY_URL = 'https://dk-centific.github.io/twilight-production1-status/production1-status.json';
