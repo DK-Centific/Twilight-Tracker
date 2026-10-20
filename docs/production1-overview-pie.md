@@ -17,6 +17,14 @@ It does **not** use Twilight bookings. **Performance** is unchanged.
 
 The counts-only file below is a copy made by hand on Oct 6. Nothing updates it, so the ring kept showing those numbers even though the app re-reads it every minute. The ring now shows when the counts were taken. Until the live link below is set, the line under the title says **not live, last counted Oct 6 …**.
 
+## Live link (set 2026-10-20, 1.3.102026a)
+
+The ring now reads live counts from the Apps Script web app **Twilight Production1 status counts**, owned by **david.kang@centific.com**:
+
+`https://script.google.com/macros/s/AKfycbyZTV6g3DJ_5cIAOYxCy5705fBnuFCOnd3uoLZa-YBiPTS4LAJ0k5t9knNMgjPUpBk/exec`
+
+It is stored as `PRODUCTION1_STATUS_LIVE_URL` in `twilight.js`. The line under the title says **updated <time>** while it answers. If the script is ever redeployed as a *new* deployment, the address changes and must be pasted again; **Manage deployments → Edit → New version** keeps the same address.
+
 ## Make it live (Google Apps Script, about 5 minutes)
 
 1. Open **https://script.google.com**, signed in with a Google account that can open the Production1 sheet.

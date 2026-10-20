@@ -1,6 +1,17 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-19 · Claude · 1.3.101926a: 9 AM strike uses the booked crew and a fresh read
+**Last updated:** 2026-10-20 · Claude · 1.3.102026a: Overview Production status ring reads live counts
+
+## 2026-10-20 · Claude · Overview Production status ring reads live counts (1.3.102026a)
+
+**Ask:** The Overview pie did not match the Production1 Google Sheet.
+
+**Cause:** `PRODUCTION1_STATUS_LIVE_URL` was still empty, so the ring fell back to the hand-made Oct 6 file (Completed 45, Confirmed 16, Not complete 4, Cancelled 1).
+
+**Fix:** David deployed `docs/production1-status-apps-script.gs` as the web app **Twilight Production1 status counts** (owner david.kang@centific.com). Its `/exec` address is now `PRODUCTION1_STATUS_LIVE_URL`. First answer (Oct 20, 05:37 UTC): Completed 94, Confirmed 23, Not Complete 4, Cancelled 5 = 126. Fallbacks unchanged. Strike, OD sync, booking and SessionState logic untouched.
+
+**Selftest:** `scripts/production1-status-donut-selftest.js` adds the live address and the real answer (126 sessions, "updated", not "not live"). Version asserts bumped across scripts. Suite: same 28 failures as main.
+
 
 ## 2026-10-19 · Claude · 9 AM strike uses the booked crew and a fresh read (1.3.101926a)
 

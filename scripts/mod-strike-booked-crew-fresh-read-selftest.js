@@ -44,9 +44,9 @@ function slice(startMarker, endMarker) {
 
 console.log('9 AM strike: booked crew, fresh read, completion window');
 
-assert('version 1.3.101926a',
-  /const APP_VERSION = '1\.3\.101926a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101926a'));
+assert('version 1.3.102026a',
+  /const APP_VERSION = '1\.3\.102026a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.102026a'));
 assert('time zone and 9 AM gate helpers unchanged',
   /function pacificWallClockToMs\(ymd, minutesFromMidnight\)/.test(src)
   && /function assignmentAutoStrikeDeadlineMs\(a\)[\s\S]{0,600}pacificWallClockToMs\(morningAfter, 9 \* 60\)/.test(src));

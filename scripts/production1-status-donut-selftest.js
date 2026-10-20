@@ -26,11 +26,11 @@ function assert(name, cond, detail) {
   }
 }
 
-console.log('Production1 status donut (1.3.101926a)');
+console.log('Production1 status donut (1.3.102026a)');
 
-assert('APP_VERSION 1.3.101926a',
-  /const APP_VERSION = '1\.3\.101926a'/.test(src)
-  && html.includes('twilight.js?v=twilight-1.3.101926a'));
+assert('APP_VERSION 1.3.102026a',
+  /const APP_VERSION = '1\.3\.102026a'/.test(src)
+  && html.includes('twilight.js?v=twilight-1.3.102026a'));
 
 const begin = src.indexOf('// PRODUCTION1_STATUS_COUNTS_START');
 const end = src.indexOf('// PRODUCTION1_STATUS_COUNTS_END');
@@ -162,6 +162,19 @@ assert('Apps Script feed matches the ring count',
   JSON.stringify(viaFeed));
 assert('Apps Script feed carries updatedAt and no row data',
   !!gsOut.updatedAt && Object.keys(gsOut).sort().join(',') === 'slices,updatedAt');
+
+// Real answer from the deployed /exec link (2026-10-20).
+assert('live address is the deployed Apps Script web app',
+  /const PRODUCTION1_STATUS_LIVE_URL = 'https:\/\/script\.google\.com\/macros\/s\/[^']+\/exec';/.test(src));
+const liveBody = '{"updatedAt":"2026-10-20T05:37:56.379Z","slices":[{"status":"Completed","count":94},{"status":"Not Complete","count":4},{"status":"Cancelled","count":5},{"status":"Confirmed","count":23}]}';
+const liveCounts = ctx.production1CountsFromFeed(liveBody);
+assert('live answer counts 126 sessions in the usual slice order',
+  liveCounts && liveCounts.total === 126
+  && liveCounts.slices.map(s => s.status + ':' + s.count).join(',') === 'Completed:94,Confirmed:23,Not complete:4,Cancelled:5',
+  JSON.stringify(liveCounts));
+const liveAsOf = ctx.production1FeedAsOfMs(liveBody, '');
+const liveLine = ctx.production1FeedSubtitle(liveCounts.total, liveAsOf, liveAsOf + 60 * 1000);
+assert('live answer shows as updated, not frozen', /126 sessions · updated /.test(liveLine) && !/not live/.test(liveLine), liveLine);
 
 if (failed) {
   console.error(failed + ' failed');
