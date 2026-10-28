@@ -64271,7 +64271,8 @@ async function enterPasswordlessAdmin(enteredName) {
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
 }
 
-// Twilight Wrap (wrap/) · plays once per login ID, right after sign-in, and
+// Twilight Wrap (wrap/) · plays once per login ID, right after sign-in (or on
+// the first app open for someone already signed in), and
 // again any time from the glowing header logo. Moderators get their own Wrap,
 // admins the project deck; reviewers skip the sign-in autoplay.
 // The Wrap links back to the app, where the session is still signed in.
@@ -64760,6 +64761,9 @@ function init() {
       startApp();
     }
     if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
+    // Someone already signed in (Master Admins usually are) never passes
+    // through doLogin, so the once-per-login Wrap is offered here too.
+    maybeOpenTwilightWrap();
     if (typeof maybeRerouteFromDirectoryRole === 'function') {
       maybeRerouteFromDirectoryRole().catch(() => {});
     }

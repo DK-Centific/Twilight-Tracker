@@ -29,7 +29,7 @@ console.log('Twilight Wrap self-test');
 
 const fnSrc = (src.match(/const TWILIGHT_WRAP_SEEN_PREFIX[\s\S]*?\nfunction maybeOpenTwilightWrap\(\) \{[\s\S]*?\n\}\n/) || [''])[0];
 assert('maybeOpenTwilightWrap exists', !!fnSrc);
-assert('called after every sign-in path (4)', (src.match(/\n\s*maybeOpenTwilightWrap\(\);/g) || []).length === 4);
+assert('called after every sign-in path and on session restore (5)', (src.match(/\n\s*maybeOpenTwilightWrap\(\);/g) || []).length === 5);
 
 function run(st, store) {
   const ctx = {

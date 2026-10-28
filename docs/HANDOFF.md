@@ -8,6 +8,8 @@
 
 **Fix:** `wireTwilightWrapLogo` in `twilight.js` adds `.wrap-glow` (cyan breathing drop-shadow, steady under reduced motion; CSS next to `.brand-mark` in `index.html`) and a document capture-phase click that opens `wrap/` (admins, reviewers) or `wrap/?mod=<first name>` (moderators). Desktop rail: the whole logo button (`#railBrandOp`, `#railBrandAdmin`). Phone header: only the mark inside `#opNavHome` / `#adminNavHome`, so the brand text still goes Home.
 
+**Also:** the once-per-login autoplay now runs on session restore too, so someone already signed in (Master Admins usually are) gets it on the next app open. The seen flag is set before the redirect, so returning from the Wrap does not loop.
+
 **Trade-off:** On desktop the rail logo no longer goes Home or opens the admin progress-mirror picker. Remove `#railBrandOp, #railBrandAdmin` from `TWILIGHT_WRAP_LOGO_SEL` to restore that.
 
 **Version:** **1.3.102826b**. Selftest: `scripts/twilight-wrap-selftest.js` (17 pass).
