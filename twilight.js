@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.102826a';
-const APP_UPDATED_AT = '10/28/2026 05:45';
+const APP_VERSION = '1.3.102826b';
+const APP_UPDATED_AT = '10/28/2026 06:05';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -64271,10 +64271,19 @@ async function enterPasswordlessAdmin(enteredName) {
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
 }
 
-// Twilight Wrap (wrap/) · plays once per login ID, right after sign-in.
-// Moderators get their own Wrap, admins the project deck; reviewers skip it.
+// Twilight Wrap (wrap/) · plays once per login ID, right after sign-in, and
+// again any time from the glowing header logo. Moderators get their own Wrap,
+// admins the project deck; reviewers skip the sign-in autoplay.
 // The Wrap links back to the app, where the session is still signed in.
 const TWILIGHT_WRAP_SEEN_PREFIX = 'twilight_wrap_seen_';
+// Desktop rail: the whole logo button. Phone header: the mark only, so the
+// brand text next to it still goes Home.
+const TWILIGHT_WRAP_LOGO_SEL = '#railBrandOp, #railBrandAdmin, #opNavHome .brand-mark, #adminNavHome .brand-mark';
+function twilightWrapUrl() {
+  const id = String((state && state.username) || '');
+  if (!id || state.isAdmin || state.isReviewer) return 'wrap/';
+  return 'wrap/?mod=' + encodeURIComponent(id.replace(/-tw$/i, ''));
+}
 function maybeOpenTwilightWrap() {
   try {
     if (!state || state.isReviewer || !state.username) return;
@@ -64282,9 +64291,30 @@ function maybeOpenTwilightWrap() {
     const key = TWILIGHT_WRAP_SEEN_PREFIX + id.toLowerCase();
     if (localStorage.getItem(key)) return;
     localStorage.setItem(key, String(Date.now()));
-    location.assign(state.isAdmin ? 'wrap/' : 'wrap/?mod=' + encodeURIComponent(id.replace(/-tw$/i, '')));
+    location.assign(twilightWrapUrl());
   } catch (_) {}
 }
+function wireTwilightWrapLogo() {
+  if (wireTwilightWrapLogo._done) return;
+  wireTwilightWrapLogo._done = true;
+  document.querySelectorAll(TWILIGHT_WRAP_LOGO_SEL).forEach(el => {
+    const mark = el.classList.contains('brand-mark') ? el : el.querySelector('.brand-mark');
+    if (mark) mark.classList.add('wrap-glow');
+    el.setAttribute('title', 'Play Twilight Wrap');
+    el.setAttribute('aria-label', 'Play Twilight Wrap');
+  });
+  // Capture on document so this runs before the Home and progress-mirror
+  // handlers already wired to the same logo.
+  document.addEventListener('click', e => {
+    const hit = e.target && e.target.closest && e.target.closest(TWILIGHT_WRAP_LOGO_SEL);
+    if (!hit) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    location.assign(twilightWrapUrl());
+  }, true);
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireTwilightWrapLogo);
+else wireTwilightWrapLogo();
 
 async function doLogin() {
   if (_loginInFlight) return;

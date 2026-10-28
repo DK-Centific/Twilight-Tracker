@@ -1,6 +1,17 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-28 · Claude · 1.3.102826a: Twilight Wrap
+**Last updated:** 2026-10-28 · Claude · 1.3.102826b: header logo glows and plays the Wrap
+
+## 2026-10-28 · Claude · Header logo glows and plays the Wrap (1.3.102826b)
+
+**Ask:** Make the header nav logo glow; clicking it plays the Twilight Wrap.
+
+**Fix:** `wireTwilightWrapLogo` in `twilight.js` adds `.wrap-glow` (cyan breathing drop-shadow, steady under reduced motion; CSS next to `.brand-mark` in `index.html`) and a document capture-phase click that opens `wrap/` (admins, reviewers) or `wrap/?mod=<first name>` (moderators). Desktop rail: the whole logo button (`#railBrandOp`, `#railBrandAdmin`). Phone header: only the mark inside `#opNavHome` / `#adminNavHome`, so the brand text still goes Home.
+
+**Trade-off:** On desktop the rail logo no longer goes Home or opens the admin progress-mirror picker. Remove `#railBrandOp, #railBrandAdmin` from `TWILIGHT_WRAP_LOGO_SEL` to restore that.
+
+**Version:** **1.3.102826b**. Selftest: `scripts/twilight-wrap-selftest.js` (17 pass).
+
 
 ## 2026-10-28 · Claude · Twilight Wrap (1.3.102826a)
 

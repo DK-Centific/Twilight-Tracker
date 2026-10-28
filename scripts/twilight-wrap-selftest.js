@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-/* Self-test: Twilight Wrap (1.3.102826a).
+/* Self-test: Twilight Wrap (1.3.102826a, logo 1.3.102826b).
  * The Wrap opens once per login ID after sign-in (moderator → own Wrap,
- * admin → deck, reviewer → never), and its published data holds counts only.
+ * admin → deck, reviewer → never), the glowing header logo replays it, and
+ * its published data holds counts only.
  */
 'use strict';
 
@@ -45,6 +46,32 @@ assert('moderator opens own Wrap', run({ username: 'Venkata-tw' }, store) === 'w
 assert('moderator sees it only once', run({ username: 'Venkata-tw' }, store) === null);
 assert('admin opens the deck', run({ username: 'Admin-Twilight', isAdmin: true }, store) === 'wrap/');
 assert('reviewer never opens it', run({ username: 'Centific-Reviewer1', isReviewer: true }, store) === null);
+
+const logoSrc = (src.match(/function wireTwilightWrapLogo\(\) \{[\s\S]*?\n\}\n/) || [''])[0];
+assert('wireTwilightWrapLogo exists', !!logoSrc);
+{
+  const listeners = [];
+  const mark = { classList: { contains: c => c === 'brand-mark', add() { this.added = true; } }, setAttribute() {} };
+  const ctx = {
+    state: { username: 'Amy-tw' },
+    location: { went: null, assign(u) { this.went = u; } },
+    document: {
+      querySelectorAll: () => [mark],
+      addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
+    },
+  };
+  vm.runInNewContext(fnSrc + logoSrc + '\nwireTwilightWrapLogo(); wireTwilightWrapLogo();', ctx);
+  assert('logo click listener wired once, in capture', listeners.length === 1 && listeners[0].capture === true);
+  assert('logo mark gets the glow', mark.classList.added === true);
+  let stopped = false;
+  const ev = { target: { closest: () => mark }, preventDefault() {}, stopImmediatePropagation() { stopped = true; } };
+  listeners[0].fn(ev);
+  assert('logo click plays the moderator Wrap', ctx.location.went === 'wrap/?mod=Amy');
+  assert('logo click stops the Home handler', stopped);
+  ctx.state = { username: 'Admin-Twilight', isAdmin: true };
+  listeners[0].fn(ev);
+  assert('admin logo click plays the deck', ctx.location.went === 'wrap/');
+}
 
 const data = fs.readFileSync(path.join(root, 'wrap', 'data', 'wrap-data.json'), 'utf8');
 assert('wrap data has no email addresses', !/[\w.+-]+@[\w-]+\.[\w.]+/.test(data));

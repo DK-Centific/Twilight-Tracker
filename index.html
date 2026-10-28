@@ -264,6 +264,19 @@ nav {
   transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .brand:hover .brand-mark { transform: scale(1.04); }
+/* Twilight Wrap · the header logo glows and plays the Wrap (1.3.102826b).
+   Breathes on the looping ease (1.2s each way); holds a steady glow under reduced motion. */
+.brand-mark.wrap-glow {
+  animation: wrapGlow 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+  cursor: pointer;
+}
+@keyframes wrapGlow {
+  from { filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.35)); }
+  to   { filter: drop-shadow(0 0 9px rgba(0, 240, 255, 0.9)) drop-shadow(0 0 18px rgba(0, 240, 255, 0.35)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-mark.wrap-glow { animation: none; filter: drop-shadow(0 0 7px rgba(0, 240, 255, 0.7)); }
+}
 .brand-text {
   font-size: 15px; font-weight: 600; letter-spacing: -0.02em;
   color: var(--text);
@@ -20074,7 +20087,7 @@ button.perf-stat-chip.incomplete.active {
   <button type="button" class="btn btn-ghost" id="appUpdateBannerLater">Not now</button>
 </div>
 
-<script src="twilight.js?v=twilight-1.3.102826a" defer></script>
+<script src="twilight.js?v=twilight-1.3.102826b" defer></script>
 
 <style id="activities-map-style">
 /* Activities map · Helios-style neumorphic outer + inset well (vizWell frame) */
