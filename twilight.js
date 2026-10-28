@@ -36,8 +36,8 @@ function sessionKeyFor(username) {
 //                 part is the default for every patch; bumping MAJOR
 //                 or MINOR is a deliberate "this is a feature release"
 //                 signal that only happens on request.
-const APP_VERSION = '1.3.102026a';
-const APP_UPDATED_AT = '10/20/2026 07:20';
+const APP_VERSION = '1.3.102826a';
+const APP_UPDATED_AT = '10/28/2026 05:45';
 const APP_BUILD_CHECK_INTERVAL_MS = 6 * 60 * 1000;
 const APP_BUILD_DISMISS_KEY = 'twilight_app_build_dismissed';
 // When false, moderator availability sheets do not block or warn in Booking/Teams.
@@ -64032,6 +64032,7 @@ async function submitForcedPasswordChange() {
       ? buildSafeModProfileFromAuth(result.profile)
       : profile;
     await routeAfterSuccessfulAuth(orbitId, nextProfile || buildSafeModProfileFromAuth({ orbitLoginId: orbitId }));
+    maybeOpenTwilightWrap();
   } catch (e) {
     if (e && e.isInvalidCredentials) {
       setPwChangeError('The new password was not saved. In Condition 2 (Parameters), left box must be operation, middle is equal to, right box setPassword. True must go to Update a row.');
@@ -64270,6 +64271,21 @@ async function enterPasswordlessAdmin(enteredName) {
   if (typeof syncMasterAdminChrome === 'function') syncMasterAdminChrome();
 }
 
+// Twilight Wrap (wrap/) · plays once per login ID, right after sign-in.
+// Moderators get their own Wrap, admins the project deck; reviewers skip it.
+// The Wrap links back to the app, where the session is still signed in.
+const TWILIGHT_WRAP_SEEN_PREFIX = 'twilight_wrap_seen_';
+function maybeOpenTwilightWrap() {
+  try {
+    if (!state || state.isReviewer || !state.username) return;
+    const id = String(state.username);
+    const key = TWILIGHT_WRAP_SEEN_PREFIX + id.toLowerCase();
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, String(Date.now()));
+    location.assign(state.isAdmin ? 'wrap/' : 'wrap/?mod=' + encodeURIComponent(id.replace(/-tw$/i, '')));
+  } catch (_) {}
+}
+
 async function doLogin() {
   if (_loginInFlight) return;
   const v = document.getElementById('loginUsername').value.trim();
@@ -64304,6 +64320,7 @@ async function doLogin() {
     setLoginLoading(false);
     _loginInFlight = false;
     await enterPasswordlessAdmin(v);
+    maybeOpenTwilightWrap();
     return;
   }
 
@@ -64347,6 +64364,7 @@ async function doLogin() {
         setLoginLoading(false);
         _loginInFlight = false;
         await enterPasswordlessAdmin(loginId);
+        maybeOpenTwilightWrap();
         return;
       }
     }
@@ -64432,6 +64450,7 @@ async function doLogin() {
     setLoginLoading(false);
     _loginInFlight = false;
     await routeAfterSuccessfulAuth(orbitId, profile);
+    maybeOpenTwilightWrap();
   } catch (e) {
     if (pwEl) pwEl.value = '';
     typedPassword = '';

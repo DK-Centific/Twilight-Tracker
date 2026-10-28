@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0c0e">
+<title>Twilight Wrap</title>
+<link rel="icon" href="assets/centific-mark-cyan.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="wrap.css">
+</head>
+<body>
+<main class="wrap" id="wrap" aria-roledescription="story">
+  <header class="chrome">
+    <div class="bars" id="bars" role="group" aria-label="Chapters"></div>
+    <div class="chrome-row">
+      <a class="brand" href="../" aria-label="Open Project Twilight">
+        <img src="assets/centific-mark-cyan.png" alt="" width="20" height="20">
+        <span>Twilight Wrap</span>
+      </a>
+      <span class="status-chip" id="paused" hidden>Paused</span>
+      <div class="chrome-actions">
+        <button type="button" class="icon-btn" id="btn-play" aria-label="Pause">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><g class="i-pause"><rect x="6.5" y="5" width="3.5" height="14" rx="1.2"/><rect x="14" y="5" width="3.5" height="14" rx="1.2"/></g><path class="i-play" d="M8 5.6v12.8a1 1 0 0 0 1.5.86l10.4-6.4a1 1 0 0 0 0-1.72L9.5 4.74A1 1 0 0 0 8 5.6z"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="btn-full" aria-label="Full screen">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="stage" id="stage" aria-live="polite"></div>
+
+  <footer class="foot" id="foot">
+    <span id="counter" class="mono"></span>
+    <span id="sync" class="sync" role="status" aria-live="polite"></span>
+    <span class="foot-hint">Tap the right side to go on, the left to go back. Tap anything that glows.</span>
+  </footer>
+</main>
+<noscript><p class="noscript">Twilight Wrap needs JavaScript.</p></noscript>
+<script src="wrap-live.js"></script>
+<script src="wrap.js"></script>
+</body>
+</html>

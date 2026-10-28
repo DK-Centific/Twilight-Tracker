@@ -1,0 +1,2793 @@
+{
+ "generatedAt": "2026-10-28T05:29-07:00",
+ "season": {
+  "first": "2026-09-08",
+  "last": "2026-10-26",
+  "nights": 42,
+  "nightsList": [
+   "2026-09-08",
+   "2026-09-09",
+   "2026-09-10",
+   "2026-09-11",
+   "2026-09-12",
+   "2026-09-16",
+   "2026-09-17",
+   "2026-09-18",
+   "2026-09-19",
+   "2026-09-20",
+   "2026-09-21",
+   "2026-09-22",
+   "2026-09-23",
+   "2026-09-24",
+   "2026-09-25",
+   "2026-09-26",
+   "2026-09-27",
+   "2026-09-28",
+   "2026-09-29",
+   "2026-09-30",
+   "2026-10-01",
+   "2026-10-02",
+   "2026-10-03",
+   "2026-10-04",
+   "2026-10-05",
+   "2026-10-06",
+   "2026-10-07",
+   "2026-10-08",
+   "2026-10-09",
+   "2026-10-10",
+   "2026-10-11",
+   "2026-10-12",
+   "2026-10-13",
+   "2026-10-14",
+   "2026-10-15",
+   "2026-10-16",
+   "2026-10-17",
+   "2026-10-18",
+   "2026-10-23",
+   "2026-10-24",
+   "2026-10-25",
+   "2026-10-26"
+  ]
+ },
+ "sessions": {
+  "booked": 131,
+  "completed": 66,
+  "cancelled": 36,
+  "rescheduled": 13,
+  "incomplete": 16,
+  "upcoming": 0,
+  "perWeek": [
+   {
+    "week": "2026-09-07",
+    "completed": 7
+   },
+   {
+    "week": "2026-09-14",
+    "completed": 7
+   },
+   {
+    "week": "2026-09-21",
+    "completed": 14
+   },
+   {
+    "week": "2026-09-28",
+    "completed": 20
+   },
+   {
+    "week": "2026-10-05",
+    "completed": 21
+   },
+   {
+    "week": "2026-10-12",
+    "completed": 25
+   },
+   {
+    "week": "2026-10-19",
+    "completed": 9
+   },
+   {
+    "week": "2026-10-26",
+    "completed": 4
+   }
+  ]
+ },
+ "homes": {
+  "count": 107,
+  "zips": 47,
+  "states": [
+   "Washington"
+  ],
+  "list": [
+   {
+    "date": "2026-09-08",
+    "miles": 24.1
+   },
+   {
+    "date": "2026-09-09",
+    "miles": 13.2
+   },
+   {
+    "date": "2026-09-10",
+    "miles": null
+   },
+   {
+    "date": "2026-09-11",
+    "miles": 16.7
+   },
+   {
+    "date": "2026-09-11",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-09-12",
+    "miles": 8.3
+   },
+   {
+    "date": "2026-09-12",
+    "miles": 9.4
+   },
+   {
+    "date": "2026-09-16",
+    "miles": 10.4
+   },
+   {
+    "date": "2026-09-17",
+    "miles": 18.3
+   },
+   {
+    "date": "2026-09-18",
+    "miles": 8.3
+   },
+   {
+    "date": "2026-09-18",
+    "miles": 40.9
+   },
+   {
+    "date": "2026-09-19",
+    "miles": 3.4
+   },
+   {
+    "date": "2026-09-19",
+    "miles": 18.3
+   },
+   {
+    "date": "2026-09-20",
+    "miles": 11.6
+   },
+   {
+    "date": "2026-09-21",
+    "miles": 14.0
+   },
+   {
+    "date": "2026-09-21",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-09-22",
+    "miles": 2.9
+   },
+   {
+    "date": "2026-09-22",
+    "miles": 14.1
+   },
+   {
+    "date": "2026-09-23",
+    "miles": 16.2
+   },
+   {
+    "date": "2026-09-23",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-09-23",
+    "miles": 2.9
+   },
+   {
+    "date": "2026-09-23",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-09-24",
+    "miles": 4.6
+   },
+   {
+    "date": "2026-09-25",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-09-25",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-09-26",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-09-26",
+    "miles": 16.7
+   },
+   {
+    "date": "2026-09-27",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-09-28",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-09-28",
+    "miles": 24.1
+   },
+   {
+    "date": "2026-09-29",
+    "miles": 4.6
+   },
+   {
+    "date": "2026-09-29",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-09-29",
+    "miles": 4.6
+   },
+   {
+    "date": "2026-09-29",
+    "miles": 3.4
+   },
+   {
+    "date": "2026-09-30",
+    "miles": 9.4
+   },
+   {
+    "date": "2026-09-30",
+    "miles": 19.4
+   },
+   {
+    "date": "2026-10-01",
+    "miles": 9.1
+   },
+   {
+    "date": "2026-10-01",
+    "miles": 3.7
+   },
+   {
+    "date": "2026-10-01",
+    "miles": 6.2
+   },
+   {
+    "date": "2026-10-01",
+    "miles": 13.1
+   },
+   {
+    "date": "2026-10-02",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-10-02",
+    "miles": 18.7
+   },
+   {
+    "date": "2026-10-02",
+    "miles": 9.4
+   },
+   {
+    "date": "2026-10-03",
+    "miles": 9.4
+   },
+   {
+    "date": "2026-10-03",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-03",
+    "miles": null
+   },
+   {
+    "date": "2026-10-04",
+    "miles": 2.6
+   },
+   {
+    "date": "2026-10-04",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-05",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-05",
+    "miles": 8.9
+   },
+   {
+    "date": "2026-10-05",
+    "miles": 7.1
+   },
+   {
+    "date": "2026-10-05",
+    "miles": 17.0
+   },
+   {
+    "date": "2026-10-06",
+    "miles": 5.9
+   },
+   {
+    "date": "2026-10-06",
+    "miles": 6.4
+   },
+   {
+    "date": "2026-10-07",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-10-07",
+    "miles": 6.4
+   },
+   {
+    "date": "2026-10-07",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-08",
+    "miles": 8.4
+   },
+   {
+    "date": "2026-10-08",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-10-08",
+    "miles": 11.6
+   },
+   {
+    "date": "2026-10-09",
+    "miles": 14.1
+   },
+   {
+    "date": "2026-10-09",
+    "miles": 8.0
+   },
+   {
+    "date": "2026-10-09",
+    "miles": 5.9
+   },
+   {
+    "date": "2026-10-09",
+    "miles": 11.3
+   },
+   {
+    "date": "2026-10-10",
+    "miles": 12.1
+   },
+   {
+    "date": "2026-10-10",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-10-10",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-11",
+    "miles": 9.1
+   },
+   {
+    "date": "2026-10-11",
+    "miles": 6.1
+   },
+   {
+    "date": "2026-10-12",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-12",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-12",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-10-13",
+    "miles": 8.4
+   },
+   {
+    "date": "2026-10-13",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-13",
+    "miles": 17.8
+   },
+   {
+    "date": "2026-10-14",
+    "miles": 23.9
+   },
+   {
+    "date": "2026-10-14",
+    "miles": 17.8
+   },
+   {
+    "date": "2026-10-14",
+    "miles": 10.4
+   },
+   {
+    "date": "2026-10-14",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-15",
+    "miles": 18.8
+   },
+   {
+    "date": "2026-10-15",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-15",
+    "miles": 10.4
+   },
+   {
+    "date": "2026-10-15",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-16",
+    "miles": 14.1
+   },
+   {
+    "date": "2026-10-16",
+    "miles": 2.2
+   },
+   {
+    "date": "2026-10-16",
+    "miles": 12.9
+   },
+   {
+    "date": "2026-10-16",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-17",
+    "miles": null
+   },
+   {
+    "date": "2026-10-17",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-10-17",
+    "miles": 17.8
+   },
+   {
+    "date": "2026-10-17",
+    "miles": 23.9
+   },
+   {
+    "date": "2026-10-18",
+    "miles": 14.1
+   },
+   {
+    "date": "2026-10-18",
+    "miles": 6.4
+   },
+   {
+    "date": "2026-10-18",
+    "miles": 24.1
+   },
+   {
+    "date": "2026-10-23",
+    "miles": 24.5
+   },
+   {
+    "date": "2026-10-23",
+    "miles": 17.0
+   },
+   {
+    "date": "2026-10-24",
+    "miles": 11.6
+   },
+   {
+    "date": "2026-10-24",
+    "miles": 10.7
+   },
+   {
+    "date": "2026-10-24",
+    "miles": 15.1
+   },
+   {
+    "date": "2026-10-24",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-25",
+    "miles": 13.9
+   },
+   {
+    "date": "2026-10-25",
+    "miles": 8.3
+   },
+   {
+    "date": "2026-10-25",
+    "miles": 8.4
+   },
+   {
+    "date": "2026-10-26",
+    "miles": 2.7
+   },
+   {
+    "date": "2026-10-26",
+    "miles": 19.4
+   },
+   {
+    "date": "2026-10-26",
+    "miles": 40.9
+   },
+   {
+    "date": "2026-10-26",
+    "miles": 7.1
+   }
+  ]
+ },
+ "nightCounts": {
+  "2026-09-08": 1,
+  "2026-09-09": 1,
+  "2026-09-10": 1,
+  "2026-09-11": 2,
+  "2026-09-12": 2,
+  "2026-09-16": 1,
+  "2026-09-17": 1,
+  "2026-09-18": 2,
+  "2026-09-19": 2,
+  "2026-09-20": 1,
+  "2026-09-21": 2,
+  "2026-09-22": 2,
+  "2026-09-23": 4,
+  "2026-09-24": 1,
+  "2026-09-25": 2,
+  "2026-09-26": 2,
+  "2026-09-27": 1,
+  "2026-09-28": 2,
+  "2026-09-29": 4,
+  "2026-09-30": 2,
+  "2026-10-01": 4,
+  "2026-10-02": 3,
+  "2026-10-03": 3,
+  "2026-10-04": 2,
+  "2026-10-05": 4,
+  "2026-10-06": 2,
+  "2026-10-07": 3,
+  "2026-10-08": 3,
+  "2026-10-09": 4,
+  "2026-10-10": 3,
+  "2026-10-11": 2,
+  "2026-10-12": 3,
+  "2026-10-13": 3,
+  "2026-10-14": 4,
+  "2026-10-15": 4,
+  "2026-10-16": 4,
+  "2026-10-17": 4,
+  "2026-10-18": 3,
+  "2026-10-23": 2,
+  "2026-10-24": 4,
+  "2026-10-25": 3,
+  "2026-10-26": 4
+ },
+ "miles": {
+  "from": "Centific office, Redmond WA",
+  "method": "straight line, office to the home ZIP centre",
+  "shortest": 2.2,
+  "farthest": 40.9,
+  "average": 11.1,
+  "roundTripTotal": 2309,
+  "histogram": [
+   22,
+   28,
+   31,
+   15,
+   6,
+   0,
+   0,
+   0,
+   2,
+   0,
+   0,
+   0
+  ]
+ },
+ "people": {
+  "moderators": 15,
+  "participants": 106,
+  "reviewers": 3,
+  "admins": 7,
+  "pairings": 41,
+  "moderatorNames": [
+   "Adidela",
+   "Amy",
+   "Ayush",
+   "Glen",
+   "Isaiah",
+   "Jashit",
+   "Manoj",
+   "Matthew",
+   "Muhammad",
+   "Narendra",
+   "Pradeepreddy",
+   "Rohith",
+   "Satya",
+   "Sravya",
+   "Venkata"
+  ],
+  "sessionsByModerator": {
+   "Adidela": 11,
+   "Amy": 15,
+   "Ayush": 5,
+   "Glen": 1,
+   "Isaiah": 5,
+   "Jashit": 22,
+   "Manoj": 16,
+   "Matthew": 11,
+   "Muhammad": 22,
+   "Narendra": 23,
+   "Pradeepreddy": 29,
+   "Rohith": 17,
+   "Satya": 6,
+   "Sravya": 22,
+   "Venkata": 29
+  },
+  "pairs": [
+   {
+    "a": "Muhammad",
+    "b": "Sravya",
+    "nights": 8
+   },
+   {
+    "a": "Matthew",
+    "b": "Pradeepreddy",
+    "nights": 6
+   },
+   {
+    "a": "Manoj",
+    "b": "Venkata",
+    "nights": 6
+   },
+   {
+    "a": "Rohith",
+    "b": "Venkata",
+    "nights": 5
+   },
+   {
+    "a": "Pradeepreddy",
+    "b": "Rohith",
+    "nights": 5
+   },
+   {
+    "a": "Narendra",
+    "b": "Pradeepreddy",
+    "nights": 4
+   },
+   {
+    "a": "Jashit",
+    "b": "Venkata",
+    "nights": 4
+   },
+   {
+    "a": "Amy",
+    "b": "Narendra",
+    "nights": 4
+   },
+   {
+    "a": "Jashit",
+    "b": "Sravya",
+    "nights": 4
+   },
+   {
+    "a": "Manoj",
+    "b": "Pradeepreddy",
+    "nights": 3
+   },
+   {
+    "a": "Adidela",
+    "b": "Jashit",
+    "nights": 3
+   },
+   {
+    "a": "Adidela",
+    "b": "Pradeepreddy",
+    "nights": 3
+   },
+   {
+    "a": "Jashit",
+    "b": "Narendra",
+    "nights": 3
+   },
+   {
+    "a": "Amy",
+    "b": "Jashit",
+    "nights": 3
+   },
+   {
+    "a": "Amy",
+    "b": "Pradeepreddy",
+    "nights": 3
+   },
+   {
+    "a": "Adidela",
+    "b": "Venkata",
+    "nights": 2
+   },
+   {
+    "a": "Narendra",
+    "b": "Rohith",
+    "nights": 2
+   },
+   {
+    "a": "Narendra",
+    "b": "Sravya",
+    "nights": 2
+   },
+   {
+    "a": "Rohith",
+    "b": "Sravya",
+    "nights": 2
+   },
+   {
+    "a": "Muhammad",
+    "b": "Venkata",
+    "nights": 2
+   },
+   {
+    "a": "Manoj",
+    "b": "Muhammad",
+    "nights": 2
+   },
+   {
+    "a": "Matthew",
+    "b": "Narendra",
+    "nights": 2
+   },
+   {
+    "a": "Satya",
+    "b": "Venkata",
+    "nights": 2
+   },
+   {
+    "a": "Amy",
+    "b": "Venkata",
+    "nights": 2
+   },
+   {
+    "a": "Manoj",
+    "b": "Narendra",
+    "nights": 1
+   },
+   {
+    "a": "Jashit",
+    "b": "Satya",
+    "nights": 1
+   },
+   {
+    "a": "Adidela",
+    "b": "Muhammad",
+    "nights": 1
+   },
+   {
+    "a": "Jashit",
+    "b": "Manoj",
+    "nights": 1
+   },
+   {
+    "a": "Amy",
+    "b": "Muhammad",
+    "nights": 1
+   },
+   {
+    "a": "Muhammad",
+    "b": "Satya",
+    "nights": 1
+   },
+   {
+    "a": "Pradeepreddy",
+    "b": "Venkata",
+    "nights": 1
+   },
+   {
+    "a": "Muhammad",
+    "b": "Pradeepreddy",
+    "nights": 1
+   },
+   {
+    "a": "Sravya",
+    "b": "Venkata",
+    "nights": 1
+   },
+   {
+    "a": "Muhammad",
+    "b": "Narendra",
+    "nights": 1
+   },
+   {
+    "a": "Muhammad",
+    "b": "Rohith",
+    "nights": 1
+   },
+   {
+    "a": "Manoj",
+    "b": "Sravya",
+    "nights": 1
+   },
+   {
+    "a": "Narendra",
+    "b": "Venkata",
+    "nights": 1
+   },
+   {
+    "a": "Matthew",
+    "b": "Sravya",
+    "nights": 1
+   },
+   {
+    "a": "Isaiah",
+    "b": "Muhammad",
+    "nights": 1
+   },
+   {
+    "a": "Matthew",
+    "b": "Venkata",
+    "nights": 1
+   },
+   {
+    "a": "Isaiah",
+    "b": "Narendra",
+    "nights": 1
+   }
+  ]
+ },
+ "qa": {
+  "reviewers": 3,
+  "decisions": 460,
+  "approved": 240,
+  "nightShare": 0.987,
+  "byPacificHour": [
+   76,
+   23,
+   28,
+   12,
+   4,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   2,
+   0,
+   0,
+   0,
+   0,
+   0,
+   4,
+   10,
+   69,
+   74,
+   75,
+   83
+  ],
+  "byApacHour": [
+   0,
+   0,
+   0,
+   2,
+   0,
+   0,
+   0,
+   0,
+   0,
+   4,
+   10,
+   69,
+   74,
+   75,
+   83,
+   76,
+   23,
+   28,
+   12,
+   4,
+   0,
+   0,
+   0,
+   0
+  ],
+  "regions": [
+   "China",
+   "Malaysia"
+  ],
+  "regionsConfirmed": false,
+  "status": {
+   "completed": 107,
+   "approved": 100,
+   "rejected": 3,
+   "notReviewed": 4,
+   "billingApproved": 98,
+   "billingSplit": 5
+  }
+ },
+ "kit": {
+  "kits": 2,
+  "camerasPerKit": 4,
+  "cameras": 8,
+  "stations": 4,
+  "stationNames": [
+   "Front Yard \u00b7 Lights On",
+   "Front Yard \u00b7 Lights Off",
+   "Backyard \u00b7 Lights On",
+   "Backyard \u00b7 Lights Off"
+  ],
+  "scenariosCaptured": 2806,
+  "kitSets": 5,
+  "completedByKitSet": {
+   "1": 27,
+   "2": 7,
+   "3": 21,
+   "4": 27,
+   "5": 25
+  }
+ },
+ "nightShift": {
+  "onSiteHours": 16,
+  "latestFinish": "03:28"
+ },
+ "production": {
+  "updatedAt": "2026-10-28T12:09:12.919Z",
+  "source": "Production1 log (Admin Overview chart)",
+  "total": 136,
+  "slices": [
+   {
+    "status": "Completed",
+    "count": 107
+   },
+   {
+    "status": "Cancelled",
+    "count": 25
+   },
+   {
+    "status": "Not complete",
+    "count": 4
+   }
+  ]
+ },
+ "incidents": null,
+ "moderators": {
+  "Adidela": {
+   "name": "Adidela",
+   "sessions": 11,
+   "cancelled": 0,
+   "nights": 11,
+   "homes": 11,
+   "firstNight": "2026-09-09",
+   "lastNight": "2026-10-08",
+   "miles": {
+    "total": 201,
+    "shortest": 2.7,
+    "farthest": 24.1
+   },
+   "scenarios": 263,
+   "approved": 11,
+   "partners": [
+    {
+     "name": "Jashit",
+     "nights": 3
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 3
+    },
+    {
+     "name": "Venkata",
+     "nights": 2
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-09",
+    "2026-09-12",
+    "2026-09-17",
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-25",
+    "2026-09-28",
+    "2026-09-29",
+    "2026-10-03",
+    "2026-10-07",
+    "2026-10-08"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-09-17",
+     "miles": 18.3
+    },
+    {
+     "date": "2026-09-22",
+     "miles": 2.9
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.9
+    },
+    {
+     "date": "2026-09-25",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-28",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 3.4
+    },
+    {
+     "date": "2026-10-03",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 11.6
+    }
+   ]
+  },
+  "Amy": {
+   "name": "Amy",
+   "sessions": 15,
+   "cancelled": 4,
+   "nights": 15,
+   "homes": 15,
+   "firstNight": "2026-09-10",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 321,
+    "shortest": 2.7,
+    "farthest": 24.5
+   },
+   "scenarios": 308,
+   "approved": 13,
+   "partners": [
+    {
+     "name": "Narendra",
+     "nights": 4
+    },
+    {
+     "name": "Jashit",
+     "nights": 3
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 3
+    },
+    {
+     "name": "Venkata",
+     "nights": 2
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-25",
+    "2026-09-29",
+    "2026-10-02",
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-09",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-23",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-10",
+     "miles": null
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-25",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 8.9
+    },
+    {
+     "date": "2026-10-06",
+     "miles": 5.9
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 5.9
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 23.9
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-23",
+     "miles": 24.5
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 19.4
+    }
+   ]
+  },
+  "Ayush": {
+   "name": "Ayush",
+   "sessions": 5,
+   "cancelled": 0,
+   "nights": 5,
+   "homes": 5,
+   "firstNight": "2026-09-08",
+   "lastNight": "2026-09-12",
+   "miles": {
+    "total": 127,
+    "shortest": 9.4,
+    "farthest": 24.1
+   },
+   "scenarios": 0,
+   "approved": 5,
+   "partners": [],
+   "nightsList": [
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-08",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-10",
+     "miles": null
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 9.4
+    }
+   ]
+  },
+  "Glen": {
+   "name": "Glen",
+   "sessions": 1,
+   "cancelled": 0,
+   "nights": 1,
+   "homes": 1,
+   "firstNight": "2026-09-10",
+   "lastNight": "2026-09-10",
+   "miles": {
+    "total": 0,
+    "shortest": null,
+    "farthest": null
+   },
+   "scenarios": 0,
+   "approved": 1,
+   "partners": [],
+   "nightsList": [
+    "2026-09-10"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-10",
+     "miles": null
+    }
+   ]
+  },
+  "Isaiah": {
+   "name": "Isaiah",
+   "sessions": 5,
+   "cancelled": 1,
+   "nights": 5,
+   "homes": 5,
+   "firstNight": "2026-09-09",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 136,
+    "shortest": 2.7,
+    "farthest": 40.9
+   },
+   "scenarios": 0,
+   "approved": 4,
+   "partners": [
+    {
+     "name": "Muhammad",
+     "nights": 1
+    },
+    {
+     "name": "Narendra",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-09",
+    "2026-09-12",
+    "2026-09-23",
+    "2026-10-24",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 40.9
+    }
+   ]
+  },
+  "Jashit": {
+   "name": "Jashit",
+   "sessions": 22,
+   "cancelled": 5,
+   "nights": 22,
+   "homes": 22,
+   "firstNight": "2026-09-10",
+   "lastNight": "2026-10-23",
+   "miles": {
+    "total": 464,
+    "shortest": 2.2,
+    "farthest": 40.9
+   },
+   "scenarios": 561,
+   "approved": 20,
+   "partners": [
+    {
+     "name": "Venkata",
+     "nights": 4
+    },
+    {
+     "name": "Sravya",
+     "nights": 4
+    },
+    {
+     "name": "Adidela",
+     "nights": 3
+    },
+    {
+     "name": "Narendra",
+     "nights": 3
+    },
+    {
+     "name": "Amy",
+     "nights": 3
+    },
+    {
+     "name": "Satya",
+     "nights": 1
+    },
+    {
+     "name": "Manoj",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-18",
+    "2026-09-21",
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-24",
+    "2026-09-25",
+    "2026-09-28",
+    "2026-09-29",
+    "2026-09-30",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-23"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-10",
+     "miles": null
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-18",
+     "miles": 40.9
+    },
+    {
+     "date": "2026-09-21",
+     "miles": 14.0
+    },
+    {
+     "date": "2026-09-22",
+     "miles": 2.9
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 16.2
+    },
+    {
+     "date": "2026-09-24",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-09-25",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-28",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-09-30",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-06",
+     "miles": 5.9
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 5.9
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 18.8
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 2.2
+    },
+    {
+     "date": "2026-10-23",
+     "miles": 24.5
+    }
+   ]
+  },
+  "Manoj": {
+   "name": "Manoj",
+   "sessions": 16,
+   "cancelled": 4,
+   "nights": 16,
+   "homes": 16,
+   "firstNight": "2026-09-09",
+   "lastNight": "2026-10-18",
+   "miles": {
+    "total": 383,
+    "shortest": 2.7,
+    "farthest": 23.9
+   },
+   "scenarios": 440,
+   "approved": 14,
+   "partners": [
+    {
+     "name": "Venkata",
+     "nights": 6
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 3
+    },
+    {
+     "name": "Muhammad",
+     "nights": 2
+    },
+    {
+     "name": "Narendra",
+     "nights": 1
+    },
+    {
+     "name": "Jashit",
+     "nights": 1
+    },
+    {
+     "name": "Sravya",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-09",
+    "2026-09-11",
+    "2026-09-19",
+    "2026-09-22",
+    "2026-09-26",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-04",
+    "2026-10-05",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-12",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-17",
+    "2026-10-18"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-09-19",
+     "miles": 18.3
+    },
+    {
+     "date": "2026-09-22",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-09-26",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-30",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 13.1
+    },
+    {
+     "date": "2026-10-04",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 23.9
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 14.1
+    }
+   ]
+  },
+  "Matthew": {
+   "name": "Matthew",
+   "sessions": 11,
+   "cancelled": 3,
+   "nights": 11,
+   "homes": 11,
+   "firstNight": "2026-09-12",
+   "lastNight": "2026-10-25",
+   "miles": {
+    "total": 226,
+    "shortest": 2.7,
+    "farthest": 16.7
+   },
+   "scenarios": 263,
+   "approved": 11,
+   "partners": [
+    {
+     "name": "Pradeepreddy",
+     "nights": 6
+    },
+    {
+     "name": "Narendra",
+     "nights": 2
+    },
+    {
+     "name": "Sravya",
+     "nights": 1
+    },
+    {
+     "name": "Venkata",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-12",
+    "2026-09-26",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-24",
+    "2026-10-25"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-12",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-09-26",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 9.1
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 11.3
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-11",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 12.9
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 15.1
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 8.3
+    }
+   ]
+  },
+  "Muhammad": {
+   "name": "Muhammad",
+   "sessions": 22,
+   "cancelled": 6,
+   "nights": 22,
+   "homes": 22,
+   "firstNight": "2026-09-09",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 369,
+    "shortest": 2.7,
+    "farthest": 17.8
+   },
+   "scenarios": 484,
+   "approved": 16,
+   "partners": [
+    {
+     "name": "Sravya",
+     "nights": 8
+    },
+    {
+     "name": "Venkata",
+     "nights": 2
+    },
+    {
+     "name": "Manoj",
+     "nights": 2
+    },
+    {
+     "name": "Adidela",
+     "nights": 1
+    },
+    {
+     "name": "Amy",
+     "nights": 1
+    },
+    {
+     "name": "Satya",
+     "nights": 1
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 1
+    },
+    {
+     "name": "Narendra",
+     "nights": 1
+    },
+    {
+     "name": "Rohith",
+     "nights": 1
+    },
+    {
+     "name": "Isaiah",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-09",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-19",
+    "2026-09-21",
+    "2026-09-23",
+    "2026-09-29",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-19",
+     "miles": 3.4
+    },
+    {
+     "date": "2026-09-21",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 3.4
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 6.2
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 17.0
+    },
+    {
+     "date": "2026-10-06",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 8.0
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 12.1
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-10-23",
+     "miles": 17.0
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 7.1
+    }
+   ]
+  },
+  "Narendra": {
+   "name": "Narendra",
+   "sessions": 23,
+   "cancelled": 5,
+   "nights": 23,
+   "homes": 23,
+   "firstNight": "2026-09-10",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 460,
+    "shortest": 2.6,
+    "farthest": 40.9
+   },
+   "scenarios": 660,
+   "approved": 23,
+   "partners": [
+    {
+     "name": "Pradeepreddy",
+     "nights": 4
+    },
+    {
+     "name": "Amy",
+     "nights": 4
+    },
+    {
+     "name": "Jashit",
+     "nights": 3
+    },
+    {
+     "name": "Rohith",
+     "nights": 2
+    },
+    {
+     "name": "Sravya",
+     "nights": 2
+    },
+    {
+     "name": "Matthew",
+     "nights": 2
+    },
+    {
+     "name": "Manoj",
+     "nights": 1
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    },
+    {
+     "name": "Venkata",
+     "nights": 1
+    },
+    {
+     "name": "Isaiah",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-10",
+    "2026-09-16",
+    "2026-09-18",
+    "2026-09-23",
+    "2026-09-25",
+    "2026-09-26",
+    "2026-09-28",
+    "2026-09-29",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-03",
+    "2026-10-04",
+    "2026-10-05",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-24",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-10",
+     "miles": null
+    },
+    {
+     "date": "2026-09-16",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-09-18",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-25",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-26",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-28",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 3.7
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 18.7
+    },
+    {
+     "date": "2026-10-03",
+     "miles": null
+    },
+    {
+     "date": "2026-10-04",
+     "miles": 2.6
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 8.9
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 11.3
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 18.8
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 40.9
+    }
+   ]
+  },
+  "Pradeepreddy": {
+   "name": "Pradeepreddy",
+   "sessions": 29,
+   "cancelled": 6,
+   "nights": 29,
+   "homes": 29,
+   "firstNight": "2026-09-08",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 675,
+    "shortest": 2.6,
+    "farthest": 24.1
+   },
+   "scenarios": 749,
+   "approved": 27,
+   "partners": [
+    {
+     "name": "Matthew",
+     "nights": 6
+    },
+    {
+     "name": "Rohith",
+     "nights": 5
+    },
+    {
+     "name": "Narendra",
+     "nights": 4
+    },
+    {
+     "name": "Manoj",
+     "nights": 3
+    },
+    {
+     "name": "Adidela",
+     "nights": 3
+    },
+    {
+     "name": "Amy",
+     "nights": 3
+    },
+    {
+     "name": "Venkata",
+     "nights": 1
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-08",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-16",
+    "2026-09-18",
+    "2026-09-19",
+    "2026-09-22",
+    "2026-09-23",
+    "2026-09-26",
+    "2026-09-28",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-03",
+    "2026-10-04",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-08",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-16",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-09-18",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-09-19",
+     "miles": 18.3
+    },
+    {
+     "date": "2026-09-22",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.9
+    },
+    {
+     "date": "2026-09-26",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-09-28",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-30",
+     "miles": 19.4
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 9.1
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-03",
+     "miles": null
+    },
+    {
+     "date": "2026-10-04",
+     "miles": 2.6
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 11.6
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 12.1
+    },
+    {
+     "date": "2026-10-11",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 12.9
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 11.6
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 2.7
+    }
+   ]
+  },
+  "Rohith": {
+   "name": "Rohith",
+   "sessions": 17,
+   "cancelled": 4,
+   "nights": 17,
+   "homes": 17,
+   "firstNight": "2026-09-09",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 393,
+    "shortest": 2.7,
+    "farthest": 19.4
+   },
+   "scenarios": 398,
+   "approved": 17,
+   "partners": [
+    {
+     "name": "Venkata",
+     "nights": 5
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 5
+    },
+    {
+     "name": "Narendra",
+     "nights": 2
+    },
+    {
+     "name": "Sravya",
+     "nights": 2
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-09",
+    "2026-09-11",
+    "2026-09-20",
+    "2026-09-27",
+    "2026-09-29",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-03",
+    "2026-10-05",
+    "2026-10-07",
+    "2026-10-13",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-09",
+     "miles": 13.2
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 16.7
+    },
+    {
+     "date": "2026-09-20",
+     "miles": 11.6
+    },
+    {
+     "date": "2026-09-27",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-09-30",
+     "miles": 19.4
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 3.7
+    },
+    {
+     "date": "2026-10-03",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 7.1
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 11.6
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 2.7
+    }
+   ]
+  },
+  "Satya": {
+   "name": "Satya",
+   "sessions": 6,
+   "cancelled": 0,
+   "nights": 6,
+   "homes": 6,
+   "firstNight": "2026-09-08",
+   "lastNight": "2026-10-17",
+   "miles": {
+    "total": 115,
+    "shortest": 2.7,
+    "farthest": 24.1
+   },
+   "scenarios": 132,
+   "approved": 5,
+   "partners": [
+    {
+     "name": "Venkata",
+     "nights": 2
+    },
+    {
+     "name": "Jashit",
+     "nights": 1
+    },
+    {
+     "name": "Muhammad",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-08",
+    "2026-09-23",
+    "2026-09-29",
+    "2026-10-05",
+    "2026-10-11",
+    "2026-10-17"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-08",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 17.0
+    },
+    {
+     "date": "2026-10-11",
+     "miles": 9.1
+    },
+    {
+     "date": "2026-10-17",
+     "miles": null
+    }
+   ]
+  },
+  "Sravya": {
+   "name": "Sravya",
+   "sessions": 22,
+   "cancelled": 7,
+   "nights": 22,
+   "homes": 22,
+   "firstNight": "2026-09-08",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 454,
+    "shortest": 2.2,
+    "farthest": 24.1
+   },
+   "scenarios": 659,
+   "approved": 20,
+   "partners": [
+    {
+     "name": "Muhammad",
+     "nights": 8
+    },
+    {
+     "name": "Jashit",
+     "nights": 4
+    },
+    {
+     "name": "Narendra",
+     "nights": 2
+    },
+    {
+     "name": "Rohith",
+     "nights": 2
+    },
+    {
+     "name": "Venkata",
+     "nights": 1
+    },
+    {
+     "name": "Manoj",
+     "nights": 1
+    },
+    {
+     "name": "Matthew",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-08",
+    "2026-09-11",
+    "2026-09-12",
+    "2026-09-19",
+    "2026-09-21",
+    "2026-09-23",
+    "2026-10-01",
+    "2026-10-02",
+    "2026-10-03",
+    "2026-10-05",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-12",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-08",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-11",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-09-19",
+     "miles": 3.4
+    },
+    {
+     "date": "2026-09-21",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 6.2
+    },
+    {
+     "date": "2026-10-02",
+     "miles": 18.7
+    },
+    {
+     "date": "2026-10-03",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 7.1
+    },
+    {
+     "date": "2026-10-08",
+     "miles": 6.1
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 8.0
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-16",
+     "miles": 2.2
+    },
+    {
+     "date": "2026-10-17",
+     "miles": 23.9
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 15.1
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 8.4
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 7.1
+    }
+   ]
+  },
+  "Venkata": {
+   "name": "Venkata",
+   "sessions": 29,
+   "cancelled": 5,
+   "nights": 29,
+   "homes": 29,
+   "firstNight": "2026-09-08",
+   "lastNight": "2026-10-26",
+   "miles": {
+    "total": 750,
+    "shortest": 2.7,
+    "farthest": 40.9
+   },
+   "scenarios": 651,
+   "approved": 29,
+   "partners": [
+    {
+     "name": "Manoj",
+     "nights": 6
+    },
+    {
+     "name": "Rohith",
+     "nights": 5
+    },
+    {
+     "name": "Jashit",
+     "nights": 4
+    },
+    {
+     "name": "Adidela",
+     "nights": 2
+    },
+    {
+     "name": "Muhammad",
+     "nights": 2
+    },
+    {
+     "name": "Satya",
+     "nights": 2
+    },
+    {
+     "name": "Amy",
+     "nights": 2
+    },
+    {
+     "name": "Pradeepreddy",
+     "nights": 1
+    },
+    {
+     "name": "Sravya",
+     "nights": 1
+    },
+    {
+     "name": "Narendra",
+     "nights": 1
+    },
+    {
+     "name": "Matthew",
+     "nights": 1
+    }
+   ],
+   "nightsList": [
+    "2026-09-08",
+    "2026-09-12",
+    "2026-09-17",
+    "2026-09-18",
+    "2026-09-20",
+    "2026-09-21",
+    "2026-09-23",
+    "2026-09-24",
+    "2026-09-27",
+    "2026-09-29",
+    "2026-10-01",
+    "2026-10-03",
+    "2026-10-04",
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-09",
+    "2026-10-10",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-23",
+    "2026-10-24",
+    "2026-10-25",
+    "2026-10-26"
+   ],
+   "homesList": [
+    {
+     "date": "2026-09-08",
+     "miles": 24.1
+    },
+    {
+     "date": "2026-09-12",
+     "miles": 9.4
+    },
+    {
+     "date": "2026-09-17",
+     "miles": 18.3
+    },
+    {
+     "date": "2026-09-18",
+     "miles": 40.9
+    },
+    {
+     "date": "2026-09-20",
+     "miles": 11.6
+    },
+    {
+     "date": "2026-09-21",
+     "miles": 14.0
+    },
+    {
+     "date": "2026-09-23",
+     "miles": 16.2
+    },
+    {
+     "date": "2026-09-24",
+     "miles": 4.6
+    },
+    {
+     "date": "2026-09-27",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-09-29",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-01",
+     "miles": 13.1
+    },
+    {
+     "date": "2026-10-03",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-04",
+     "miles": 13.9
+    },
+    {
+     "date": "2026-10-05",
+     "miles": 2.7
+    },
+    {
+     "date": "2026-10-06",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-07",
+     "miles": 6.4
+    },
+    {
+     "date": "2026-10-09",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-10-10",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-11",
+     "miles": 9.1
+    },
+    {
+     "date": "2026-10-12",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-13",
+     "miles": 17.8
+    },
+    {
+     "date": "2026-10-14",
+     "miles": 23.9
+    },
+    {
+     "date": "2026-10-15",
+     "miles": 10.4
+    },
+    {
+     "date": "2026-10-17",
+     "miles": null
+    },
+    {
+     "date": "2026-10-18",
+     "miles": 14.1
+    },
+    {
+     "date": "2026-10-23",
+     "miles": 17.0
+    },
+    {
+     "date": "2026-10-24",
+     "miles": 10.7
+    },
+    {
+     "date": "2026-10-25",
+     "miles": 8.3
+    },
+    {
+     "date": "2026-10-26",
+     "miles": 19.4
+    }
+   ]
+  }
+ },
+ "log": {
+  "source": "Production1 tab, Mirror of Parakeet Nighttime Tracker",
+  "rows": 136
+ }
+}

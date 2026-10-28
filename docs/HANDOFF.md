@@ -1,6 +1,21 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-20 · Claude · 1.3.102026a: Overview Production status ring reads live counts
+**Last updated:** 2026-10-28 · Claude · 1.3.102826a: Twilight Wrap
+
+## 2026-10-28 · Claude · Twilight Wrap (1.3.102826a)
+
+**Ask:** A season-end "Wrap" (inspired by Spotify Wrapped, in Twilight's own look) for every moderator at sign-in, plus a standalone deck for the leadership presentation. Clickable while it plays. Centific logo used sparingly, white. Numbers must match the real log (Production1). David said push live.
+
+**What shipped:** `wrap/` is a self-contained story player (no build step). `wrap/` plays the 10-scene project deck; `wrap/?mod=<first name>` plays one moderator's Wrap. Tap right/left to move, hold to pause, tap anything that glows; arrow keys and F (full screen) for presenting. Signing in opens it once per login ID (`maybeOpenTwilightWrap` in `twilight.js`, localStorage key `twilight_wrap_seen_<id>`): moderators get their own Wrap, admins the deck, reviewers never. To replay, open `wrap/` (or `wrap/?mod=Name`) directly.
+
+**Data:** `wrap/data/wrap-data.json` is counts only (no names of participants, addresses, emails or phones; moderators by first name). Nights, homes, miles, people and QA results come from the Production1 tab (read on 2026-10-28; the address column is mostly town + ZIP, so homes are counted by participant + address: 107). Session outcomes match the Overview ring (136: 107 completed, 25 cancelled, 4 not complete). On open, `wrap/wrap-live.js` re-reads the PA flows and the Production1 status link; it never overwrites the Production1 numbers. `?live=0` skips the live read. Miles are straight-line, Redmond office to each home's ZIP centre. Scenario captures (2,806) come from Twilight SessionState only. Rebuild with `python3 -I wrap/tools/build_snapshot.py <raw-dir> <ZCTA gazetteer>` (see the file header).
+
+**Not done:** Incidents scene appears only once `wrap/data/wrap-manual.json` → `incidents` is filled in. APAC QA regions (China, Malaysia) are hand-entered in the same file. `wrap/tools/production1-status-apps-script.gs` (adds `?view=wrap` / `?view=headers`) is optional and not deployed.
+
+**Version:** **1.3.102826a**. Selftest: `scripts/twilight-wrap-selftest.js` (11 pass). `e2e-approval-arrival` and `scenario-catalog` selftests already failed on main before this change (they pin APP_VERSION 1.3.091820w).
+
+**Verify (David):** Hard refresh until the corner says **1.3.102826a**. Sign in as a moderator: the Wrap plays once; **Open Twilight** returns to the app. Sign in as Admin: the deck opens. Deck link for the presentation: https://dk-centific.github.io/Twilight-Tracker/wrap/
+
 
 ## 2026-10-20 · Claude · Overview Production status ring reads live counts (1.3.102026a)
 

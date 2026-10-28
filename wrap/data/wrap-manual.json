@@ -1,0 +1,13 @@
+{
+  "_about": "Hand-entered facts the Twilight data does not record. Edit this file; the snapshot builder never overwrites it.",
+  "qa": {
+    "regions": ["China", "Malaysia"],
+    "zoneLabel": "China & Malaysia",
+    "cityLabel": "Shanghai & Kuala Lumpur",
+    "utcOffset": 8
+  },
+  "incidents": null,
+  "_incidentsExample": [
+    { "type": "Equipment", "count": 0, "outcome": "Describe how it was resolved" }
+  ]
+}
