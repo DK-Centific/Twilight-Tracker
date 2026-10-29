@@ -81,5 +81,12 @@ const parsed = JSON.parse(data);
 assert('homes count matches its list', parsed.homes.count === parsed.homes.list.length);
 assert('weekly sessions add up to completed', parsed.sessions.perWeek.reduce((a, w) => a + w.completed, 0) === parsed.qa.status.completed);
 
+const sc = fs.readFileSync(path.join(root, 'wrap', 'data', 'scorecard.json'), 'utf8');
+const scp = JSON.parse(sc);
+assert('scorecard has no email addresses or phone numbers', !/[\w.+-]+@[\w-]+\.[\w.]+/.test(sc) && !/\+?1?\d{10}\b/.test(sc));
+assert('scorecard names are first names only', scp.moderators.every(m => /^[A-Z][a-z]+$/.test(m.name)));
+assert('scorecard scores sit between 0 and 100', scp.moderators.every(m => m.score == null || (m.score >= 0 && m.score <= 100)));
+assert('scorecard approvals never exceed completed', scp.moderators.every(m => m.approved + m.rejected <= m.completed));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

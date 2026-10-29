@@ -1,6 +1,21 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-28 · Claude · 1.3.102826b: header logo glows and plays the Wrap
+**Last updated:** 2026-10-29 · Claude · 1.3.102926a: Wrap Moderator Quality Scorecard
+
+## 2026-10-29 · Claude · Wrap Moderator Quality Scorecard (1.3.102926a)
+
+**Ask:** Add a Moderator Quality Scorecard to the admin Wrap (one or two scenes), in the Wrap theme: per moderator sessions assigned, completed, approved, rejected, cancelled, approval rate, availability, efficiency (hours ÷ sessions) and an overall quality score. Then a motion/interaction sanity pass. David said push live.
+
+**What shipped:** Two deck-only scenes after Sessions (never on `?mod=` pages). **Scorecard:** ranked board, re-sort by Quality / Approval / Availability / Hrs per session (rows slide to their new place, bars ease to the new value, scale stated on screen), tap a row for that moderator's numbers. **Spotlight:** one card per moderator (rank, score, assigned → completed → approved, light-meters for approval and availability, hours per session, sent back) that walks the board while it plays; the **All** pill swaps in a full-width table of everyone; a name returns to the card.
+
+**Data:** `wrap/data/scorecard.json` from `wrap/tools/build_scorecard.py` over the Parakeet Nighttime Tracker (Production tab), Moderator Availability and Twilight Moderator Timesheet, Sep 8 – Oct 27. Quality = 100 × (approval × 40 + availability × 25 + reliability × 10) / 75, the Orbit/Twilight scorecard method; car (15) and incidents (10) are not tracked for Twilight and drop out. All 25 cancellations had outside causes (client request 15, participant Wi-Fi 3, equipment 2, Ring access 2, target met 2, repeat home 1), so reliability is 100% for all. Hours per session = all timesheet hours (incl. syncs/training) ÷ completed; shown, not scored. 13 rostered moderators (Ayush, Glen, Brian, Sander excluded as in the earlier scorecard). Team average 92.0.
+
+**Motion pass:** spotlight crossfades (160 ms out, then in) with fixed card height and the score counting from the last value; every tap read-out settles in (`.status-line`); window glow moved to an opacity-only layer (Homes worst frame 33 → 18 ms). Full deck run with every interaction: no frame over 34 ms, no long tasks. Wrap files carry `?v=` so browsers pick up new code.
+
+**Privacy note:** the deck is a public link and now shows moderators' first names with scores. David chose to push.
+
+**Version:** **1.3.102926a**. Selftest: `scripts/twilight-wrap-selftest.js`.
+
 
 ## 2026-10-28 · Claude · Header logo glows and plays the Wrap (1.3.102826b)
 

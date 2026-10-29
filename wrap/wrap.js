@@ -176,10 +176,9 @@
         api.on(root, '.day:not(.off)', el => {
           const day = el.dataset.date; const n = D.nightCounts[day] || 0;
           $$('.day.sel', root).forEach(x => x.classList.remove('sel'));
-          read.innerHTML = mod
+          api.say(read, mod
             ? `${fmtD(day)}: ${mine.has(day) ? `you were out, one of ${plural(n, 'team', 'teams')} that night.` : n ? `${plural(n, 'team', 'teams')} out, not you.` : 'a night off.'}`
-            : `${fmtD(day)}: ${n ? `${plural(n, 'team', 'teams')} out` : 'a night off'}.`;
-          read.classList.remove('rise'); void read.offsetWidth; read.classList.add('rise');
+            : `${fmtD(day)}: ${n ? `${plural(n, 'team', 'teams')} out` : 'a night off'}.`, true);
         });
       },
     });
@@ -209,7 +208,7 @@
         const read = $('[data-read]', root);
         api.on(root, '.wcol', el => {
           const end = parseD(el.dataset.week); end.setUTCDate(end.getUTCDate() + 6);
-          read.textContent = `Week ${weekNo(el.dataset.week)}, ${fmtD(el.dataset.week)} to ${fmtD(isoD(end))}: ${plural(Number(el.dataset.n), 'session', 'sessions')} completed.`;
+          api.say(read, `Week ${weekNo(el.dataset.week)}, ${fmtD(el.dataset.week)} to ${fmtD(isoD(end))}: ${plural(Number(el.dataset.n), 'session', 'sessions')} completed.`);
         });
       },
     });
@@ -259,9 +258,9 @@
           const h = list[Number(el.dataset.k)];
           $$('.win.sel', root).forEach(x => x.classList.remove('sel'));
           el.classList.add('sel');
-          read.textContent = h.date
+          api.say(read, h.date
             ? `Home ${Number(el.dataset.k) + 1}: first night ${fmtD(h.date)}${h.miles != null ? `, ${fmtN(h.miles, 1)} miles from the office` : ''}.`
-            : `Home ${Number(el.dataset.k) + 1} of ${list.length}.`;
+            : `Home ${Number(el.dataset.k) + 1} of ${list.length}.`);
         });
       },
     });
@@ -321,7 +320,7 @@
           handle.setAttribute('aria-valuetext', `${radius} miles`);
           const inside = mine.filter(h => h.miles <= radius).length;
           $$('.dot', root).forEach(d => d.classList.toggle('out', Number(d.dataset.m) > radius && !d.classList.contains('faint')));
-          read.innerHTML = `<b>${plural(inside, mod ? 'of your homes' : 'home', mod ? 'of your homes' : 'homes')}</b> within <b>${radius} miles</b> of the office.${mod ? ' Grey dots are every Twilight home.' : ''} Drag to explore.`;
+          api.say(read, `<b>${plural(inside, mod ? 'of your homes' : 'home', mod ? 'of your homes' : 'homes')}</b> within <b>${radius} miles</b> of the office.${mod ? ' Grey dots are every Twilight home.' : ''} Drag to explore.`, true);
         };
         set(10);
         let dragging = false;
@@ -413,7 +412,7 @@
         const clear = () => { focused = null; sky.classList.remove('focus'); $$('.on,.near', sky).forEach(x => x.classList.remove('on', 'near')); };
         api.on(root, '.star', el => {
           const n = el.dataset.name;
-          if (focused === n) { clear(); read.textContent = mod ? 'Tap a partner.' : 'Tap a star to see who teamed up.'; return; }
+          if (focused === n) { clear(); api.say(read, mod ? 'Tap a partner.' : 'Tap a star to see who teamed up.'); return; }
           clear(); focused = n; sky.classList.add('focus'); el.classList.add('on');
           const mine = pairs.filter(p => p.a === n || p.b === n).sort((a, b) => b.nights - a.nights);
           mine.forEach(p => {
@@ -423,10 +422,10 @@
           });
           if (mod && n !== mod.name) {
             const p = mod.partners.find(x => x.name === n);
-            read.innerHTML = `<b>${esc(n)}</b> and you: ${plural(p.nights, 'night', 'nights')} together.`;
+            api.say(read, `<b>${esc(n)}</b> and you: ${plural(p.nights, 'night', 'nights')} together.`, true);
           } else {
             const top = mine[0];
-            read.innerHTML = `<b>${esc(n)}</b>: ${plural(bySessions[n] || 0, 'session', 'sessions')}, with ${plural(mine.length, 'partner', 'partners')}.${top ? ` Most often with ${esc(top.a === n ? top.b : top.a)} (${plural(top.nights, 'night', 'nights')}).` : ''}`;
+            api.say(read, `<b>${esc(n)}</b>: ${plural(bySessions[n] || 0, 'session', 'sessions')}, with ${plural(mine.length, 'partner', 'partners')}.${top ? ` Most often with ${esc(top.a === n ? top.b : top.a)} (${plural(top.nights, 'night', 'nights')}).` : ''}`, true);
           }
         });
       },
@@ -523,7 +522,7 @@
             cur = cur === el.dataset.q ? null : el.dataset.q;
             bar.classList.toggle('focus', !!cur);
             $$('[data-q]', root).forEach(x => x.classList.toggle('on', x.dataset.q === cur));
-            read.innerHTML = cur ? esc(parts.find(p => p.k === cur).note) : lede;
+            api.say(read, cur ? esc(parts.find(p => p.k === cur).note) : lede, true);
           });
         }
         api.on(root, '.hr', el => api.tip(el, `${hour12(Number(el.dataset.hour))} Seattle · ${hour12((Number(el.dataset.hour) - ptOffset + qaOffset + 24) % 24)} ${qaLabel.split(' ')[0]}`, `${el.dataset.v} decisions`));
@@ -623,7 +622,7 @@
           cur = cur === k ? null : k;
           bar.classList.toggle('focus', !!cur);
           $$('[data-k]', root).forEach(x => x.classList.toggle('on', x.dataset.k === cur));
-          read.textContent = cur ? parts.find(p => p.k === cur).note : lede;
+          api.say(read, cur ? parts.find(p => p.k === cur).note : lede);
         });
       },
     });
@@ -721,7 +720,7 @@
         api.on(root, '[data-pick]', el => {
           $$('.brow.on', board).forEach(r => r.classList.remove('on'));
           el.parentElement.classList.add('on');
-          read.innerHTML = cardLine(byName[el.dataset.pick]);
+          api.say(read, cardLine(byName[el.dataset.pick]), true);
         });
       },
     });
@@ -774,14 +773,40 @@
             <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} hours logged. Tap a name for their card.</p>`;
           allview.hidden = false;
         };
+        // Score counts from the last card's value to this one (spec: count from the last shown value).
+        let shownScore = 0;
+        const countScore = (el, to) => {
+          const from = shownScore; shownScore = to;
+          if (reduced.matches || from === to) { el.textContent = fmtN(to, 1); return; }
+          const t0 = performance.now();
+          const step = now => {
+            const p = Math.min(1, (now - t0) / 900);
+            el.textContent = fmtN(from + (to - from) * (1 - (1 - p) ** 3), 1);
+            if (p < 1) api.raf(step);
+          };
+          api.raf(step);
+        };
+        let swapT = null;
         const show = c => {
+          // Fade the current card out (exit is faster than enter), then bring the next one in.
+          if (spot.childElementCount && !reduced.matches && !ss.classList.contains('all')) {
+            spot.classList.add('leaving');
+            clearTimeout(swapT);
+            swapT = setTimeout(() => { spot.classList.remove('leaving'); paint(c); }, 160);
+            $$('.chip[data-who]', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.who === c.name)));
+            return;
+          }
+          paint(c);
+        };
+        api.cleanup(() => clearTimeout(swapT));
+        const paint = c => {
           ss.classList.remove('all');
           allview.hidden = true;
           allBtn.setAttribute('aria-pressed', 'false');
           $$('.chip[data-who]', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.who === c.name)));
           spot.innerHTML = `
             <header class="spot-head swap-in"><span class="spot-rank mono">No. ${c.rank}</span><h3>${esc(c.name)}</h3>
-              <b class="spot-score big-num">${fmtN(c.score, 1)}<small>/100</small></b></header>
+              <b class="spot-score big-num"><span data-score>${fmtN(shownScore, 1)}</span><small>/100</small></b></header>
             <div class="funnel swap-in">
               ${[['Assigned', c.assigned], ['Completed', c.completed], ['Approved', c.approved]].map(([k, v]) => `<div><b class="big-num">${v}</b><span>${k}</span></div>`).join('<span class="arrow" aria-hidden="true"></span>')}
             </div>
@@ -791,7 +816,8 @@
               <div><dt>Hours per session</dt><dd><span class="hrs">${fmtN(c.hours, 0)} h logged</span><b>${fmtN(c.hoursPerSession, 1)} h</b></dd></div>
               <div><dt>Sent back by QA</dt><dd><span class="hrs">${c.cancelled ? `${c.cancelled} cancelled, none down to them` : 'no cancellations'}</span><b>${c.rejected}</b></dd></div>
             </dl>
-            ${c.lowVolume ? '<p class="small">Small sample, read with care.</p>' : ''}`;
+            <p class="small spot-note${c.lowVolume ? '' : ' is-quiet'}">Small sample, read with care.</p>`;
+          countScore($('[data-score]', spot), c.score);
         };
         // While it plays, the card walks down the board; a tap takes over.
         let k = 0;
@@ -898,6 +924,11 @@
         pause: () => { if (playing) setPlaying(false, true); },
         go,
         cleanup: f => cleanups.push(f),
+        // A read-out that changed settles in (spec section 2, .status-line), keyed on its text.
+        say: (el, text, html) => {
+          if (html) el.innerHTML = text; else el.textContent = text;
+          el.classList.remove('rise', 'status-line'); void el.offsetWidth; el.classList.add('status-line');
+        },
         raf: f => { const id = requestAnimationFrame(f); cleanups.push(() => cancelAnimationFrame(id)); },
         on: (root, sel, fn) => {
           root.addEventListener('click', e => {

@@ -248,10 +248,16 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
   border: 1px solid rgba(255, 255, 255, 0.05);
 }
 .win::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(11, 12, 14, 0.35); }
-.win.lit { animation: windowOn 700ms var(--ease-out) both; animation-delay: calc(var(--t) * 1ms); }
-.win.lit, .win.static { background: var(--lamp-hi); box-shadow: 0 0 10px 1px rgba(232, 210, 166, 0.35); }
+.win.lit, .win.static { background: var(--lamp-hi); }
+/* Lighting up: colour flips once, and the glow is its own layer that only fades (opacity), so 100+ windows stay cheap. */
+.win::before { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: 0 0 10px 1px rgba(232, 210, 166, 0.35); opacity: 0; pointer-events: none; }
+.win.lit::before, .win.static::before { opacity: 1; }
+.scene.is-in .win.lit { animation: winOn 500ms var(--ease-out) both; animation-delay: calc(var(--t) * 1ms); }
+.scene.is-in .win.lit::before { animation: fade 700ms var(--ease-out) both; animation-delay: calc(var(--t) * 1ms); }
+@keyframes winOn { 0% { background: var(--night-3); } 40% { background: #fff6df; } 100% { background: var(--lamp-hi); } }
 .win.mine { background: var(--lamp-hi); }
-.win.theirs { background: var(--night-3); box-shadow: none; animation: none; }
+.win.theirs { background: var(--night-3); animation: none; }
+.win.theirs::before { display: none; }
 .win.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* ---------- Miles road ---------- */
@@ -430,6 +436,9 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .meter i { width: clamp(9px, 1.3vh, 12px); aspect-ratio: 1; border-radius: 50%; background: var(--night-3); }
 .meter i.on { background: var(--lamp-hi); box-shadow: 0 0 8px rgba(232, 210, 166, 0.5); animation: pop 360ms var(--spring) both; animation-delay: calc(var(--j) * 30ms); }
 .swap-in { animation: fade 260ms var(--ease-out) both; }
+.spot > * { transition: opacity 160ms var(--ease-exit); }
+.spot.leaving > * { opacity: 0; }
+.spot-note.is-quiet { visibility: hidden; }
 
 /* Spotlight "All": one table of every moderator, full width */
 .chip-all { color: var(--ink); border-color: rgba(232, 210, 166, 0.35); }
