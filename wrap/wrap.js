@@ -729,21 +729,56 @@
     if (SC) scenes.push({
       id: 'spotlight', label: 'Spotlight', dur: 16000, light: ['18%', '10%'],
       html: () => `
-        <div class="split even sc-split">
+        <div class="split even sc-split spot-scene" data-ss>
           <div class="words">
             <h2 class="h-l rise" style="--d:500">Every moderator, under the porch light.</h2>
             <p class="lede rise" style="--d:700">Scored on approval rate (40), availability (25) and reliability (10). Car and incident checks were not tracked for Twilight, so they sit out of the score. Hours are everything logged, field nights and team syncs alike.</p>
             <div class="chips rise" style="--d:900" role="group" aria-label="Choose a moderator" data-chips>
+              <button type="button" class="chip chip-all" data-i data-all aria-pressed="false">All</button>
               ${SC.moderators.map(c => `<button type="button" class="chip" data-i data-who="${esc(c.name)}" aria-pressed="false">${esc(c.name)}</button>`).join('')}
             </div>
+            <div class="allview" data-allview hidden></div>
           </div>
           <article class="spot rise" style="--d:800" data-spot aria-live="polite"></article>
         </div>`,
       mount(root, api) {
         const spot = $('[data-spot]', root);
         const meter = v => `<span class="meter" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round((v || 0) * 10) ? 'on' : ''}" style="--j:${i}"></i>`).join('')}</span>`;
+        const ss = $('[data-ss]', root);
+        const allview = $('[data-allview]', root);
+        const allBtn = $('[data-all]', root);
+        // "All" swaps the scene for one table of every moderator; a name brings the card back.
+        const showAll = () => {
+          clearInterval(timer);
+          // The entrance has played; switching views from here on is instant (the card fades via .swap-in).
+          $$('.rise', ss).forEach(el => el.classList.remove('rise'));
+          ss.classList.add('all');
+          allBtn.setAttribute('aria-pressed', 'true');
+          $$('.chip[data-who]', root).forEach(b => b.setAttribute('aria-pressed', 'false'));
+          const cols = [
+            ['Score', c => fmtN(c.score, 1), 'score'], ['Assigned', c => c.assigned], ['Completed', c => c.completed],
+            ['Approved', c => c.approved], ['Sent back', c => c.rejected], ['Cancelled', c => c.cancelled],
+            ['Approval', c => pct(c.approvalRate)], ['Availability', c => pct(c.availability)], ['Hrs / session', c => fmtN(c.hoursPerSession, 1)],
+          ];
+          allview.innerHTML = `
+            <div class="all-scroll view-enter">
+              <table class="all-table">
+                <thead><tr><th scope="col">#</th><th scope="col">Moderator</th>${cols.map(([h]) => `<th scope="col">${h}</th>`).join('')}</tr></thead>
+                <tbody>${SC.moderators.map((c, i) => `<tr class="row-in${i < 3 ? ' lit-row' : ''}" style="--i:${i}" data-i data-who="${esc(c.name)}">
+                  <td class="mono">${c.rank}</td>
+                  <th scope="row"><button type="button" data-i data-who="${esc(c.name)}">${esc(c.name)}</button>${c.lowVolume ? '<em>low volume</em>' : ''}</th>
+                  ${cols.map(([, f, k]) => `<td class="${k === 'score' ? 'sc' : ''}">${f(c)}</td>`).join('')}</tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+            <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} hours logged. Tap a name for their card.</p>`;
+          allview.hidden = false;
+        };
         const show = c => {
-          $$('[data-who]', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.who === c.name)));
+          ss.classList.remove('all');
+          allview.hidden = true;
+          allBtn.setAttribute('aria-pressed', 'false');
+          $$('.chip[data-who]', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.who === c.name)));
           spot.innerHTML = `
             <header class="spot-head swap-in"><span class="spot-rank mono">No. ${c.rank}</span><h3>${esc(c.name)}</h3>
               <b class="spot-score big-num">${fmtN(c.score, 1)}<small>/100</small></b></header>
@@ -760,10 +795,12 @@
         };
         // While it plays, the card walks down the board; a tap takes over.
         let k = 0;
+        let timer = null;
         show(SC.moderators[0]);
-        const timer = setInterval(() => { k = (k + 1) % SC.moderators.length; show(SC.moderators[k]); }, reduced.matches ? 4000 : 2600);
+        timer = setInterval(() => { k = (k + 1) % SC.moderators.length; show(SC.moderators[k]); }, reduced.matches ? 4000 : 2600);
         api.cleanup(() => clearInterval(timer));
         api.on(root, '[data-who]', el => { clearInterval(timer); show(SC.moderators.find(c => c.name === el.dataset.who)); });
+        api.on(root, '[data-all]', () => showAll());
       },
     });
 

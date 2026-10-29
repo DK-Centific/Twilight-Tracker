@@ -431,6 +431,29 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .meter i.on { background: var(--lamp-hi); box-shadow: 0 0 8px rgba(232, 210, 166, 0.5); animation: pop 360ms var(--spring) both; animation-delay: calc(var(--j) * 30ms); }
 .swap-in { animation: fade 260ms var(--ease-out) both; }
 
+/* Spotlight "All": one table of every moderator, full width */
+.chip-all { color: var(--ink); border-color: rgba(232, 210, 166, 0.35); }
+.spot-scene.all { grid-template-columns: minmax(0, 1fr); }
+.spot-scene.all .words > h2, .spot-scene.all .words > .lede, .spot-scene.all .spot { display: none; }
+.allview { display: grid; gap: 10px; min-width: 0; }
+.allview[hidden] { display: none; }
+.all-scroll { overflow-x: auto; scrollbar-width: thin; border-radius: 16px; border: 1px solid var(--line); background: var(--night-2); }
+.all-table { width: 100%; border-collapse: collapse; font-size: var(--t-m); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.all-table th, .all-table td { padding: clamp(5px, 1vh, 10px) clamp(8px, 1vw, 14px); text-align: right; border-bottom: 1px solid var(--line); }
+.all-table thead th { font-size: 0.72rem; font-weight: 600; color: var(--ink-3); position: sticky; top: 0; background: var(--night-2); }
+.all-table th[scope='row'], .all-table thead th:nth-child(2) { text-align: left; position: sticky; left: 0; background: var(--night-2); z-index: 1; }
+.all-table td:first-child, .all-table thead th:first-child { text-align: left; color: var(--ink-3); width: 2.5em; }
+.all-table th[scope='row'] button { font-weight: 600; color: var(--ink); }
+.all-table th[scope='row'] em { font-style: normal; font-weight: 500; font-size: 0.68rem; color: var(--ink-3); margin-left: 8px; }
+.all-table tbody tr { cursor: pointer; transition: background-color 200ms var(--ease-out); }
+.all-table tbody tr:last-child th, .all-table tbody tr:last-child td { border-bottom: 0; }
+@media (hover: hover) and (pointer: fine) { .all-table tbody tr:hover, .all-table tbody tr:hover th { background: #1a1b1f; } }
+.all-table td.sc { font-weight: 700; }
+.all-table .lit-row td.sc { color: var(--lamp-hi); }
+.view-enter { animation: viewIn 240ms var(--ease-out) both; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } }
+.row-in { animation: rowIn 260ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 30ms); }
+
 /* ---------- Incidents ---------- */
 .inc { display: grid; gap: 2px; }
 .inc-row { display: grid; grid-template-columns: 5ch 1fr 1.4fr; gap: 20px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--line); }
