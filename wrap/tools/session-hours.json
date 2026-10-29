@@ -1,0 +1,19 @@
+{
+ "_about": "Session hours by month, from David's timesheet review (Oct 29, 2026). total is the average of the two monthly averages, as in that review.",
+ "months": ["Sep", "Oct"],
+ "moderators": {
+  "Satya":        { "Sep": [3, 34.5], "Oct": [3, 26.5], "total": 10.2 },
+  "Isaiah":       { "Sep": [4, 39.5], "Oct": [2, 20], "total": 9.9 },
+  "Muhammad":     { "Sep": [10, 95], "Oct": [17, 143], "total": 9.0 },
+  "Pradeepreddy": { "Sep": [11, 104], "Oct": [20, 160], "total": 8.7 },
+  "Venkata":      { "Sep": [11, 115], "Oct": [18, 153], "total": 9.5 },
+  "Manoj":        { "Sep": [7, 64.5], "Oct": [12, 101], "total": 8.8 },
+  "Sravya":       { "Sep": [9, 85], "Oct": [19, 166], "total": 9.1 },
+  "Jashit":       { "Sep": [11, 109], "Oct": [12, 95], "total": 8.9 },
+  "Narendra":     { "Sep": [8, 81], "Oct": [18.5, 146], "total": 9.0 },
+  "Rohith":       { "Sep": [6, 64.5], "Oct": [12, 106], "total": 9.8 },
+  "Amy":          { "Sep": [4, 37], "Oct": [11, 94], "total": 8.9 },
+  "Adidela":      { "Sep": [8, 79], "Oct": [2, 16.5], "total": 9.1 },
+  "Matthew":      { "Sep": [2, 16], "Oct": [10, 82], "total": 8.1 }
+ }
+}

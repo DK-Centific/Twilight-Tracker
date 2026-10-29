@@ -44,7 +44,7 @@
   "moderators": 13,
   "approvalRate": 0.9545,
   "availability": 0.8532,
-  "hours": 2448.8,
+  "hours": 2233.0,
   "averageScore": 92.0
  },
  "moderators": [
@@ -61,8 +61,22 @@
    "availability": 1.0,
    "nightsTracked": 50,
    "nightsUnavailable": 0,
-   "hours": 196.0,
-   "hoursPerSession": 11.5,
+   "hours": 170.5,
+   "hoursPerSession": 9.8,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 6,
+     "hours": 64.5,
+     "perSession": 10.8
+    },
+    {
+     "month": "Oct",
+     "sessions": 12,
+     "hours": 106,
+     "perSession": 8.8
+    }
+   ],
    "score": 100.0,
    "lowVolume": false,
    "rank": 1
@@ -80,8 +94,22 @@
    "availability": 0.98,
    "nightsTracked": 50,
    "nightsUnavailable": 1,
-   "hours": 285.2,
-   "hoursPerSession": 9.8,
+   "hours": 268,
+   "hoursPerSession": 9.5,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 11,
+     "hours": 115,
+     "perSession": 10.5
+    },
+    {
+     "month": "Oct",
+     "sessions": 18,
+     "hours": 153,
+     "perSession": 8.5
+    }
+   ],
    "score": 99.3,
    "lowVolume": false,
    "rank": 2
@@ -99,8 +127,22 @@
    "availability": 1.0,
    "nightsTracked": 50,
    "nightsUnavailable": 0,
-   "hours": 269.5,
-   "hoursPerSession": 12.2,
+   "hours": 251,
+   "hoursPerSession": 9.1,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 9,
+     "hours": 85,
+     "perSession": 9.4
+    },
+    {
+     "month": "Oct",
+     "sessions": 19,
+     "hours": 166,
+     "perSession": 8.7
+    }
+   ],
    "score": 97.5,
    "lowVolume": false,
    "rank": 3
@@ -118,8 +160,22 @@
    "availability": 0.88,
    "nightsTracked": 50,
    "nightsUnavailable": 6,
-   "hours": 232.0,
-   "hoursPerSession": 10.1,
+   "hours": 227,
+   "hoursPerSession": 9.0,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 8,
+     "hours": 81,
+     "perSession": 10.1
+    },
+    {
+     "month": "Oct",
+     "sessions": 18.5,
+     "hours": 146,
+     "perSession": 7.9
+    }
+   ],
    "score": 96.0,
    "lowVolume": false,
    "rank": 4
@@ -137,8 +193,22 @@
    "availability": 0.98,
    "nightsTracked": 50,
    "nightsUnavailable": 1,
-   "hours": 282.0,
-   "hoursPerSession": 9.7,
+   "hours": 264,
+   "hoursPerSession": 8.7,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 11,
+     "hours": 104,
+     "perSession": 9.5
+    },
+    {
+     "month": "Oct",
+     "sessions": 20,
+     "hours": 160,
+     "perSession": 8.0
+    }
+   ],
    "score": 95.7,
    "lowVolume": false,
    "rank": 5
@@ -156,8 +226,22 @@
    "availability": 0.86,
    "nightsTracked": 50,
    "nightsUnavailable": 7,
-   "hours": 190.0,
-   "hoursPerSession": 11.9,
+   "hours": 165.5,
+   "hoursPerSession": 8.8,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 7,
+     "hours": 64.5,
+     "perSession": 9.2
+    },
+    {
+     "month": "Oct",
+     "sessions": 12,
+     "hours": 101,
+     "perSession": 8.4
+    }
+   ],
    "score": 95.3,
    "lowVolume": false,
    "rank": 6
@@ -175,8 +259,22 @@
    "availability": 0.8,
    "nightsTracked": 50,
    "nightsUnavailable": 10,
-   "hours": 102.0,
-   "hoursPerSession": 9.3,
+   "hours": 98,
+   "hoursPerSession": 8.1,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 2,
+     "hours": 16,
+     "perSession": 8.0
+    },
+    {
+     "month": "Oct",
+     "sessions": 10,
+     "hours": 82,
+     "perSession": 8.2
+    }
+   ],
    "score": 93.3,
    "lowVolume": false,
    "rank": 7
@@ -194,8 +292,22 @@
    "availability": 0.7,
    "nightsTracked": 50,
    "nightsUnavailable": 15,
-   "hours": 117.2,
-   "hoursPerSession": 10.7,
+   "hours": 95.5,
+   "hoursPerSession": 9.1,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 8,
+     "hours": 79,
+     "perSession": 9.9
+    },
+    {
+     "month": "Oct",
+     "sessions": 2,
+     "hours": 16.5,
+     "perSession": 8.2
+    }
+   ],
    "score": 90.0,
    "lowVolume": false,
    "rank": 8
@@ -213,8 +325,22 @@
    "availability": 0.72,
    "nightsTracked": 50,
    "nightsUnavailable": 14,
-   "hours": 147.5,
-   "hoursPerSession": 9.8,
+   "hours": 131,
+   "hoursPerSession": 8.9,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 4,
+     "hours": 37,
+     "perSession": 9.2
+    },
+    {
+     "month": "Oct",
+     "sessions": 11,
+     "hours": 94,
+     "perSession": 8.5
+    }
+   ],
    "score": 86.9,
    "lowVolume": false,
    "rank": 9
@@ -232,8 +358,22 @@
    "availability": 0.66,
    "nightsTracked": 50,
    "nightsUnavailable": 17,
-   "hours": 211.5,
-   "hoursPerSession": 9.6,
+   "hours": 204,
+   "hoursPerSession": 8.9,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 11,
+     "hours": 109,
+     "perSession": 9.9
+    },
+    {
+     "month": "Oct",
+     "sessions": 12,
+     "hours": 95,
+     "perSession": 7.9
+    }
+   ],
    "score": 86.1,
    "lowVolume": false,
    "rank": 10
@@ -251,8 +391,22 @@
    "availability": 0.8367,
    "nightsTracked": 49,
    "nightsUnavailable": 8,
-   "hours": 252.2,
-   "hoursPerSession": 11.5,
+   "hours": 238,
+   "hoursPerSession": 9.0,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 10,
+     "hours": 95,
+     "perSession": 9.5
+    },
+    {
+     "month": "Oct",
+     "sessions": 17,
+     "hours": 143,
+     "perSession": 8.4
+    }
+   ],
    "score": 86.1,
    "lowVolume": false,
    "rank": 11
@@ -270,8 +424,22 @@
    "availability": 0.9,
    "nightsTracked": 50,
    "nightsUnavailable": 5,
-   "hours": 76.0,
-   "hoursPerSession": 15.2,
+   "hours": 59.5,
+   "hoursPerSession": 9.9,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 4,
+     "hours": 39.5,
+     "perSession": 9.9
+    },
+    {
+     "month": "Oct",
+     "sessions": 2,
+     "hours": 20,
+     "perSession": 10.0
+    }
+   ],
    "score": 86.0,
    "lowVolume": true,
    "rank": 12
@@ -289,8 +457,22 @@
    "availability": 0.7708,
    "nightsTracked": 48,
    "nightsUnavailable": 11,
-   "hours": 87.5,
-   "hoursPerSession": 14.6,
+   "hours": 61.0,
+   "hoursPerSession": 10.2,
+   "hoursByMonth": [
+    {
+     "month": "Sep",
+     "sessions": 3,
+     "hours": 34.5,
+     "perSession": 11.5
+    },
+    {
+     "month": "Oct",
+     "sessions": 3,
+     "hours": 26.5,
+     "perSession": 8.8
+    }
+   ],
    "score": 83.5,
    "lowVolume": true,
    "rank": 13

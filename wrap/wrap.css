@@ -409,6 +409,38 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .brow:nth-child(-n+3) .bt i { box-shadow: 0 0 14px rgba(232, 210, 166, 0.45); }
 .sv { font-variant-numeric: tabular-nums; text-align: right; font-size: var(--t-m); }
 
+/* Hrs / session: each bar splits into September and October shares of session hours */
+.board-head { display: grid; justify-items: end; min-height: 1.6rem; align-items: center; }
+.board-head > * { grid-area: 1 / 1; transition: opacity 200ms var(--ease-out); }
+.board-head .mkeys { opacity: 0; visibility: hidden; transition: opacity 200ms var(--ease-out), visibility 0s 200ms; }
+.board-head.is-split .board-scale { opacity: 0; }
+.board-head.is-split .mkeys { opacity: 1; visibility: visible; transition: opacity 240ms var(--ease-out); }
+.mkeys { display: flex; align-items: center; gap: 4px; padding-right: calc(4.2em + 10px); }
+.mkeys > span { font-size: 0.7rem; color: var(--ink-3); margin-right: 6px; }
+.mkey { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 99px; font-size: 0.78rem; font-weight: 600; color: var(--ink-3); border: 1px solid var(--line); transition: color 200ms var(--ease-out), background-color 200ms var(--ease-out), scale 150ms var(--ease-out); }
+.mkey[aria-pressed='true'] { color: var(--night); background: var(--lamp-hi); border-color: transparent; }
+@media (hover: hover) and (pointer: fine) { .mkey:hover:not([aria-pressed='true']) { color: var(--ink); } }
+.mkey:active { scale: 0.96; }
+.sw { width: 8px; height: 8px; border-radius: 2px; }
+.sw-sep, .mo-sep { background: var(--lamp); }
+.sw-oct, .mo-oct { background: var(--lamp-hi); }
+.bcell { display: grid; align-items: center; }
+.bcell > * { grid-area: 1 / 1; }
+.bt { transition: opacity 200ms var(--ease-out); }
+.bsplit { display: flex; gap: 2px; height: clamp(16px, 2.2vh, 20px); opacity: 0; clip-path: inset(0 100% 0 0 round 6px); pointer-events: none;
+  transition: opacity 160ms var(--ease-exit), clip-path 0s 160ms; }
+.board.is-split .bt { opacity: 0; }
+.board.is-split .bsplit { opacity: 1; clip-path: inset(0 0 0 0 round 6px); pointer-events: auto;
+  transition: opacity 200ms var(--ease-out), clip-path 700ms var(--ease-out); }
+.board.is-split .brow:nth-child(n) .bsplit { transition-delay: 0s, calc(var(--i, 0) * 30ms); }
+.mo { flex: 0 0 var(--s); min-width: 2.4em; display: grid; place-items: center; border-radius: 4px; font-size: 0.66rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; color: var(--night); cursor: pointer; transition: opacity 200ms var(--ease-out), filter 200ms var(--ease-out); }
+.mo:first-child { border-radius: 6px 2px 2px 6px; }
+.mo:last-child { flex: 1 1 auto; border-radius: 2px 6px 6px 2px; }
+@media (hover: hover) and (pointer: fine) { .board.is-split .mo:hover { filter: brightness(1.12); } }
+.board[data-mon='Sep'] .mo-oct, .board[data-mon='Oct'] .mo-sep { opacity: 0.28; }
+.board.is-split .brow:nth-child(-n+3) .bsplit { filter: drop-shadow(0 0 8px rgba(232, 210, 166, 0.35)); }
+
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { min-height: 36px; padding: 0 12px; border-radius: 99px; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); background: var(--night-2); border: 1px solid var(--line); transition: color 200ms var(--ease-out), background-color 200ms var(--ease-out), scale 150ms var(--ease-out); }
 .chip[aria-pressed='true'] { background: var(--lamp-hi); color: var(--night); border-color: transparent; transition: none; }
@@ -493,6 +525,8 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 @media (max-width: 640px), (max-aspect-ratio: 4/5) {
   .split, .split.even, .sc-split, .close { grid-template-columns: 1fr; align-content: center; }
   .bbtn { grid-template-columns: 1.8em minmax(7.5em, 1fr) minmax(0, 1.2fr) 3.6em; gap: 8px; }
+  .mkeys { padding-right: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .mkeys > span { flex-basis: 100%; text-align: right; margin: 0; }
   .split > .words, .sc-split > * { min-width: 0; }
   .sc-split .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .sc-split .seg button { padding: 10px 12px; white-space: nowrap; }

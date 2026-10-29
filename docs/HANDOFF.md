@@ -1,6 +1,11 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-29 · Claude · 1.3.102926b: scorecard leaves out client-requested cancellations
+**Last updated:** 2026-10-29 · Claude · ## 1.3.102926c — Wrap: Hrs / session split by month (10/29/2026)
+- Scorecard hours now come from David's session-hours review (`wrap/tools/session-hours.json`: per-month sessions and hours, first names only), passed as the optional 4th arg to `build_scorecard.py`. Training, quizzes and syncs no longer inflate Hrs / session (Sravya 12.2 → 9.1).
+- Scorecard board, Hrs / session: each bar splits into Sep / Oct shares of session hours. Tapping a segment or the Sep / Oct / Season keys re-ranks the board on that month and counts each callout to the month's average; Season returns to the total.
+- Spotlight card shows Sep and Oct averages beside the season figure.
+
+1.3.102926b: scorecard leaves out client-requested cancellations
 
 ## 2026-10-29 · Claude · Scorecard leaves out client-requested cancellations (1.3.102926b)
 

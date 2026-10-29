@@ -631,11 +631,18 @@
        Quality = approval (40) + availability (25) + reliability (10), out of 100. */
     const SC = !mod && scorecard && scorecard.moderators && scorecard.moderators.length ? scorecard : null;
     const pct = v => (v == null ? '–' : `${Math.round(v * 100)}%`);
+    // Hours per session: the season average, or one month's when a month is picked on the board.
+    const MONTHS_FULL = { Sep: 'September', Oct: 'October' };
+    let hrsMonth = null;
+    const monthOf = (c, m) => (c.hoursByMonth || []).find(x => x.month === m);
+    const hrsOf = c => (hrsMonth ? (monthOf(c, hrsMonth) || {}).perSession : c.hoursPerSession);
+    const hrsShare = (c, m) => { const x = monthOf(c, m); const t = (c.hoursByMonth || []).reduce((a, b) => a + b.hours, 0); return x && t ? x.hours / t : 0; };
+    const HAS_MONTHS = !!(SC && SC.moderators.every(c => c.hoursByMonth && c.hoursByMonth.length === 2));
     const SORTS = {
       score: { label: 'Quality', val: c => c.score, show: c => fmtN(c.score, 1), max: () => 100, asc: false },
       approval: { label: 'Approval', val: c => c.approvalRate, show: c => pct(c.approvalRate), max: () => 1, asc: false },
       availability: { label: 'Availability', val: c => c.availability, show: c => pct(c.availability), max: () => 1, asc: false },
-      hours: { label: 'Hrs / session', val: c => c.hoursPerSession, show: c => `${fmtN(c.hoursPerSession, 1)} h`, max: () => Math.max(...SC.moderators.map(m => m.hoursPerSession || 0)), asc: true },
+      hours: { label: 'Hrs / session', val: hrsOf, show: c => `${fmtN(hrsOf(c), 1)} h`, max: () => Math.max(...SC.moderators.map(m => m.hoursPerSession || 0)), asc: true },
     };
     // Bars start just below the lowest value (stated on screen), so a 83-to-100 spread is visible.
     const domain = k => {
@@ -647,7 +654,7 @@
       return { lo, hi: top, width: v => `${Math.max(3, ((v - lo) / (top - lo)) * 100)}%`,
         label: top > 1.5 ? (top > 50 ? `Scale ${lo} to ${top}` : `Scale ${fmtN(lo, 0)} to ${fmtN(top, 0)} h`) : `Scale ${Math.round(lo * 100)}% to 100%` };
     };
-    const cardLine = c => `<b>${esc(c.name)}</b>: ${c.assigned} assigned, ${c.completed} completed, ${c.approved} approved, ${c.rejected} sent back, ${c.cancelled} cancelled. Available ${c.nightsTracked - c.nightsUnavailable} of ${c.nightsTracked} nights. ${fmtN(c.hours, 0)} hours logged, ${fmtN(c.hoursPerSession, 1)} per session.${c.lowVolume ? ' Small sample, read with care.' : ''}`;
+    const cardLine = c => `<b>${esc(c.name)}</b>: ${c.assigned} assigned, ${c.completed} completed, ${c.approved} approved, ${c.rejected} sent back, ${c.cancelled} cancelled. Available ${c.nightsTracked - c.nightsUnavailable} of ${c.nightsTracked} nights. ${fmtN(c.hours, 0)} session hours, ${fmtN(c.hoursPerSession, 1)} per session.${c.lowVolume ? ' Small sample, read with care.' : ''}`;
     if (SC) scenes.push({
       id: 'scorecard', label: 'Scorecard', dur: 14000, light: ['70%', '0%'],
       html: () => {
@@ -664,12 +671,19 @@
               <p class="small rise" style="--d:1000" data-read>Top of the board: ${esc(top.name)}, ${fmtN(top.score, 1)}. Tap anyone for their numbers.</p>
             </div>
             <div class="board-wrap">
-            <p class="board-scale mono" data-scale aria-hidden="true">${domain('score').label}</p>
+            <div class="board-head">
+              <p class="board-scale mono" data-scale aria-hidden="true">${domain('score').label}</p>
+              ${HAS_MONTHS ? `<div class="mkeys" role="group" aria-label="Hours per session for" data-mkeys>
+                <span class="mono">Share of session hours</span>
+                ${['Sep', 'Oct'].map(m => `<button type="button" class="mkey" data-i data-mon="${m}" aria-pressed="false"><i class="sw sw-${m.toLowerCase()}" aria-hidden="true"></i>${m}</button>`).join('')}
+                <button type="button" class="mkey" data-i data-mon="" aria-pressed="true">Season</button>
+              </div>` : ''}
+            </div>
             <ol class="board" data-board aria-label="Moderator ranking">
               ${SC.moderators.map((c, i) => `<li class="brow" data-name="${esc(c.name)}" style="--i:${i}">
                 <button type="button" class="bbtn" data-i data-pick="${esc(c.name)}">
                   <span class="rk mono">${i + 1}</span><span class="nm">${esc(c.name)}${c.lowVolume ? '<em>low volume</em>' : ''}</span>
-                  <span class="bt"><i style="--w:${domain('score').width(c.score)}"></i></span><b class="sv">${fmtN(c.score, 1)}</b>
+                  <span class="bcell"><span class="bt"><i style="--w:${domain('score').width(c.score)}"></i></span>${HAS_MONTHS ? `<span class="bsplit" aria-hidden="true">${c.hoursByMonth.map(x => `<span class="mo mo-${x.month.toLowerCase()}" data-mon="${x.month}" style="--s:${(hrsShare(c, x.month) * 100).toFixed(1)}%">${Math.round(hrsShare(c, x.month) * 100)}%</span>`).join('')}</span>` : ''}</span><b class="sv">${fmtN(c.score, 1)}</b>
                 </button></li>`).join('')}
             </ol>
             </div>
@@ -690,8 +704,33 @@
         const ro = new ResizeObserver(() => { pill.classList.add('no-anim'); place(); });
         ro.observe(seg); api.cleanup(() => ro.disconnect());
         // Re-rank with FLIP: rows slide from where they were to where they now belong.
-        const sortBy = k => {
+        const shown = new Map();
+        // A callout counts from the value it showed last (spec: numbers count from their last value).
+        const setSv = (el, to, dec, suffix, count) => {
+          const from = shown.get(el);
+          shown.set(el, to);
+          if (!count || from == null || reduced.matches || from === to) { el.textContent = `${fmtN(to, dec)}${suffix}`; return; }
+          const t0 = performance.now();
+          const step = now => {
+            const p = Math.min(1, (now - t0) / 900);
+            el.textContent = `${fmtN(from + (to - from) * (1 - (1 - p) ** 3), dec)}${suffix}`;
+            if (p < 1 && shown.get(el) === to) api.raf(step);
+          };
+          api.raf(step);
+        };
+        const mkeys = $('[data-mkeys]', root);
+        const setMonth = m => {
+          hrsMonth = m || null;
+          board.dataset.mon = hrsMonth || '';
+          if (mkeys) $$('[data-mon]', mkeys).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mon === (hrsMonth || ''))));
+        };
+        api.cleanup(() => { hrsMonth = null; });
+        const sortBy = (k, count) => {
           const S = SORTS[k];
+          const split = k === 'hours' && HAS_MONTHS;
+          if (!split) setMonth(null);
+          board.classList.toggle('is-split', split);
+          root.querySelector('.board-head').classList.toggle('is-split', split);
           $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
           pill.classList.remove('no-anim'); place();
           const rows = $$('.brow', board);
@@ -706,7 +745,8 @@
             const c = byName[r.dataset.name];
             board.appendChild(r);
             $('.rk', r).textContent = i + 1;
-            $('.sv', r).textContent = S.show(c);
+            if (k === 'hours') setSv($('.sv', r), S.val(c), 1, ' h', count);
+            else { $('.sv', r).textContent = S.show(c); shown.delete($('.sv', r)); }
             $('.bt i', r).style.setProperty('--w', dm.width(S.val(c)));
           });
           if (reduced.matches) return;
@@ -716,8 +756,36 @@
             r.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
           });
         };
-        api.on(root, '[data-k]', el => sortBy(el.dataset.k));
-        api.on(root, '[data-pick]', el => {
+        api.on(root, '[data-k]', el => {
+          sortBy(el.dataset.k);
+          if (el.dataset.k === 'hours' && HAS_MONTHS) api.say(read, seasonLine(), true);
+        });
+        // Sep or Oct (a bar segment or its key) re-ranks the board on that month; tap it again for the season.
+        const teamMonth = m => {
+          const xs = SC.moderators.map(c => monthOf(c, m)).filter(Boolean);
+          const h = xs.reduce((a, b) => a + b.hours, 0), n = xs.reduce((a, b) => a + b.sessions, 0);
+          return { h, n, avg: n ? h / n : 0 };
+        };
+        const seasonLine = () => `Season average per moderator, September and October together. Tap a month on any bar.`;
+        api.on(root, '[data-mon]', el => {
+          if (!board.classList.contains('is-split')) return;
+          const m = el.dataset.mon && el.dataset.mon !== hrsMonth ? el.dataset.mon : null;
+          setMonth(m);
+          sortBy('hours', true);
+          const row = el.closest('[data-pick]');
+          if (row) {
+            $$('.brow.on', board).forEach(r => r.classList.remove('on'));
+            row.parentElement.classList.add('on');
+          }
+          const c = row && byName[row.dataset.pick];
+          if (!m) { api.say(read, c ? `<b>${esc(c.name)}</b>: ${fmtN(c.hoursPerSession, 1)} h per session across the season.` : seasonLine(), true); return; }
+          const t = teamMonth(m), x = c && monthOf(c, m);
+          api.say(read, x
+            ? `<b>${esc(c.name)}</b> in ${MONTHS_FULL[m]}: ${fmtN(x.sessions, x.sessions % 1 ? 1 : 0)} sessions, ${fmtN(x.hours, x.hours % 1 ? 1 : 0)} h, <b>${fmtN(x.perSession, 1)} h</b> per session. ${Math.round(hrsShare(c, m) * 100)}% of their session hours.`
+            : `${MONTHS_FULL[m]}: ${fmtN(t.n, t.n % 1 ? 1 : 0)} sessions and ${fmtN(t.h, 0)} session hours, <b>${fmtN(t.avg, 1)} h</b> per session across the team.`, true);
+        });
+        api.on(root, '[data-pick]', (el, e) => {
+          if (e.target.closest('[data-mon]') && board.classList.contains('is-split')) return;
           $$('.brow.on', board).forEach(r => r.classList.remove('on'));
           el.parentElement.classList.add('on');
           api.say(read, cardLine(byName[el.dataset.pick]), true);
@@ -731,7 +799,7 @@
         <div class="split even sc-split spot-scene" data-ss>
           <div class="words">
             <h2 class="h-l rise" style="--d:500">Every moderator, under the porch light.</h2>
-            <p class="lede rise" style="--d:700">Scored on approval rate (40), availability (25) and reliability (10). Car and incident checks were not tracked for Twilight, so they sit out of the score. Hours are everything logged, field nights and team syncs alike.</p>
+            <p class="lede rise" style="--d:700">Scored on approval rate (40), availability (25) and reliability (10). Car and incident checks were not tracked for Twilight, so they sit out of the score. Hours count session time only.</p>
             <div class="chips rise" style="--d:900" role="group" aria-label="Choose a moderator" data-chips>
               <button type="button" class="chip chip-all" data-i data-all aria-pressed="false">All</button>
               ${SC.moderators.map(c => `<button type="button" class="chip" data-i data-who="${esc(c.name)}" aria-pressed="false">${esc(c.name)}</button>`).join('')}
@@ -770,7 +838,7 @@
                 </tbody>
               </table>
             </div>
-            <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} hours logged.${SC.excluded && SC.excluded.clientRequested ? ` Leaves out the ${SC.excluded.clientRequested} sessions the client cancelled.` : ''} Tap a name for their card.</p>`;
+            <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} session hours.${SC.excluded && SC.excluded.clientRequested ? ` Leaves out the ${SC.excluded.clientRequested} sessions the client cancelled.` : ''} Tap a name for their card.</p>`;
           allview.hidden = false;
         };
         // Score counts from the last card's value to this one (spec: count from the last shown value).
@@ -813,7 +881,7 @@
             <dl class="spot-rows swap-in">
               <div><dt>Approval rate</dt><dd>${meter(c.approvalRate)}<b>${pct(c.approvalRate)}</b></dd></div>
               <div><dt>Availability</dt><dd>${meter(c.availability)}<b>${pct(c.availability)}</b></dd></div>
-              <div><dt>Hours per session</dt><dd><span class="hrs">${fmtN(c.hours, 0)} h logged</span><b>${fmtN(c.hoursPerSession, 1)} h</b></dd></div>
+              <div><dt>Hours per session</dt><dd><span class="hrs">${(c.hoursByMonth || []).map(x => `${x.month} ${fmtN(x.perSession, 1)}`).join(' · ') || `${fmtN(c.hours, 0)} h`}</span><b>${fmtN(c.hoursPerSession, 1)} h</b></dd></div>
               <div><dt>Sent back by QA</dt><dd><span class="hrs">${c.cancelled ? `${c.cancelled} cancelled, none down to them` : 'no cancellations'}</span><b>${c.rejected}</b></dd></div>
             </dl>
             <p class="small spot-note${c.lowVolume ? '' : ' is-quiet'}">Small sample, read with care.</p>`;

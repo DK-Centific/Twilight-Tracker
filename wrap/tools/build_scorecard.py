@@ -2,17 +2,20 @@
 """Build the Twilight Wrap moderator scorecard (data/scorecard.json) from the season's workbooks.
 
 Usage:
-  python3 -I tools/build_scorecard.py <tracker.xlsx> <availability.xlsx> <timesheet.xlsx> > data/scorecard.json
+  python3 -I tools/build_scorecard.py <tracker.xlsx> <availability.xlsx> <timesheet.xlsx> [session-hours.json] > data/scorecard.json
 
   tracker      Parakeet Nighttime Tracker (Production tab)
   availability Moderator Availability (Availability tab)
   timesheet    Twilight Moderator Timesheet (September / October tabs)
+  session-hours  optional; per-month session counts and session hours (tools/session-hours.json).
+               When given, it replaces the timesheet totals for Efficiency, because the timesheet
+               also holds training, quizzes and syncs that are not session time.
 
 Method follows the Moderator Quality Scorecard (Orbit) and its Twilight copy:
   Quality = 100 x (Approval x 40 + Availability x 25 + Reliability x 10) / 75
 Car (15) and Incidents (10) are not tracked for Twilight, so they drop out of both
-numerator and denominator, as that method specifies. Efficiency (timesheet hours
-per completed session) is reported beside the score, not inside it.
+numerator and denominator, as that method specifies. Efficiency (session hours
+per session) is reported beside the score, not inside it.
 Sessions the client asked to cancel (the Oct 19-22 Ring login outage, tracker
 rows 105-119) are left out of every moderator's counts: they were never the
 moderators' to run.
@@ -27,6 +30,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 
 TRACKER, AVAIL, TIMESHEET = sys.argv[1:4]
+SESSION_HOURS = sys.argv[4] if len(sys.argv) > 4 else None
 SEASON = ('2026-09-08', '2026-10-27')
 W = {'approval': 40, 'availability': 25, 'reliability': 10}
 
@@ -170,6 +174,17 @@ for name, rows in read_xlsx(TIMESHEET).items():
         if n:
             hours[n] += sum(num(r[i]) for i in hcols if i < len(r))
 
+# ---- Session hours by month (replaces the timesheet totals when given) ----
+months, by_month, totals = [], {}, {}
+if SESSION_HOURS:
+    with open(SESSION_HOURS) as f:
+        sh = json.load(f)
+    months = sh['months']
+    for n, v in sh['moderators'].items():
+        by_month[n] = [{'month': m, 'sessions': v[m][0], 'hours': v[m][1], 'perSession': round(v[m][1] / v[m][0], 1) if v[m][0] else None} for m in months]
+        totals[n] = v['total']
+        hours[n] = sum(x['hours'] for x in by_month[n])
+
 # ---- Score ----
 cards = []
 for n in NAMES:
@@ -188,7 +203,8 @@ for n in NAMES:
         'availability': round(availability, 4) if availability is not None else None,
         'nightsTracked': a['tracked'], 'nightsUnavailable': a['unavailable'],
         'hours': round(hours[n], 1),
-        'hoursPerSession': round(hours[n] / s['completed'], 1) if s['completed'] else None,
+        'hoursPerSession': totals[n] if n in totals else (round(hours[n] / s['completed'], 1) if s['completed'] else None),
+        **({'hoursByMonth': by_month[n]} if n in by_month else {}),
         'score': score,
         'lowVolume': s['completed'] < 8,
     })
