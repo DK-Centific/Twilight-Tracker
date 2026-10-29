@@ -1,6 +1,15 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-29 · Claude · 1.3.102926a: Wrap Moderator Quality Scorecard
+**Last updated:** 2026-10-29 · Claude · 1.3.102926b: scorecard leaves out client-requested cancellations
+
+## 2026-10-29 · Claude · Scorecard leaves out client-requested cancellations (1.3.102926b)
+
+**Ask:** The 15 cancellations in Prod tracker rows 105–119 (Oct 19–22, "Ring access blocker; Client requested to cancel") were not the moderators' fault; remove them from Mod quality.
+
+**Fix:** `wrap/tools/build_scorecard.py` skips any cancelled session whose Centific Notes say "Client requested" before crediting moderators, so those sessions count toward no one's Assigned or Cancelled (30 moderator credits). `scorecard.json` records `excluded.clientRequested = 15` with the row numbers. Scores are unchanged (reliability already ignored cancellations). The scorecard lede and the All table footer say the 15 are left out. Sessions scene (136 scheduled, 25 cancelled) is unchanged: that is the season story, not moderator quality.
+
+**Version:** **1.3.102926b**. Selftest: `scripts/twilight-wrap-selftest.js`.
+
 
 ## 2026-10-29 · Claude · Wrap Moderator Quality Scorecard (1.3.102926a)
 

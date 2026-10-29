@@ -13,6 +13,9 @@ Method follows the Moderator Quality Scorecard (Orbit) and its Twilight copy:
 Car (15) and Incidents (10) are not tracked for Twilight, so they drop out of both
 numerator and denominator, as that method specifies. Efficiency (timesheet hours
 per completed session) is reported beside the score, not inside it.
+Sessions the client asked to cancel (the Oct 19-22 Ring login outage, tracker
+rows 105-119) are left out of every moderator's counts: they were never the
+moderators' to run.
 Output holds first names and numbers only.
 """
 import datetime as dt
@@ -101,7 +104,8 @@ hdr = [h.strip() for h in prod[0]]
 col = {k: hdr.index(k) for k in ('Date', 'Moderator 1', 'Moderator 2', 'Status', 'QA Status', 'Centific Notes')}
 S = defaultdict(Counter)
 reasons = Counter()
-for r in prod[1:]:
+excluded = []  # client-requested cancellations, by tracker row
+for row_no, r in enumerate(prod[1:], start=2):
     if not any(r):
         continue
     r = r + [''] * (len(hdr) - len(r))
@@ -114,6 +118,9 @@ for r in prod[1:]:
     if status == 'canceled' or status == 'cancelled':
         note = r[col['Centific Notes']].lower()
         reasons[next((label for pat, label in CANCEL_REASONS if re.search(pat, note)), 'Other')] += 1
+        if 'client requested' in note:
+            excluded.append(row_no)
+            continue
     for n in names & set(NAMES):
         s = S[n]
         s['assigned'] += 1
@@ -194,6 +201,7 @@ json.dump({
     'weights': W,
     'dropped': ['Car availability (15)', 'Incidents (10)'],
     'cancelReasons': dict(reasons.most_common()),
+    'excluded': {'clientRequested': len(excluded), 'rows': excluded},
     'team': {
         'moderators': len(cards),
         'approvalRate': round(sum(c['approved'] for c in cards) / max(1, sum(c['approved'] + c['rejected'] for c in cards)), 4),

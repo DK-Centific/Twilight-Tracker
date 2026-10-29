@@ -656,7 +656,7 @@
           <div class="split sc-split">
             <div class="words">
               <h2 class="h-l rise" style="--d:500">${SC.team.moderators} moderators. A ${cu(SC.team.averageScore, 1, 700)} quality average.</h2>
-              <p class="lede rise" style="--d:700">${pct(SC.team.approvalRate)} of reviewed sessions passed QA, and the team was on call ${pct(SC.team.availability)} of nights. Not one of the season's cancellations came down to a moderator.</p>
+              <p class="lede rise" style="--d:700">${pct(SC.team.approvalRate)} of reviewed sessions passed QA, and the team was on call ${pct(SC.team.availability)} of nights. Not one of the season's cancellations came down to a moderator${SC.excluded && SC.excluded.clientRequested ? `, and the ${SC.excluded.clientRequested} sessions the client called off during the Ring login outage are not counted at all` : ''}.</p>
               <div class="seg rise" style="--d:900" role="group" aria-label="Rank by" data-sort>
                 <span class="seg-pill no-anim" aria-hidden="true"></span>
                 ${Object.entries(SORTS).map(([k, v], i) => `<button type="button" data-i data-k="${k}" aria-pressed="${i === 0}">${v.label}</button>`).join('')}
@@ -770,7 +770,7 @@
                 </tbody>
               </table>
             </div>
-            <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} hours logged. Tap a name for their card.</p>`;
+            <p class="small">Team: ${fmtN(SC.team.averageScore, 1)} average score, ${pct(SC.team.approvalRate)} approval, ${pct(SC.team.availability)} availability, ${fmtN(SC.team.hours, 0)} hours logged.${SC.excluded && SC.excluded.clientRequested ? ` Leaves out the ${SC.excluded.clientRequested} sessions the client cancelled.` : ''} Tap a name for their card.</p>`;
           allview.hidden = false;
         };
         // Score counts from the last card's value to this one (spec: count from the last shown value).
