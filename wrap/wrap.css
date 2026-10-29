@@ -422,24 +422,29 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 @media (hover: hover) and (pointer: fine) { .mkey:hover:not([aria-pressed='true']) { color: var(--ink); } }
 .mkey:active { scale: 0.96; }
 .sw { width: 8px; height: 8px; border-radius: 2px; }
-.sw-sep, .mo-sep { background: var(--lamp); }
-.sw-oct, .mo-oct { background: var(--lamp-hi); }
+.sw-sep { background: var(--lamp); }
+.sw-oct { background: var(--lamp-hi); }
+/* Same lamp gradient and glow as the single bars, one tone per month */
+.mo-sep { background: linear-gradient(90deg, #a98543, var(--lamp)); box-shadow: 0 0 14px rgba(197, 160, 89, 0.5), inset 0 1px 0 rgba(255, 246, 223, 0.25); }
+.mo-oct { background: linear-gradient(90deg, var(--lamp-hi), #f6e8c8); box-shadow: 0 0 14px rgba(232, 210, 166, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .bcell { display: grid; align-items: center; }
 .bcell > * { grid-area: 1 / 1; }
 .bt { transition: opacity 200ms var(--ease-out); }
-.bsplit { display: flex; gap: 2px; height: clamp(16px, 2.2vh, 20px); opacity: 0; clip-path: inset(0 100% 0 0 round 6px); pointer-events: none;
+.bsplit { display: flex; gap: 2px; height: clamp(16px, 2.2vh, 20px); opacity: 0; clip-path: inset(-20px 100% -20px -20px); pointer-events: none;
   transition: opacity 160ms var(--ease-exit), clip-path 0s 160ms; }
 .board.is-split .bt { opacity: 0; }
-.board.is-split .bsplit { opacity: 1; clip-path: inset(0 0 0 0 round 6px); pointer-events: auto;
+.board.is-split .bsplit { opacity: 1; clip-path: inset(-20px -20px -20px -20px); pointer-events: auto;
   transition: opacity 200ms var(--ease-out), clip-path 700ms var(--ease-out); }
 .board.is-split .brow:nth-child(n) .bsplit { transition-delay: 0s, calc(var(--i, 0) * 30ms); }
 .mo { flex: 0 0 var(--s); min-width: 2.4em; display: grid; place-items: center; border-radius: 4px; font-size: 0.66rem; font-weight: 700;
-  font-variant-numeric: tabular-nums; color: var(--night); cursor: pointer; transition: opacity 200ms var(--ease-out), filter 200ms var(--ease-out); }
+  font-variant-numeric: tabular-nums; color: var(--night); cursor: pointer; transition: opacity 200ms var(--ease-out), filter 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
 .mo:first-child { border-radius: 6px 2px 2px 6px; }
 .mo:last-child { flex: 1 1 auto; border-radius: 2px 6px 6px 2px; }
 @media (hover: hover) and (pointer: fine) { .board.is-split .mo:hover { filter: brightness(1.12); } }
 .board[data-mon='Sep'] .mo-oct, .board[data-mon='Oct'] .mo-sep { opacity: 0.28; }
-.board.is-split .brow:nth-child(-n+3) .bsplit { filter: drop-shadow(0 0 8px rgba(232, 210, 166, 0.35)); }
+.board.is-split .brow:nth-child(-n+3) .mo { box-shadow: 0 0 20px rgba(232, 210, 166, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.board[data-mon='Sep'] .mo-sep, .board[data-mon='Oct'] .mo-oct { box-shadow: 0 0 20px rgba(232, 210, 166, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.board[data-mon='Sep'] .mo-oct, .board[data-mon='Oct'] .mo-sep { box-shadow: none; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { min-height: 36px; padding: 0 12px; border-radius: 99px; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); background: var(--night-2); border: 1px solid var(--line); transition: color 200ms var(--ease-out), background-color 200ms var(--ease-out), scale 150ms var(--ease-out); }
