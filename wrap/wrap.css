@@ -379,6 +379,58 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .key.on { background: color-mix(in srgb, var(--ink) 7%, transparent); }
 @media (hover: hover) and (pointer: fine) { .key:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); } }
 
+/* ---------- Scorecard ---------- */
+.sc-split { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); }
+.board-wrap { display: grid; gap: 6px; }
+.board-scale { font-size: 0.7rem; color: var(--ink-3); text-align: right; padding-right: calc(4.2em + 22px); }
+.board { list-style: none; display: grid; gap: clamp(3px, 0.6vh, 6px); }
+.brow { opacity: 0; }
+.scene.is-in .brow { animation: rowIn 260ms var(--ease-out) both; animation-delay: calc(900ms + var(--i) * 45ms); }
+@keyframes rowIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+.bbtn {
+  width: 100%; display: grid; grid-template-columns: 2.2em minmax(8.5em, 0.9fr) minmax(0, 2fr) 4.2em; align-items: center; gap: 12px;
+  padding: clamp(4px, 0.8vh, 8px) 10px; border-radius: 10px; text-align: left; transition: background-color 200ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) { .bbtn:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); } }
+.brow.on .bbtn { background: color-mix(in srgb, var(--lamp-hi) 12%, transparent); box-shadow: 0 0 0 1px rgba(232, 210, 166, 0.35) inset; }
+.rk { font-size: 0.8rem; color: var(--ink-3); }
+.nm { font-weight: 600; font-size: var(--t-m); display: grid; line-height: 1.15; }
+.nm em { font-style: normal; font-weight: 500; font-size: 0.68rem; color: var(--ink-3); }
+.bt { height: clamp(8px, 1.4vh, 12px); border-radius: 99px; background: var(--night-3); overflow: hidden; }
+.bt i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--lamp), var(--lamp-hi));
+  clip-path: inset(0 calc(100% - var(--w, 0%)) 0 0 round 99px); transition: clip-path 700ms var(--ease-out); }
+.scene.is-in .brow .bt { animation: revealX 700ms var(--ease-out) both; animation-delay: calc(1000ms + var(--i, 0) * 45ms); }
+.brow:nth-child(-n+3) .bt i { box-shadow: 0 0 14px rgba(232, 210, 166, 0.45); }
+.sv { font-variant-numeric: tabular-nums; text-align: right; font-size: var(--t-m); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 36px; padding: 0 12px; border-radius: 99px; font-size: 0.85rem; font-weight: 600; color: var(--ink-2); background: var(--night-2); border: 1px solid var(--line); transition: color 200ms var(--ease-out), background-color 200ms var(--ease-out), scale 150ms var(--ease-out); }
+.chip[aria-pressed='true'] { background: var(--lamp-hi); color: var(--night); border-color: transparent; transition: none; }
+@media (hover: hover) and (pointer: fine) { .chip:hover:not([aria-pressed='true']) { color: var(--ink); } }
+.spot { border-radius: 22px; background: var(--night-2); border: 1px solid var(--line); padding: clamp(16px, 3vh, 32px); display: grid; gap: clamp(14px, 2.6vh, 26px); position: relative; overflow: hidden; }
+.spot::before { content: ''; position: absolute; inset: -40% 30% auto -20%; height: 90%; background: radial-gradient(closest-side, rgba(232, 210, 166, 0.16), transparent); pointer-events: none; }
+.spot-head { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 4px 16px; position: relative; }
+.spot-rank { grid-column: 1 / -1; font-size: 0.78rem; color: var(--lamp-hi); }
+.spot-head h3 { font-size: var(--d-m); font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.spot-score { font-size: var(--d-m); font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--lamp-hi); }
+.spot-score small { font-size: 0.45em; color: var(--ink-3); font-weight: 600; margin-left: 2px; }
+.funnel { display: flex; align-items: center; gap: 10px; }
+.funnel > div { display: grid; gap: 2px; }
+.funnel b { font-size: var(--t-l); font-weight: 800; }
+.funnel span { font-size: 0.78rem; color: var(--ink-3); }
+.funnel .arrow { width: 22px; height: 1px; background: var(--ink-4); position: relative; }
+.funnel .arrow::after { content: ''; position: absolute; right: 0; top: -3px; border: 3.5px solid transparent; border-left: 5px solid var(--ink-4); border-right: 0; }
+.spot-rows { display: grid; gap: 10px; }
+.spot-rows > div { display: grid; grid-template-columns: minmax(8em, 0.9fr) minmax(0, 1.4fr); align-items: center; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.spot-rows dt { font-size: var(--t-m); color: var(--ink-2); }
+.spot-rows dd { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.spot-rows dd b { font-variant-numeric: tabular-nums; font-size: var(--t-m); }
+.spot-rows .hrs { font-size: 0.82rem; color: var(--ink-3); }
+.meter { display: inline-flex; gap: 4px; }
+.meter i { width: clamp(9px, 1.3vh, 12px); aspect-ratio: 1; border-radius: 50%; background: var(--night-3); }
+.meter i.on { background: var(--lamp-hi); box-shadow: 0 0 8px rgba(232, 210, 166, 0.5); animation: pop 360ms var(--spring) both; animation-delay: calc(var(--j) * 30ms); }
+.swap-in { animation: fade 260ms var(--ease-out) both; }
+
 /* ---------- Incidents ---------- */
 .inc { display: grid; gap: 2px; }
 .inc-row { display: grid; grid-template-columns: 5ch 1fr 1.4fr; gap: 20px; align-items: baseline; padding: 14px 0; border-top: 1px solid var(--line); }
@@ -407,7 +459,11 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 
 /* ---------- Phones ---------- */
 @media (max-width: 640px), (max-aspect-ratio: 4/5) {
-  .split, .split.even, .close { grid-template-columns: 1fr; align-content: center; }
+  .split, .split.even, .sc-split, .close { grid-template-columns: 1fr; align-content: center; }
+  .bbtn { grid-template-columns: 1.8em minmax(7.5em, 1fr) minmax(0, 1.2fr) 3.6em; gap: 8px; }
+  .split > .words, .sc-split > * { min-width: 0; }
+  .sc-split .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .sc-split .seg button { padding: 10px 12px; white-space: nowrap; }
   .scene { padding-top: clamp(8px, 2vh, 24px); align-content: safe center; overflow-y: auto; overscroll-behavior: contain; }
   .foot-hint { display: none; }
   .sync { margin-left: auto; }

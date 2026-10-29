@@ -52,8 +52,10 @@
   /* ---------------- Data ---------------- */
   async function load() {
     const get = url => fetch(url, { cache: 'no-cache' }).then(r => { if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r.json(); });
-    const [data, manual] = await Promise.all([get('data/wrap-data.json'), get('data/wrap-manual.json').catch(() => ({}))]);
-    return { data, manual };
+    const [data, manual, scorecard] = await Promise.all([
+      get('data/wrap-data.json'), get('data/wrap-manual.json').catch(() => ({})), get('data/scorecard.json').catch(() => null),
+    ]);
+    return { data, manual, scorecard };
   }
 
   /* The Production1 log is the real record. When its Wrap view answers (?view=wrap on the
@@ -106,7 +108,7 @@
     return weeks;
   }
 
-  function buildScenes({ data, manual }, mod) {
+  function buildScenes({ data, manual, scorecard }, mod) {
     const D = data;
     const S = D.sessions;
     const peopleTotal = D.people.moderators + D.people.participants + D.people.reviewers + D.people.admins;
@@ -626,6 +628,145 @@
       },
     });
 
+    /* Moderator Quality Scorecard (deck only): a ranked board, then a spotlight card.
+       Quality = approval (40) + availability (25) + reliability (10), out of 100. */
+    const SC = !mod && scorecard && scorecard.moderators && scorecard.moderators.length ? scorecard : null;
+    const pct = v => (v == null ? '–' : `${Math.round(v * 100)}%`);
+    const SORTS = {
+      score: { label: 'Quality', val: c => c.score, show: c => fmtN(c.score, 1), max: () => 100, asc: false },
+      approval: { label: 'Approval', val: c => c.approvalRate, show: c => pct(c.approvalRate), max: () => 1, asc: false },
+      availability: { label: 'Availability', val: c => c.availability, show: c => pct(c.availability), max: () => 1, asc: false },
+      hours: { label: 'Hrs / session', val: c => c.hoursPerSession, show: c => `${fmtN(c.hoursPerSession, 1)} h`, max: () => Math.max(...SC.moderators.map(m => m.hoursPerSession || 0)), asc: true },
+    };
+    // Bars start just below the lowest value (stated on screen), so a 83-to-100 spread is visible.
+    const domain = k => {
+      const S = SORTS[k];
+      const vals = SC.moderators.map(S.val).filter(v => v != null);
+      const top = S.max();
+      const step = top > 1.5 ? (top > 50 ? 5 : 1) : 0.05;
+      const lo = Math.max(0, Math.floor((Math.min(...vals) - step) / step) * step);
+      return { lo, hi: top, width: v => `${Math.max(3, ((v - lo) / (top - lo)) * 100)}%`,
+        label: top > 1.5 ? (top > 50 ? `Scale ${lo} to ${top}` : `Scale ${fmtN(lo, 0)} to ${fmtN(top, 0)} h`) : `Scale ${Math.round(lo * 100)}% to 100%` };
+    };
+    const cardLine = c => `<b>${esc(c.name)}</b>: ${c.assigned} assigned, ${c.completed} completed, ${c.approved} approved, ${c.rejected} sent back, ${c.cancelled} cancelled. Available ${c.nightsTracked - c.nightsUnavailable} of ${c.nightsTracked} nights. ${fmtN(c.hours, 0)} hours logged, ${fmtN(c.hoursPerSession, 1)} per session.${c.lowVolume ? ' Small sample, read with care.' : ''}`;
+    if (SC) scenes.push({
+      id: 'scorecard', label: 'Scorecard', dur: 14000, light: ['70%', '0%'],
+      html: () => {
+        const top = SC.moderators[0];
+        return `
+          <div class="split sc-split">
+            <div class="words">
+              <h2 class="h-l rise" style="--d:500">${SC.team.moderators} moderators. A ${cu(SC.team.averageScore, 1, 700)} quality average.</h2>
+              <p class="lede rise" style="--d:700">${pct(SC.team.approvalRate)} of reviewed sessions passed QA, and the team was on call ${pct(SC.team.availability)} of nights. Not one of the season's cancellations came down to a moderator.</p>
+              <div class="seg rise" style="--d:900" role="group" aria-label="Rank by" data-sort>
+                <span class="seg-pill no-anim" aria-hidden="true"></span>
+                ${Object.entries(SORTS).map(([k, v], i) => `<button type="button" data-i data-k="${k}" aria-pressed="${i === 0}">${v.label}</button>`).join('')}
+              </div>
+              <p class="small rise" style="--d:1000" data-read>Top of the board: ${esc(top.name)}, ${fmtN(top.score, 1)}. Tap anyone for their numbers.</p>
+            </div>
+            <div class="board-wrap">
+            <p class="board-scale mono" data-scale aria-hidden="true">${domain('score').label}</p>
+            <ol class="board" data-board aria-label="Moderator ranking">
+              ${SC.moderators.map((c, i) => `<li class="brow" data-name="${esc(c.name)}" style="--i:${i}">
+                <button type="button" class="bbtn" data-i data-pick="${esc(c.name)}">
+                  <span class="rk mono">${i + 1}</span><span class="nm">${esc(c.name)}${c.lowVolume ? '<em>low volume</em>' : ''}</span>
+                  <span class="bt"><i style="--w:${domain('score').width(c.score)}"></i></span><b class="sv">${fmtN(c.score, 1)}</b>
+                </button></li>`).join('')}
+            </ol>
+            </div>
+          </div>`;
+      },
+      mount(root, api) {
+        const board = $('[data-board]', root);
+        const seg = $('[data-sort]', root);
+        const pill = $('.seg-pill', seg);
+        const read = $('[data-read]', root);
+        const byName = Object.fromEntries(SC.moderators.map(c => [c.name, c]));
+        const place = () => {
+          const b = $('[aria-pressed="true"]', seg);
+          pill.style.width = `${b.offsetWidth}px`; pill.style.height = `${b.offsetHeight}px`;
+          pill.style.transform = `translate(${b.offsetLeft}px, ${b.offsetTop}px)`;
+        };
+        requestAnimationFrame(place);
+        const ro = new ResizeObserver(() => { pill.classList.add('no-anim'); place(); });
+        ro.observe(seg); api.cleanup(() => ro.disconnect());
+        // Re-rank with FLIP: rows slide from where they were to where they now belong.
+        const sortBy = k => {
+          const S = SORTS[k];
+          $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
+          pill.classList.remove('no-anim'); place();
+          const rows = $$('.brow', board);
+          const before = new Map(rows.map(r => [r, r.getBoundingClientRect().top]));
+          const dm = domain(k);
+          $('[data-scale]', root).textContent = dm.label;
+          rows.sort((a, b) => {
+            const va = S.val(byName[a.dataset.name]), vb = S.val(byName[b.dataset.name]);
+            return (S.asc ? va - vb : vb - va) || byName[b.dataset.name].completed - byName[a.dataset.name].completed;
+          });
+          rows.forEach((r, i) => {
+            const c = byName[r.dataset.name];
+            board.appendChild(r);
+            $('.rk', r).textContent = i + 1;
+            $('.sv', r).textContent = S.show(c);
+            $('.bt i', r).style.setProperty('--w', dm.width(S.val(c)));
+          });
+          if (reduced.matches) return;
+          rows.forEach(r => {
+            const dy = before.get(r) - r.getBoundingClientRect().top;
+            if (!dy) return;
+            r.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 450, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' });
+          });
+        };
+        api.on(root, '[data-k]', el => sortBy(el.dataset.k));
+        api.on(root, '[data-pick]', el => {
+          $$('.brow.on', board).forEach(r => r.classList.remove('on'));
+          el.parentElement.classList.add('on');
+          read.innerHTML = cardLine(byName[el.dataset.pick]);
+        });
+      },
+    });
+
+    if (SC) scenes.push({
+      id: 'spotlight', label: 'Spotlight', dur: 16000, light: ['18%', '10%'],
+      html: () => `
+        <div class="split even sc-split">
+          <div class="words">
+            <h2 class="h-l rise" style="--d:500">Every moderator, under the porch light.</h2>
+            <p class="lede rise" style="--d:700">Scored on approval rate (40), availability (25) and reliability (10). Car and incident checks were not tracked for Twilight, so they sit out of the score. Hours are everything logged, field nights and team syncs alike.</p>
+            <div class="chips rise" style="--d:900" role="group" aria-label="Choose a moderator" data-chips>
+              ${SC.moderators.map(c => `<button type="button" class="chip" data-i data-who="${esc(c.name)}" aria-pressed="false">${esc(c.name)}</button>`).join('')}
+            </div>
+          </div>
+          <article class="spot rise" style="--d:800" data-spot aria-live="polite"></article>
+        </div>`,
+      mount(root, api) {
+        const spot = $('[data-spot]', root);
+        const meter = v => `<span class="meter" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round((v || 0) * 10) ? 'on' : ''}" style="--j:${i}"></i>`).join('')}</span>`;
+        const show = c => {
+          $$('[data-who]', root).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.who === c.name)));
+          spot.innerHTML = `
+            <header class="spot-head swap-in"><span class="spot-rank mono">No. ${c.rank}</span><h3>${esc(c.name)}</h3>
+              <b class="spot-score big-num">${fmtN(c.score, 1)}<small>/100</small></b></header>
+            <div class="funnel swap-in">
+              ${[['Assigned', c.assigned], ['Completed', c.completed], ['Approved', c.approved]].map(([k, v]) => `<div><b class="big-num">${v}</b><span>${k}</span></div>`).join('<span class="arrow" aria-hidden="true"></span>')}
+            </div>
+            <dl class="spot-rows swap-in">
+              <div><dt>Approval rate</dt><dd>${meter(c.approvalRate)}<b>${pct(c.approvalRate)}</b></dd></div>
+              <div><dt>Availability</dt><dd>${meter(c.availability)}<b>${pct(c.availability)}</b></dd></div>
+              <div><dt>Hours per session</dt><dd><span class="hrs">${fmtN(c.hours, 0)} h logged</span><b>${fmtN(c.hoursPerSession, 1)} h</b></dd></div>
+              <div><dt>Sent back by QA</dt><dd><span class="hrs">${c.cancelled ? `${c.cancelled} cancelled, none down to them` : 'no cancellations'}</span><b>${c.rejected}</b></dd></div>
+            </dl>
+            ${c.lowVolume ? '<p class="small">Small sample, read with care.</p>' : ''}`;
+        };
+        // While it plays, the card walks down the board; a tap takes over.
+        let k = 0;
+        show(SC.moderators[0]);
+        const timer = setInterval(() => { k = (k + 1) % SC.moderators.length; show(SC.moderators[k]); }, reduced.matches ? 4000 : 2600);
+        api.cleanup(() => clearInterval(timer));
+        api.on(root, '[data-who]', el => { clearInterval(timer); show(SC.moderators.find(c => c.name === el.dataset.who)); });
+      },
+    });
+
     /* Incidents, once the numbers are in data/wrap-manual.json */
     if (!mod && Array.isArray(manual.incidents) && manual.incidents.length) scenes.push({
       id: 'incidents', label: 'Incidents', dur: 11000, light: ['10%', '10%'],
@@ -651,6 +792,7 @@
           ['Nights in the field', D.season.nights], ['Homes', D.homes.count], ['Miles of round trips', D.miles.roundTripTotal],
           ['People', peopleTotal], [D.qa.status ? 'Sessions approved by QA' : 'QA review decisions', D.qa.status ? D.qa.status.approved : D.qa.decisions], ['Scenario captures', D.kit.scenariosCaptured],
           ['Sessions completed', sessionParts().completed],
+          ...(scorecard && !mod ? [['Team quality score', `${fmtN(scorecard.team.averageScore, 1)} / 100`]] : []),
         ];
         const asOf = new Date(D.generatedAt);
         return `
@@ -823,11 +965,11 @@
   }
 
   /* ---------------- Boot ---------------- */
-  load().then(({ data, manual }) => {
+  load().then(({ data, manual, scorecard }) => {
     applyLog(data);
     const raw = params.get('mod');
     const mod = findModerator(data, raw);
-    const scenes = buildScenes({ data, manual }, mod);
+    const scenes = buildScenes({ data, manual, scorecard }, mod);
     if (raw && !mod) console.warn(`[Twilight Wrap] No moderator named "${raw}" in the snapshot; showing the project Wrap.`);
     const ap = params.get('autoplay');
     document.title = mod ? `Twilight Wrap · ${mod.name}` : 'Twilight Wrap';
@@ -847,7 +989,7 @@
       }
       applyLog(live);
       const liveMod = mod ? findModerator(live, mod.name) : null;
-      const ok = p.setScenes(buildScenes({ data: live, manual }, mod ? liveMod || mod : null));
+      const ok = p.setScenes(buildScenes({ data: live, manual, scorecard }, mod ? liveMod || mod : null));
       syncStatus(ok ? 'live' : 'failed', ok ? `Updated in ${((performance.now() - t0) / 1000).toFixed(1)}s.` : 'Live data changed the chapter list; keeping the saved copy.');
     }).catch(err => {
       console.warn('[Twilight Wrap] live read failed', err);
