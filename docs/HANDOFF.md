@@ -1,6 +1,10 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-29 · Claude · ## 1.3.102926c — Wrap: Hrs / session split by month (10/29/2026)
+**Last updated:** 2026-10-29 · Claude · ## 1.3.103026a — Wrap: Approval slide; scorecard months hold still (10/30/2026)
+- New deck-only slide after QA, "Approval": 97% approved, weekly approved / sent-back columns, September → October rates (94% → 99% approved, 6% → 1% sent back), Approved / Sent back toggle, tap a week or month for its counts. Data: `qa.weekly` and `qa.monthly` in wrap-data.json, written by `wrap/tools/qa_weekly.py` from the tracker's Production tab; kept from the snapshot when live data arrives.
+- Scorecard: Sep / Oct no longer re-rank the board; only callouts and bar emphasis change. Re-sorting uses CSS `order` instead of moving rows, so the entrance animation never replays.
+
+## 1.3.102926c — Wrap: Hrs / session split by month (10/29/2026)
 - Scorecard hours now come from David's session-hours review (`wrap/tools/session-hours.json`: per-month sessions and hours, first names only), passed as the optional 4th arg to `build_scorecard.py`. Training, quizzes and syncs no longer inflate Hrs / session (Sravya 12.2 → 9.1).
 - Scorecard board, Hrs / session: each bar splits into Sep / Oct shares of session hours. Tapping a segment or the Sep / Oct / Season keys re-ranks the board on that month and counts each callout to the month's average; Season returns to the total.
 - Spotlight card shows Sep and Oct averages beside the season figure.

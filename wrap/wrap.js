@@ -8,6 +8,7 @@
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const parseD = iso => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
   const isoD = dt => dt.toISOString().slice(0, 10);
@@ -529,6 +530,107 @@
       },
     });
 
+    /* QA quality over the season (deck only): approved vs sent back, by week and by month */
+    const QW = !mod && D.qa && Array.isArray(D.qa.weekly) && D.qa.weekly.length ? D.qa.weekly : null;
+    if (QW) scenes.push({
+      id: 'approval', label: 'Approval', dur: 12000, light: ['85%', '20%'],
+      html: () => {
+        const sum = (xs, k) => xs.reduce((a, b) => a + b[k], 0);
+        const A = sum(QW, 'approved'), R = sum(QW, 'rejected');
+        const rate = Math.round((A / (A + R)) * 100);
+        const firstR = QW[0].rejected, firstN = QW[0].approved + QW[0].rejected;
+        const restR = R - firstR, restN = A + R - firstN;
+        const months = (D.qa.monthly || []).filter(x => x.approved + x.rejected).map(x => ({
+          m: x.month, ap: Math.round((x.approved / (x.approved + x.rejected)) * 100), sb: Math.round((x.rejected / (x.approved + x.rejected)) * 100) }));
+        const top = Math.max(...QW.map(w => w.approved + w.rejected));
+        return `
+          <div class="split qq" data-qq data-mode="approved">
+            <div class="words">
+              <h2 class="h-l rise" style="--d:500">${cu(rate, 0, 700)}% approved. Better as we went.</h2>
+              <p class="lede rise" style="--d:700" data-read>QA sent back ${firstR} of the first ${firstN} sessions. Of the ${restN} that followed, ${restR === 1 ? 'just one' : restR}.</p>
+              <div class="seg rise" style="--d:900" role="group" aria-label="Show rate" data-seg>
+                <span class="seg-pill no-anim" aria-hidden="true"></span>
+                <button type="button" data-i data-mode="approved" aria-pressed="true">Approved</button>
+                <button type="button" data-i data-mode="rejected" aria-pressed="false">Sent back</button>
+              </div>
+              <div class="qq-months rise" style="--d:1000" aria-label="Rate by month">
+                ${months.map((x, i) => `${i ? '<span class="arrow" aria-hidden="true"></span>' : ''}<button type="button" class="qq-month" data-i data-month="${x.m}" data-ap="${x.ap}" data-sb="${x.sb}">
+                  <b class="big-num"><span data-mrate>${x.ap}</span>%</b><span>${MONTHS_LONG[Number(x.m.slice(5)) - 1]}</span></button>`).join('')}
+              </div>
+            </div>
+            <div class="qq-chart" role="group" aria-label="QA results by week">
+              ${QW.map((w, i) => {
+                const n = w.approved + w.rejected;
+                return `<button type="button" class="qq-col" data-i data-wk="${i}" style="--i:${i}" aria-label="Week ${i + 1}: ${w.approved} approved, ${w.rejected} sent back">
+                  <span class="qq-pct mono" data-ap="${n ? Math.round((w.approved / n) * 100) : 0}" data-sb="${n ? Math.round((w.rejected / n) * 100) : 0}">${n ? Math.round((w.approved / n) * 100) : 0}%</span>
+                  <span class="qq-stack" style="--h:${(n / top) * 100}%">
+                    ${w.rejected ? `<i class="qq-r" style="flex:${w.rejected}"></i>` : ''}<i class="qq-a" style="flex:${w.approved}"></i>
+                  </span>
+                  <span class="qq-wk mono">Wk ${i + 1}</span>
+                </button>`;
+              }).join('')}
+            </div>
+          </div>`;
+      },
+      mount(root, api) {
+        const qq = $('[data-qq]', root);
+        const seg = $('[data-seg]', root);
+        const pill = $('.seg-pill', seg);
+        const read = $('[data-read]', root);
+        const lede = read.innerHTML;
+        const place = () => {
+          const b = $('[aria-pressed="true"]', seg);
+          pill.style.width = `${b.offsetWidth}px`; pill.style.height = `${b.offsetHeight}px`;
+          pill.style.transform = `translate(${b.offsetLeft}px, ${b.offsetTop}px)`;
+        };
+        requestAnimationFrame(place);
+        const ro = new ResizeObserver(() => { pill.classList.add('no-anim'); place(); });
+        ro.observe(seg); api.cleanup(() => ro.disconnect());
+        // Month rates count from the value they showed (spec: numbers count from their last value).
+        const countTo = (el, to) => {
+          const from = Number(el.textContent);
+          if (reduced.matches || from === to) { el.textContent = to; return; }
+          const t0 = performance.now();
+          const step = now => {
+            const p = Math.min(1, (now - t0) / 900);
+            el.textContent = Math.round(from + (to - from) * (1 - (1 - p) ** 3));
+            if (p < 1) api.raf(step);
+          };
+          api.raf(step);
+        };
+        let mode = 'approved';
+        const setMode = m => {
+          mode = m;
+          qq.dataset.mode = m;
+          $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === m)));
+          pill.classList.remove('no-anim'); place();
+          const k = m === 'approved' ? 'ap' : 'sb';
+          $$('.qq-month', root).forEach(b => countTo($('[data-mrate]', b), Number(b.dataset[k])));
+          $$('.qq-pct', root).forEach(el => { el.textContent = `${el.dataset[k]}%`; el.classList.remove('swap-in'); void el.offsetWidth; el.classList.add('swap-in'); });
+        };
+        let picked = null;
+        const pick = el => {
+          $$('.qq-col.on, .qq-month.on', root).forEach(x => x !== el && x.classList.remove('on'));
+          const on = picked !== el;
+          picked = on ? el : null;
+          el.classList.toggle('on', on);
+          qq.classList.toggle('focus', on);
+          return on;
+        };
+        api.on(root, '[data-mode]', el => { if (el.dataset.mode !== mode) setMode(el.dataset.mode); });
+        api.on(root, '[data-wk]', el => {
+          if (!pick(el)) { api.say(read, lede, true); return; }
+          const i = Number(el.dataset.wk); const w = QW[i]; const n = w.approved + w.rejected;
+          api.say(read, `<b>Week ${i + 1}</b>, from ${fmtD(w.week)}: ${w.approved} approved, ${w.rejected} sent back${w.notReviewed ? `, ${w.notReviewed} not reviewed` : ''}. <b>${Math.round(((mode === 'approved' ? w.approved : w.rejected) / Math.max(1, n)) * 100)}%</b> ${mode === 'approved' ? 'approved' : 'sent back'}.`, true);
+        });
+        api.on(root, '[data-month]', el => {
+          if (!pick(el)) { api.say(read, lede, true); return; }
+          const x = D.qa.monthly.find(y => y.month === el.dataset.month); const a = x.approved, r = x.rejected;
+          api.say(read, `<b>${MONTHS_LONG[Number(el.dataset.month.slice(5)) - 1]}</b>: ${a} approved, ${r} sent back. <b>${mode === 'approved' ? `${el.dataset.ap}% approved` : `${el.dataset.sb}% sent back`}</b>.`, true);
+        });
+      },
+    });
+
     /* Kit */
     scenes.push({
       id: 'kit', label: 'Kit', dur: 10000, light: ['30%', '0%'],
@@ -680,7 +782,7 @@
               </div>` : ''}
             </div>
             <ol class="board" data-board aria-label="Moderator ranking">
-              ${SC.moderators.map((c, i) => `<li class="brow" data-name="${esc(c.name)}" style="--i:${i}">
+              ${SC.moderators.map((c, i) => `<li class="brow${i < 3 ? ' top' : ''}" data-name="${esc(c.name)}" style="--i:${i}">
                 <button type="button" class="bbtn" data-i data-pick="${esc(c.name)}">
                   <span class="rk mono">${i + 1}</span><span class="nm">${esc(c.name)}${c.lowVolume ? '<em>low volume</em>' : ''}</span>
                   <span class="bcell"><span class="bt"><i style="--w:${domain('score').width(c.score)}"></i></span>${HAS_MONTHS ? `<span class="bsplit" aria-hidden="true">${c.hoursByMonth.map(x => `<span class="mo mo-${x.month.toLowerCase()}" data-mon="${x.month}" style="--s:${(hrsShare(c, x.month) * 100).toFixed(1)}%">${Math.round(hrsShare(c, x.month) * 100)}%</span>`).join('')}</span>` : ''}</span><b class="sv">${fmtN(c.score, 1)}</b>
@@ -743,7 +845,9 @@
           });
           rows.forEach((r, i) => {
             const c = byName[r.dataset.name];
-            board.appendChild(r);
+            // Reorder with CSS order, not by moving nodes: a moved node would replay its entrance animation.
+            r.style.order = i;
+            r.classList.toggle('top', i < 3);
             $('.rk', r).textContent = i + 1;
             if (k === 'hours') setSv($('.sv', r), S.val(c), 1, ' h', count);
             else { $('.sv', r).textContent = S.show(c); shown.delete($('.sv', r)); }
@@ -771,7 +875,8 @@
           if (!board.classList.contains('is-split')) return;
           const m = el.dataset.mon && el.dataset.mon !== hrsMonth ? el.dataset.mon : null;
           setMonth(m);
-          sortBy('hours', true);
+          // The board holds still; only the callouts and the bar emphasis change.
+          $$('.brow', board).forEach(r => setSv($('.sv', r), hrsOf(byName[r.dataset.name]), 1, ' h', true));
           const row = el.closest('[data-pick]');
           if (row) {
             $$('.brow.on', board).forEach(r => r.classList.remove('on'));
@@ -1121,7 +1226,7 @@
       if (data.log) {
         ['log', 'season', 'nightCounts', 'homes', 'miles', 'people', 'kit', 'moderators'].forEach(k => { live[k] = data[k]; });
         live.sessions = { ...live.sessions, perWeek: data.sessions.perWeek };
-        live.qa = { ...live.qa, status: data.qa.status };
+        live.qa = { ...live.qa, status: data.qa.status, weekly: data.qa.weekly, monthly: data.qa.monthly };
       }
       applyLog(live);
       const liveMod = mod ? findModerator(live, mod.name) : null;

@@ -911,7 +911,71 @@
    "notReviewed": 4,
    "billingApproved": 98,
    "billingSplit": 5
-  }
+  },
+  "weekly": [
+   {
+    "week": "2026-09-07",
+    "approved": 5,
+    "rejected": 2,
+    "notReviewed": 0
+   },
+   {
+    "week": "2026-09-14",
+    "approved": 7,
+    "rejected": 0,
+    "notReviewed": 0
+   },
+   {
+    "week": "2026-09-21",
+    "approved": 14,
+    "rejected": 0,
+    "notReviewed": 0
+   },
+   {
+    "week": "2026-09-28",
+    "approved": 19,
+    "rejected": 0,
+    "notReviewed": 1
+   },
+   {
+    "week": "2026-10-05",
+    "approved": 18,
+    "rejected": 1,
+    "notReviewed": 2
+   },
+   {
+    "week": "2026-10-12",
+    "approved": 25,
+    "rejected": 0,
+    "notReviewed": 0
+   },
+   {
+    "week": "2026-10-19",
+    "approved": 8,
+    "rejected": 0,
+    "notReviewed": 1
+   },
+   {
+    "week": "2026-10-26",
+    "approved": 4,
+    "rejected": 0,
+    "notReviewed": 0
+   }
+  ],
+  "monthly": [
+   {
+    "month": "2026-09",
+    "approved": 34,
+    "rejected": 2,
+    "notReviewed": 0
+   },
+   {
+    "month": "2026-10",
+    "approved": 66,
+    "rejected": 1,
+    "notReviewed": 4
+   }
+  ]
  },
  "kit": {
   "kits": 2,

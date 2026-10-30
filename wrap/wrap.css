@@ -406,7 +406,7 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .bt i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--lamp), var(--lamp-hi));
   clip-path: inset(0 calc(100% - var(--w, 0%)) 0 0 round 99px); transition: clip-path 700ms var(--ease-out); }
 .scene.is-in .brow .bt { animation: revealX 700ms var(--ease-out) both; animation-delay: calc(1000ms + var(--i, 0) * 45ms); }
-.brow:nth-child(-n+3) .bt i { box-shadow: 0 0 14px rgba(232, 210, 166, 0.45); }
+.brow.top .bt i { box-shadow: 0 0 14px rgba(232, 210, 166, 0.45); }
 .sv { font-variant-numeric: tabular-nums; text-align: right; font-size: var(--t-m); }
 
 /* Hrs / session: each bar splits into September and October shares of session hours */
@@ -442,7 +442,7 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 .mo:last-child { flex: 1 1 auto; border-radius: 2px 6px 6px 2px; }
 @media (hover: hover) and (pointer: fine) { .board.is-split .mo:hover { filter: brightness(1.12); } }
 .board[data-mon='Sep'] .mo-oct, .board[data-mon='Oct'] .mo-sep { opacity: 0.28; }
-.board.is-split .brow:nth-child(-n+3) .mo { box-shadow: 0 0 20px rgba(232, 210, 166, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
+.board.is-split .brow.top .mo { box-shadow: 0 0 20px rgba(232, 210, 166, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .board[data-mon='Sep'] .mo-sep, .board[data-mon='Oct'] .mo-oct { box-shadow: 0 0 20px rgba(232, 210, 166, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35); }
 .board[data-mon='Sep'] .mo-oct, .board[data-mon='Oct'] .mo-sep { box-shadow: none; }
 
@@ -526,10 +526,46 @@ img[src$='centific-mark-cyan.png'] { filter: brightness(0) invert(1); }
 
 .noscript { padding: 24px; }
 
+/* ---------- Approval: approved vs sent back over the season ---------- */
+.qq .words { display: grid; gap: clamp(14px, 2.4vh, 22px); align-content: center; }
+.qq-months { display: flex; align-items: center; gap: 14px; }
+.qq-months .arrow { width: 36px; height: 1px; background: var(--ink-4); position: relative; }
+.qq-months .arrow::after { content: ''; position: absolute; right: 0; top: -3px; border: 3.5px solid transparent; border-left: 5px solid var(--ink-4); border-right: 0; }
+.qq-month { display: grid; gap: 2px; padding: 10px 16px; border-radius: 14px; text-align: left; border: 1px solid var(--line); background: var(--night-2);
+  transition: background-color 200ms var(--ease-out), border-color 200ms var(--ease-out), scale 150ms var(--ease-out); }
+.qq-month b { font-size: var(--d-m); font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; color: var(--lamp-hi); transition: color 200ms var(--ease-out); }
+.qq-month > span { font-size: 0.8rem; color: var(--ink-3); }
+.qq[data-mode='rejected'] .qq-month b { color: var(--miss); }
+.qq-month.on { border-color: rgba(232, 210, 166, 0.45); background: color-mix(in srgb, var(--lamp-hi) 10%, transparent); }
+@media (hover: hover) and (pointer: fine) { .qq-month:hover { background: color-mix(in srgb, var(--ink) 7%, var(--night-2)); } }
+.qq-month:active, .qq-col:active { scale: 0.97; }
+
+.qq-chart { display: grid; grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); gap: clamp(6px, 1.2vw, 14px); height: min(52vh, 420px); align-self: center; }
+.qq-chart { --n: 8; }
+.qq-col { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; gap: 8px; padding: 6px 2px; border-radius: 12px; min-width: 0;
+  transition: background-color 200ms var(--ease-out), opacity 200ms var(--ease-out), scale 150ms var(--ease-out); }
+@media (hover: hover) and (pointer: fine) { .qq-col:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); } }
+.qq.focus .qq-col:not(.on) { opacity: 0.45; }
+.qq-col.on { background: color-mix(in srgb, var(--lamp-hi) 9%, transparent); }
+.qq-pct { font-size: 0.78rem; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.qq-wk { font-size: 0.7rem; color: var(--ink-3); }
+.qq-stack { align-self: end; width: min(100%, 44px); height: var(--h); display: flex; flex-direction: column; gap: 2px; transform-origin: bottom; }
+.scene.is-in .qq-stack { animation: growY 700ms var(--ease-out) both; animation-delay: calc(900ms + var(--i) * 60ms); }
+@keyframes growY { from { transform: scaleY(0); } }
+.qq-stack i { display: block; min-height: 4px; border-radius: 6px; transition: opacity 200ms var(--ease-out), box-shadow 200ms var(--ease-out); }
+.qq-a { background: linear-gradient(180deg, var(--lamp-hi), var(--lamp)); box-shadow: 0 0 16px rgba(232, 210, 166, 0.4); }
+.qq-r { background: var(--miss); box-shadow: 0 0 14px rgba(217, 120, 95, 0.55); }
+.qq[data-mode='rejected'] .qq-a { opacity: 0.22; box-shadow: none; }
+.qq[data-mode='rejected'] .qq-r { box-shadow: 0 0 20px rgba(217, 120, 95, 0.8); }
+.qq[data-mode='rejected'] .qq-pct { color: var(--miss); }
+
 /* ---------- Phones ---------- */
 @media (max-width: 640px), (max-aspect-ratio: 4/5) {
   .split, .split.even, .sc-split, .close { grid-template-columns: 1fr; align-content: center; }
   .bbtn { grid-template-columns: 1.8em minmax(7.5em, 1fr) minmax(0, 1.2fr) 3.6em; gap: 8px; }
+  .qq-chart { height: 30vh; gap: 4px; }
+  .qq-pct { font-size: 0.66rem; }
+  .qq-month { padding: 8px 12px; }
   .mkeys { padding-right: 0; flex-wrap: wrap; justify-content: flex-end; }
   .mkeys > span { flex-basis: 100%; text-align: right; margin: 0; }
   .split > .words, .sc-split > * { min-width: 0; }
