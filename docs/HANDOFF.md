@@ -1,6 +1,10 @@
 # Twilight Tracker · Agent Handoff
 
-**Last updated:** 2026-10-29 · Claude · ## 1.3.103026a — Wrap: Approval slide; scorecard months hold still (10/30/2026)
+**Last updated:** 2026-10-29 · Claude · ## 1.3.103026b — Wrap: closing ledger counts the team only (10/30/2026)
+- Last slide: "Team: moderators, QA, admins" = 25 (participants left out); moderator pages read "N homes · 25 on the team". The People slide still counts everyone (131).
+- Approval slide QA counts verified against the Production1 Google Sheet: identical by week and month (completed sessions only; cancelled never counted).
+
+## 1.3.103026a — Wrap: Approval slide; scorecard months hold still (10/30/2026)
 - New deck-only slide after QA, "Approval": 97% approved, weekly approved / sent-back columns, September → October rates (94% → 99% approved, 6% → 1% sent back), Approved / Sent back toggle, tap a week or month for its counts. Data: `qa.weekly` and `qa.monthly` in wrap-data.json, written by `wrap/tools/qa_weekly.py` from the tracker's Production tab; kept from the snapshot when live data arrives.
 - Scorecard: Sep / Oct no longer re-rank the board; only callouts and bar emphasis change. Re-sorting uses CSS `order` instead of moving rows, so the entrance animation never replays.
 

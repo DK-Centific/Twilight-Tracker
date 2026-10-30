@@ -113,6 +113,8 @@
     const D = data;
     const S = D.sessions;
     const peopleTotal = D.people.moderators + D.people.participants + D.people.reviewers + D.people.admins;
+    // The closing ledger counts the team only: moderators, QA reviewers and admins (host participants left out).
+    const teamTotal = D.people.moderators + D.people.reviewers + D.people.admins;
     const qaLabel = (manual.qa && manual.qa.zoneLabel) || 'China & Malaysia';
     const qaCities = (manual.qa && manual.qa.cityLabel) || 'Shanghai & Kuala Lumpur';
     const qaOffset = (manual.qa && manual.qa.utcOffset) || 8;
@@ -1023,10 +1025,10 @@
         const rows = mod ? [
           ['Nights in the field', mod.nights], ['Homes visited', mod.homes], ['Miles of round trips', mod.miles.total],
           ['Scenarios captured', mod.scenarios], ...(mod.approved != null ? [['Approved by QA', mod.approved]] : []), ['Partners', mod.partners.length],
-          ['Twilight, all together', `${fmtN(D.homes.count)} homes · ${fmtN(peopleTotal)} people`],
+          ['Twilight, all together', `${fmtN(D.homes.count)} homes · ${fmtN(teamTotal)} on the team`],
         ] : [
           ['Nights in the field', D.season.nights], ['Homes', D.homes.count], ['Miles of round trips', D.miles.roundTripTotal],
-          ['People', peopleTotal], [D.qa.status ? 'Sessions approved by QA' : 'QA review decisions', D.qa.status ? D.qa.status.approved : D.qa.decisions], ['Scenario captures', D.kit.scenariosCaptured],
+          ['Team: moderators, QA, admins', teamTotal], [D.qa.status ? 'Sessions approved by QA' : 'QA review decisions', D.qa.status ? D.qa.status.approved : D.qa.decisions], ['Scenario captures', D.kit.scenariosCaptured],
           ['Sessions completed', sessionParts().completed],
           ...(scorecard && !mod ? [['Team quality score', `${fmtN(scorecard.team.averageScore, 1)} / 100`]] : []),
         ];
